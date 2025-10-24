@@ -14,7 +14,13 @@ import dotenv
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
 from pydantic import BaseModel, Field
-from utils.helper import load_instruction
+
+
+def load_instruction(path: Path) -> str:
+    """Utility function to load instruction text from a file."""
+    with open(path, "r") as file:
+        return file.read()
+
 
 # --- Load Instruction ---
 INSTRUCTIONS_PATH: Path = Path("product_vision_agent/instructions.txt")
@@ -94,6 +100,7 @@ product_vision_agent: Agent = Agent(
     input_schema=InputSchema,
     output_schema=OutputSchema,
     instruction=instructions,
+    output_key="product_vision_assessment",
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,
 )

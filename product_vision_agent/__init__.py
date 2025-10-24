@@ -1,3 +1,3 @@
 """Product Vision Agent Package Initialization"""
 
-from . import agent, tools
+from product_vision_agent import agent, tools

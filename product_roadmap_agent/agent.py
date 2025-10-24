@@ -12,9 +12,14 @@ from typing import Annotated, Dict, List, Optional
 import dotenv
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.tools.tool_context import ToolContext
 from pydantic import BaseModel, Field
-from utils.helper import load_instruction
+
+
+def load_instruction(path: Path) -> str:
+    """Utility function to load instruction text from a file."""
+    with open(path, "r") as file:
+        return file.read()
+
 
 # --- Load Instruction ---
 # We will define instructions inline here, but you can move to a .txt file
@@ -150,5 +155,8 @@ product_roadmap_agent: Agent = Agent(
     model=model,
     input_schema=InputSchema,
     output_schema=OutputSchema,
+    output_key="product_roadmap",
     instruction=ROADMAP_INSTRUCTIONS,
+    disallow_transfer_to_parent=True,
+    disallow_transfer_to_peers=True,
 )
