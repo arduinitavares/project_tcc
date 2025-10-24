@@ -1,0 +1,80 @@
+{
+  "eval_set_id": "evalset5d8c75",
+  "name": "evalset5d8c75",
+  "eval_cases": [
+    {
+      "eval_id": "cased2c190",
+      "conversation": [
+        {
+          "invocation_id": "e-c02d1739-415b-41e2-8d57-8b31644b9544",
+          "user_content": {
+            "parts": [
+              {
+                "text": "We need to build a new app for busy professionals.\n    They have a hard time tracking all their tasks from different apps\n    like email, slack, and calendars. It's too much context-switching.\n    Our solution should be a mobile-first unified inbox\n    that pulls all tasks into one place.\n    It needs to be smarter than other task managers, maybe using AI\n    to prioritize what's important. Other apps are just basic lists."
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "{\"product_vision_statement\":\"For busy professionals who struggle to track tasks across email, Slack, and calendars and suffer from constant context-switching, our product is a mobile-first unified inbox that pulls all tasks into one place and uses AI to prioritize what's most important. Unlike competitors that are just basic lists, our product differentiates with AI-driven prioritization that learns from your behavior to surface what matters most.\",\"is_complete\":true,\"clarifying_questions\":[]}"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {},
+          "creation_timestamp": 1761226566.21853
+        },
+        {
+          "invocation_id": "e-026a798d-a754-4ac7-80f6-673fa52aa279",
+          "user_content": {
+            "parts": [
+              {
+                "text": "\"I have an idea for an app. We need to help people\nfind good restaurants. It should just be a simple map\nthat shows what's nearby.\""
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "{\"product_vision_statement\":\"For [target user] who [has a problem], our product is a [product category] that [key benefit/solution]. Unlike [competitors/alternatives], our product [unique differentiator].\",\"is_complete\":false,\"clarifying_questions\":[\"Who is the target user? Are they locals, tourists, new residents, or busy professionals?\",\"How do you define 'good' restaurants for this app? What criteria should we surface (e.g., ratings, popularity, price range, cuisine, distance)?\",\"Should the app include features beyond a map, such as search, filters, ratings, reviews, hours, photos?\",\"What data sources will power the restaurant database (e.g., Google Places, Yelp, manual curation, user submissions)?\",\"Do you want offline map/search capability or rely on online connectivity only?\",\"What will be the unique differentiator to set us apart from existing map-based restaurant apps (e.g., curated picks, privacy, speed, simplicity, offline access)?\",\"Will there be monetization, and if so, which model (ads, premium features, partnerships)?\",\"What platforms will we support (iOS, Android, web) and should this be mobile-first or cross-platform?\",\"Are there any privacy or permission considerations we need to define (location data handling, user consent)?\"]}"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {},
+          "creation_timestamp": 1761226751.4921
+        },
+        {
+          "invocation_id": "e-d13d26f4-dc09-449f-a202-eaeb8c55f0c9",
+          "user_content": {
+            "parts": [
+              {
+                "text": "\"Okay, thank you, those questions are helpful.\n\nLet's clarify:\n- The target user is a tourist visiting a new city who wants to find authentic food, not tourist traps.\n- The problem is that current apps are full of generic or fake reviews, making it hard to know what's 'good' and 'authentic'. 'Good' for us means high-quality, locally-loved spots.\n- It should definitely be a mobile-first app for iOS and Android.\n- We'll need a curated database, maybe we can partner with local food bloggers.\n- Offline map capability is a must-have feature.\""
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "{\"product_vision_statement\":\"For tourists visiting a new city who want to find authentic food, our product is a mobile-first restaurant discovery app that helps you find high-quality, locally-loved spots and navigate offline maps. Unlike apps filled with generic or fake reviews, our product is curated by local food bloggers to ensure authenticity and quality.\",\"is_complete\":true,\"clarifying_questions\":[]}"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {},
+          "creation_timestamp": 1761226881.575189
+        }
+      ],
+      "session_input": {
+        "app_name": "product_vision_agent",
+        "user_id": "user"
+      },
+      "creation_timestamp": 1761227395.424785
+    }
+  ],
+  "creation_timestamp": 1761226606.5019321
+}
