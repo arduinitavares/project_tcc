@@ -17,7 +17,7 @@ class OutputSchema(BaseModel):
 
 
 def parse_agent_output(
-    final_response_text: str,
+    final_response_text: Optional[str],
 ) -> Tuple[Optional[object], Optional[str]]:
     """
     Attempt to parse the agent's final JSON response into a Pydantic model.

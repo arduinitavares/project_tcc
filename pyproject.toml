@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "google-adk>=1.16.0",
     "icecream>=2.1.8",
+    "ipykernel>=7.0.1",
     "litellm>=1.78.3",
     "pylint>=4.0.1",
     "yfinance>=0.2.66",
