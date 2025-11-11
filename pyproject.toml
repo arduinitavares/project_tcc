@@ -10,5 +10,6 @@ dependencies = [
     "ipykernel>=7.0.1",
     "litellm>=1.78.3",
     "pylint>=4.0.1",
+    "sqlmodel>=0.0.27",
     "yfinance>=0.2.66",
 ]
