@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 def load_instruction(path: Path) -> str:
     """Utility function to load instruction text from a file."""
-    with open(path, "r") as file:
+    with open(path, "r", encoding="utf-8") as file:
         return file.read()
 
 
@@ -100,6 +100,9 @@ class RoadmapTheme(BaseModel):
     time_frame: Annotated[
         Optional[str],
         Field(
+
+
+
             description="The high-level, agile time frame, e.g., 'Now', "
             "'Next', or 'Later'.",
             default=None,
