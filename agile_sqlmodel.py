@@ -18,11 +18,12 @@ from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.types import Date, Text
 from sqlmodel import Field, Relationship, SQLModel, create_engine
 
-
 # --- 1. Enums for Status Fields ---
+
 
 class TeamRole(str, enum.Enum):
     """Roles for a member within a team."""
+
     DEVELOPER = "Developer"
     PRODUCT_OWNER = "Product Owner"
     DESIGNER = "Designer"
@@ -32,6 +33,7 @@ class TeamRole(str, enum.Enum):
 
 class SprintStatus(str, enum.Enum):
     """Status of a sprint."""
+
     PLANNED = "Planned"
     ACTIVE = "Active"
     COMPLETED = "Completed"
@@ -39,6 +41,7 @@ class SprintStatus(str, enum.Enum):
 
 class StoryStatus(str, enum.Enum):
     """Status of a user story."""
+
     TO_DO = "To Do"
     IN_PROGRESS = "In Progress"
     DONE = "Done"
@@ -47,6 +50,7 @@ class StoryStatus(str, enum.Enum):
 
 class TaskStatus(str, enum.Enum):
     """Status of a task."""
+
     TO_DO = "To Do"
     IN_PROGRESS = "In Progress"
     DONE = "Done"
@@ -54,38 +58,30 @@ class TaskStatus(str, enum.Enum):
 
 # --- 2. Link Models (for Many-to-Many Relationships) ---
 
+
 class TeamMembership(SQLModel, table=True):
     """Link table for Team <-> TeamMember."""
+
     __tablename__ = "team_memberships"  # type: ignore
-    team_id: int = Field(
-        foreign_key="teams.team_id", primary_key=True
-    )
-    member_id: int = Field(
-        foreign_key="team_members.member_id", primary_key=True
-    )
+    team_id: int = Field(foreign_key="teams.team_id", primary_key=True)
+    member_id: int = Field(foreign_key="team_members.member_id", primary_key=True)
     role: TeamRole = Field(default=TeamRole.DEVELOPER, nullable=False)
 
 
 class ProductTeam(SQLModel, table=True):
     """Link table for Product <-> Team."""
+
     __tablename__ = "product_teams"  # type: ignore
-    product_id: int = Field(
-        foreign_key="products.product_id", primary_key=True
-    )
-    team_id: int = Field(
-        foreign_key="teams.team_id", primary_key=True
-    )
+    product_id: int = Field(foreign_key="products.product_id", primary_key=True)
+    team_id: int = Field(foreign_key="teams.team_id", primary_key=True)
 
 
 class SprintStory(SQLModel, table=True):
     """Link table for Sprint <-> UserStory."""
+
     __tablename__ = "sprint_stories"  # type: ignore
-    sprint_id: int = Field(
-        foreign_key="sprints.sprint_id", primary_key=True
-    )
-    story_id: int = Field(
-        foreign_key="user_stories.story_id", primary_key=True
-    )
+    sprint_id: int = Field(foreign_key="sprints.sprint_id", primary_key=True)
+    story_id: int = Field(foreign_key="user_stories.story_id", primary_key=True)
     added_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2
@@ -95,8 +91,10 @@ class SprintStory(SQLModel, table=True):
 
 # --- 3. Core Models ---
 
+
 class Product(SQLModel, table=True):
     """A top-level product container."""
+
     __tablename__ = "products"  # type: ignore
     product_id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True, unique=True)
@@ -110,7 +108,10 @@ class Product(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now(), "onupdate": func.now()},  # FIX 2
+        sa_column_kwargs={
+            "server_default": func.now(),
+            "onupdate": func.now(),
+        },  # FIX 2
         nullable=False,
     )
 
@@ -120,10 +121,12 @@ class Product(SQLModel, table=True):
     )
     themes: List["Theme"] = Relationship(back_populates="product")
     stories: List["UserStory"] = Relationship(back_populates="product")
+    sprints: List["Sprint"] = Relationship(back_populates="product")
 
 
 class Team(SQLModel, table=True):
     """A stable group of members."""
+
     __tablename__ = "teams"  # type: ignore
     team_id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True, unique=True)
@@ -134,7 +137,10 @@ class Team(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now(), "onupdate": func.now()},  # FIX 2
+        sa_column_kwargs={
+            "server_default": func.now(),
+            "onupdate": func.now(),
+        },  # FIX 2
         nullable=False,
     )
 
@@ -150,6 +156,7 @@ class Team(SQLModel, table=True):
 
 class TeamMember(SQLModel, table=True):
     """An individual member of a team."""
+
     __tablename__ = "team_members"  # type: ignore
     member_id: Optional[int] = Field(default=None, primary_key=True)
     name: str
@@ -161,7 +168,10 @@ class TeamMember(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now(), "onupdate": func.now()},  # FIX 2
+        sa_column_kwargs={
+            "server_default": func.now(),
+            "onupdate": func.now(),
+        },  # FIX 2
         nullable=False,
     )
 
@@ -174,6 +184,7 @@ class TeamMember(SQLModel, table=True):
 
 class Theme(SQLModel, table=True):
     """A high-level strategic goal."""
+
     __tablename__ = "themes"  # type: ignore
     __table_args__ = (UniqueConstraint("product_id", "title"),)
 
@@ -187,7 +198,10 @@ class Theme(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now(), "onupdate": func.now()},  # FIX 2
+        sa_column_kwargs={
+            "server_default": func.now(),
+            "onupdate": func.now(),
+        },  # FIX 2
         nullable=False,
     )
 
@@ -201,6 +215,7 @@ class Theme(SQLModel, table=True):
 
 class Epic(SQLModel, table=True):
     """A large body of work (project) contributing to a theme."""
+
     __tablename__ = "epics"  # type: ignore
     epic_id: Optional[int] = Field(default=None, primary_key=True)
     title: str
@@ -212,7 +227,10 @@ class Epic(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now(), "onupdate": func.now()},  # FIX 2
+        sa_column_kwargs={
+            "server_default": func.now(),
+            "onupdate": func.now(),
+        },  # FIX 2
         nullable=False,
     )
 
@@ -226,6 +244,7 @@ class Epic(SQLModel, table=True):
 
 class Feature(SQLModel, table=True):
     """A component or part of an epic."""
+
     __tablename__ = "features"  # type: ignore
     feature_id: Optional[int] = Field(default=None, primary_key=True)
     title: str
@@ -237,7 +256,10 @@ class Feature(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now(), "onupdate": func.now()},  # FIX 2
+        sa_column_kwargs={
+            "server_default": func.now(),
+            "onupdate": func.now(),
+        },  # FIX 2
         nullable=False,
     )
 
@@ -251,6 +273,7 @@ class Feature(SQLModel, table=True):
 
 class Sprint(SQLModel, table=True):
     """A time-boxed iteration of work for a team."""
+
     __tablename__ = "sprints"  # type: ignore
     sprint_id: Optional[int] = Field(default=None, primary_key=True)
     goal: Optional[str] = Field(default=None, sa_type=Text)
@@ -264,14 +287,19 @@ class Sprint(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now(), "onupdate": func.now()},  # FIX 2
+        sa_column_kwargs={
+            "server_default": func.now(),
+            "onupdate": func.now(),
+        },  # FIX 2
         nullable=False,
     )
 
-    # Foreign Key
+    # Foreign Keys
+    product_id: int = Field(foreign_key="products.product_id")
     team_id: int = Field(foreign_key="teams.team_id")
 
     # Relationships
+    product: "Product" = Relationship(back_populates="sprints")
     team: "Team" = Relationship(back_populates="sprints")
     stories: List["UserStory"] = Relationship(
         back_populates="sprints", link_model=SprintStory
@@ -280,6 +308,7 @@ class Sprint(SQLModel, table=True):
 
 class UserStory(SQLModel, table=True):
     """A single item in the product backlog."""
+
     __tablename__ = "user_stories"  # type: ignore
     story_id: Optional[int] = Field(default=None, primary_key=True)
     title: str
@@ -295,7 +324,10 @@ class UserStory(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now(), "onupdate": func.now()},  # FIX 2
+        sa_column_kwargs={
+            "server_default": func.now(),
+            "onupdate": func.now(),
+        },  # FIX 2
         nullable=False,
     )
 
@@ -303,9 +335,7 @@ class UserStory(SQLModel, table=True):
     # 1. Must belong to a product (for the backlog)
     product_id: int = Field(foreign_key="products.product_id")
     # 2. Can optionally belong to a feature
-    feature_id: Optional[int] = Field(
-        default=None, foreign_key="features.feature_id"
-    )
+    feature_id: Optional[int] = Field(default=None, foreign_key="features.feature_id")
 
     # Relationships
     product: "Product" = Relationship(back_populates="stories")
@@ -320,6 +350,7 @@ class UserStory(SQLModel, table=True):
 
 class Task(SQLModel, table=True):
     """A granular sub-task for a user story."""
+
     __tablename__ = "tasks"  # type: ignore
     task_id: Optional[int] = Field(default=None, primary_key=True)
     description: str = Field(sa_type=Text)
@@ -331,7 +362,10 @@ class Task(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now(), "onupdate": func.now()},  # FIX 2
+        sa_column_kwargs={
+            "server_default": func.now(),
+            "onupdate": func.now(),
+        },  # FIX 2
         nullable=False,
     )
 
