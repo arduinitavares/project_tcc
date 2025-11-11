@@ -1,0 +1,22 @@
+flowchart TD
+  classDef agent fill:#d4e6fa,stroke:#1a73e8,color:#000
+  classDef tool fill:#f0ecff,stroke:#6f42c1,color:#000
+  classDef artifact fill:#eafbea,stroke:#34a853,color:#000
+  classDef store fill:#fff3cd,stroke:#fbbc05,color:#000
+
+  U["User"] --> O["Orchestrator (user-facing agent)"]:::agent
+  O -->|Creates & Updates| M["Project Memory (impl-agnostic)"]:::store
+
+  %% Toolized stages (no direct user I/O)
+  O <--> Vt["Vision (agent tool)"]:::tool
+  Vt --> Va["Vision Artifact"]:::artifact
+
+  O <--> Rt["Roadmap (agent tool)"]:::tool
+  Rt --> Ra["Roadmap Artifact"]:::artifact
+
+  O <--> Bt["Backlog (agent tool)"]:::tool
+  Bt --> Ba["Backlog Artifact"]:::artifact
+
+  %% Persistence is orchestrator-owned
+  O --> M
+  M --> O
