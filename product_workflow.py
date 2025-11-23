@@ -22,7 +22,7 @@ from product_roadmap_agent.agent import root_agent as product_roadmap_agent
 
 # --- Import your "worker" agents and their schemas ---
 # We need the agents themselves to pass to 'sub_agents'
-from product_vision_agent.agent import root_agent as product_vision_agent
+from product_vision_tool.agent import root_agent as product_vision_agent
 
 # --- Load Environment Variables ---
 dotenv.load_dotenv()
