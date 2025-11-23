@@ -1,6 +1,6 @@
 """Define all shared Pydantic schemas used across multiple agents."""
 
-from typing import Annotated
+from typing import Annotated, Optional
 
 from pydantic import BaseModel, Field
 
@@ -13,7 +13,10 @@ class InputSchema(BaseModel):
         str,
         Field(
             description=(
-                "Raw, unstructured text containing product requirements and " "ideas."
+                """
+                Raw, unstructured text containing product requirements
+                and / or answers to the clarifying questions.
+                """
             ),
         ),
     ]
@@ -24,6 +27,11 @@ class OutputSchema(BaseModel):
     Schema for the output, which can be a final vision or a
     draft with questions.
     """
+
+    project_name: Annotated[
+        Optional[str],
+        Field(description="The extracted Name of the project. None if not yet known."),
+    ]
 
     product_vision_statement: Annotated[
         str,
