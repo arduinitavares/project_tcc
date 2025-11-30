@@ -1,17 +1,22 @@
-# product_vision_tool/tools.py
-
+# orchestrator_agent/agent_tools/product_vision_tool/tools.py
 """
 product_tools.py
-
-Defines custom tools for agents to interact with the
-shared session state (ToolContext).
 """
 
 from datetime import datetime
 from typing import Annotated, Any, Dict
 
-from google.adk.tools.tool_context import ToolContext
+from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import SQLAlchemyError
+from sqlmodel import Session, create_engine, select
+
+from agile_sqlmodel import Product
+
+# Setup DB
+DB_URL = "sqlite:///agile_simple.db"
+engine = create_engine(DB_URL)
+
 
 # --- Tool for SAVING the vision ---
 
@@ -19,83 +24,100 @@ from pydantic import BaseModel, Field
 class SaveVisionInput(BaseModel):
     """Schema for the 'save_vision' tool."""
 
-    product_vision_statement: Annotated[
-        str,
-        Field(description="The final, approved product vision statement."),
-    ]
+    project_name: Annotated[str, Field(description="Unique name.")]
+    product_vision_statement: Annotated[str, Field(description="Vision text.")]
 
 
-def save_vision_tool(vision_input: SaveVisionInput, tool_context: ToolContext) -> str:
+def save_vision_tool(
+    vision_input: SaveVisionInput, tool_context: ToolContext
+) -> str:
     """
-    Saves the final product vision statement to the
-    shared session state.
+    COMMITS the finalized Product Vision to the Business Database.
     """
+    print(
+        f"\n[Tool: save_vision_tool] Saving '{vision_input.project_name}'..."
+    )
+
     try:
-        tool_context.state["vision_statement"] = vision_input.product_vision_statement
-        print(
-            f"[Tool Log]: Saved to state: {vision_input.product_vision_statement[:20]}..."
-        )
-        return "Product vision saved successfully to session state."
-    except (KeyError, TypeError) as e:
-        return f"Error saving vision to state: {e}"
+        with Session(engine) as session:
+            statement = select(Product).where(
+                Product.name == vision_input.project_name
+            )
+            existing_project = session.exec(statement).first()
+
+            if existing_project:
+                print(f"   [DB] Updating ID: {existing_project.product_id}")
+                existing_project.vision = vision_input.product_vision_statement
+                session.add(existing_project)
+                action = "Updated"
+            else:
+                print("   [DB] Creating new record.")
+                new_project = Product(
+                    name=vision_input.project_name,
+                    vision=vision_input.product_vision_statement,
+                    roadmap=None,
+                )
+                session.add(new_project)
+                action = "Created"
+
+            session.commit()
+
+            # Using tool_context here is fine because we actually use it
+            tool_context.state["current_project_name"] = (
+                vision_input.project_name
+            )
+
+            return f"SUCCESS: {action} project '{vision_input.project_name}'."
+
+    except SQLAlchemyError as e:
+        print(f"   [DB Error] {e}")
+        return f"Database Error: {str(e)}"
 
 
 # --- Tool for READING the vision ---
 
 
-def read_vision_tool(tool_context: ToolContext) -> str:
+class ReadVisionInput(BaseModel):
+    """Input schema for reading vision."""
+
+    project_name: Annotated[str, Field(description="Name of the project.")]
+
+
+# FIX: Removed tool_context argument entirely because it is unused.
+def read_vision_tool(vision_input: ReadVisionInput) -> str:
     """
-    Reads the product vision statement from the shared
-    session state.
+    Reads the Product Vision from the Business Database.
     """
-    vision_statement = tool_context.state.get("vision_statement")
-    if vision_statement:
-        print(f"[Tool Log]: Read from state: {vision_statement[:20]}...")
-        return vision_statement
+    print(
+        f"\n[Tool: read_vision_tool] Querying '{vision_input.project_name}'..."
+    )
 
-    return "Error: No product vision statement found in session state."
+    with Session(engine) as session:
+        statement = select(Product).where(
+            Product.name == vision_input.project_name
+        )
+        project = session.exec(statement).first()
 
+        if project and project.vision:
+            print("   [DB] Found vision.")
+            return project.vision
 
-# --- Output Schema ---
+        if project:
+            print("   [DB] Project exists but has no vision.")
+            return "Project exists but vision is empty."
 
-
-class CurrentTimeOutput(BaseModel):
-    """
-    Schema for the 'get_current_time' tool's dictionary output.
-    """
-
-    status: Annotated[
-        str,
-        Field(description="The outcome of the operation, e.g., 'success' or 'error'."),
-    ]
-
-    current_time: Annotated[
-        str | None,  # Use | None (or Optional[str])
-        Field(
-            default=None,
-            description="The current time, or None if an error occurred.",
-        ),
-    ]
-
-    error_message: Annotated[
-        str | None,  # Use | None (or Optional[str])
-        Field(default=None, description="Details of the error, or None on success."),
-    ]
+        print("   [DB] Project not found.")
+        return f"Error: Project '{vision_input.project_name}' not found."
 
 
-# --- Tool Function ---
-def get_current_time_tool(
-    tool_context: ToolContext,
-) -> Dict[str, Any]:  # <-- 2. Return type is a dict
-    """
-    Returns the current time in a descriptive dictionary.
-    """
+# --- Utility Tools ---
+
+
+# FIX: Removed tool_context argument.
+def get_current_time_tool() -> Dict[str, Any]:
+    """Returns the current time."""
     try:
-        time_str: str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # 3. Return a dict that matches CurrentTimeOutput
+        time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return {"status": "success", "current_time": time_str}
-
     except ValueError as e:
-        # 4. Also return a dict on error
         return {"status": "error", "error_message": str(e)}
