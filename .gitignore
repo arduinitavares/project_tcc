@@ -24,3 +24,5 @@ wheels/
 *.db
 *.sqlite3
 agile_simple.db
+agile_sqlmodel.db
+
