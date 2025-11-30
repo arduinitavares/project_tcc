@@ -7,23 +7,34 @@ These functions are designed to be invoked by Claude as tool calls.
 
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from agile_sqlmodel import Epic, Feature, Product, Task, Theme, UserStory, engine
+from agile_sqlmodel import (
+    Epic,
+    Feature,
+    Product,
+    Task,
+    Theme,
+    UserStory,
+    engine,
+)
 
 
-def create_or_get_product(
-    product_name: str,
-    vision: Optional[str] = None,
-    description: Optional[str] = None,
-) -> Dict[str, Any]:
+class CreateOrGetProductInput(BaseModel):
+    """Input schema for create_or_get_product tool."""
+
+    product_name: str
+    vision: Optional[str]
+    description: Optional[str]
+
+
+def create_or_get_product(params: CreateOrGetProductInput) -> Dict[str, Any]:
     """
     Agent tool: Create a product or update its vision.
 
     Args:
-        product_name: Name of the product
-        vision: Product vision statement (optional)
-        description: Product description (optional)
+        params: Input data for creating or getting a product.
 
     Returns:
         Dict with product_id and status
@@ -31,14 +42,14 @@ def create_or_get_product(
     with Session(engine) as session:
         # Try to find existing product
         product = session.exec(
-            select(Product).where(Product.name == product_name)
+            select(Product).where(Product.name == params.product_name)
         ).first()
 
         if not product:
             product = Product(
-                name=product_name,
-                vision=vision,
-                description=description,
+                name=params.product_name,
+                vision=params.vision,
+                description=params.description,
             )
             session.add(product)
             session.commit()
@@ -48,14 +59,15 @@ def create_or_get_product(
                 "product_id": product.product_id,
                 "action": "created",
                 "message": (
-                    f"Created product '{product_name}' " f"with ID {product.product_id}"
+                    f"Created product '{params.product_name}' "
+                    f"with ID {product.product_id}"
                 ),
             }
 
-        if vision:
-            product.vision = vision
-        if description:
-            product.description = description
+        if params.vision is not None:
+            product.vision = params.vision
+        if params.description is not None:
+            product.description = params.description
         session.add(product)
         session.commit()
         session.refresh(product)
@@ -64,7 +76,8 @@ def create_or_get_product(
             "product_id": product.product_id,
             "action": "updated",
             "message": (
-                f"Updated product '{product_name}' " f"(ID {product.product_id})"
+                f"Updated product '{params.product_name}' "
+                f"(ID {product.product_id})"
             ),
         }
 
@@ -85,7 +98,10 @@ def persist_roadmap(
     with Session(engine) as session:
         product = session.get(Product, product_id)
         if not product:
-            return {"success": False, "error": f"Product {product_id} not found"}
+            return {
+                "success": False,
+                "error": f"Product {product_id} not found",
+            }
 
         created: Dict[str, List[Dict[str, Any]]] = {
             "themes": [],
@@ -111,7 +127,9 @@ def persist_roadmap(
                 raise RuntimeError(
                     f"Failed to create Theme '{theme.title}', ID is None after commit."
                 )
-            created["themes"].append({"id": theme.theme_id, "title": theme.title})
+            created["themes"].append(
+                {"id": theme.theme_id, "title": theme.title}
+            )
 
             # Create Epics under this Theme
             for epic_data in item.get("epics", []):
@@ -128,7 +146,9 @@ def persist_roadmap(
                     raise RuntimeError(
                         f"Failed to create Epic '{epic.title}', ID is None after commit."
                     )
-                created["epics"].append({"id": epic.epic_id, "title": epic.title})
+                created["epics"].append(
+                    {"id": epic.epic_id, "title": epic.title}
+                )
 
                 # Create Features under this Epic
                 for feature_data in epic_data.get("features", []):
@@ -164,40 +184,42 @@ def persist_roadmap(
         }
 
 
-def create_user_story(  # pylint: disable=too-many-arguments
-    product_id: int,
-    feature_id: int,
-    title: str,
-    description: str,
-    acceptance_criteria: Optional[str] = None,
-    story_points: Optional[int] = None,
-) -> Dict[str, Any]:
+class CreateUserStoryInput(BaseModel):
+    """Input schema for create_user_story tool."""
+
+    product_id: int
+    feature_id: int
+    title: str
+    description: str
+    acceptance_criteria: Optional[str]
+    story_points: Optional[int]
+
+
+def create_user_story(params: CreateUserStoryInput) -> Dict[str, Any]:
     """
     Agent tool: Create a user story under a feature.
 
     Args:
-        product_id: The product this story belongs to
-        feature_id: The feature this story belongs to
-        title: Story title
-        description: Story description (typically "As a... I want... So that...")
-        acceptance_criteria: Definition of Done/acceptance criteria
-        story_points: Story point estimate (Fibonacci scale)
+        params: Input data for creating a user story.
 
     Returns:
         Dict with story_id and status
     """
     with Session(engine) as session:
-        feature = session.get(Feature, feature_id)
+        feature = session.get(Feature, params.feature_id)
         if not feature:
-            return {"success": False, "error": f"Feature {feature_id} not found"}
+            return {
+                "success": False,
+                "error": f"Feature {params.feature_id} not found",
+            }
 
         story = UserStory(
-            title=title,
-            story_description=description,
-            acceptance_criteria=acceptance_criteria,
-            story_points=story_points,
-            feature_id=feature_id,
-            product_id=product_id,
+            title=params.title,
+            story_description=params.description,
+            acceptance_criteria=params.acceptance_criteria,
+            story_points=params.story_points,
+            feature_id=params.feature_id,
+            product_id=params.product_id,
         )
         session.add(story)
         session.commit()
@@ -206,40 +228,49 @@ def create_user_story(  # pylint: disable=too-many-arguments
         return {
             "success": True,
             "story_id": story.story_id,
-            "feature_id": feature_id,
-            "product_id": product_id,
-            "message": (f"Created user story '{title}' with ID {story.story_id}"),
+            "feature_id": params.feature_id,
+            "product_id": params.product_id,
+            "message": (
+                f"Created user story '{params.title}' with ID {story.story_id}"
+            ),
         }
 
 
-def create_task(
-    story_id: int, title: str, description: Optional[str] = None
-) -> Dict[str, Any]:
+class CreateTaskInput(BaseModel):
+    """Input schema for create_task tool."""
+
+    story_id: int
+    title: str
+    description: Optional[str]
+
+
+def create_task(params: CreateTaskInput) -> Dict[str, Any]:
     """
     Agent tool: Create a task under a user story.
 
     Args:
-        story_id: The user story this task belongs to
-        title: Task title
-        description: Task description
+        params: Input data for creating a task.
 
     Returns:
         Dict with task_id and status
     """
     with Session(engine) as session:
-        story = session.get(UserStory, story_id)
+        story = session.get(UserStory, params.story_id)
         if not story:
-            return {"success": False, "error": f"User story {story_id} not found"}
+            return {
+                "success": False,
+                "error": f"User story {params.story_id} not found",
+            }
 
         # Fix for Pylance (reportCallIssue):
         # The 'Task' model only has a required 'description' field.
         # We combine the 'title' and optional 'description' from this
         # function to satisfy the model's requirement.
-        task_description = title
-        if description:
-            task_description = f"{title}\n\n{description}"
+        task_description = params.title
+        if params.description is not None:
+            task_description = f"{params.title}\n\n{params.description}"
 
-        task = Task(description=task_description, story_id=story_id)
+        task = Task(description=task_description, story_id=params.story_id)
         session.add(task)
         session.commit()
         session.refresh(task)
@@ -247,8 +278,8 @@ def create_task(
         return {
             "success": True,
             "task_id": task.task_id,
-            "story_id": story_id,
-            "message": f"Created task '{title}' with ID {task.task_id}",
+            "story_id": params.story_id,
+            "message": f"Created task '{params.title}' with ID {task.task_id}",
         }
 
 
@@ -261,9 +292,14 @@ def query_product_structure(product_id: int) -> Dict[str, Any]:
     with Session(engine) as session:
         product = session.get(Product, product_id)
         if not product:
-            return {"success": False, "error": f"Product {product_id} not found"}
+            return {
+                "success": False,
+                "error": f"Product {product_id} not found",
+            }
 
-        themes = session.exec(select(Theme).where(Theme.product_id == product_id)).all()
+        themes = session.exec(
+            select(Theme).where(Theme.product_id == product_id)
+        ).all()
 
         # Fix for Pylance (reportUnknownVariableType)
         structure: Dict[str, Any] = {
