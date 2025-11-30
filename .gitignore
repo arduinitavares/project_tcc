@@ -23,3 +23,4 @@ wheels/
 # Add database files / .db files
 *.db
 *.sqlite3
+agile_simple.db
