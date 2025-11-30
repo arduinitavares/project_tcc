@@ -19,3 +19,7 @@ wheels/
 
 # Add .pyc files
 *.pyc
+
+# Add database files / .db files
+*.db
+*.sqlite3
