@@ -13,10 +13,6 @@ import dotenv
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
 
-from orchestrator_agent.agent_tools.product_vision_tool.tools import (
-    get_current_time_tool,
-    read_vision_tool,
-)
 from utils.helper import load_instruction
 from utils.schemes import InputSchema, OutputSchema
 
@@ -29,9 +25,11 @@ instructions = load_instruction(INSTRUCTIONS_PATH)
 # --- Load Environment Variables ---
 dotenv.load_dotenv()
 
-# --- Initialize Model ---
+# --- Initialize Model with drop_params to prevent logging issues ---
 model: LiteLlm = LiteLlm(
-    model="openrouter/openai/gpt-5.1", api_key=os.getenv("OPEN_ROUTER_API_KEY")
+    model="openrouter/openai/gpt-5.1",
+    api_key=os.getenv("OPEN_ROUTER_API_KEY"),
+    drop_params=True,  # Prevent passing unsupported params that trigger logging
 )
 
 
@@ -47,7 +45,6 @@ root_agent: Agent = Agent(
     output_schema=OutputSchema,
     instruction=instructions,
     output_key="product_vision_assessment",
-    tools=[read_vision_tool, get_current_time_tool],
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,
 )
