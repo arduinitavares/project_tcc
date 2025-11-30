@@ -3,7 +3,7 @@
 Define all shared Pydantic schemas used across multiple agents.
 """
 
-from typing import Annotated, Any, List, Optional
+from typing import Annotated, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -25,7 +25,9 @@ class VisionComponents(BaseModel):
     ]
     target_user: Annotated[
         Optional[str],
-        Field(description="Who is the customer? Return null if ambiguous or unknown."),
+        Field(
+            description="Who is the customer? Return null if ambiguous or unknown."
+        ),
     ]
     problem: Annotated[
         Optional[str],
@@ -39,14 +41,17 @@ class VisionComponents(BaseModel):
     ]
     key_benefit: Annotated[
         Optional[str],
-        Field(description="Primary value proposition. Return null if unknown."),
+        Field(
+            description="Primary value proposition. Return null if unknown."
+        ),
     ]
     competitors: Annotated[
         Optional[str],
         Field(description="Existing alternatives. Return null if unknown."),
     ]
     differentiator: Annotated[
-        Optional[str], Field(description="Why us? (USP). Return null if unknown.")
+        Optional[str],
+        Field(description="Why us? (USP). Return null if unknown."),
     ]
 
     def is_fully_defined(self) -> bool:
@@ -57,7 +62,9 @@ class VisionComponents(BaseModel):
         missing_fields = [
             k
             for k, v in self.model_dump().items()
-            if v is None or (isinstance(v, str) and not v.strip()) or v == "/UNKNOWN"
+            if v is None
+            or (isinstance(v, str) and not v.strip())
+            or v == "/UNKNOWN"
         ]
         return len(missing_fields) == 0
 
