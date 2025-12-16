@@ -86,7 +86,6 @@ class RoadmapTheme(BaseModel):
         List[str],
         Field(
             description="A list of major features that fall under this " "theme.",
-            default_factory=list,
         ),
     ]
 
@@ -95,7 +94,6 @@ class RoadmapTheme(BaseModel):
         Field(
             description="The 'why' behind this theme's priority, e.g., "
             "'Core to value prop' or 'High customer request'.",
-            default=None,
         ),
     ]
 
@@ -104,7 +102,6 @@ class RoadmapTheme(BaseModel):
         Field(
             description="The high-level, agile time frame, e.g., 'Now', "
             "'Next', or 'Later'.",
-            default=None,
         ),
     ]
 
@@ -121,7 +118,6 @@ class OutputSchema(BaseModel):
             description=(
                 "The current draft of the product roadmap, grouped into themes."
             ),
-            default_factory=list,
         ),
     ]
 
@@ -138,7 +134,6 @@ class OutputSchema(BaseModel):
     clarifying_questions: Annotated[
         list[str],
         Field(
-            default_factory=list,
             description=(
                 "A list of specific questions for the user to answer "
                 "to move to the next step of the roadmap process."
