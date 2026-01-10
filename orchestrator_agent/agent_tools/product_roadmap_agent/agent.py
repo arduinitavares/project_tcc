@@ -35,7 +35,9 @@ dotenv.load_dotenv()
 # --- Initialize Model ---
 # We can reuse the same model and API key configuration
 model: LiteLlm = LiteLlm(
-    model="openrouter/openai/gpt-5-nano", api_key=os.getenv("OPEN_ROUTER_API_KEY")
+    model="openrouter/openai/gpt-5.1",
+    api_key=os.getenv("OPEN_ROUTER_API_KEY"),
+    drop_params=True,  # Prevent passing unsupported params
 )
 
 # --- Define Tool Context ---
@@ -55,6 +57,17 @@ class InputSchema(BaseModel):
     product_vision_statement: Annotated[
         str,
         Field(description="The final, approved product vision statement."),
+    ]
+
+    prior_roadmap_state: Annotated[
+        str,
+        Field(
+            description=(
+                "JSON string containing the previous roadmap_draft and any "
+                "accumulated context from prior turns. Pass 'NO_HISTORY' "
+                "for the very first call when starting fresh."
+            ),
+        ),
     ]
 
     user_input: Annotated[
@@ -143,8 +156,8 @@ class OutputSchema(BaseModel):
 
 
 # --- Create Agent ---
-product_roadmap_agent: Agent = Agent(
-    name="product_roadmap_agent",
+root_agent: Agent = Agent(
+    name="product_roadmap_tool",
     description=(
         "An agent that guides a user to create a high-level agile product "
         "roadmap, starting from a product vision."
