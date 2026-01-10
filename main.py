@@ -16,7 +16,11 @@ import json
 import logging
 import re
 import sqlite3
+import sys
+import traceback
 import uuid
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import litellm
@@ -36,7 +40,28 @@ litellm.telemetry = False
 litellm.suppress_debug_info = True
 litellm.drop_params = True
 
-logging.basicConfig()
+# --- LOGGING CONFIGURATION ---
+# Create logs directory if it doesn't exist
+LOGS_DIR = Path("logs")
+LOGS_DIR.mkdir(exist_ok=True)
+
+# Create timestamped log file
+LOG_FILENAME = LOGS_DIR / f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+# Configure logging to file only
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILENAME, encoding='utf-8')
+    ]
+)
+
+# Create application logger
+app_logger = logging.getLogger("main")
+app_logger.setLevel(logging.INFO)
+
+# Suppress verbose logs from dependencies
 logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 logging.getLogger("litellm").setLevel(logging.ERROR)
 logging.getLogger("LiteLLM").setLevel(logging.ERROR)
@@ -75,13 +100,18 @@ def get_current_state(
         )
         row = cursor.fetchone()
         conn.close()
-        return json.loads(row[0]) if row else {}
-    except sqlite3.Error:
+        state: Dict[str, Any] = json.loads(row[0]) if row else {}
+        app_logger.debug(f"Retrieved state: {json.dumps(state, indent=2)}")
+        return state
+    except sqlite3.Error as e:
+        app_logger.error(f"Error fetching state from DB: {e}")
+        app_logger.error(traceback.format_exc())
         return {}
 
 
 def update_state_in_db(partial_update: Dict[str, Any]) -> None:
     """Updates the Volatile State (O in your diagram)."""
+    app_logger.info(f"Updating state with: {json.dumps(partial_update, indent=2)}")
     current = get_current_state(APP_NAME, USER_ID, SESSION_ID)
     current.update(partial_update)
 
@@ -94,7 +124,10 @@ def update_state_in_db(partial_update: Dict[str, Any]) -> None:
         )
         conn.commit()
         conn.close()
+        app_logger.info("State updated successfully in DB")
     except sqlite3.Error as e:
+        app_logger.error(f"DB WRITE ERROR: {e}")
+        app_logger.error(traceback.format_exc())
         console.print(f"[bold red]DB WRITE ERROR:[/bold red] {e}")
 
 
@@ -126,6 +159,10 @@ def _display_tool_call(part: types.Part) -> None:
     args = part.function_call.args
     args_json = json.dumps(args, indent=2, ensure_ascii=False)
 
+    # Log the tool call
+    app_logger.info(f"TOOL CALL: {tool_name}")
+    app_logger.info(f"TOOL ARGUMENTS:\n{args_json}")
+
     tool_panel = Panel(
         f"[bold]Function:[/bold] {tool_name}\n[bold]Arguments:[/bold]\n{args_json}",
         title="[TOOL CALL]",
@@ -147,6 +184,10 @@ def _display_tool_response(part: types.Part) -> None:
 
     # Pretty print the response dictionary
     resp_json = json.dumps(response_content, indent=2, ensure_ascii=False)
+
+    # Log the tool response
+    app_logger.info(f"TOOL RESPONSE FROM: {tool_name}")
+    app_logger.info(f"TOOL RESULT:\n{resp_json}")
 
     tool_panel = Panel(
         f"[bold]From:[/bold] {tool_name}\n[bold]Result:[/bold]\n{resp_json}",
@@ -187,6 +228,12 @@ async def run_agent_turn(
     """
     Executes a single turn of the agent.
     """
+    # Log the input
+    if is_system_trigger:
+        app_logger.info(f"SYSTEM TRIGGER INPUT: {user_input}")
+    else:
+        app_logger.info(f"USER INPUT: {user_input}")
+    
     # 1. PREPARE STATE
     full_state = get_current_state(APP_NAME, USER_ID, SESSION_ID)
     vision_draft = full_state.get("vision_components", "NO_HISTORY")
@@ -226,29 +273,38 @@ async def run_agent_turn(
     full_response_text = ""
     latest_tool_data = {}  # Capture the raw data here
 
-    async for event in runner.run_async(
-        user_id=USER_ID,
-        session_id=SESSION_ID,
-        new_message=message,
-    ):
-        if event.content and event.content.parts:
-            for part in event.content.parts:
+    try:
+        async for event in runner.run_async(
+            user_id=USER_ID,
+            session_id=SESSION_ID,
+            new_message=message,
+        ):
+            if event.content and event.content.parts:
+                for part in event.content.parts:
 
-                # A. Tool Call
-                if part.function_call:
-                    _display_tool_call(part)
+                    # A. Tool Call
+                    if part.function_call:
+                        _display_tool_call(part)
 
-                # B. Tool Response (The Fix for Amnesia between turns)
-                if part.function_response:
-                    _display_tool_response(part)
-                    latest_tool_data = part.function_response.response
+                    # B. Tool Response (The Fix for Amnesia between turns)
+                    if part.function_response:
+                        _display_tool_response(part)
+                        latest_tool_data = part.function_response.response
 
-                # C. Text
-                if part.text:
-                    full_response_text += part.text
-                    console.print(part.text, end="", style="white")
+                    # C. Text
+                    if part.text:
+                        full_response_text += part.text
+                        console.print(part.text, end="", style="white")
 
-    console.print("\n")
+        console.print("\n")
+        
+        # Log the complete response
+        app_logger.info(f"AGENT RESPONSE TEXT:\n{full_response_text}")
+    except Exception as e:
+        app_logger.error(f"Error during agent turn: {e}")
+        app_logger.error(traceback.format_exc())
+        console.print(f"\n[bold red]ERROR during agent turn: {e}[/bold red]")
+        raise
 
     # 4. CAPTURE OUTPUT & UPDATE DB
     # We prefer the intercepted data from the tool response.
@@ -272,6 +328,18 @@ async def run_agent_turn(
                 )
             )
 
+        elif "roadmap_draft" in data_to_save:
+            # Update roadmap state
+            update_state_in_db({"roadmap_draft": data_to_save["roadmap_draft"]})
+            console.print(
+                Panel(
+                    "[green]Updated Roadmap Draft[/green]",
+                    title="[STATE UPDATE]",
+                    border_style="green",
+                    expand=False,
+                )
+            )
+
         elif "sprint_plan" in data_to_save:
             update_state_in_db({"sprint_plan": data_to_save["sprint_plan"]})
             console.print(
@@ -285,7 +353,12 @@ async def run_agent_turn(
 async def main():
     """Main application loop."""
     console.clear()
+    app_logger.info("="*80)
+    app_logger.info(f"NEW SESSION STARTED: {SESSION_ID}")
+    app_logger.info(f"Log file: {LOG_FILENAME}")
+    app_logger.info("="*80)
     print_system_message(f"INITIALIZING SESSION: {SESSION_ID}")
+    print_system_message(f"Logging to: {LOG_FILENAME}")
 
     # Initialize DB (Volatile State Holder)
     session_service = DatabaseSessionService(f"sqlite:///{DB_PATH}")
@@ -296,6 +369,7 @@ async def main():
         "[bold green]Hydrating Business State...", spinner="dots"
     ):
         initial_state = get_real_business_state()
+        app_logger.info(f"Initial business state loaded: {json.dumps(initial_state, indent=2)}")
 
     await session_service.create_session(
         app_name=APP_NAME,
@@ -303,6 +377,7 @@ async def main():
         session_id=SESSION_ID,
         state=initial_state,
     )
+    app_logger.info("Session created successfully")
 
     runner = Runner(
         agent=root_agent, app_name=APP_NAME, session_service=session_service
@@ -315,6 +390,7 @@ async def main():
             user_input = console.input("[bold green]USER > [/bold green]")
 
             if user_input.lower() in ["exit", "quit"]:
+                app_logger.info("User requested session termination")
                 print_system_message("ENDING SESSION.")
                 break
 
@@ -338,11 +414,26 @@ async def main():
             console.rule(style="dim")
 
         except KeyboardInterrupt:
+            app_logger.warning("Session interrupted by user (Ctrl+C)")
             print_system_message("\nINTERRUPTED.")
             break
         except Exception as e:
+            app_logger.error(f"Unexpected error in main loop: {e}")
+            app_logger.error(traceback.format_exc())
             console.print(f"[bold red]ERROR:[/bold red] {e}")
+            console.print(f"[dim]See log file for details: {LOG_FILENAME}[/dim]")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        app_logger.critical(f"Critical error in application: {e}")
+        app_logger.critical(traceback.format_exc())
+        console.print(f"\n[bold red]CRITICAL ERROR:[/bold red] {e}")
+        console.print(f"[dim]See log file for details: {LOG_FILENAME}[/dim]")
+        sys.exit(1)
+    finally:
+        app_logger.info("="*80)
+        app_logger.info("SESSION ENDED")
+        app_logger.info("="*80)
