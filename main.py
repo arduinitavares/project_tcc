@@ -254,8 +254,10 @@ async def run_agent_turn(
     </user_raw_text>
     """
 
-    message = types.Content(
-        role="user", parts=[types.Part(text=prompt_with_state)]
+    # Convert to Content object for ADK runner
+    new_message = types.Content(
+        role="user",
+        parts=[types.Part.from_text(text=prompt_with_state)],
     )
 
     # 2. VISUALS
@@ -277,7 +279,7 @@ async def run_agent_turn(
         async for event in runner.run_async(
             user_id=USER_ID,
             session_id=SESSION_ID,
-            new_message=message,
+            new_message=new_message,
         ):
             if event.content and event.content.parts:
                 for part in event.content.parts:
