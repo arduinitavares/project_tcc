@@ -26,3 +26,5 @@ wheels/
 agile_simple.db
 agile_sqlmodel.db
 
+# Add log files
+logs/
