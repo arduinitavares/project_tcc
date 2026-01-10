@@ -8,7 +8,7 @@ small summaries in ADK's persistent session state to reduce latency.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, Any, Dict, Iterable, List, Optional, Tuple, cast
+from typing import Any, Dict, Iterable, List, Optional, Tuple, cast
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
@@ -20,22 +20,17 @@ from agile_sqlmodel import Epic, Feature, Product, Theme, UserStory, engine
 CACHE_TTL_MINUTES: int = 5
 
 
-# ---------- Internal utilities ----------
-
-
 def _utc_now_iso() -> str:
     """Return current UTC time in RFC3339/ISO format with 'Z' suffix."""
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _is_fresh(
-    state: Dict[str, Any], ttl_minutes: int = CACHE_TTL_MINUTES
-) -> bool:
+def _is_fresh(state: Dict[str, Any], ttl_minutes: int = CACHE_TTL_MINUTES) -> bool:
     """Return True if state['projects_last_refreshed_utc'] is within TTL."""
-    ts: str | None = state.get("projects_last_refreshed_utc")
+    ts = state.get("projects_last_refreshed_utc")
     if not ts:
         return False
-    last = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    last = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
     return datetime.now(timezone.utc) - last <= timedelta(minutes=ttl_minutes)
 
 
@@ -57,21 +52,15 @@ def _build_projects_payload(
             {
                 "product_id": product.product_id,
                 "name": product.name,
-                "vision": (
-                    product.vision if product.vision else "(No vision set)"
-                ),
-                "roadmap": (
-                    product.roadmap if product.roadmap else "(No roadmap set)"
-                ),
+                "vision": product.vision or "(No vision set)",
+                "roadmap": product.roadmap or "(No roadmap set)",
                 "user_stories_count": len(stories),
             }
         )
     return len(projects), projects
 
 
-def _refresh_projects_cache(
-    state: Dict[str, Any],
-) -> Tuple[int, List[Dict[str, Any]]]:
+def _refresh_projects_cache(state: Dict[str, Any]) -> Tuple[int, List[Dict[str, Any]]]:
     """Hit the DB and update the persistent cache in `state`."""
     print("   [Cache] Cache miss or expired. Querying Database...")
     with Session(engine) as session:
@@ -84,47 +73,41 @@ def _refresh_projects_cache(
     return count, projects
 
 
-# ---------- Public tools (agent-facing) ----------
-
-
 class CountProjectsInput(BaseModel):
     """Input schema for count_projects tool."""
 
-    force_refresh: Annotated[
-        Optional[bool],
-        Field(
-            description="Force refresh from database, bypassing cache. Pass true if you suspect data changed."
+    force_refresh: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Force refresh from database, bypassing cache. "
+            "Pass true if you suspect data changed."
         ),
-    ]
+    )
 
 
 class ListProjectsInput(BaseModel):
     """Input schema for list_projects tool."""
 
-    force_refresh: Annotated[
-        Optional[bool],
-        Field(
-            description="Force refresh from database, bypassing cache. Pass true if you suspect data changed."
+    force_refresh: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Force refresh from database, bypassing cache. "
+            "Pass true if you suspect data changed."
         ),
-    ]
-
-
-def count_projects(
-    params: CountProjectsInput, tool_context: ToolContext
-) -> Dict[str, Any]:
-    """
-    Agent tool: Count total projects. Uses a transparent persistent cache.
-    """
-    should_refresh = (
-        params.force_refresh if params.force_refresh is not None else False
     )
+
+
+def count_projects(params: Any, tool_context: ToolContext) -> Dict[str, Any]:
+    """Agent tool: Count total projects. Uses a transparent persistent cache."""
+    parsed = CountProjectsInput.model_validate(params or {})
+    should_refresh = bool(parsed.force_refresh)
 
     print(f"\n[Tool: count_projects] Refresh: {should_refresh}")
 
     state: Dict[str, Any] = cast(Dict[str, Any], tool_context.state)
 
     if not should_refresh and _is_fresh(state) and "projects_summary" in state:
-        count: int = int(state.get("projects_summary", 0))
+        count = int(state.get("projects_summary", 0))
         print(f"   [Cache] Hit! {count} projects.")
         return {
             "success": True,
@@ -143,19 +126,12 @@ def count_projects(
     }
 
 
-def list_projects(
-    params: ListProjectsInput, tool_context: ToolContext
-) -> Dict[str, Any]:
-    """
-    Agent tool: List all projects with summary info. Uses a transparent cache.
-    """
-    should_refresh = (
-        params.force_refresh if params.force_refresh is not None else False
-    )
+def list_projects(params: Any, tool_context: ToolContext) -> Dict[str, Any]:
+    """Agent tool: List all projects with summary info. Uses a transparent cache."""
+    parsed = ListProjectsInput.model_validate(params or {})
+    should_refresh = bool(parsed.force_refresh)
 
-    print(
-        f"\n[Tool: list_projects] Request received. Force Refresh: {should_refresh}"
-    )
+    print(f"\n[Tool: list_projects] Request received. Force Refresh: {should_refresh}")
 
     state: Dict[str, Any] = cast(Dict[str, Any], tool_context.state)
 
@@ -170,7 +146,6 @@ def list_projects(
             "message": f"Listed {len(projects)} project(s) from cache",
         }
 
-    # Refresh cache from DB
     count, projects = _refresh_projects_cache(state)
     print(f"   [DB] Read complete. Returning {len(projects)} items.")
     return {
@@ -183,23 +158,15 @@ def list_projects(
 
 
 def get_project_details(product_id: int) -> Dict[str, Any]:
-    """
-    Agent tool: Get detailed breakdown of a project.
-    """
+    """Agent tool: Get detailed breakdown of a project."""
     print(f"\n[Tool: get_project_details] Querying ID: {product_id}")
     with Session(engine) as session:
         product = session.get(Product, product_id)
         if not product:
             print("   [DB] Product not found.")
-            return {
-                "success": False,
-                "error": f"Product {product_id} not found",
-            }
+            return {"success": False, "error": f"Product {product_id} not found"}
 
-        # ... (Rest of logic remains the same, queries sub-tables)
-        themes = session.exec(
-            select(Theme).where(Theme.product_id == product_id)
-        ).all()
+        themes = session.exec(select(Theme).where(Theme.product_id == product_id)).all()
         stories = session.exec(
             select(UserStory).where(UserStory.product_id == product_id)
         ).all()
@@ -207,9 +174,7 @@ def get_project_details(product_id: int) -> Dict[str, Any]:
         total_epics = 0
         total_features = 0
         for theme in themes:
-            epics = session.exec(
-                select(Epic).where(Epic.theme_id == theme.theme_id)
-            ).all()
+            epics = session.exec(select(Epic).where(Epic.theme_id == theme.theme_id)).all()
             total_epics += len(epics)
             for epic in epics:
                 features = session.exec(
@@ -241,21 +206,13 @@ def get_project_details(product_id: int) -> Dict[str, Any]:
 
 
 def get_project_by_name(project_name: str) -> Dict[str, Any]:
-    """
-    Agent tool: Find a project by name.
-    """
+    """Agent tool: Find a project by name."""
     print(f"\n[Tool: get_project_by_name] Searching for: '{project_name}'")
     with Session(engine) as session:
-        product = session.exec(
-            select(Product).where(Product.name == project_name)
-        ).first()
-
+        product = session.exec(select(Product).where(Product.name == project_name)).first()
         if not product:
             print("   [DB] Not found.")
-            return {
-                "success": False,
-                "error": f"Project '{project_name}' not found",
-            }
+            return {"success": False, "error": f"Project '{project_name}' not found"}
 
         print(f"   [DB] Found ID: {product.product_id}")
         return {
@@ -266,34 +223,58 @@ def get_project_by_name(project_name: str) -> Dict[str, Any]:
         }
 
 
-# ---------- Initialization Helper (Used by main.py) ----------
-
-
 def get_real_business_state() -> Dict[str, Any]:
     """
     Hydrates the initial session state by querying the Business DB.
     Used by main.py to seed the Orchestrator's memory before the session starts.
     """
-    print("🔍 Hydrating Session State from Business Database...")
-    try:
-        with Session(engine) as session:
-            products = _query_products(session)
-            count, projects = _build_projects_payload(session, products)
+    print("[*] Hydrating Session State from Business Database...")
+    with Session(engine) as session:
+        products = _query_products(session)
+        count, projects = _build_projects_payload(session, products)
 
-        print(f"   Found {count} existing projects.")
+    print(f"   Found {count} existing projects.")
+    return {
+        "projects_summary": count,
+        "projects_list": projects,
+        "projects_last_refreshed_utc": _utc_now_iso(),
+        "current_context": "idle",
+        "active_project": None,  # Tracks currently selected project
+        "vision_artifacts": [],
+        "last_tool_output": None,
+    }
 
-        return {
-            "projects_summary": count,
-            "projects_list": projects,
-            "current_context": "idle",
-            "vision_artifacts": [],
-            "last_tool_output": None,
-        }
-    except Exception as e:
-        print(f"⚠️ Warning: Could not read DB for initial state: {e}")
-        # Return safe default state on error
-        return {
-            "projects_summary": 0,
-            "projects_list": [],
-            "current_context": "error_hydrating",
-        }
+
+def select_project(product_id: int, tool_context: ToolContext) -> Dict[str, Any]:
+    """
+    Agent tool: Select a project as the active context and load its full details
+    into volatile memory. This sets the working context for subsequent operations.
+    """
+    print(f"\n[Tool: select_project] Setting project ID {product_id} as active...")
+    
+    # Get full project details
+    details = get_project_details(product_id)
+    
+    if not details["success"]:
+        print("   [Context] Failed to set active project.")
+        return details
+    
+    # Store in volatile memory
+    state: Dict[str, Any] = cast(Dict[str, Any], tool_context.state)
+    state["active_project"] = {
+        "product_id": product_id,
+        "name": details["product"]["name"],
+        "vision": details["product"]["vision"],
+        "roadmap": details["product"]["roadmap"],
+        "structure": details["structure"],
+    }
+    state["current_context"] = "project_selected"
+    
+    print(f"   [Context] Active project set to '{details['product']['name']}'")
+    
+    return {
+        "success": True,
+        "active_project": state["active_project"],
+        "message": f"Selected '{details['product']['name']}' as active project",
+    }
+
