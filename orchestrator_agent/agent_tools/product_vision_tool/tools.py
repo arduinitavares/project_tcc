@@ -9,13 +9,9 @@ from typing import Annotated, Any, Dict
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
-from sqlmodel import Session, create_engine, select
+from sqlmodel import Session, select
 
-from agile_sqlmodel import Product
-
-# Setup DB
-DB_URL = "sqlite:///agile_simple.db"
-engine = create_engine(DB_URL)
+from agile_sqlmodel import Product, engine
 
 
 # --- Tool for SAVING the vision ---
