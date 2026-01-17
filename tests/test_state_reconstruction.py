@@ -6,17 +6,91 @@ multiple turns (the "anti-goldfish memory" tests).
 """
 
 import pytest
+import os
+import json
+import uuid
+import re
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
+from google.adk.runners import Runner
+from google.adk.sessions import DatabaseSessionService
+from google.genai import types
 
 from orchestrator_agent.agent_tools.product_vision_tool.agent import root_agent
 
+class StatefulVisionAgent:
+    def __init__(self, agent):
+        self.agent = agent
+        self.vision_components = None # dict
 
+    async def run(self, input_dict):
+        user_text = input_dict.get("unstructured_requirements", "")
+
+        prior_state_str = json.dumps(self.vision_components) if self.vision_components else "NO_HISTORY"
+
+        prompt = f"""
+        Input arguments:
+        user_raw_text: {user_text}
+        prior_vision_state: {prior_state_str}
+        """
+
+        session_id = str(uuid.uuid4())
+        session = DatabaseSessionService("sqlite:///:memory:")
+        await session.create_session("test", "user", session_id, {})
+        runner = Runner(agent=self.agent, app_name="test", session_service=session)
+
+        response_text = ""
+        async for event in runner.run_async(
+            user_id="user",
+            session_id=session_id,
+            new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
+        ):
+             if event.content and event.content.parts:
+                 for part in event.content.parts:
+                     if part.text:
+                         response_text += part.text
+
+        try:
+            match = re.search(r"```json\n(.*?)\n```", response_text, re.DOTALL)
+            if match:
+                json_str = match.group(1)
+            else:
+                match = re.search(r"(\{.*\})$", response_text.strip(), re.DOTALL)
+                if match:
+                    json_str = match.group(1)
+                else:
+                    json_str = response_text
+
+            data = json.loads(json_str)
+
+            if "updated_components" in data:
+                self.vision_components = data["updated_components"]
+
+            result = {}
+            if "updated_components" in data:
+                result.update(data["updated_components"])
+            if "product_vision_statement" in data:
+                result["product_vision_statement"] = data["product_vision_statement"]
+            if "clarifying_questions" in data:
+                result["clarifying_questions"] = data["clarifying_questions"]
+            if "is_complete" in data:
+                result["is_complete"] = data["is_complete"]
+
+            return result
+
+        except Exception as e:
+            return {"error": str(e), "raw": response_text}
+
+@pytest.fixture
+def agent_wrapper():
+    return StatefulVisionAgent(root_agent)
+
+@pytest.mark.skipif(not os.getenv("OPEN_ROUTER_API_KEY"), reason="No API Key")
 class TestStateReconstruction:
     """Test cases for multi-turn state preservation."""
 
     @pytest.mark.asyncio
-    async def test_basic_accumulation(self):
+    async def test_basic_accumulation(self, agent_wrapper):
         """
         Test Case 1: Basic Accumulation
         Turn 1: Identify target user
@@ -25,14 +99,14 @@ class TestStateReconstruction:
         """
         # Turn 1: User provides initial idea
         turn1_input = {"unstructured_requirements": "I want a Tinder for Tennis"}
-        turn1_response = await root_agent.run(turn1_input)
+        turn1_response = await agent_wrapper.run(turn1_input)
 
         # Verify Turn 1 extracted target user
         assert "tennis" in turn1_response.get("product_vision_statement", "").lower()
 
         # Turn 2: User provides project name
         turn2_input = {"unstructured_requirements": "The project name is NetSet"}
-        turn2_response = await root_agent.run(turn2_input)
+        turn2_response = await agent_wrapper.run(turn2_input)
 
         # CRITICAL: Turn 2 output must include BOTH project name AND target user
         assert turn2_response.get("project_name") == "NetSet"
@@ -45,7 +119,7 @@ class TestStateReconstruction:
         ), "Target user was reset to placeholder despite being known from Turn 1"
 
     @pytest.mark.asyncio
-    async def test_explicit_update(self):
+    async def test_explicit_update(self, agent_wrapper):
         """
         Test Case 2: Explicit Update
         Turn 1: Set target user to "tennis players"
@@ -54,14 +128,14 @@ class TestStateReconstruction:
         """
         # Turn 1: Initial target user
         turn1_input = {"unstructured_requirements": "Target users are tennis players"}
-        turn1_response = await root_agent.run(turn1_input)
+        turn1_response = await agent_wrapper.run(turn1_input)
         assert "tennis" in turn1_response.get("product_vision_statement", "").lower()
 
         # Turn 2: Explicit correction
         turn2_input = {
             "unstructured_requirements": "Actually, target users are pickleball players"
         }
-        turn2_response = await root_agent.run(turn2_input)
+        turn2_response = await agent_wrapper.run(turn2_input)
 
         # Verify update was applied
         vision_statement = turn2_response.get("product_vision_statement", "")
@@ -71,7 +145,7 @@ class TestStateReconstruction:
         ), "Old value persisted despite explicit update"
 
     @pytest.mark.asyncio
-    async def test_partial_information_across_turns(self):
+    async def test_partial_information_across_turns(self, agent_wrapper):
         """
         Test Case 3: Partial Information Across Turns
         Turn 1: Project name
@@ -81,12 +155,12 @@ class TestStateReconstruction:
         """
         # Turn 1: Project name
         turn1_input = {"unstructured_requirements": "The project name is NetSet"}
-        turn1_response = await root_agent.run(turn1_input)
+        turn1_response = await agent_wrapper.run(turn1_input)
         assert turn1_response.get("project_name") == "NetSet"
 
         # Turn 2: Target user
         turn2_input = {"unstructured_requirements": "Target users are tennis players"}
-        turn2_response = await root_agent.run(turn2_input)
+        turn2_response = await agent_wrapper.run(turn2_input)
 
         # Verify Turn 2 preserves project name from Turn 1
         assert turn2_response.get("project_name") == "NetSet"
@@ -96,7 +170,7 @@ class TestStateReconstruction:
         turn3_input = {
             "unstructured_requirements": "The problem is that it's hard to find tennis partners"
         }
-        turn3_response = await root_agent.run(turn3_input)
+        turn3_response = await agent_wrapper.run(turn3_input)
 
         # Verify Turn 3 includes ALL components
         assert turn3_response.get("project_name") == "NetSet"
@@ -108,7 +182,7 @@ class TestStateReconstruction:
         )
 
     @pytest.mark.asyncio
-    async def test_clarifying_questions_loop(self):
+    async def test_clarifying_questions_loop(self, agent_wrapper):
         """
         Test Case 4: Clarifying Questions Loop
         Turn 1: Vague input → Agent asks questions
@@ -117,7 +191,7 @@ class TestStateReconstruction:
         """
         # Turn 1: Vague input
         turn1_input = {"unstructured_requirements": "Tinder for Tennis"}
-        turn1_response = await root_agent.run(turn1_input)
+        turn1_response = await agent_wrapper.run(turn1_input)
 
         # Verify agent asked clarifying questions
         assert turn1_response.get("is_complete") is False
@@ -125,7 +199,7 @@ class TestStateReconstruction:
 
         # Turn 2: Answer only the first question (e.g., project name)
         turn2_input = {"unstructured_requirements": "The project name is NetSet"}
-        turn2_response = await root_agent.run(turn2_input)
+        turn2_response = await agent_wrapper.run(turn2_input)
 
         # CRITICAL: Turn 2 must preserve "Tennis" context from Turn 1
         assert turn2_response.get("project_name") == "NetSet"
@@ -135,7 +209,7 @@ class TestStateReconstruction:
         ), "Original context lost after answering clarifying question"
 
     @pytest.mark.asyncio
-    async def test_null_preservation(self):
+    async def test_null_preservation(self, agent_wrapper):
         """
         Test Case 5: Null Preservation
         Verify that null/unknown fields remain null until explicitly provided,
@@ -143,12 +217,12 @@ class TestStateReconstruction:
         """
         # Turn 1: Provide only project name
         turn1_input = {"unstructured_requirements": "Project name: NetSet"}
-        turn1_response = await root_agent.run(turn1_input)
+        turn1_response = await agent_wrapper.run(turn1_input)
         assert turn1_response.get("project_name") == "NetSet"
 
         # Turn 2: Provide only target user (no mention of project name)
         turn2_input = {"unstructured_requirements": "For tennis players"}
-        turn2_response = await root_agent.run(turn2_input)
+        turn2_response = await agent_wrapper.run(turn2_input)
 
         # Verify project name is preserved (not set to null)
         assert (
@@ -160,7 +234,7 @@ class TestStateReconstruction:
         assert "tennis" in vision_statement.lower()
 
     @pytest.mark.asyncio
-    async def test_multiple_components_single_turn(self):
+    async def test_multiple_components_single_turn(self, agent_wrapper):
         """
         Test Case 6: Multiple Components in Single Turn
         Verify agent can extract multiple components from one input
@@ -173,7 +247,7 @@ class TestStateReconstruction:
                 "practice partners. Unlike Facebook groups, it uses skill-based matching."
             )
         }
-        turn1_response = await root_agent.run(turn1_input)
+        turn1_response = await agent_wrapper.run(turn1_input)
 
         # Verify multiple components extracted
         assert turn1_response.get("project_name") == "NetSet"
@@ -188,7 +262,7 @@ class TestStateReconstruction:
         turn2_input = {
             "unstructured_requirements": "The key differentiator is real-time availability tracking"
         }
-        turn2_response = await root_agent.run(turn2_input)
+        turn2_response = await agent_wrapper.run(turn2_input)
 
         # Verify ALL previous components preserved
         assert turn2_response.get("project_name") == "NetSet"
@@ -200,40 +274,41 @@ class TestStateReconstruction:
         )
 
 
+@pytest.mark.skipif(not os.getenv("OPEN_ROUTER_API_KEY"), reason="No API Key")
 class TestMergeLogic:
     """Test cases for specific merge logic scenarios."""
 
     @pytest.mark.asyncio
-    async def test_preserve_rule(self):
+    async def test_preserve_rule(self, agent_wrapper):
         """
         Merge Rule: Historical value + No mention in current input = PRESERVE
         """
         # Establish historical value
         turn1_input = {"unstructured_requirements": "Target users are tennis players"}
-        turn1_response = await root_agent.run(turn1_input)
+        turn1_response = await agent_wrapper.run(turn1_input)
 
         # Provide unrelated information (no mention of target user)
         turn2_input = {"unstructured_requirements": "The app will be free to download"}
-        turn2_response = await root_agent.run(turn2_input)
+        turn2_response = await agent_wrapper.run(turn2_input)
 
         # Verify target user preserved
         vision_statement = turn2_response.get("product_vision_statement", "")
         assert "tennis" in vision_statement.lower()
 
     @pytest.mark.asyncio
-    async def test_update_rule(self):
+    async def test_update_rule(self, agent_wrapper):
         """
         Merge Rule: Historical value + New value in current input = UPDATE
         """
         # Establish historical value
         turn1_input = {"unstructured_requirements": "Target users are tennis players"}
-        turn1_response = await root_agent.run(turn1_input)
+        turn1_response = await agent_wrapper.run(turn1_input)
 
         # Provide explicit update
         turn2_input = {
             "unstructured_requirements": "Change target users to badminton players"
         }
-        turn2_response = await root_agent.run(turn2_input)
+        turn2_response = await agent_wrapper.run(turn2_input)
 
         # Verify update applied
         vision_statement = turn2_response.get("product_vision_statement", "")
@@ -241,34 +316,34 @@ class TestMergeLogic:
         assert "tennis" not in vision_statement.lower()
 
     @pytest.mark.asyncio
-    async def test_add_rule(self):
+    async def test_add_rule(self, agent_wrapper):
         """
         Merge Rule: No historical value + New value in current input = ADD
         """
         # Turn 1: No target user mentioned
         turn1_input = {"unstructured_requirements": "Project name is NetSet"}
-        turn1_response = await root_agent.run(turn1_input)
+        turn1_response = await agent_wrapper.run(turn1_input)
 
         # Turn 2: Add target user
         turn2_input = {"unstructured_requirements": "For tennis players"}
-        turn2_response = await root_agent.run(turn2_input)
+        turn2_response = await agent_wrapper.run(turn2_input)
 
         # Verify target user added
         vision_statement = turn2_response.get("product_vision_statement", "")
         assert "tennis" in vision_statement.lower()
 
     @pytest.mark.asyncio
-    async def test_remains_unknown_rule(self):
+    async def test_remains_unknown_rule(self, agent_wrapper):
         """
         Merge Rule: No historical value + No mention in current input = REMAINS UNKNOWN
         """
         # Turn 1: Provide only project name
         turn1_input = {"unstructured_requirements": "Project name is NetSet"}
-        turn1_response = await root_agent.run(turn1_input)
+        turn1_response = await agent_wrapper.run(turn1_input)
 
         # Turn 2: Provide only target user (no mention of problem)
         turn2_input = {"unstructured_requirements": "For tennis players"}
-        turn2_response = await root_agent.run(turn2_input)
+        turn2_response = await agent_wrapper.run(turn2_input)
 
         # Verify "problem" component remains unknown (placeholder in vision)
         vision_statement = turn2_response.get("product_vision_statement", "")
@@ -279,11 +354,12 @@ class TestMergeLogic:
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(not os.getenv("OPEN_ROUTER_API_KEY"), reason="No API Key")
 class TestRealWorldScenarios:
     """Integration tests simulating real user conversations."""
 
     @pytest.mark.asyncio
-    async def test_incremental_refinement(self):
+    async def test_incremental_refinement(self, agent_wrapper):
         """
         Simulate a user gradually refining their idea across 5 turns.
         """
@@ -297,7 +373,7 @@ class TestRealWorldScenarios:
 
         previous_response = None
         for turn_num, user_input in enumerate(conversation, start=1):
-            response = await root_agent.run({"unstructured_requirements": user_input})
+            response = await agent_wrapper.run({"unstructured_requirements": user_input})
 
             # Verify cumulative state growth
             if turn_num >= 2:

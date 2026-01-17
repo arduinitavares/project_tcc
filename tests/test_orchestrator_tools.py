@@ -14,13 +14,20 @@ from tools.orchestrator_tools import (
 )
 
 
+class MockToolContext:
+    def __init__(self, state):
+        self.state = state
+
+
 def test_count_projects_empty(engine):
     """Test counting projects when database is empty."""
     import tools.orchestrator_tools as orch_tools
 
     orch_tools.engine = engine
 
-    result = count_projects()
+    state = {}
+    context = MockToolContext(state)
+    result = count_projects({}, context)
 
     assert result["success"] is True
     assert result["count"] == 0
@@ -34,16 +41,18 @@ def test_count_projects_with_data(engine):
     orch_tools.engine = engine
 
     import tools.db_tools as db_tools
-    from tools.db_tools import create_or_get_product
+    from tools.db_tools import create_or_get_product, CreateOrGetProductInput
 
     db_tools.engine = engine
 
     # Create 3 products
-    create_or_get_product(product_name="Project A")
-    create_or_get_product(product_name="Project B")
-    create_or_get_product(product_name="Project C")
+    create_or_get_product(CreateOrGetProductInput(product_name="Project A", vision=None, description=None))
+    create_or_get_product(CreateOrGetProductInput(product_name="Project B", vision=None, description=None))
+    create_or_get_product(CreateOrGetProductInput(product_name="Project C", vision=None, description=None))
 
-    result = count_projects()
+    state = {}
+    context = MockToolContext(state)
+    result = count_projects({}, context)
 
     assert result["success"] is True
     assert result["count"] == 3
@@ -56,7 +65,9 @@ def test_list_projects_empty(engine):
 
     orch_tools.engine = engine
 
-    result = list_projects()
+    state = {}
+    context = MockToolContext(state)
+    result = list_projects({}, context)
 
     assert result["success"] is True
     assert result["count"] == 0
@@ -70,14 +81,20 @@ def test_list_projects_with_data(engine):
     orch_tools.engine = engine
 
     import tools.db_tools as db_tools
-    from tools.db_tools import create_or_get_product, create_user_story, persist_roadmap
+    from tools.db_tools import (
+        create_or_get_product,
+        create_user_story,
+        persist_roadmap,
+        CreateOrGetProductInput,
+        CreateUserStoryInput
+    )
 
     db_tools.engine = engine
 
     # Create a product with structure
-    prod_result = create_or_get_product(
-        product_name="Test Project", vision="Test vision"
-    )
+    prod_result = create_or_get_product(CreateOrGetProductInput(
+        product_name="Test Project", vision="Test vision", description=None
+    ))
     product_id = prod_result["product_id"]
 
     # Add roadmap
@@ -101,15 +118,19 @@ def test_list_projects_with_data(engine):
     feature_id = roadmap_result["created"]["features"][0]["id"]
 
     # Add a user story
-    create_user_story(
+    create_user_story(CreateUserStoryInput(
         product_id=product_id,
         feature_id=feature_id,
         title="Login as user",
         description="As a user...",
-    )
+        acceptance_criteria=None,
+        story_points=None,
+    ))
 
     # Now list projects
-    result = list_projects()
+    state = {}
+    context = MockToolContext(state)
+    result = list_projects({}, context)
 
     assert result["success"] is True
     assert result["count"] == 1
@@ -141,14 +162,20 @@ def test_get_project_details_with_structure(engine):
     orch_tools.engine = engine
 
     import tools.db_tools as db_tools
-    from tools.db_tools import create_or_get_product, create_user_story, persist_roadmap
+    from tools.db_tools import (
+        create_or_get_product,
+        create_user_story,
+        persist_roadmap,
+        CreateOrGetProductInput,
+        CreateUserStoryInput
+    )
 
     db_tools.engine = engine
 
     # Create a complete project structure
-    prod_result = create_or_get_product(
-        product_name="Full Project", vision="Complete vision"
-    )
+    prod_result = create_or_get_product(CreateOrGetProductInput(
+        product_name="Full Project", vision="Complete vision", description=None
+    ))
     product_id = prod_result["product_id"]
 
     roadmap = [
@@ -179,12 +206,14 @@ def test_get_project_details_with_structure(engine):
 
     # Add user stories
     for feature in roadmap_result["created"]["features"]:
-        create_user_story(
+        create_user_story(CreateUserStoryInput(
             product_id=product_id,
             feature_id=feature["id"],
             title=f"Story for {feature['title']}",
             description="As a user...",
-        )
+            acceptance_criteria=None,
+            story_points=None,
+        ))
 
     # Get details
     result = get_project_details(product_id)
@@ -216,12 +245,12 @@ def test_get_project_by_name_found(engine):
     orch_tools.engine = engine
 
     import tools.db_tools as db_tools
-    from tools.db_tools import create_or_get_product
+    from tools.db_tools import create_or_get_product, CreateOrGetProductInput
 
     db_tools.engine = engine
 
     # Create product
-    prod_result = create_or_get_product(product_name="Findable Project")
+    prod_result = create_or_get_product(CreateOrGetProductInput(product_name="Findable Project", vision=None, description=None))
     product_id = prod_result["product_id"]
 
     # Find it by name
