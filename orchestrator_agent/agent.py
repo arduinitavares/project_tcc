@@ -39,6 +39,22 @@ from orchestrator_agent.agent_tools.story_pipeline.tools import (
     process_story_batch,
     save_validated_stories,
 )
+# NEW: Sprint Planning tools (Scrum Master MVP)
+from orchestrator_agent.agent_tools.sprint_planning.tools import (
+    get_backlog_for_planning,
+    plan_sprint_tool,
+    save_sprint_tool,
+)
+from orchestrator_agent.agent_tools.sprint_planning.sprint_query_tools import (
+    get_sprint_details,
+    list_sprints,
+)
+from orchestrator_agent.agent_tools.sprint_planning.sprint_execution_tools import (
+    update_story_status,
+    batch_update_story_status,
+    modify_sprint_stories,
+    complete_sprint,
+)
 from tools.orchestrator_tools import (
     count_projects,
     get_project_by_name,
@@ -87,6 +103,17 @@ root_agent = Agent(
         # Legacy story tools (for backward compatibility)
         create_user_story_tool,
         batch_create_user_stories_tool,
+        # NEW: Sprint Planning tools (Scrum Master MVP)
+        get_backlog_for_planning,
+        plan_sprint_tool,
+        save_sprint_tool,
+        get_sprint_details,
+        list_sprints,
+        # Sprint Execution tools
+        update_story_status,
+        batch_update_story_status,
+        modify_sprint_stories,
+        complete_sprint,
         # Agent tools
         AgentTool(agent=vision_agent),
         AgentTool(agent=roadmap_agent),

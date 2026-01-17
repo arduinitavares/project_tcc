@@ -58,6 +58,17 @@ class TaskStatus(str, enum.Enum):
     DONE = "Done"
 
 
+class WorkflowEventType(str, enum.Enum):
+    """Types of workflow events for metrics tracking."""
+
+    SPRINT_PLAN_DRAFT = "sprint_plan_draft"
+    SPRINT_PLAN_REVIEW = "sprint_plan_review"
+    SPRINT_PLAN_SAVED = "sprint_plan_saved"
+    SPRINT_STARTED = "sprint_started"
+    SPRINT_COMPLETED = "sprint_completed"
+    TLX_PROMPT_TRIGGERED = "tlx_prompt_triggered"
+
+
 # --- 2. Link Models (for Many-to-Many Relationships) ---
 
 
@@ -380,6 +391,37 @@ class Task(SQLModel, table=True):
     # Relationships
     story: "UserStory" = Relationship(back_populates="tasks")
     assignee: Optional["TeamMember"] = Relationship(back_populates="tasks")
+
+
+class WorkflowEvent(SQLModel, table=True):
+    """
+    Tracks workflow events for TCC metrics (cycle time, lead time, planning effort).
+
+    Each event captures:
+    - What happened (event_type)
+    - When it happened (timestamp)
+    - How long it took (duration_seconds for timed activities)
+    - Context (product_id, sprint_id, session_id)
+    - Interaction metrics (turn_count for conversation-based activities)
+    """
+
+    __tablename__ = "workflow_events"  # type: ignore
+    event_id: Optional[int] = Field(default=None, primary_key=True)
+    event_type: WorkflowEventType = Field(nullable=False, index=True)
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"server_default": func.now()},
+        nullable=False,
+    )
+    # Optional timing metrics
+    duration_seconds: Optional[float] = Field(default=None)
+    turn_count: Optional[int] = Field(default=None)
+    # Context references
+    product_id: Optional[int] = Field(default=None, foreign_key="products.product_id")
+    sprint_id: Optional[int] = Field(default=None, foreign_key="sprints.sprint_id")
+    session_id: Optional[str] = Field(default=None, index=True)
+    # Extra data (JSON string for flexibility) - named event_metadata to avoid SQLAlchemy reserved name
+    event_metadata: Optional[str] = Field(default=None, sa_type=Text)
 
 
 # --- 4. Database Engine and Main Function ---
