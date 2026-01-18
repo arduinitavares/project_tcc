@@ -17,6 +17,8 @@ from agile_sqlmodel import (
     UserStory,
     SprintStory,
     StoryStatus,
+    Task,
+    TaskStatus,
 )
 
 class TestSprintQueryTools(unittest.TestCase):
@@ -86,6 +88,14 @@ class TestSprintQueryTools(unittest.TestCase):
             session.add(SprintStory(sprint_id=sprint.sprint_id, story_id=story3.story_id))
             session.commit()
 
+            # Create tasks for the stories
+            task1 = Task(description="Task 1 for Story 1", status=TaskStatus.TO_DO, story_id=story1.story_id)
+            task2 = Task(description="Task 2 for Story 1", status=TaskStatus.IN_PROGRESS, story_id=story1.story_id)
+            task3 = Task(description="Task 1 for Story 2", status=TaskStatus.DONE, story_id=story2.story_id)
+            task4 = Task(description="Task 2 for Story 2", status=TaskStatus.DONE, story_id=story2.story_id)
+            session.add_all([task1, task2, task3, task4])
+            session.commit()
+
             # 2. Call the function
             result = get_sprint_details(GetSprintDetailsInput(sprint_id=sprint.sprint_id))
 
@@ -109,6 +119,28 @@ class TestSprintQueryTools(unittest.TestCase):
             self.assertEqual(status_breakdown[StoryStatus.TO_DO.value], 1)
             self.assertEqual(status_breakdown[StoryStatus.IN_PROGRESS.value], 1)
             self.assertEqual(status_breakdown[StoryStatus.DONE.value], 1)
+
+            # Check task count
+            self.assertEqual(result["task_count"], 4)
+
+            # Check tasks list structure
+            self.assertIn("tasks", result)
+            self.assertEqual(len(result["tasks"]), 4)
+            
+            # Verify task data structure
+            task_descriptions = {t["description"] for t in result["tasks"]}
+            self.assertEqual(task_descriptions, {
+                "Task 1 for Story 1",
+                "Task 2 for Story 1", 
+                "Task 1 for Story 2",
+                "Task 2 for Story 2"
+            })
+
+            # Check task status breakdown
+            task_status_breakdown = result["task_status_breakdown"]
+            self.assertEqual(task_status_breakdown[TaskStatus.TO_DO.value], 1)
+            self.assertEqual(task_status_breakdown[TaskStatus.IN_PROGRESS.value], 1)
+            self.assertEqual(task_status_breakdown[TaskStatus.DONE.value], 2)
 
 
 if __name__ == '__main__':

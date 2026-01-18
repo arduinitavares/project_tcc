@@ -131,12 +131,12 @@ def get_sprint_details(query_input: GetSprintDetailsInput) -> Dict[str, Any]:
             for task in tasks:
                 task_list.append({
                     "task_id": task.task_id,
-                    "title": task.title,
-                    "status": task.status,
+                    "description": task.description,
+                    "status": task.status.value,
                     "story_id": task.story_id,
-                    "assigned_to": task.assigned_to
+                    "assigned_to_member_id": task.assigned_to_member_id
                 })
-                task_status_counts[task.status] = task_status_counts.get(task.status, 0) + 1
+                task_status_counts[task.status.value] = task_status_counts.get(task.status.value, 0) + 1
             
             # Calculate progress
             completion_pct = None
