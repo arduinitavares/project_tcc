@@ -1,6 +1,6 @@
 
 import unittest
-from sqlmodel import SQLModel, create_engine, Session
+from sqlmodel import SQLModel, create_engine
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 
