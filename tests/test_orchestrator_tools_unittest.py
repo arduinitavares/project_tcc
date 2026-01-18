@@ -4,13 +4,7 @@ from sqlmodel import SQLModel, create_engine, Session
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 
-# Import the functions to be tested
-from tools.orchestrator_tools import (
-    count_projects,
-    get_project_by_name,
-    get_project_details,
-    list_projects,
-)
+# Import the modules to be tested
 import tools.orchestrator_tools as orch_tools
 from tools import db_tools
 from tools.db_tools import create_or_get_product, create_user_story, persist_roadmap, CreateOrGetProductInput, CreateUserStoryInput
@@ -59,7 +53,7 @@ class TestOrchestratorTools(unittest.TestCase):
         """Test counting projects when database is empty."""
         state = {}
         context = MockToolContext(state)
-        result = count_projects({}, context)
+        result = orch_tools.count_projects({}, context)
         self.assertTrue(result["success"])
         self.assertEqual(result["count"], 0)
         self.assertIn("0 project", result["message"])
@@ -71,7 +65,7 @@ class TestOrchestratorTools(unittest.TestCase):
         create_or_get_product(CreateOrGetProductInput(product_name="Project C", vision=None, description=None))
         state = {}
         context = MockToolContext(state)
-        result = count_projects({}, context)
+        result = orch_tools.count_projects({}, context)
         self.assertTrue(result["success"])
         self.assertEqual(result["count"], 3)
         self.assertIn("3 project", result["message"])
@@ -80,7 +74,7 @@ class TestOrchestratorTools(unittest.TestCase):
         """Test listing projects when database is empty."""
         state = {}
         context = MockToolContext(state)
-        result = list_projects({}, context)
+        result = orch_tools.list_projects({}, context)
         self.assertTrue(result["success"])
         self.assertEqual(result["count"], 0)
         self.assertEqual(len(result["projects"]), 0)
@@ -121,7 +115,7 @@ class TestOrchestratorTools(unittest.TestCase):
         )
         state = {}
         context = MockToolContext(state)
-        result = list_projects({}, context)
+        result = orch_tools.list_projects({}, context)
         self.assertTrue(result["success"])
         self.assertEqual(result["count"], 1)
         self.assertEqual(len(result["projects"]), 1)
@@ -133,7 +127,7 @@ class TestOrchestratorTools(unittest.TestCase):
 
     def test_get_project_details_not_found(self):
         """Test getting details for non-existent project."""
-        result = get_project_details(999)
+        result = orch_tools.get_project_details(999)
         self.assertFalse(result["success"])
         self.assertIn("not found", result["error"].lower())
 
@@ -179,7 +173,7 @@ class TestOrchestratorTools(unittest.TestCase):
                     story_points=None,
                 )
             )
-        result = get_project_details(product_id)
+        result = orch_tools.get_project_details(product_id)
         self.assertTrue(result["success"])
         self.assertEqual(result["product"]["name"], "Full Project")
         self.assertEqual(result["structure"]["themes"], 1)
@@ -189,7 +183,7 @@ class TestOrchestratorTools(unittest.TestCase):
 
     def test_get_project_by_name_not_found(self):
         """Test finding project by name when it doesn't exist."""
-        result = get_project_by_name("Non Existent Project")
+        result = orch_tools.get_project_by_name("Non Existent Project")
         self.assertFalse(result["success"])
         self.assertIn("not found", result["error"].lower())
 
@@ -197,7 +191,7 @@ class TestOrchestratorTools(unittest.TestCase):
         """Test finding project by name successfully."""
         prod_result = create_or_get_product(CreateOrGetProductInput(product_name="Findable Project", vision=None, description=None))
         product_id = prod_result["product_id"]
-        result = get_project_by_name("Findable Project")
+        result = orch_tools.get_project_by_name("Findable Project")
         self.assertTrue(result["success"])
         self.assertEqual(result["product_id"], product_id)
         self.assertEqual(result["product_name"], "Findable Project")
