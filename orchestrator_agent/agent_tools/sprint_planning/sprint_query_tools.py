@@ -127,16 +127,17 @@ def get_sprint_details(query_input: GetSprintDetailsInput) -> Dict[str, Any]:
             tasks = session.exec(tasks_stmt).all()
             
             task_list = []
-            task_status_counts = {"TO_DO": 0, "IN_PROGRESS": 0, "DONE": 0}
+            task_status_counts = {"To Do": 0, "In Progress": 0, "Done": 0}
             for task in tasks:
                 task_list.append({
                     "task_id": task.task_id,
-                    "title": task.title,
-                    "status": task.status,
+                    "description": task.description,
+                    "status": task.status.value if hasattr(task.status, 'value') else task.status,
                     "story_id": task.story_id,
-                    "assigned_to": task.assigned_to
+                    "assigned_to_member_id": task.assigned_to_member_id
                 })
-                task_status_counts[task.status] = task_status_counts.get(task.status, 0) + 1
+                status_key = task.status.value if hasattr(task.status, 'value') else task.status
+                task_status_counts[status_key] = task_status_counts.get(status_key, 0) + 1
             
             # Calculate progress
             completion_pct = None

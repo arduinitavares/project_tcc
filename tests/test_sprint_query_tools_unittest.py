@@ -17,6 +17,9 @@ from agile_sqlmodel import (
     UserStory,
     SprintStory,
     StoryStatus,
+    Task,
+    TaskStatus,
+    TeamMember,
 )
 
 class TestSprintQueryTools(unittest.TestCase):
@@ -86,6 +89,22 @@ class TestSprintQueryTools(unittest.TestCase):
             session.add(SprintStory(sprint_id=sprint.sprint_id, story_id=story3.story_id))
             session.commit()
 
+            # Create team members for task assignment
+            member1 = TeamMember(name="Dev 1", email="dev1@example.com", team_id=team.team_id)
+            member2 = TeamMember(name="Dev 2", email="dev2@example.com", team_id=team.team_id)
+            session.add_all([member1, member2])
+            session.commit()
+            session.refresh(member1)
+            session.refresh(member2)
+
+            # Create tasks for stories
+            task1 = Task(description="Implement feature", status=TaskStatus.IN_PROGRESS, story_id=story1.story_id, assigned_to_member_id=member1.member_id)
+            task2 = Task(description="Write tests", status=TaskStatus.TO_DO, story_id=story1.story_id, assigned_to_member_id=member2.member_id)
+            task3 = Task(description="Code review", status=TaskStatus.DONE, story_id=story2.story_id, assigned_to_member_id=member1.member_id)
+            task4 = Task(description="Deploy to staging", status=TaskStatus.DONE, story_id=story3.story_id, assigned_to_member_id=member2.member_id)
+            session.add_all([task1, task2, task3, task4])
+            session.commit()
+
             # 2. Call the function
             result = get_sprint_details(GetSprintDetailsInput(sprint_id=sprint.sprint_id))
 
@@ -109,6 +128,33 @@ class TestSprintQueryTools(unittest.TestCase):
             self.assertEqual(status_breakdown[StoryStatus.TO_DO.value], 1)
             self.assertEqual(status_breakdown[StoryStatus.IN_PROGRESS.value], 1)
             self.assertEqual(status_breakdown[StoryStatus.DONE.value], 1)
+
+            # Check task data
+            self.assertEqual(result["task_count"], 4)
+            self.assertIn("tasks", result)
+            self.assertEqual(len(result["tasks"]), 4)
+
+            # Verify task structure
+            task_descriptions = {t["description"] for t in result["tasks"]}
+            self.assertEqual(task_descriptions, {"Implement feature", "Write tests", "Code review", "Deploy to staging"})
+
+            # Check task status breakdown
+            task_status_breakdown = result["task_status_breakdown"]
+            self.assertEqual(task_status_breakdown["To Do"], 1)
+            self.assertEqual(task_status_breakdown["In Progress"], 1)
+            self.assertEqual(task_status_breakdown["Done"], 2)
+
+            # Verify tasks are linked to correct stories
+            tasks_by_story = {}
+            for task in result["tasks"]:
+                story_id = task["story_id"]
+                if story_id not in tasks_by_story:
+                    tasks_by_story[story_id] = []
+                tasks_by_story[story_id].append(task)
+            
+            self.assertEqual(len(tasks_by_story[story1.story_id]), 2)  # Story 1 has 2 tasks
+            self.assertEqual(len(tasks_by_story[story2.story_id]), 1)  # Story 2 has 1 task
+            self.assertEqual(len(tasks_by_story[story3.story_id]), 1)  # Story 3 has 1 task
 
 
 if __name__ == '__main__':
