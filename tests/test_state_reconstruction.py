@@ -36,7 +36,12 @@ class StatefulVisionAgent:
 
         session_id = str(uuid.uuid4())
         session = DatabaseSessionService("sqlite:///:memory:")
-        await session.create_session("test", "user", session_id, {})
+        await session.create_session(
+            app_name="test",
+            user_id="user",
+            session_id=session_id,
+            state={}
+        )
         runner = Runner(agent=self.agent, app_name="test", session_service=session)
 
         response_text = ""
