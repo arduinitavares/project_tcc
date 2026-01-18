@@ -6,8 +6,14 @@ Provides read-only access to sprint information.
 from typing import Optional, Dict, Any, List
 from sqlmodel import Session, select
 from agile_sqlmodel import (
-    Sprint, UserStory, SprintStory, Team, Product, Task,
-    engine
+    Sprint,
+    UserStory,
+    SprintStory,
+    Team,
+    Product,
+    Task,
+    engine,
+    StoryStatus,
 )
 from pydantic import BaseModel, Field
 
@@ -80,34 +86,37 @@ def get_sprint_details(query_input: GetSprintDetailsInput) -> Dict[str, Any]:
             product = session.get(Product, sprint.product_id)
             product_name = product.name if product else "Unknown Product"
             
-            # Get stories in sprint
-            sprint_stories_stmt = (
-                select(SprintStory)
+            # FIX: Use a single JOIN to fetch all stories at once
+            stories_stmt = (
+                select(UserStory)
+                .join(SprintStory, UserStory.story_id == SprintStory.story_id)
                 .where(SprintStory.sprint_id == sprint.sprint_id)
             )
-            sprint_story_links = session.exec(sprint_stories_stmt).all()
-            
+            sprint_stories_results = session.exec(stories_stmt).all()
+
             stories = []
             total_points = 0
             completed_points = 0
-            status_counts = {"TO_DO": 0, "IN_PROGRESS": 0, "DONE": 0}
-            
-            for link in sprint_story_links:
-                story = session.get(UserStory, link.story_id)
-                if story:
-                    stories.append({
+            status_counts = {status: 0 for status in StoryStatus}
+
+            for story in sprint_stories_results:
+                stories.append(
+                    {
                         "story_id": story.story_id,
                         "title": story.title,
-                        "status": story.status,
-                        "story_points": story.story_points
-                    })
-                    
-                    if story.story_points:
-                        total_points += story.story_points
-                        if story.status == "DONE":
-                            completed_points += story.story_points
-                    
-                    status_counts[story.status] = status_counts.get(story.status, 0) + 1
+                        "status": story.status.value,
+                        "story_points": story.story_points,
+                    }
+                )
+
+                if story.story_points:
+                    total_points += story.story_points
+                    if story.status == StoryStatus.DONE:
+                        completed_points += story.story_points
+
+                status_counts[story.status] += 1
+
+            status_counts = {k.value: v for k, v in status_counts.items()}
             
             # Get tasks in sprint
             tasks_stmt = (
