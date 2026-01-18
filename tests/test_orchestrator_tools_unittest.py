@@ -8,16 +8,6 @@ from sqlalchemy.engine import Engine
 import tools.orchestrator_tools as orch_tools
 from tools import db_tools
 from tools.db_tools import create_or_get_product, create_user_story, persist_roadmap, CreateOrGetProductInput, CreateUserStoryInput
-from agile_sqlmodel import (
-    Epic,
-    Feature,
-    Product,
-    Task,
-    Team,
-    TeamMember,
-    Theme,
-    UserStory,
-)
 
 
 class MockToolContext:
