@@ -18,6 +18,9 @@ from tools.db_tools import (
     create_task,
     create_user_story,
     persist_roadmap,
+    CreateOrGetProductInput,
+    CreateUserStoryInput,
+    CreateTaskInput,
 )
 
 # Add parent directory to path
@@ -31,12 +34,13 @@ def test_create_product_new(engine):
 
     db_tools.engine = engine
 
-    from tools.db_tools import create_or_get_product
+    from tools.db_tools import create_or_get_product, CreateOrGetProductInput
 
-    result = create_or_get_product(
+    result = create_or_get_product(CreateOrGetProductInput(
         product_name="Test Project",
         vision="To revolutionize testing",
-    )
+        description=None
+    ))
 
     assert result["success"] is True
     assert result["action"] == "created"
@@ -50,11 +54,11 @@ def test_create_product_existing(engine):
     db_tools.engine = engine
 
     # Create first product
-    result1 = create_or_get_product(product_name="Existing Project")
+    result1 = create_or_get_product(CreateOrGetProductInput(product_name="Existing Project", vision=None, description=None))
     assert result1["action"] == "created"
 
     # Get same product again
-    result2 = create_or_get_product(product_name="Existing Project")
+    result2 = create_or_get_product(CreateOrGetProductInput(product_name="Existing Project", vision=None, description=None))
     assert result2["action"] == "updated"
     assert result2["product_id"] == result1["product_id"]
 
@@ -70,7 +74,7 @@ def test_persist_roadmap(engine):
     db_tools.engine = engine
 
     # Create product first
-    prod_result = create_or_get_product(product_name="Roadmap Project")
+    prod_result = create_or_get_product(CreateOrGetProductInput(product_name="Roadmap Project", vision=None, description=None))
     product_id = prod_result["product_id"]
 
     # Define roadmap
@@ -120,7 +124,7 @@ def test_create_user_story(engine):
     db_tools.engine = engine
 
     # Setup hierarchy
-    prod_result = create_or_get_product(product_name="Story Project")
+    prod_result = create_or_get_product(CreateOrGetProductInput(product_name="Story Project", vision=None, description=None))
     product_id = prod_result["product_id"]
 
     roadmap = [
@@ -144,14 +148,14 @@ def test_create_user_story(engine):
     feature_id = roadmap_result["created"]["features"][0]["id"]
 
     # Create user story
-    story_result = create_user_story(
+    story_result = create_user_story(CreateUserStoryInput(
         product_id=product_id,
         feature_id=feature_id,
         title="Login with email",
         description="As a user, I want to log in with email and password.",
         acceptance_criteria="User can enter email/password and be authenticated.",
         story_points=5,
-    )
+    ))
 
     assert story_result["success"] is True
     assert story_result["story_id"] == 1
@@ -170,7 +174,7 @@ def test_create_task(engine):
     db_tools.engine = engine
 
     # Setup full hierarchy
-    prod_result = create_or_get_product(product_name="Task Project")
+    prod_result = create_or_get_product(CreateOrGetProductInput(product_name="Task Project", vision=None, description=None))
     product_id = prod_result["product_id"]
 
     roadmap = [
@@ -193,20 +197,22 @@ def test_create_task(engine):
     roadmap_result = persist_roadmap(product_id, roadmap)
     feature_id = roadmap_result["created"]["features"][0]["id"]
 
-    story_result = create_user_story(
+    story_result = create_user_story(CreateUserStoryInput(
         product_id=product_id,
         feature_id=feature_id,
         title="Login with email",
         description="As a user, I want to log in.",
-    )
+        acceptance_criteria=None,
+        story_points=None,
+    ))
     story_id = story_result["story_id"]
 
     # Create task
-    task_result = create_task(
+    task_result = create_task(CreateTaskInput(
         story_id=story_id,
         title="Set up email validation",
         description="Implement email regex validation",
-    )
+    ))
 
     assert task_result["success"] is True
     assert task_result["task_id"] == 1
@@ -228,12 +234,14 @@ def test_query_product_structure(engine):
         create_user_story,
         persist_roadmap,
         query_product_structure,
+        CreateOrGetProductInput,
+        CreateUserStoryInput,
     )
 
     # Setup hierarchy
-    prod_result = create_or_get_product(
-        product_name="Query Project", vision="Test vision statement"
-    )
+    prod_result = create_or_get_product(CreateOrGetProductInput(
+        product_name="Query Project", vision="Test vision statement", description=None
+    ))
     product_id = prod_result["product_id"]
 
     roadmap = [
@@ -256,13 +264,14 @@ def test_query_product_structure(engine):
     roadmap_result = persist_roadmap(product_id, roadmap)
     feature_id = roadmap_result["created"]["features"][0]["id"]
 
-    create_user_story(
+    create_user_story(CreateUserStoryInput(
         product_id=product_id,
         feature_id=feature_id,
         title="User can login",
         description="As a user...",
         story_points=5,
-    )
+        acceptance_criteria=None,
+    ))
 
     # Query structure
     result = query_product_structure(product_id)
