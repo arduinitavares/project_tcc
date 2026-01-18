@@ -109,6 +109,13 @@ class TestSprintQueryTools(unittest.TestCase):
             self.assertEqual(status_breakdown[StoryStatus.TO_DO.value], 1)
             self.assertEqual(status_breakdown[StoryStatus.IN_PROGRESS.value], 1)
             self.assertEqual(status_breakdown[StoryStatus.DONE.value], 1)
+            
+            # Verify all enum status values are present in the breakdown, including those with zero count
+            for status in StoryStatus:
+                self.assertIn(status.value, status_breakdown, 
+                             f"Status {status.value} should be present in breakdown")
+            # Specifically verify ACCEPTED status is present with zero count
+            self.assertEqual(status_breakdown[StoryStatus.ACCEPTED.value], 0)
 
 
 if __name__ == '__main__':
