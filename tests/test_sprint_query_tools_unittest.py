@@ -10,6 +10,7 @@ import tools.db_tools as db_tools
 from agile_sqlmodel import (
     Product,
     Sprint,
+    SprintStatus,
     SprintStory,
     StoryStatus,
     Task,
@@ -69,7 +70,7 @@ class TestSprintQueryTools(unittest.TestCase):
                 goal="Test Sprint",
                 start_date=date(2024, 1, 1),
                 end_date=date(2024, 1, 14),
-                status="ACTIVE",
+                status=SprintStatus.ACTIVE,
                 product_id=product.product_id,
                 team_id=team.team_id,
             )
