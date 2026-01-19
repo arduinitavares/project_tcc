@@ -162,6 +162,15 @@ class TestSprintQueryTools(unittest.TestCase):
             self.assertEqual(status_breakdown[StoryStatus.TO_DO.value], 1)
             self.assertEqual(status_breakdown[StoryStatus.IN_PROGRESS.value], 1)
             self.assertEqual(status_breakdown[StoryStatus.DONE.value], 1)
+            self.assertEqual(status_breakdown[StoryStatus.ACCEPTED.value], 0)
+
+            # Verify all enum status values are present in the breakdown
+            for status in StoryStatus:
+                self.assertIn(
+                    status.value,
+                    status_breakdown,
+                    f"Status {status.value} should be present in breakdown",
+                )
 
             # Check task count
             self.assertEqual(result["task_count"], 4)
