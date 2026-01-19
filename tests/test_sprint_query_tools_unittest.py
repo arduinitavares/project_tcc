@@ -1,25 +1,29 @@
-
 import unittest
-from sqlmodel import SQLModel, create_engine, Session
-from sqlalchemy import event
-from sqlalchemy.engine import Engine
 from datetime import date
 
-# Import the function to be tested
-from orchestrator_agent.agent_tools.sprint_planning.sprint_query_tools import get_sprint_details, GetSprintDetailsInput
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+from sqlmodel import Session, SQLModel, create_engine
 
 # Import db tools and models for test data setup
 import tools.db_tools as db_tools
 from agile_sqlmodel import (
     Product,
-    Team,
     Sprint,
-    UserStory,
     SprintStory,
     StoryStatus,
     Task,
     TaskStatus,
+    Team,
+    UserStory,
 )
+
+# Import the function to be tested
+from orchestrator_agent.agent_tools.sprint_planning.sprint_query_tools import (
+    GetSprintDetailsInput,
+    get_sprint_details,
+)
+
 
 class TestSprintQueryTools(unittest.TestCase):
 
@@ -40,8 +44,8 @@ class TestSprintQueryTools(unittest.TestCase):
         db_tools.engine = self.engine
         # We need to do this for the module under test as well
         from orchestrator_agent.agent_tools.sprint_planning import sprint_query_tools
-        sprint_query_tools.engine = self.engine
 
+        sprint_query_tools.engine = self.engine
 
     def tearDown(self):
         """Cleanup the database after each test."""
@@ -74,30 +78,69 @@ class TestSprintQueryTools(unittest.TestCase):
             session.refresh(sprint)
 
             # Create and add stories to the sprint
-            story1 = UserStory(title="Story 1", product_id=product.product_id, status=StoryStatus.TO_DO, story_points=5)
-            story2 = UserStory(title="Story 2", product_id=product.product_id, status=StoryStatus.IN_PROGRESS, story_points=3)
-            story3 = UserStory(title="Story 3", product_id=product.product_id, status=StoryStatus.DONE, story_points=8)
+            story1 = UserStory(
+                title="Story 1",
+                product_id=product.product_id,
+                status=StoryStatus.TO_DO,
+                story_points=5,
+            )
+            story2 = UserStory(
+                title="Story 2",
+                product_id=product.product_id,
+                status=StoryStatus.IN_PROGRESS,
+                story_points=3,
+            )
+            story3 = UserStory(
+                title="Story 3",
+                product_id=product.product_id,
+                status=StoryStatus.DONE,
+                story_points=8,
+            )
             session.add_all([story1, story2, story3])
             session.commit()
             session.refresh(story1)
             session.refresh(story2)
             session.refresh(story3)
 
-            session.add(SprintStory(sprint_id=sprint.sprint_id, story_id=story1.story_id))
-            session.add(SprintStory(sprint_id=sprint.sprint_id, story_id=story2.story_id))
-            session.add(SprintStory(sprint_id=sprint.sprint_id, story_id=story3.story_id))
+            session.add(
+                SprintStory(sprint_id=sprint.sprint_id, story_id=story1.story_id)
+            )
+            session.add(
+                SprintStory(sprint_id=sprint.sprint_id, story_id=story2.story_id)
+            )
+            session.add(
+                SprintStory(sprint_id=sprint.sprint_id, story_id=story3.story_id)
+            )
             session.commit()
 
             # Create tasks for the stories
-            task1 = Task(description="Task 1 for Story 1", status=TaskStatus.TO_DO, story_id=story1.story_id)
-            task2 = Task(description="Task 2 for Story 1", status=TaskStatus.IN_PROGRESS, story_id=story1.story_id)
-            task3 = Task(description="Task 1 for Story 2", status=TaskStatus.DONE, story_id=story2.story_id)
-            task4 = Task(description="Task 2 for Story 2", status=TaskStatus.DONE, story_id=story2.story_id)
+            task1 = Task(
+                description="Task 1 for Story 1",
+                status=TaskStatus.TO_DO,
+                story_id=story1.story_id,
+            )
+            task2 = Task(
+                description="Task 2 for Story 1",
+                status=TaskStatus.IN_PROGRESS,
+                story_id=story1.story_id,
+            )
+            task3 = Task(
+                description="Task 1 for Story 2",
+                status=TaskStatus.DONE,
+                story_id=story2.story_id,
+            )
+            task4 = Task(
+                description="Task 2 for Story 2",
+                status=TaskStatus.DONE,
+                story_id=story2.story_id,
+            )
             session.add_all([task1, task2, task3, task4])
             session.commit()
 
             # 2. Call the function
-            result = get_sprint_details(GetSprintDetailsInput(sprint_id=sprint.sprint_id))
+            result = get_sprint_details(
+                GetSprintDetailsInput(sprint_id=sprint.sprint_id)
+            )
 
             # 3. Assert the results
             self.assertTrue(result["success"])
@@ -126,15 +169,18 @@ class TestSprintQueryTools(unittest.TestCase):
             # Check tasks list structure
             self.assertIn("tasks", result)
             self.assertEqual(len(result["tasks"]), 4)
-            
+
             # Verify task data structure
             task_descriptions = {t["description"] for t in result["tasks"]}
-            self.assertEqual(task_descriptions, {
-                "Task 1 for Story 1",
-                "Task 2 for Story 1", 
-                "Task 1 for Story 2",
-                "Task 2 for Story 2"
-            })
+            self.assertEqual(
+                task_descriptions,
+                {
+                    "Task 1 for Story 1",
+                    "Task 2 for Story 1",
+                    "Task 1 for Story 2",
+                    "Task 2 for Story 2",
+                },
+            )
 
             # Check task status breakdown
             task_status_breakdown = result["task_status_breakdown"]
@@ -143,5 +189,5 @@ class TestSprintQueryTools(unittest.TestCase):
             self.assertEqual(task_status_breakdown[TaskStatus.DONE.value], 2)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
