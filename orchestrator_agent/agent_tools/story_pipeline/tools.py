@@ -12,15 +12,14 @@ These tools handle:
 import json
 from typing import Annotated, Any, Dict, List, Optional
 
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session
 
 from agile_sqlmodel import UserStory, engine
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-
 from orchestrator_agent.agent_tools.story_pipeline.pipeline import (
     story_validation_loop,
 )
@@ -36,7 +35,9 @@ class ProcessStoryInput(BaseModel):
     product_vision: Annotated[
         Optional[str], Field(default=None, description="The product vision statement.")
     ]
-    feature_id: Annotated[int, Field(description="The feature ID to create a story for.")]
+    feature_id: Annotated[
+        int, Field(description="The feature ID to create a story for.")
+    ]
     feature_title: Annotated[str, Field(description="The feature title.")]
     theme: Annotated[str, Field(description="The theme this feature belongs to.")]
     epic: Annotated[str, Field(description="The epic this feature belongs to.")]
@@ -68,7 +69,6 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
     The pipeline will loop up to 3 times until a valid story is produced.
     """
 
-
     # --- ANSI colors for terminal output ---
     CYAN = "\033[96m"
     GREEN = "\033[92m"
@@ -79,26 +79,34 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
     BOLD = "\033[1m"
     DIM = "\033[2m"
 
-    print(f"\n{CYAN}[Pipeline]{RESET} Processing feature: {BOLD}'{story_input.feature_title}'{RESET}")
+    print(
+        f"\n{CYAN}[Pipeline]{RESET} Processing feature: {BOLD}'{story_input.feature_title}'{RESET}"
+    )
     print(f"{DIM}   Theme: {story_input.theme} | Epic: {story_input.epic}{RESET}")
 
     # --- Set up initial state ---
     initial_state: Dict[str, Any] = {
-        "current_feature": json.dumps({
-            "feature_id": story_input.feature_id,
-            "feature_title": story_input.feature_title,
-            "theme": story_input.theme,
-            "epic": story_input.epic,
-        }),
-        "product_context": json.dumps({
-            "product_id": story_input.product_id,
-            "product_name": story_input.product_name,
-            "vision": story_input.product_vision or "",
-        }),
+        "current_feature": json.dumps(
+            {
+                "feature_id": story_input.feature_id,
+                "feature_title": story_input.feature_title,
+                "theme": story_input.theme,
+                "epic": story_input.epic,
+            }
+        ),
+        "product_context": json.dumps(
+            {
+                "product_id": story_input.product_id,
+                "product_name": story_input.product_name,
+                "vision": story_input.product_vision or "",
+            }
+        ),
         "user_persona": story_input.user_persona,
-        "story_preferences": json.dumps({
-            "include_story_points": story_input.include_story_points,
-        }),
+        "story_preferences": json.dumps(
+            {
+                "include_story_points": story_input.include_story_points,
+            }
+        ),
         "refinement_feedback": "",  # Empty for first iteration
         "iteration_count": 0,
     }
@@ -148,7 +156,7 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
                 )
                 if current_session and current_session.state:
                     state = current_session.state
-                    
+
                     # Check for new story draft - use this to track iterations
                     story_draft = state.get("story_draft")
                     if story_draft and story_draft != last_story_draft:
@@ -157,10 +165,14 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
                         if draft_hash not in seen_drafts:
                             seen_drafts.add(draft_hash)
                             current_iteration += 1
-                            print(f"\n{MAGENTA}   ╭─ Iteration {current_iteration} ─────────────────────────────────╮{RESET}")
-                        
+                            print(
+                                f"\n{MAGENTA}   ╭─ Iteration {current_iteration} ─────────────────────────────────╮{RESET}"
+                            )
+
                         last_story_draft = story_draft
-                        draft_data = story_draft if isinstance(story_draft, dict) else {}
+                        draft_data = (
+                            story_draft if isinstance(story_draft, dict) else {}
+                        )
                         if isinstance(story_draft, str):
                             try:
                                 draft_data = json.loads(story_draft)
@@ -174,12 +186,19 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
                             print(f"{CYAN}   │{RESET}    Title: {title}")
                             print(f"{CYAN}   │{RESET}    Story: {desc}...")
                             print(f"{CYAN}   │{RESET}    Points: {points}")
-                    
+
                     # Check for validation result
                     validation_result = state.get("validation_result")
-                    if validation_result and validation_result != last_validation_result:
+                    if (
+                        validation_result
+                        and validation_result != last_validation_result
+                    ):
                         last_validation_result = validation_result
-                        val_data = validation_result if isinstance(validation_result, dict) else {}
+                        val_data = (
+                            validation_result
+                            if isinstance(validation_result, dict)
+                            else {}
+                        )
                         if isinstance(validation_result, str):
                             try:
                                 val_data = json.loads(validation_result)
@@ -191,33 +210,44 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
                             invest = val_data.get("invest_scores", {})
                             issues = val_data.get("issues", [])
                             suggestions = val_data.get("suggestions", [])
-                            
+
                             status_icon = "✅" if is_valid else "❌"
                             status_color = GREEN if is_valid else RED
-                            print(f"{YELLOW}   │ 🔍 VALIDATION: {status_color}{status_icon} {'PASS' if is_valid else 'FAIL'}{RESET} (Score: {score}/100)")
-                            
+                            print(
+                                f"{YELLOW}   │ 🔍 VALIDATION: {status_color}{status_icon} {'PASS' if is_valid else 'FAIL'}{RESET} (Score: {score}/100)"
+                            )
+
                             # Show INVEST scores
                             if invest:
-                                invest_str = " | ".join([f"{k[0].upper()}:{v}" for k, v in invest.items()])
+                                invest_str = " | ".join(
+                                    [f"{k[0].upper()}:{v}" for k, v in invest.items()]
+                                )
                                 print(f"{YELLOW}   │{RESET}    INVEST: {invest_str}")
-                            
+
                             # Show issues if failed
                             if not is_valid and issues:
                                 print(f"{RED}   │{RESET}    Issues:")
                                 for issue in issues[:3]:  # Show first 3 issues
                                     print(f"{RED}   │{RESET}      • {issue}")
-                            
+
                             # Show suggestions
                             if suggestions:
                                 print(f"{YELLOW}   │{RESET}    Feedback:")
                                 for sug in suggestions[:2]:  # Show first 2 suggestions
                                     print(f"{YELLOW}   │{RESET}      → {sug}")
-                    
+
                     # Check for refinement result
                     refinement_result = state.get("refinement_result")
-                    if refinement_result and refinement_result != last_refinement_result:
+                    if (
+                        refinement_result
+                        and refinement_result != last_refinement_result
+                    ):
                         last_refinement_result = refinement_result
-                        ref_data = refinement_result if isinstance(refinement_result, dict) else {}
+                        ref_data = (
+                            refinement_result
+                            if isinstance(refinement_result, dict)
+                            else {}
+                        )
                         if isinstance(refinement_result, str):
                             try:
                                 ref_data = json.loads(refinement_result)
@@ -227,14 +257,20 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
                             is_valid = ref_data.get("is_valid", False)
                             refined = ref_data.get("refined_story", {})
                             notes = ref_data.get("refinement_notes", "")
-                            
+
                             status_color = GREEN if is_valid else YELLOW
                             print(f"{status_color}   │ ✨ REFINED:{RESET}")
                             if refined:
-                                print(f"{status_color}   │{RESET}    Title: {refined.get('title', '')}")
+                                print(
+                                    f"{status_color}   │{RESET}    Title: {refined.get('title', '')}"
+                                )
                             if notes:
-                                print(f"{status_color}   │{RESET}    Notes: {notes[:80]}...")
-                            print(f"{MAGENTA}   ╰────────────────────────────────────────────────╯{RESET}")
+                                print(
+                                    f"{status_color}   │{RESET}    Notes: {notes[:80]}..."
+                                )
+                            print(
+                                f"{MAGENTA}   ╰────────────────────────────────────────────────╯{RESET}"
+                            )
             except:
                 pass  # Ignore errors during state inspection
 
@@ -261,23 +297,27 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
                 refined_story = refinement_result.get("refined_story", {})
                 is_valid = refinement_result.get("is_valid", False)
                 refinement_notes = refinement_result.get("refinement_notes", "")
-                
+
                 # Final summary
                 final_score = 0
                 if isinstance(state.get("validation_result"), dict):
-                    final_score = state.get("validation_result", {}).get("validation_score", 0)
+                    final_score = state.get("validation_result", {}).get(
+                        "validation_score", 0
+                    )
                 elif isinstance(state.get("validation_result"), str):
                     try:
                         val = json.loads(state.get("validation_result", "{}"))
                         final_score = val.get("validation_score", 0)
                     except:
                         pass
-                
+
                 status_icon = "✅" if is_valid else "⚠️"
                 status_color = GREEN if is_valid else YELLOW
                 # Use locally tracked iterations (current_iteration) instead of state
                 iterations = max(current_iteration, 1)  # At least 1 iteration
-                print(f"\n{status_color}   {status_icon} FINAL: '{refined_story.get('title', 'Unknown')}' | Score: {final_score}/100 | Iterations: {iterations}{RESET}")
+                print(
+                    f"\n{status_color}   {status_icon} FINAL: '{refined_story.get('title', 'Unknown')}' | Score: {final_score}/100 | Iterations: {iterations}{RESET}"
+                )
 
                 return {
                     "success": True,
@@ -287,7 +327,7 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
                     "iterations": iterations,
                     "refinement_notes": refinement_notes,
                     "message": f"Generated story '{refined_story.get('title', 'Unknown')}' "
-                               f"(valid={is_valid}, iterations={iterations})",
+                    f"(valid={is_valid}, iterations={iterations})",
                 }
 
         # Fallback: try to get story_draft
@@ -364,7 +404,7 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
 
     Each feature is processed ONE AT A TIME through the full pipeline.
     Results are returned for user review. Use `save_validated_stories` to persist.
-    
+
     NOTE: This function does NOT save to the database. After user confirms,
     call `save_validated_stories` with the validated_stories from this response.
     """
@@ -378,8 +418,14 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
 
     print(f"\n{CYAN}{'═' * 60}{RESET}")
     print(f"{CYAN}{BOLD}  INVEST-VALIDATED STORY PIPELINE{RESET}")
-    print(f"{CYAN}  Processing {len(batch_input.features)} features for '{batch_input.product_name}'{RESET}")
-    print(f"{CYAN}  Persona: {batch_input.user_persona[:50]}...{RESET}" if len(batch_input.user_persona) > 50 else f"{CYAN}  Persona: {batch_input.user_persona}{RESET}")
+    print(
+        f"{CYAN}  Processing {len(batch_input.features)} features for '{batch_input.product_name}'{RESET}"
+    )
+    print(
+        f"{CYAN}  Persona: {batch_input.user_persona[:50]}...{RESET}"
+        if len(batch_input.user_persona) > 50
+        else f"{CYAN}  Persona: {batch_input.user_persona}{RESET}"
+    )
     print(f"{CYAN}{'═' * 60}{RESET}")
 
     validated_stories: List[Dict[str, Any]] = []
@@ -387,7 +433,9 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
     total_iterations = 0
 
     for idx, feature in enumerate(batch_input.features):
-        print(f"\n{YELLOW}[{idx + 1}/{len(batch_input.features)}]{RESET} {BOLD}{feature.get('feature_title', 'Unknown')}{RESET}")
+        print(
+            f"\n{YELLOW}[{idx + 1}/{len(batch_input.features)}]{RESET} {BOLD}{feature.get('feature_title', 'Unknown')}{RESET}"
+        )
 
         result = await process_single_story(
             ProcessStoryInput(
@@ -404,21 +452,25 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
         )
 
         if result.get("success") and result.get("is_valid"):
-            validated_stories.append({
-                "feature_id": feature["feature_id"],
-                "feature_title": feature["feature_title"],
-                "story": result["story"],
-                "validation_score": result.get("validation_score", 0),
-                "iterations": result.get("iterations", 1),
-            })
+            validated_stories.append(
+                {
+                    "feature_id": feature["feature_id"],
+                    "feature_title": feature["feature_title"],
+                    "story": result["story"],
+                    "validation_score": result.get("validation_score", 0),
+                    "iterations": result.get("iterations", 1),
+                }
+            )
             total_iterations += result.get("iterations", 1)
         else:
-            failed_stories.append({
-                "feature_id": feature["feature_id"],
-                "feature_title": feature["feature_title"],
-                "error": result.get("error", "Validation failed"),
-                "partial_story": result.get("story"),
-            })
+            failed_stories.append(
+                {
+                    "feature_id": feature["feature_id"],
+                    "feature_title": feature["feature_title"],
+                    "error": result.get("error", "Validation failed"),
+                    "partial_story": result.get("story"),
+                }
+            )
 
     # --- Summary ---
     print(f"\n{CYAN}{'═' * 60}{RESET}")
@@ -435,11 +487,13 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
         "total_features": len(batch_input.features),
         "validated_count": len(validated_stories),
         "failed_count": len(failed_stories),
-        "average_iterations": total_iterations / len(validated_stories) if validated_stories else 0,
+        "average_iterations": (
+            total_iterations / len(validated_stories) if validated_stories else 0
+        ),
         "validated_stories": validated_stories,
         "failed_stories": failed_stories,
         "message": f"Processed {len(batch_input.features)} features: "
-                   f"{len(validated_stories)} validated, {len(failed_stories)} failed",
+        f"{len(validated_stories)} validated, {len(failed_stories)} failed",
     }
 
 
@@ -464,12 +518,12 @@ class SaveStoriesInput(BaseModel):
 async def save_validated_stories(save_input: SaveStoriesInput) -> Dict[str, Any]:
     """
     Save already-validated stories to the database WITHOUT re-running the pipeline.
-    
+
     Use this tool when:
     - Stories have already been generated and shown to the user
     - User confirms they want to save them
     - NO need to regenerate - just persist what was already created
-    
+
     This saves API calls and ensures the exact stories shown are saved.
     """
     # --- ANSI colors for terminal output ---
@@ -478,7 +532,9 @@ async def save_validated_stories(save_input: SaveStoriesInput) -> Dict[str, Any]
     RED = "\033[91m"
     RESET = "\033[0m"
 
-    print(f"\n{CYAN}Saving {len(save_input.stories)} validated stories to database...{RESET}")
+    print(
+        f"\n{CYAN}Saving {len(save_input.stories)} validated stories to database...{RESET}"
+    )
 
     saved_ids = []
     failed_saves = []
@@ -499,13 +555,19 @@ async def save_validated_stories(save_input: SaveStoriesInput) -> Dict[str, Any]
                     session.commit()
                     session.refresh(user_story)
                     saved_ids.append(user_story.story_id)
-                    print(f"   {GREEN}✓{RESET} Saved story ID: {user_story.story_id} - {story_data.get('title', '')[:40]}")
+                    print(
+                        f"   {GREEN}✓{RESET} Saved story ID: {user_story.story_id} - {story_data.get('title', '')[:40]}"
+                    )
                 except SQLAlchemyError as e:
-                    failed_saves.append({
-                        "title": story_data.get("title", "Unknown"),
-                        "error": str(e),
-                    })
-                    print(f"   {RED}✗{RESET} Failed: {story_data.get('title', '')[:40]} - {e}")
+                    failed_saves.append(
+                        {
+                            "title": story_data.get("title", "Unknown"),
+                            "error": str(e),
+                        }
+                    )
+                    print(
+                        f"   {RED}✗{RESET} Failed: {story_data.get('title', '')[:40]} - {e}"
+                    )
     except SQLAlchemyError as e:
         print(f"   {RED}[DB Error]{RESET} {e}")
         return {
@@ -520,7 +582,6 @@ async def save_validated_stories(save_input: SaveStoriesInput) -> Dict[str, Any]
         "failed_count": len(failed_saves),
         "saved_story_ids": saved_ids,
         "failed_saves": failed_saves,
-        "message": f"Saved {len(saved_ids)} stories to database" + (
-            f" ({len(failed_saves)} failed)" if failed_saves else ""
-        ),
+        "message": f"Saved {len(saved_ids)} stories to database"
+        + (f" ({len(failed_saves)} failed)" if failed_saves else ""),
     }
