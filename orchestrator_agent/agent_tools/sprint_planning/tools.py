@@ -546,33 +546,55 @@ def save_sprint_tool(
 
             assert sprint.sprint_id is not None, "Sprint must have an ID after save"
 
+            # Optimization: Batch fetch existing links
+            existing_links = session.exec(
+                select(SprintStory.story_id).where(
+                    SprintStory.sprint_id == sprint.sprint_id,
+                    SprintStory.story_id.in_(save_input.selected_story_ids)
+                )
+            ).all()
+            existing_story_ids = set(existing_links)
+
+            # Identify stories that need processing
+            stories_to_process_ids = []
+            seen_ids_in_batch = set()
             for story_id in save_input.selected_story_ids:
-                # Check if already linked
-                existing_link = session.exec(
-                    select(SprintStory).where(
-                        SprintStory.sprint_id == sprint.sprint_id,
-                        SprintStory.story_id == story_id,
-                    )
-                ).first()
-
-                if existing_link:
+                if story_id in existing_story_ids:
                     stories_skipped += 1
-                    continue
+                elif story_id in seen_ids_in_batch:
+                    # Duplicate in input: conceptually "skipped" as it will be linked by the first occurrence
+                    stories_skipped += 1
+                else:
+                    stories_to_process_ids.append(story_id)
+                    seen_ids_in_batch.add(story_id)
 
-                # Verify story exists and is ready
-                story = session.get(UserStory, story_id)
-                if not story or story.status != StoryStatus.TO_DO:
-                    continue
+            if stories_to_process_ids:
+                # Batch fetch stories
+                stories_to_process = session.exec(
+                    select(UserStory).where(
+                        UserStory.story_id.in_(stories_to_process_ids)
+                    )
+                ).all()
 
-                # Create link
-                link = SprintStory(sprint_id=sprint.sprint_id, story_id=story_id)
-                session.add(link)
-                stories_linked += 1
-                total_points += story.story_points or 0
+                # Create a map for easy lookup
+                stories_map = {s.story_id: s for s in stories_to_process}
 
-                # Update story status to IN_PROGRESS
-                story.status = StoryStatus.IN_PROGRESS
-                session.add(story)
+                for story_id in stories_to_process_ids:
+                    story = stories_map.get(story_id)
+
+                    # Verify story exists and is ready
+                    if not story or story.status != StoryStatus.TO_DO:
+                        continue
+
+                    # Create link
+                    link = SprintStory(sprint_id=sprint.sprint_id, story_id=story_id)
+                    session.add(link)
+                    stories_linked += 1
+                    total_points += story.story_points or 0
+
+                    # Update story status to IN_PROGRESS
+                    story.status = StoryStatus.IN_PROGRESS
+                    session.add(story)
 
             session.commit()
 
