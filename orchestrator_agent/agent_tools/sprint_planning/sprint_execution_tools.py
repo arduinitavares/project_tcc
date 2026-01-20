@@ -4,11 +4,11 @@ Provides mutation tools for updating story status and modifying sprint contents.
 """
 
 from typing import Optional, Dict, Any, List, Literal
-from datetime import datetime
-from sqlmodel import Session, select
+from datetime import datetime, timezone
+from sqlmodel import Session, select, col
 from agile_sqlmodel import (
     Sprint, UserStory, SprintStory, WorkflowEvent, WorkflowEventType,
-    engine
+    StoryStatus, engine
 )
 from pydantic import BaseModel, Field
 import json
@@ -76,7 +76,24 @@ def update_story_status(status_input: UpdateStoryStatusInput) -> Dict[str, Any]:
                     }
             
             # Update the status
-            story.status = status_input.new_status
+            # Map the input literal to the Enum if needed, or rely on automatic conversion
+            # The input new_status is "TO_DO", "IN_PROGRESS", "DONE"
+            # The Enum values are "To Do", "In Progress", "Done"
+            # We should probably map it to ensure correctness
+
+            status_map = {
+                "TO_DO": StoryStatus.TO_DO,
+                "IN_PROGRESS": StoryStatus.IN_PROGRESS,
+                "DONE": StoryStatus.DONE
+            }
+
+            # If the input matches a key, use the enum. If not, try assignment directly (e.g. if it passed "In Progress")
+            if status_input.new_status in status_map:
+                story.status = status_map[status_input.new_status]
+            else:
+                 # Fallback, though Pydantic validation on Input prevents other values
+                 story.status = status_input.new_status
+
             session.add(story)
             session.commit()
             session.refresh(story)
@@ -216,50 +233,69 @@ def modify_sprint_stories(modify_input: ModifySprintStoriesInput) -> Dict[str, A
             removed = []
             remove_errors = []
             
-            # Process additions
+            # --- Bulk Processing Additions ---
             if modify_input.add_story_ids:
-                for story_id in modify_input.add_story_ids:
-                    story = session.get(UserStory, story_id)
+                # Deduplicate input
+                unique_add_ids = list(set(modify_input.add_story_ids))
+
+                # 1. Fetch all stories
+                stories_stmt = select(UserStory).where(UserStory.story_id.in_(unique_add_ids))
+                stories = session.exec(stories_stmt).all()
+                stories_map = {s.story_id: s for s in stories}
+
+                # 2. Fetch existing links for this sprint
+                existing_links_stmt = select(SprintStory).where(
+                    SprintStory.sprint_id == sprint.sprint_id,
+                    SprintStory.story_id.in_(unique_add_ids)
+                )
+                existing_links = session.exec(existing_links_stmt).all()
+                existing_story_ids = {link.story_id for link in existing_links}
+
+                # 3. Fetch active sprint links for these stories in OTHER sprints
+                other_links_stmt = (
+                    select(SprintStory.story_id, Sprint.sprint_id)
+                    .join(Sprint, Sprint.sprint_id == SprintStory.sprint_id)
+                    .where(SprintStory.story_id.in_(unique_add_ids))
+                    .where(Sprint.status.in_(["PLANNED", "ACTIVE"]))
+                )
+                other_links_results = session.exec(other_links_stmt).all()
+
+                # Map story_id -> sprint_id for active sprints
+                active_sprint_map = {}
+                for s_id, sp_id in other_links_results:
+                    if s_id not in active_sprint_map:
+                         active_sprint_map[s_id] = sp_id
+
+                # Process each unique ID
+                for story_id in unique_add_ids:
+                    story = stories_map.get(story_id)
                     if not story:
                         add_errors.append({"story_id": story_id, "error": "Story not found"})
                         continue
+
+                    if story_id in existing_story_ids:
+                         add_errors.append({"story_id": story_id, "error": "Already in sprint"})
+                         continue
                     
-                    # Check if already in this sprint
-                    existing = session.exec(
-                        select(SprintStory)
-                        .where(SprintStory.sprint_id == sprint.sprint_id)
-                        .where(SprintStory.story_id == story_id)
-                    ).first()
-                    
-                    if existing:
-                        add_errors.append({"story_id": story_id, "error": "Already in sprint"})
-                        continue
-                    
-                    # Check if in another active sprint
-                    other_sprint_link = session.exec(
-                        select(SprintStory)
-                        .join(Sprint, Sprint.sprint_id == SprintStory.sprint_id)
-                        .where(SprintStory.story_id == story_id)
-                        .where(Sprint.status.in_(["PLANNED", "ACTIVE"]))
-                    ).first()
-                    
-                    if other_sprint_link:
-                        add_errors.append({
-                            "story_id": story_id, 
-                            "error": f"Already in sprint {other_sprint_link.sprint_id}"
-                        })
-                        continue
+                    if story_id in active_sprint_map:
+                        other_sprint_id = active_sprint_map[story_id]
+                        if other_sprint_id != sprint.sprint_id:
+                            add_errors.append({
+                                "story_id": story_id,
+                                "error": f"Already in sprint {other_sprint_id}"
+                            })
+                            continue
                     
                     # Add to sprint
                     sprint_story = SprintStory(
                         sprint_id=sprint.sprint_id,
                         story_id=story_id,
-                        added_at=datetime.utcnow()
+                        added_at=datetime.now(timezone.utc)
                     )
                     session.add(sprint_story)
                     
                     # Update story status to IN_PROGRESS
-                    story.status = "IN_PROGRESS"
+                    story.status = StoryStatus.IN_PROGRESS
                     session.add(story)
                     
                     added.append({
@@ -269,16 +305,25 @@ def modify_sprint_stories(modify_input: ModifySprintStoriesInput) -> Dict[str, A
                     })
                     print(f"   [+] Added story {story_id}: {story.title}")
             
-            # Process removals
+            # --- Bulk Processing Removals ---
             if modify_input.remove_story_ids:
-                for story_id in modify_input.remove_story_ids:
-                    # Find the link
-                    sprint_story = session.exec(
-                        select(SprintStory)
-                        .where(SprintStory.sprint_id == sprint.sprint_id)
-                        .where(SprintStory.story_id == story_id)
-                    ).first()
-                    
+                unique_remove_ids = list(set(modify_input.remove_story_ids))
+
+                # 1. Fetch existing links
+                links_stmt = select(SprintStory).where(
+                    SprintStory.sprint_id == sprint.sprint_id,
+                    SprintStory.story_id.in_(unique_remove_ids)
+                )
+                links = session.exec(links_stmt).all()
+                links_map = {link.story_id: link for link in links}
+
+                # 2. Fetch stories to check status
+                stories_stmt = select(UserStory).where(UserStory.story_id.in_(unique_remove_ids))
+                stories = session.exec(stories_stmt).all()
+                stories_map = {s.story_id: s for s in stories}
+
+                for story_id in unique_remove_ids:
+                    sprint_story = links_map.get(story_id)
                     if not sprint_story:
                         remove_errors.append({
                             "story_id": story_id, 
@@ -286,10 +331,9 @@ def modify_sprint_stories(modify_input: ModifySprintStoriesInput) -> Dict[str, A
                         })
                         continue
                     
-                    story = session.get(UserStory, story_id)
+                    story = stories_map.get(story_id)
                     if story:
-                        # Check if story is already DONE
-                        if story.status == "DONE":
+                        if story.status == StoryStatus.DONE:
                             remove_errors.append({
                                 "story_id": story_id,
                                 "error": "Cannot remove completed story"
@@ -297,12 +341,10 @@ def modify_sprint_stories(modify_input: ModifySprintStoriesInput) -> Dict[str, A
                             continue
                         
                         # Revert status to TO_DO
-                        story.status = "TO_DO"
+                        story.status = StoryStatus.TO_DO
                         session.add(story)
                     
-                    # Remove from sprint
                     session.delete(sprint_story)
-                    
                     removed.append({
                         "story_id": story_id,
                         "title": story.title if story else "Unknown"
@@ -311,18 +353,16 @@ def modify_sprint_stories(modify_input: ModifySprintStoriesInput) -> Dict[str, A
             
             session.commit()
             
-            # Calculate new sprint totals
-            sprint_stories = session.exec(
-                select(SprintStory)
+            # Calculate new sprint totals (Optimized)
+            totals_stmt = (
+                select(UserStory)
+                .join(SprintStory, SprintStory.story_id == UserStory.story_id)
                 .where(SprintStory.sprint_id == sprint.sprint_id)
-            ).all()
+            )
+            sprint_stories_objs = session.exec(totals_stmt).all()
             
-            total_stories = len(sprint_stories)
-            total_points = 0
-            for ss in sprint_stories:
-                story = session.get(UserStory, ss.story_id)
-                if story and story.story_points:
-                    total_points += story.story_points
+            total_stories = len(sprint_stories_objs)
+            total_points = sum(s.story_points or 0 for s in sprint_stories_objs)
             
             return {
                 "success": True,
@@ -412,7 +452,7 @@ def complete_sprint(complete_input: CompleteSprintInput) -> Dict[str, Any]:
                     if story.story_points:
                         total_points += story.story_points
                     
-                    if story.status == "DONE":
+                    if story.status == StoryStatus.DONE: # Fixed check
                         completed_stories += 1
                         if story.story_points:
                             completed_points += story.story_points
