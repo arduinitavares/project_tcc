@@ -17,9 +17,12 @@ from typing import Annotated, Any, Dict, List, Optional
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
 from agile_sqlmodel import (
+    Epic,
+    Feature,
     Product,
     Sprint,
     SprintStatus,
@@ -27,6 +30,7 @@ from agile_sqlmodel import (
     StoryStatus,
     Task,
     Team,
+    Theme,
     UserStory,
     WorkflowEvent,
     WorkflowEventType,
@@ -203,7 +207,11 @@ def get_backlog_for_planning(
                 }
 
             # Query stories
-            stmt = select(UserStory).where(
+            stmt = select(UserStory).options(
+                joinedload(UserStory.feature)
+                .joinedload(Feature.epic)
+                .joinedload(Epic.theme)
+            ).where(
                 UserStory.product_id == query_input.product_id
             )
             if query_input.only_ready:
