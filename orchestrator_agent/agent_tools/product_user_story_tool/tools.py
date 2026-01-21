@@ -3,7 +3,7 @@
 Tools for creating and persisting user stories from the orchestrator.
 """
 
-from typing import Annotated, Any, Dict, List, Optional, Union
+from typing import Annotated, Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
