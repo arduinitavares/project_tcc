@@ -6,7 +6,7 @@ This agent receives a story draft and validates it, providing:
 - is_valid: boolean
 - validation_score: 0-100
 - issues: list of specific problems found
-- suggestions: actionable feedback for refinement
+- suggestions: actionable feedback for refinement (EMPTY if none needed)
 
 Output is stored in state['validation_result'] for the next agent.
 """
@@ -14,11 +14,40 @@ Output is stored in state['validation_result'] for the next agent.
 import os
 
 import dotenv
+from pydantic import BaseModel, Field
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 
 # --- Load Environment ---
 dotenv.load_dotenv()
+
+# --- Output Schema ---
+class InvestScores(BaseModel):
+    """INVEST principle scores (0-20 each)."""
+    independent: int = Field(..., ge=0, le=20, description="Can be developed alone (0-20)")
+    negotiable: int = Field(..., ge=0, le=20, description="Room for discussion (0-20)")
+    valuable: int = Field(..., ge=0, le=20, description="Clear user value (0-20)")
+    estimable: int = Field(..., ge=0, le=20, description="Can be estimated (0-20)")
+    small: int = Field(..., ge=0, le=20, description="Fits in a sprint (0-20)")
+    testable: int = Field(..., ge=0, le=20, description="Has testable criteria (0-20)")
+
+
+class TimeFrameAlignment(BaseModel):
+    """Time-frame alignment check result."""
+    is_aligned: bool = Field(..., description="True if story matches its time-frame")
+    issues: list[str] = Field(default_factory=list, description="Time-frame violation issues (empty if aligned)")
+
+
+class ValidationResult(BaseModel):
+    """Structured validation output - enables deterministic checking."""
+    is_valid: bool = Field(..., description="True if story passes validation (score >= 70, no critical issues, time-frame aligned)")
+    validation_score: int = Field(..., ge=0, le=100, description="Overall quality score 0-100")
+    invest_scores: InvestScores = Field(..., description="Individual INVEST principle scores")
+    time_frame_alignment: TimeFrameAlignment = Field(..., description="Time-frame alignment result")
+    issues: list[str] = Field(default_factory=list, description="Specific problems found. EMPTY [] if no issues.")
+    suggestions: list[str] = Field(default_factory=list, description="Actionable improvements. MUST be EMPTY [] if no improvements needed. Never put positive feedback here.")
+    verdict: str = Field(..., description="Brief summary of validation result")
+
 
 # --- Model ---
 model = LiteLlm(
@@ -114,7 +143,7 @@ Check if the story's assumptions match its time-frame:
 - Story contradicts the theme justification
 
 # OUTPUT FORMAT
-You MUST output valid JSON with this exact structure:
+You MUST output valid JSON matching the ValidationResult schema:
 ```json
 {
   "is_valid": <boolean>,
@@ -131,23 +160,60 @@ You MUST output valid JSON with this exact structure:
     "is_aligned": <boolean>,
     "issues": ["<issue if misaligned>"]
   },
-  "issues": [
-    "<specific issue 1>",
-    "<specific issue 2>"
-  ],
-  "suggestions": [
-    "<actionable suggestion 1>",
-    "<actionable suggestion 2>"
-  ],
-  "verdict": "<brief summary of validation result>"
+  "issues": ["<specific issue 1>", "<specific issue 2>"],
+  "suggestions": ["<actionable suggestion 1>"],
+  "verdict": "<brief summary>"
 }
 ```
+
+# ⚠️ CRITICAL RULES FOR suggestions FIELD
+
+The `suggestions` array controls whether the refinement loop continues or exits.
+
+**Rule 1: suggestions MUST be EMPTY [] when the story needs no improvements**
+- If the story is good (score >= 85, no issues): `"suggestions": []`
+- NEVER put positive feedback like "story is well defined" in suggestions
+- NEVER put "none" or "no suggestions" as a suggestion item
+
+**Rule 2: Only include ACTIONABLE items in suggestions**
+- ✅ Good: "Add acceptance criterion for empty search results"
+- ✅ Good: "Clarify what happens when user cancels mid-process"
+- ❌ Bad: "Story is comprehensive and ready"
+- ❌ Bad: "No further suggestions"
+- ❌ Bad: "None"
+
+**Rule 3: Use `verdict` for positive feedback, not `suggestions`**
+- verdict: "Story meets all INVEST criteria and is ready for development."
+- suggestions: []
 
 # VALIDATION THRESHOLDS
 - is_valid = TRUE if validation_score >= 70 AND no critical issues AND time_frame_alignment.is_aligned = TRUE
 - Critical issues: missing acceptance criteria, no user value, story too large, time-frame violation
 
-# EXAMPLE OUTPUT (Valid)
+# EXAMPLE OUTPUT (Valid - score 95, no suggestions needed)
+```json
+{
+  "is_valid": true,
+  "validation_score": 95,
+  "invest_scores": {
+    "independent": 20,
+    "negotiable": 18,
+    "valuable": 20,
+    "estimable": 17,
+    "small": 15,
+    "testable": 20
+  },
+  "time_frame_alignment": {
+    "is_aligned": true,
+    "issues": []
+  },
+  "issues": [],
+  "suggestions": [],
+  "verdict": "Story meets all INVEST criteria. Well-defined acceptance criteria cover happy path and edge cases."
+}
+```
+
+# EXAMPLE OUTPUT (Valid - score 85, has suggestions for improvement)
 ```json
 {
   "is_valid": true,
@@ -166,9 +232,10 @@ You MUST output valid JSON with this exact structure:
   },
   "issues": [],
   "suggestions": [
-    "Consider adding an edge case for empty search results"
+    "Consider adding an edge case for empty search results",
+    "Clarify behavior when user has no permissions"
   ],
-  "verdict": "Story meets INVEST criteria. Minor improvement possible but acceptable as-is."
+  "verdict": "Story meets INVEST criteria. Minor improvements possible."
 }
 ```
 
@@ -211,4 +278,5 @@ invest_validator_agent = LlmAgent(
     instruction=INVEST_VALIDATOR_INSTRUCTION,
     description="Validates a user story against INVEST principles.",
     output_key="validation_result",  # Stores output in state['validation_result']
+    output_schema=ValidationResult,  # Pydantic schema for structured output
 )

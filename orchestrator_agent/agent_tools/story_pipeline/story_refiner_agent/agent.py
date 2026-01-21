@@ -39,18 +39,47 @@ def exit_loop(tool_context: ToolContext) -> dict[str, bool | str]:
     - validation_score >= 90 (high quality)
     - validation_result.suggestions is EMPTY (no actionable feedback remaining)
     
-    Do NOT call this if there are still suggestions to apply, even if score is high.
+    Do NOT call this if there are still actionable suggestions to apply.
     Apply the suggestions first, then exit on the next iteration.
     
     This will immediately stop the refinement loop.
     """
-    print(f"   [exit_loop] Story validated - exiting refinement loop")
+    # Programmatic guard: Check if suggestions exist in state
+    validation_result = tool_context.state.get("validation_result")
+    if validation_result:
+        # Try to parse if it's a string
+        if isinstance(validation_result, str):
+            import json
+            try:
+                validation_result = json.loads(validation_result)
+            except json.JSONDecodeError:
+                pass  # Keep as string if parsing fails
+        
+        # Check for suggestions - now a simple length check since validator outputs [] when none
+        if isinstance(validation_result, dict):
+            suggestions = validation_result.get("suggestions", [])
+            if suggestions and len(suggestions) > 0:
+                print(f"   [exit_loop] ⚠️ BLOCKED - {len(suggestions)} suggestions pending. Apply them first!")
+                return {
+                    "loop_exit": False, 
+                    "reason": f"Cannot exit: {len(suggestions)} suggestions remain. Apply them and try again.",
+                    "pending_suggestions": suggestions
+                }
+    
+    print(f"   [exit_loop] ✅ Story validated - exiting refinement loop")
     tool_context.actions.escalate = True
     return {"loop_exit": True, "reason": "Story validated successfully"}
 
 
 # --- Instructions ---
 STORY_REFINER_INSTRUCTION = """You are an expert Agile coach specializing in refining user stories.
+
+# ⚠️ MANDATORY FIRST STEP - DO THIS BEFORE ANYTHING ELSE
+Before taking any action, you MUST check the validation_result.suggestions array:
+
+1. Count the suggestions: len(validation_result.suggestions)
+2. If count > 0: You have actionable feedback → DO NOT call exit_loop
+3. If count == 0: No feedback remaining → You MAY call exit_loop (if score >= 90)
 
 # YOUR TASK
 Based on the validation feedback, decide:
@@ -63,34 +92,39 @@ Based on the validation feedback, decide:
 - `validation_result`: Validation feedback with is_valid, validation_score, issues, suggestions
 - `current_feature`: The feature context
 
-# CRITICAL: FEEDBACK-AWARE EXIT
-**Call `exit_loop` ONLY when BOTH conditions are true:**
-- validation_result.validation_score >= 90
-- validation_result.suggestions is EMPTY (length = 0)
+# 🚫 EXIT_LOOP GATE - READ CAREFULLY
+**You are FORBIDDEN from calling exit_loop if validation_result.suggestions has ANY items.**
 
-**Do NOT call exit_loop if suggestions exist**, even with a high score.
-Valuable feedback should always be applied to maximize story quality.
+Even if validation_score is 90, 95, or 100 - if there are suggestions, you MUST:
+1. Apply all suggestions to improve the story
+2. Output the refined story
+3. Let the loop continue so the next iteration can validate your improvements
+
+**The ONLY time you may call exit_loop:**
+- validation_score >= 90 AND
+- validation_result.suggestions == [] (empty array, zero items)
 
 # DECISION LOGIC
 
-## CASE 1: Score >= 90 AND suggestions is EMPTY
+## CASE 1: Score >= 90 AND suggestions is EMPTY (len = 0)
 1. Call `exit_loop` tool to stop the loop
 2. Output the story as final with no changes
 3. Set refinement_applied=false
 
-## CASE 2: Score >= 90 BUT suggestions is NOT EMPTY
-1. Do NOT call exit_loop (let next iteration validate improvements)
-2. Apply each suggestion from validation_result.suggestions
-3. Incorporate edge cases, error handling, or clarifications mentioned
-4. Output refined story with improvements
-5. Set refinement_applied=true
+## CASE 2: Score >= 90 BUT suggestions is NOT EMPTY (len > 0)
+⚠️ DO NOT CALL EXIT_LOOP IN THIS CASE
+1. Apply each suggestion from validation_result.suggestions
+2. Incorporate edge cases, error handling, or clarifications mentioned
+3. Output refined story with improvements
+4. Set refinement_applied=true
+5. The loop will continue and re-validate
 
 ## CASE 3: Score < 90
-1. Do NOT call exit_loop
-2. Read each issue in validation_result.issues
-3. Apply suggestions from validation_result.suggestions
-4. Preserve what was good (high INVEST scores)
-5. Fix what was flagged (low INVEST scores)
+⚠️ DO NOT CALL EXIT_LOOP IN THIS CASE
+1. Read each issue in validation_result.issues
+2. Apply suggestions from validation_result.suggestions
+3. Preserve what was good (high INVEST scores)
+4. Fix what was flagged (low INVEST scores)
 
 # REFINEMENT GUIDELINES
 
