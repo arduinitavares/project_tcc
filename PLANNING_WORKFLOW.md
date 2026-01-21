@@ -247,7 +247,7 @@ save_vision_tool(vision_input={
         {
             "theme_name": "Task Management",
             "key_features": ["Create tasks", "Assign tasks", "Task filtering"],
-            "time_frame": "Now",
+            "time_frame": "Next",
             "justification": "Primary product value"
         },
         {
