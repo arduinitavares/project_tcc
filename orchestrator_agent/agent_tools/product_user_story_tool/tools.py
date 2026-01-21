@@ -189,15 +189,28 @@ def query_features_for_stories(
             structure: List[Dict[str, Any]] = []
 
             for theme in themes:
+                # Collect all features in this theme for sibling_features
+                theme_all_features: List[str] = []
+                
                 theme_data: Dict[str, Any] = {
                     "theme_id": theme.theme_id,
                     "theme_title": theme.title,
+                    "time_frame": theme.time_frame.value if theme.time_frame else None,
+                    "justification": theme.description,  # Theme.description = justification
                     "epics": [],
                 }
 
                 epics = session.exec(
                     select(Epic).where(Epic.theme_id == theme.theme_id)
                 ).all()
+                
+                # First pass: collect all feature titles in this theme
+                for epic in epics:
+                    epic_features = session.exec(
+                        select(Feature).where(Feature.epic_id == epic.epic_id)
+                    ).all()
+                    for f in epic_features:
+                        theme_all_features.append(f.title)
 
                 for epic in epics:
                     epic_data: Dict[str, Any] = {
@@ -217,11 +230,18 @@ def query_features_for_stories(
                                 UserStory.feature_id == feature.feature_id
                             )
                         ).all()
+                        
+                        # Sibling features = all features in this theme except current
+                        sibling_features = [f for f in theme_all_features if f != feature.title]
 
-                        feature_info: Dict[str, Union[int, str, None]] = {
+                        feature_info: Dict[str, Any] = {
                             "feature_id": feature.feature_id,
                             "feature_title": feature.title,
                             "existing_stories_count": len(existing_stories),
+                            # Roadmap context for story pipeline
+                            "time_frame": theme.time_frame.value if theme.time_frame else None,
+                            "theme_justification": theme.description,  # Theme.description = justification
+                            "sibling_features": sibling_features,
                         }
                         epic_data["features"].append(feature_info)
                         features_list.append(
