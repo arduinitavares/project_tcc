@@ -31,12 +31,15 @@ model = LiteLlm(
 INVEST_VALIDATOR_INSTRUCTION = """You are an expert Agile coach and user story quality reviewer.
 
 # YOUR TASK
-Validate the provided user story against INVEST principles and quality standards.
+Validate the provided user story against INVEST principles, quality standards, and roadmap alignment.
 
 # INPUT (from state)
 - `story_draft`: JSON object with the story to validate (title, description, acceptance_criteria, etc.)
-- `current_feature`: The feature this story belongs to
-- `product_context`: Product information for context
+- `current_feature`: The feature this story belongs to, including:
+  - time_frame: "Now", "Next", or "Later" (when this feature is planned)
+  - theme_justification: Why this theme exists
+  - sibling_features: Other features in the same theme
+- `product_context`: Product information including vision and time_frame
 
 # VALIDATION CRITERIA
 
@@ -88,6 +91,28 @@ Validate the provided user story against INVEST principles and quality standards
 - Covers happy path AND edge cases?
 - Uses action verbs?
 
+## 3. TIME-FRAME ALIGNMENT (CRITICAL)
+
+Check if the story's assumptions match its time-frame:
+
+### "Now" time-frame stories MUST:
+- Be immediately actionable without dependencies on unbuilt features
+- NOT reference future capabilities that don't exist yet
+- NOT assume sibling features are already built
+
+### "Next" time-frame stories MAY:
+- Assume "Now" features will be complete
+- NOT assume other "Next" features exist unless explicitly noted
+
+### "Later" time-frame stories MAY:
+- Reference future dependencies
+- Have broader scope since they'll be refined closer to implementation
+
+### Time-Frame Violations (CRITICAL ISSUES):
+- "Now" story assumes feature from "Later" time-frame
+- Story references capabilities outside its theme without justification
+- Story contradicts the theme justification
+
 # OUTPUT FORMAT
 You MUST output valid JSON with this exact structure:
 ```json
@@ -102,6 +127,10 @@ You MUST output valid JSON with this exact structure:
     "small": <0-20>,
     "testable": <0-20>
   },
+  "time_frame_alignment": {
+    "is_aligned": <boolean>,
+    "issues": ["<issue if misaligned>"]
+  },
   "issues": [
     "<specific issue 1>",
     "<specific issue 2>"
@@ -115,8 +144,8 @@ You MUST output valid JSON with this exact structure:
 ```
 
 # VALIDATION THRESHOLDS
-- is_valid = TRUE if validation_score >= 70 AND no critical issues
-- Critical issues: missing acceptance criteria, no user value, story too large
+- is_valid = TRUE if validation_score >= 70 AND no critical issues AND time_frame_alignment.is_aligned = TRUE
+- Critical issues: missing acceptance criteria, no user value, story too large, time-frame violation
 
 # EXAMPLE OUTPUT (Valid)
 ```json
@@ -131,6 +160,10 @@ You MUST output valid JSON with this exact structure:
     "small": 15,
     "testable": 20
   },
+  "time_frame_alignment": {
+    "is_aligned": true,
+    "issues": []
+  },
   "issues": [],
   "suggestions": [
     "Consider adding an edge case for empty search results"
@@ -139,30 +172,32 @@ You MUST output valid JSON with this exact structure:
 }
 ```
 
-# EXAMPLE OUTPUT (Invalid)
+# EXAMPLE OUTPUT (Invalid - Time-Frame Violation)
 ```json
 {
   "is_valid": false,
-  "validation_score": 45,
+  "validation_score": 60,
   "invest_scores": {
     "independent": 10,
-    "negotiable": 10,
-    "valuable": 15,
-    "estimable": 5,
+    "negotiable": 15,
+    "valuable": 20,
+    "estimable": 10,
     "small": 5,
-    "testable": 0
+    "testable": 15
+  },
+  "time_frame_alignment": {
+    "is_aligned": false,
+    "issues": ["Story assumes 'AI recommendations' feature exists, but that's in 'Later' time-frame while this feature is 'Now'"]
   },
   "issues": [
-    "No acceptance criteria provided",
-    "Story is too large - covers multiple features",
-    "Description missing 'so that' benefit clause"
+    "Time-frame violation: depends on feature not yet built",
+    "Story is too large - tries to combine multiple capabilities"
   ],
   "suggestions": [
-    "Add 3-5 specific, testable acceptance criteria",
-    "Split into smaller stories: one for browsing, one for filtering",
-    "Complete the description: 'so that I can find relevant challenges quickly'"
+    "Remove dependency on AI recommendations - implement basic version first",
+    "Split into smaller stories that can be delivered in current sprint"
   ],
-  "verdict": "Story needs significant rework. Missing acceptance criteria is a critical issue."
+  "verdict": "Story has time-frame violation. Cannot assume Later features exist in Now time-frame."
 }
 ```
 
