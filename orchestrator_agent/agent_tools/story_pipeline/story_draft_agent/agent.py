@@ -29,8 +29,12 @@ STORY_DRAFT_INSTRUCTION = """You are an expert Agile Product Owner specializing 
 Generate ONE high-quality user story for the given feature.
 
 # INPUT (from state)
-- `current_feature`: JSON object with feature_id, feature_title, theme, epic
-- `product_context`: JSON with product_id, product_name, vision
+- `current_feature`: JSON object with:
+  - feature_id, feature_title, theme, epic
+  - time_frame: "Now" (current sprint focus), "Next" (near-term), or "Later" (future)
+  - theme_justification: Why this theme exists in the roadmap
+  - sibling_features: Other features in the same theme
+- `product_context`: JSON with product_id, product_name, vision, time_frame
 - `user_persona`: The target user persona (e.g., "junior frontend developer")
 - `story_preferences`: Any user preferences (story points yes/no, etc.)
 - `refinement_feedback`: If this is a retry, contains feedback from validator (otherwise empty)
@@ -55,6 +59,12 @@ You MUST output valid JSON with this exact structure:
 - **Estimable**: Small enough to estimate accurately
 - **Small**: Fits in a single sprint (1-8 story points)
 - **Testable**: Acceptance criteria are verifiable
+
+# TIME-FRAME ALIGNMENT
+- If time_frame is "Now": Story should be immediately actionable and not require other unbuilt features
+- If time_frame is "Next": Story can assume "Now" features exist
+- If time_frame is "Later": Story can reference future capabilities, acknowledge dependencies
+- The story's scope and assumptions should match its time-frame
 
 # ACCEPTANCE CRITERIA RULES
 - Write 3-5 specific, testable criteria
