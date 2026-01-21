@@ -3,20 +3,40 @@ flowchart TD
   classDef tool fill:#f0ecff,stroke:#6f42c1,color:#000
   classDef artifact fill:#eafbea,stroke:#34a853,color:#000
   classDef store fill:#fff3cd,stroke:#fbbc05,color:#000
+  classDef db fill:#ffe6e6,stroke:#ea4335,color:#000
 
-  U["User"] --> O["Orchestrator (user-facing agent)"]:::agent
-  O -->|Creates & Updates| M["Project Memory (impl-agnostic)"]:::store
+  %% User interaction
+  U["User (ADK Web CLI)"] --> O["Orchestrator Agent (Root)"]:::agent
+  
+  %% Session state management
+  O <--> SS["Session Service<br/>(DatabaseSessionService)"]:::store
+  SS --> SST["Session State<br/>• unstructured_requirements<br/>• product_vision_statement<br/>• product_roadmap<br/>• is_complete"]:::artifact
 
-  %% Toolized stages (no direct user I/O)
-  O <--> Vt["Vision (agent tool)"]:::tool
-  Vt --> Va["Vision Artifact"]:::artifact
+  %% Sub-agents as tools
+  O <-->|AgentTool| VA["Product Vision Agent"]:::tool
+  O <-->|AgentTool| RA["Product Roadmap Agent"]:::tool
 
-  O <--> Rt["Roadmap (agent tool)"]:::tool
-  Rt --> Ra["Roadmap Artifact"]:::artifact
+  %% Database query tools (FunctionTool)
+  O <-->|FunctionTool| QT["Query Tools<br/>• count_projects()<br/>• list_projects()<br/>• get_project_details()<br/>• get_project_by_name()"]:::tool
+  
+  %% Database mutation tools (FunctionTool)
+  O <-->|FunctionTool| MT["Mutation Tools<br/>• create_or_get_product()<br/>• create_theme()<br/>• create_epic()<br/>• create_feature()"]:::tool
 
-  O <--> Bt["Backlog (agent tool)"]:::tool
-  Bt --> Ba["Backlog Artifact"]:::artifact
+  %% SQLite persistence
+  QT --> DB["SQLite Database<br/>(agile_sqlmodel.db)"]:::db
+  MT --> DB
+  SS -.->|session metadata| DB
 
-  %% Persistence is orchestrator-owned
-  O --> M
-  M --> O
+  %% Database artifacts
+  DB --> DBA["Database Artifacts<br/>• products (vision, roadmap)<br/>• themes<br/>• epics<br/>• features<br/>• user_stories<br/>• sprints<br/>• tasks<br/>• teams/members"]:::artifact
+
+  %% Agent outputs
+  VA -.->|JSON OutputSchema| VOut["Vision Output<br/>• product_vision_statement<br/>• is_complete<br/>• clarifying_questions"]:::artifact
+  RA -.->|JSON OutputSchema| ROut["Roadmap Output<br/>• product_roadmap<br/>• is_complete<br/>• clarifying_questions"]:::artifact
+
+  %% Flow notes
+  Note1["Note: Vision & Roadmap agents<br/>have NO direct user I/O<br/>(disallow_transfer_to_parent=True)"]
+  Note2["Note: Tool results cached in<br/>ToolContext (5min TTL)"]
+  
+  style Note1 fill:#fff,stroke:#999,stroke-dasharray: 5 5
+  style Note2 fill:#fff,stroke:#999,stroke-dasharray: 5 5
