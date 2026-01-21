@@ -7,10 +7,11 @@ These tools handle:
 2. Running the pipeline
 3. Extracting the validated story
 4. Batch processing multiple features
+5. Deterministic alignment enforcement (vision constraint checking)
 """
 
 import json
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional, Set
 
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
@@ -22,6 +23,13 @@ from sqlmodel import Session
 from agile_sqlmodel import UserStory, engine
 from orchestrator_agent.agent_tools.story_pipeline.pipeline import (
     story_validation_loop,
+)
+from orchestrator_agent.agent_tools.story_pipeline.alignment_checker import (
+    extract_forbidden_capabilities,
+    validate_feature_alignment,
+    check_alignment_violation,
+    detect_requirement_drift,
+    create_rejection_response,
 )
 
 # --- Schema for single story processing ---
@@ -41,6 +49,28 @@ class ProcessStoryInput(BaseModel):
     feature_title: Annotated[str, Field(description="The feature title.")]
     theme: Annotated[str, Field(description="The theme this feature belongs to.")]
     epic: Annotated[str, Field(description="The epic this feature belongs to.")]
+    # NEW: Roadmap context fields for strategic awareness
+    time_frame: Annotated[
+        Optional[str],
+        Field(
+            default=None,
+            description="The roadmap time frame: 'Now', 'Next', or 'Later'.",
+        ),
+    ]
+    theme_justification: Annotated[
+        Optional[str],
+        Field(
+            default=None,
+            description="Strategic justification for why this theme exists.",
+        ),
+    ]
+    sibling_features: Annotated[
+        Optional[List[str]],
+        Field(
+            default=None,
+            description="Other features in the same theme (for context).",
+        ),
+    ]
     user_persona: Annotated[
         str,
         Field(
@@ -62,9 +92,11 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
     Process a single feature through the story validation pipeline.
 
     This tool:
-    1. Sets up initial state with feature context
-    2. Runs the LoopAgent pipeline (Draft → Validate → Refine)
-    3. Returns the validated story or error
+    1. Validates feature alignment with product vision (FAIL-FAST on violations)
+    2. Sets up initial state with feature context + forbidden capabilities
+    3. Runs the LoopAgent pipeline (Draft → Validate → Refine)
+    4. Applies deterministic post-validation (catches LLM misses + drift)
+    5. Returns the validated story or rejection
 
     The pipeline will loop up to 3 times until a valid story is produced.
     """
@@ -84,7 +116,31 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
     )
     print(f"{DIM}   Theme: {story_input.theme} | Epic: {story_input.epic}{RESET}")
 
-    # --- Set up initial state ---
+    # --- STEP 1: Extract forbidden capabilities from vision ---
+    forbidden_capabilities = extract_forbidden_capabilities(story_input.product_vision)
+    if forbidden_capabilities:
+        print(f"{YELLOW}[Constraints]{RESET} Forbidden capabilities detected: {forbidden_capabilities}")
+
+    # --- STEP 2: FAIL-FAST - Check feature alignment BEFORE running pipeline ---
+    # This catches obvious violations early (e.g., "web dashboard" for mobile-only app)
+    feature_alignment = validate_feature_alignment(
+        story_input.feature_title,
+        story_input.product_vision
+    )
+    
+    if not feature_alignment.is_aligned:
+        print(f"{RED}[Alignment REJECTED]{RESET} Feature violates product vision:")
+        for issue in feature_alignment.alignment_issues:
+            print(f"   {RED}✗{RESET} {issue}")
+        
+        # Return rejection response - do NOT run the pipeline
+        return create_rejection_response(
+            feature_title=story_input.feature_title,
+            alignment_issues=feature_alignment.alignment_issues,
+            product_vision=story_input.product_vision,
+        )
+
+    # --- Set up initial state (includes forbidden_capabilities for validator) ---
     initial_state: Dict[str, Any] = {
         "current_feature": json.dumps(
             {
@@ -92,6 +148,10 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
                 "feature_title": story_input.feature_title,
                 "theme": story_input.theme,
                 "epic": story_input.epic,
+                # Roadmap context for better story alignment
+                "time_frame": story_input.time_frame,
+                "theme_justification": story_input.theme_justification,
+                "sibling_features": story_input.sibling_features or [],
             }
         ),
         "product_context": json.dumps(
@@ -99,8 +159,15 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
                 "product_id": story_input.product_id,
                 "product_name": story_input.product_name,
                 "vision": story_input.product_vision or "",
+                # Pass forbidden capabilities for LLM validator (best-effort)
+                "forbidden_capabilities": forbidden_capabilities,
+                # Roadmap context for time-frame validation
+                "time_frame": story_input.time_frame,
             }
         ),
+        # Store original feature for drift detection
+        "original_feature_title": story_input.feature_title,
+        "forbidden_capabilities": json.dumps(forbidden_capabilities),
         "user_persona": story_input.user_persona,
         "story_preferences": json.dumps(
             {
@@ -126,11 +193,11 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
     )
 
     # --- Track state changes for verbose output ---
-    last_story_draft = None
-    last_validation_result = None
-    last_refinement_result = None
-    current_iteration = 0  # Track locally by counting new drafts
-    seen_drafts = set()  # Track unique drafts to count iterations
+    last_story_draft: Optional[Any] = None
+    last_validation_result: Optional[Any] = None
+    last_refinement_result: Optional[Any] = None
+    current_iteration: int = 0  # Track locally by counting new drafts
+    seen_drafts: Set[int] = set()  # Track unique drafts to count iterations
 
     # --- Run the pipeline ---
     try:
@@ -170,13 +237,13 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
                             )
 
                         last_story_draft = story_draft
-                        draft_data = (
+                        draft_data: Dict[str, Any] = (
                             story_draft if isinstance(story_draft, dict) else {}
                         )
                         if isinstance(story_draft, str):
                             try:
                                 draft_data = json.loads(story_draft)
-                            except:
+                            except (json.JSONDecodeError, TypeError):
                                 pass
                         if draft_data:
                             title = draft_data.get("title", "")
@@ -194,7 +261,7 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
                         and validation_result != last_validation_result
                     ):
                         last_validation_result = validation_result
-                        val_data = (
+                        val_data: Dict[str, Any] = (
                             validation_result
                             if isinstance(validation_result, dict)
                             else {}
@@ -202,7 +269,7 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
                         if isinstance(validation_result, str):
                             try:
                                 val_data = json.loads(validation_result)
-                            except:
+                            except (json.JSONDecodeError, TypeError):
                                 pass
                         if val_data:
                             is_valid = val_data.get("is_valid", False)
@@ -243,7 +310,7 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
                         and refinement_result != last_refinement_result
                     ):
                         last_refinement_result = refinement_result
-                        ref_data = (
+                        ref_data: Dict[str, Any] = (
                             refinement_result
                             if isinstance(refinement_result, dict)
                             else {}
@@ -251,7 +318,7 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
                         if isinstance(refinement_result, str):
                             try:
                                 ref_data = json.loads(refinement_result)
-                            except:
+                            except (json.JSONDecodeError, TypeError):
                                 pass
                         if ref_data:
                             is_valid = ref_data.get("is_valid", False)
@@ -271,7 +338,7 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
                             print(
                                 f"{MAGENTA}   ╰────────────────────────────────────────────────╯{RESET}"
                             )
-            except:
+            except Exception:
                 pass  # Ignore errors during state inspection
 
         # Extract the final session state
@@ -287,16 +354,56 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
         refinement_result = state.get("refinement_result")
         if refinement_result:
             # Parse if it's a string
+            refinement_data: Dict[str, Any]
             if isinstance(refinement_result, str):
                 try:
-                    refinement_result = json.loads(refinement_result)
+                    refinement_data = json.loads(refinement_result)
                 except json.JSONDecodeError:
-                    pass
+                    refinement_data = {}
+            elif isinstance(refinement_result, dict):
+                refinement_data = refinement_result
+            else:
+                refinement_data = {}
 
-            if isinstance(refinement_result, dict):
-                refined_story = refinement_result.get("refined_story", {})
-                is_valid = refinement_result.get("is_valid", False)
-                refinement_notes = refinement_result.get("refinement_notes", "")
+            if refinement_data:
+                refined_story: Dict[str, Any] = refinement_data.get("refined_story", {})
+                is_valid: bool = bool(refinement_data.get("is_valid", False))
+                refinement_notes: str = str(refinement_data.get("refinement_notes", ""))
+
+                # --- STEP 3: POST-PIPELINE DETERMINISTIC ALIGNMENT ENFORCEMENT ---
+                # This catches cases where LLM validator missed alignment issues
+                # and where refiner silently transformed the requirement
+                
+                alignment_issues: List[str] = []
+                
+                # 3a. Check final story for forbidden capabilities
+                story_text = f"{refined_story.get('title', '')} {refined_story.get('description', '')}"
+                story_alignment = check_alignment_violation(
+                    story_text,
+                    forbidden_capabilities,
+                    "generated story"
+                )
+                if not story_alignment.is_aligned:
+                    alignment_issues.extend(story_alignment.alignment_issues)
+                    print(f"{RED}[Post-Validation]{RESET} Story contains forbidden capabilities:")
+                    for issue in story_alignment.alignment_issues:
+                        print(f"   {RED}✗{RESET} {issue}")
+                
+                # 3b. Check for requirement drift (feature was silently transformed)
+                drift_detected, drift_message = detect_requirement_drift(
+                    original_feature=story_input.feature_title,
+                    final_story_title=refined_story.get("title", ""),
+                    final_story_description=refined_story.get("description", ""),
+                    forbidden_capabilities=forbidden_capabilities,
+                )
+                if drift_detected and drift_message:
+                    alignment_issues.append(drift_message)
+                    print(f"{RED}[Drift Detection]{RESET} {drift_message}")
+                
+                # 3c. DETERMINISTIC VETO: If alignment issues found, override LLM's is_valid
+                if alignment_issues:
+                    print(f"{RED}[Deterministic Veto]{RESET} Overriding LLM validation due to alignment violations")
+                    is_valid = False  # Force invalid regardless of LLM score
 
                 # Final summary
                 final_score = 0
@@ -308,26 +415,40 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
                     try:
                         val = json.loads(state.get("validation_result", "{}"))
                         final_score = val.get("validation_score", 0)
-                    except:
+                    except (json.JSONDecodeError, TypeError):
                         pass
+
+                # If deterministic veto applied, cap the score
+                if alignment_issues:
+                    final_score = min(final_score, 40)  # Cap at 40 for alignment violations
 
                 status_icon = "✅" if is_valid else "⚠️"
                 status_color = GREEN if is_valid else YELLOW
+                if alignment_issues:
+                    status_icon = "❌"
+                    status_color = RED
+                    
                 # Use locally tracked iterations (current_iteration) instead of state
                 iterations = max(current_iteration, 1)  # At least 1 iteration
                 print(
                     f"\n{status_color}   {status_icon} FINAL: '{refined_story.get('title', 'Unknown')}' | Score: {final_score}/100 | Iterations: {iterations}{RESET}"
                 )
+                
+                if alignment_issues:
+                    print(f"{RED}   Alignment issues: {len(alignment_issues)}{RESET}")
 
                 return {
                     "success": True,
                     "is_valid": is_valid,
+                    "rejected": len(alignment_issues) > 0,  # Mark as rejected if alignment issues
                     "story": refined_story,
                     "validation_score": final_score,
                     "iterations": iterations,
                     "refinement_notes": refinement_notes,
+                    "alignment_issues": alignment_issues,  # Always include (may be empty)
                     "message": f"Generated story '{refined_story.get('title', 'Unknown')}' "
-                    f"(valid={is_valid}, iterations={iterations})",
+                    f"(valid={is_valid}, iterations={iterations})"
+                    + (f" - REJECTED: {len(alignment_issues)} alignment violations" if alignment_issues else ""),
                 }
 
         # Fallback: try to get story_draft
@@ -378,7 +499,8 @@ class ProcessBatchInput(BaseModel):
         List[Dict[str, Any]],
         Field(
             description=(
-                "List of feature dicts with: feature_id, feature_title, theme, epic"
+                "List of feature dicts with: feature_id, feature_title, theme, epic, "
+                "and optional roadmap context: time_frame, theme_justification, sibling_features"
             )
         ),
     ]
@@ -430,7 +552,7 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
 
     validated_stories: List[Dict[str, Any]] = []
     failed_stories: List[Dict[str, Any]] = []
-    total_iterations = 0
+    total_iterations: int = 0
 
     for idx, feature in enumerate(batch_input.features):
         print(
@@ -448,6 +570,10 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
                 epic=feature.get("epic", "Unknown"),
                 user_persona=batch_input.user_persona,
                 include_story_points=batch_input.include_story_points,
+                # Roadmap context (optional)
+                time_frame=feature.get("time_frame"),
+                theme_justification=feature.get("theme_justification"),
+                sibling_features=feature.get("sibling_features"),
             )
         )
 
@@ -536,8 +662,8 @@ async def save_validated_stories(save_input: SaveStoriesInput) -> Dict[str, Any]
         f"\n{CYAN}Saving {len(save_input.stories)} validated stories to database...{RESET}"
     )
 
-    saved_ids = []
-    failed_saves = []
+    saved_ids: List[int] = []
+    failed_saves: List[Dict[str, Any]] = []
 
     try:
         with Session(engine) as session:
