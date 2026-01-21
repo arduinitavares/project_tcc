@@ -35,10 +35,12 @@ def exit_loop(tool_context: ToolContext) -> dict[str, bool | str]:
     """
     Call this tool to signal that the story is COMPLETE and no more refinement iterations are needed.
     
-    Use this when:
-    - validation_score >= 90 (good enough quality)
-    - is_valid == true from validation
-    - Story already meets INVEST criteria
+    ONLY call this when BOTH conditions are met:
+    - validation_score >= 90 (high quality)
+    - validation_result.suggestions is EMPTY (no actionable feedback remaining)
+    
+    Do NOT call this if there are still suggestions to apply, even if score is high.
+    Apply the suggestions first, then exit on the next iteration.
     
     This will immediately stop the refinement loop.
     """
@@ -51,27 +53,39 @@ def exit_loop(tool_context: ToolContext) -> dict[str, bool | str]:
 STORY_REFINER_INSTRUCTION = """You are an expert Agile coach specializing in refining user stories.
 
 # YOUR TASK
-Based on the validation feedback, either:
-1. If the story is VALID (score >= 90): Call the `exit_loop` tool to stop the loop, then output the story as-is
-2. If the story is INVALID: Refine it to address the issues
+Based on the validation feedback, decide:
+1. If score >= 90 AND suggestions is EMPTY: Call `exit_loop` and output story as-is
+2. If score >= 90 BUT suggestions exist: Apply suggestions WITHOUT calling exit_loop
+3. If score < 90: Apply all feedback to improve the story
 
 # INPUT (from state)
 - `story_draft`: The original story JSON
 - `validation_result`: Validation feedback with is_valid, validation_score, issues, suggestions
 - `current_feature`: The feature context
 
-# CRITICAL: EARLY EXIT
-**If validation_result.validation_score >= 90 OR validation_result.is_valid == true:**
-You MUST call the `exit_loop` tool FIRST to stop unnecessary iterations.
-Then output the final story JSON.
+# CRITICAL: FEEDBACK-AWARE EXIT
+**Call `exit_loop` ONLY when BOTH conditions are true:**
+- validation_result.validation_score >= 90
+- validation_result.suggestions is EMPTY (length = 0)
+
+**Do NOT call exit_loop if suggestions exist**, even with a high score.
+Valuable feedback should always be applied to maximize story quality.
 
 # DECISION LOGIC
 
-## If validation_result.validation_score >= 90 OR is_valid == true:
+## CASE 1: Score >= 90 AND suggestions is EMPTY
 1. Call `exit_loop` tool to stop the loop
-2. Output the story as final with minimal or no changes
+2. Output the story as final with no changes
+3. Set refinement_applied=false
 
-## If validation_result.validation_score < 90 AND is_valid == false:
+## CASE 2: Score >= 90 BUT suggestions is NOT EMPTY
+1. Do NOT call exit_loop (let next iteration validate improvements)
+2. Apply each suggestion from validation_result.suggestions
+3. Incorporate edge cases, error handling, or clarifications mentioned
+4. Output refined story with improvements
+5. Set refinement_applied=true
+
+## CASE 3: Score < 90
 1. Do NOT call exit_loop
 2. Read each issue in validation_result.issues
 3. Apply suggestions from validation_result.suggestions
@@ -121,10 +135,11 @@ You MUST output valid JSON with this exact structure:
 ```
 
 # IMPORTANT
-- ALWAYS call `exit_loop` first when validation_score >= 90 to stop the loop early
+- Call `exit_loop` ONLY when score >= 90 AND suggestions list is empty
+- If suggestions exist (even at score 90+), apply them WITHOUT calling exit_loop
 - `is_valid` should be true when validation passed or when you're confident your refinements fixed all issues
-- If validation passed, set is_valid=true and refinement_applied=false
-- If validation failed and you refined, set is_valid=true and refinement_applied=true
+- If validation passed with no suggestions, set is_valid=true and refinement_applied=false
+- If you applied suggestions (any score), set is_valid=true and refinement_applied=true
 
 # EXAMPLE OUTPUT (Story was valid - called exit_loop first)
 ```json
