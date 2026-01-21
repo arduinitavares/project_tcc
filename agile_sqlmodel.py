@@ -69,6 +69,14 @@ class WorkflowEventType(str, enum.Enum):
     TLX_PROMPT_TRIGGERED = "tlx_prompt_triggered"
 
 
+class TimeFrame(str, enum.Enum):
+    """Roadmap time frames for prioritization."""
+
+    NOW = "Now"
+    NEXT = "Next"
+    LATER = "Later"
+
+
 # --- 2. Link Models (for Many-to-Many Relationships) ---
 
 
@@ -204,6 +212,8 @@ class Theme(SQLModel, table=True):
     theme_id: Optional[int] = Field(default=None, primary_key=True)
     title: str
     description: Optional[str] = Field(default=None, sa_type=Text)
+    # NEW: Roadmap time frame for prioritization (Now/Next/Later)
+    time_frame: Optional[TimeFrame] = Field(default=None)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2
