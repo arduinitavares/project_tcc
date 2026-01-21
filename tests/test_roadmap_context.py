@@ -13,7 +13,6 @@ from agile_sqlmodel import (
     Product,
     Theme,
     TimeFrame,
-    UserStory,
 )
 
 
