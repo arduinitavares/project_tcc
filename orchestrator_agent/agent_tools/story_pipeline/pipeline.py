@@ -50,11 +50,11 @@ story_sequential_pipeline = SequentialAgent(
 
 # --- Loop Agent ---
 # Wraps the sequential pipeline to retry if validation fails
-# Exits EARLY when refiner calls exit_loop (score >= 90)
+# Exits EARLY when refiner calls exit_loop (score >= 90 AND no suggestions)
 # max_iterations is a safety limit, not the typical case
 story_validation_loop = LoopAgent(
     name="StoryValidationLoop",
     sub_agents=[story_sequential_pipeline],
-    max_iterations=3,  # Safety limit - usually exits early via exit_loop tool
-    description="Loops through story creation until INVEST-valid (exits early when score >= 90).",
+    max_iterations=4,  # Safety limit - increased to allow feedback refinement at high scores
+    description="Loops through story creation until INVEST-valid (exits early when score >= 90 AND no suggestions).",
 )
