@@ -209,7 +209,7 @@ async def process_single_story(story_input: ProcessStoryInput) -> Dict[str, Any]
         )
 
         # The pipeline runs until is_valid=True or max_iterations
-        async for event in runner.run_async(
+        async for _ in runner.run_async(
             user_id="pipeline_user",
             session_id=session.id,
             new_message=new_message,
