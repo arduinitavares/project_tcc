@@ -285,3 +285,80 @@ def test_query_product_structure(engine):
     assert (
         len(result["structure"]["themes"][0]["epics"][0]["features"][0]["stories"]) == 1
     )
+
+
+def test_get_story_details(engine):
+    """Test fetching details for a specific story by ID."""
+    # Patch db_tools to use test engine
+    db_tools.engine = engine
+
+    # Arrange: Create a product and story
+    product_result = create_or_get_product(CreateOrGetProductInput(
+        product_name="Story Details Test Project",
+        vision="Test vision for story details",
+        description=None
+    ))
+    product_id = product_result["product_id"]
+
+    # Create roadmap structure
+    roadmap = [
+        {
+            "theme_title": "Feature Theme",
+            "theme_description": "Theme for testing story details",
+            "epics": [
+                {
+                    "epic_title": "Test Epic",
+                    "epic_summary": "Epic for testing",
+                    "features": [
+                        {"title": "Test Feature", "description": "Feature for testing story details"},
+                    ],
+                }
+            ],
+        }
+    ]
+
+    roadmap_result = persist_roadmap(product_id, roadmap)
+    feature_id = roadmap_result["created"]["features"][0]["id"]
+
+    # Create a test story
+    story_result = create_user_story(CreateUserStoryInput(
+        product_id=product_id,
+        feature_id=feature_id,
+        title="Test Story for Details",
+        description="As a tester, I want to retrieve story details so that I can verify the functionality.",
+        story_points=3,
+        acceptance_criteria="- Story details can be fetched\n- All fields are returned correctly",
+    ))
+    story_id = story_result["story_id"]
+
+    # Act: Call the get_story_details function
+    from tools.db_tools import get_story_details
+    result = get_story_details(story_id)
+
+    # Assert: Verify the returned details
+    assert result["success"] is True
+    assert result["story_id"] == story_id
+    assert result["title"] == "Test Story for Details"
+    assert result["description"] == "As a tester, I want to retrieve story details so that I can verify the functionality."
+    assert result["acceptance_criteria"] == "- Story details can be fetched\n- All fields are returned correctly"
+    assert result["status"] == "To Do"  # StoryStatus enum value
+    assert result["story_points"] == 3
+    assert result["feature_id"] == feature_id
+    assert result["product_id"] == product_id
+    assert "created_at" in result
+    assert "updated_at" in result
+
+
+def test_get_story_details_not_found(engine):
+    """Test fetching details for a non-existent story."""
+    # Patch db_tools to use test engine
+    db_tools.engine = engine
+
+    # Act: Try to fetch a story that doesn't exist
+    from tools.db_tools import get_story_details
+    result = get_story_details(999999)
+
+    # Assert: Verify the error message
+    assert result["success"] is False
+    assert "not found" in result["message"].lower()
+    assert result["story_id"] == 999999

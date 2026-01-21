@@ -366,3 +366,40 @@ def query_product_structure(product_id: int) -> Dict[str, Any]:
             structure["themes"].append(theme_data)
 
         return {"success": True, "structure": structure}
+
+
+def get_story_details(story_id: int) -> Dict[str, Any]:
+    """
+    Agent tool: Fetch details for a specific story by its ID.
+
+    Args:
+        story_id: The ID of the story to fetch
+
+    Returns:
+        Dict with story details or error message
+    """
+    with Session(engine) as session:
+        story = session.get(UserStory, story_id)
+        
+        if not story:
+            return {
+                "success": False,
+                "story_id": story_id,
+                "message": f"Story with ID {story_id} not found."
+            }
+        
+        return {
+            "success": True,
+            "story_id": story.story_id,
+            "title": story.title,
+            "description": story.story_description,
+            "acceptance_criteria": story.acceptance_criteria,
+            "status": story.status,
+            "story_points": story.story_points,
+            "rank": story.rank,
+            "feature_id": story.feature_id,
+            "product_id": story.product_id,
+            "created_at": str(story.created_at),
+            "updated_at": str(story.updated_at),
+        }
+

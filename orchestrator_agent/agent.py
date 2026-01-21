@@ -65,6 +65,9 @@ from tools.orchestrator_tools import (
     list_projects,
     select_project,
 )
+from tools.db_tools import (
+    get_story_details,
+)
 from utils.helper import load_instruction
 from utils.schemes import InputSchema
 
@@ -93,6 +96,9 @@ root_agent = Agent(
         get_project_details,
         get_project_by_name,
         select_project,
+        # Story query tools
+        get_story_details,
+        query_features_for_stories,
         # Vision tools
         save_vision_tool,
         # Roadmap tools
