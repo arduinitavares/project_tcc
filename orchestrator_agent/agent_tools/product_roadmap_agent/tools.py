@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
-from agile_sqlmodel import Epic, Feature, Product, Theme, engine
+from agile_sqlmodel import Epic, Feature, Product, Theme, TimeFrame, engine
 
 
 # --- Schema for structured roadmap themes ---
@@ -47,6 +47,20 @@ class SaveRoadmapInput(BaseModel):
     ]
 
 
+def _parse_time_frame(time_frame_str: Optional[str]) -> Optional[TimeFrame]:
+    """Parse time frame string to TimeFrame enum."""
+    if not time_frame_str:
+        return None
+    normalized = time_frame_str.strip().lower()
+    if normalized == "now":
+        return TimeFrame.NOW
+    elif normalized == "next":
+        return TimeFrame.NEXT
+    elif normalized == "later":
+        return TimeFrame.LATER
+    return None
+
+
 def _create_structure_from_themes(
     session: Session,
     product_id: int,
@@ -65,17 +79,21 @@ def _create_structure_from_themes(
     }
 
     for theme_input in themes:
-        # Create Theme
-        time_frame = theme_input.time_frame or ""
+        # Parse time_frame to enum
+        time_frame_enum = _parse_time_frame(theme_input.time_frame)
+        time_frame_str = theme_input.time_frame or ""
+        
+        # Create Theme title (keep human-readable format for display)
         theme_title = (
-            f"{time_frame} - {theme_input.theme_name}".strip(" -")
-            if time_frame
+            f"{time_frame_str} - {theme_input.theme_name}".strip(" -")
+            if time_frame_str
             else theme_input.theme_name
         )
         
         theme = Theme(
             title=theme_title,
             description=theme_input.justification or "",
+            time_frame=time_frame_enum,  # NEW: Store as enum
             product_id=product_id,
         )
         session.add(theme)
