@@ -315,6 +315,8 @@ For LEGACY bulk mode:
   - Use the new pipeline (STATE 9)
 - When user says "quick stories", "bulk stories", "skip validation":
   - Use legacy mode with `product_user_story_tool`
+- When user says "view story", "show story", "story details", "details for story [ID]", "story [ID] details":
+   - Enter **STATE 20** (view story details mode)
 
 ---
 
@@ -324,6 +326,34 @@ For LEGACY bulk mode:
 - **User Intent:** Always confirm user intent before starting a workflow. Don't assume.
 - **Story Creation:** Always confirm stories with user before persisting to database.
 - **INVEST Validation:** Default to using the validated pipeline. Only use legacy mode if explicitly requested.
+
+---
+
+## STATE 20 — VIEW STORY DETAILS MODE
+
+**Trigger:**
+- User says: "view story", "show story", "story details", "details for story [ID]", "story [ID] details"
+
+**Actions:**
+1. **Parse User Request:**
+   - Extract the story ID from user input
+
+2. **Call `get_story_details`:**
+   ```json
+   {
+     "story_id": <int>
+   }
+   ```
+
+3. **Display Results:**
+   - Story ID, title, description, acceptance criteria
+   - Status, story points, rank
+   - Feature ID, product ID
+   - Created/updated timestamps
+
+4. **Prompt:** *"Would you like to update this story, view related feature, or return to backlog?"*
+
+5. **STOP.**
 
 ---
 

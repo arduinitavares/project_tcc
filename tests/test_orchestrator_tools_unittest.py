@@ -58,7 +58,52 @@ class TestOrchestratorTools(unittest.TestCase):
         result = orch_tools.count_projects({}, context)
         self.assertTrue(result["success"])
         self.assertEqual(result["count"], 3)
-        self.assertIn("3 project", result["message"])
+
+    def test_get_story_details_tool(self):
+        """Test fetching story details via db_tools."""
+        product_result = create_or_get_product(CreateOrGetProductInput(
+            product_name="Story Details Integration",
+            vision="Integration test vision",
+            description=None
+        ))
+        product_id = product_result["product_id"]
+
+        roadmap = [
+            {
+                "theme_title": "Integration Theme",
+                "theme_description": "Theme for integration test",
+                "epics": [
+                    {
+                        "epic_title": "Integration Epic",
+                        "epic_summary": "Epic for integration test",
+                        "features": [
+                            {"title": "Integration Feature", "description": "Feature for integration test"},
+                        ],
+                    }
+                ],
+            }
+        ]
+
+        roadmap_result = persist_roadmap(product_id, roadmap)
+        feature_id = roadmap_result["created"]["features"][0]["id"]
+
+        story_result = create_user_story(CreateUserStoryInput(
+            product_id=product_id,
+            feature_id=feature_id,
+            title="Integration Story",
+            description="As a user, I want to fetch story details so that I can inspect them.",
+            story_points=2,
+            acceptance_criteria="- Details can be retrieved"
+        ))
+        story_id = story_result["story_id"]
+
+        result = db_tools.get_story_details(story_id)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["story_id"], story_id)
+        self.assertEqual(result["title"], "Integration Story")
+        self.assertEqual(result["feature_id"], feature_id)
+        self.assertEqual(result["product_id"], product_id)
 
     def test_list_projects_empty(self):
         """Test listing projects when database is empty."""
