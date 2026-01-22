@@ -623,9 +623,64 @@ Sprint planning follows the same approval workflow as vision/roadmap:
 
 ---
 
+## STATE 19 — COMPLETE STORY WITH DOCUMENTATION MODE
+
+**Trigger:**
+- User says: "complete story", "story X is done with notes", "finish story"
+- User wants to mark a story DONE with completion details
+
+**Actions:**
+1. **If completion details not provided, ask:**
+   - "Before marking Story #[ID] as done, please provide:"
+   - "- What was delivered?"
+   - "- Evidence/links (optional)?"
+   - "- Any known gaps or follow-ups needed?"
+
+2. **Determine Resolution:**
+   - COMPLETED: All original AC met
+   - COMPLETED_WITH_CHANGES: AC were updated before completion
+   - PARTIAL: Some work descoped, follow-up created
+   - WONT_DO: Story cancelled
+
+3. **If user mentions AC changed:**
+   - Set ac_was_updated=true
+   - Ask for ac_update_reason if not provided
+
+4. **If scope was reduced (PARTIAL):**
+   - Ask: "Would you like to create a follow-up story for the descoped work?"
+   - If yes, call `create_follow_up_story` first, capture the new story ID
+
+5. **Call `complete_story_with_notes`:**
+   {
+     "story_id": <int>,
+     "sprint_id": <int if known>,
+     "resolution": "<resolution>",
+     "delivered": "<what was delivered>",
+     "evidence": "<optional links>",
+     "known_gaps": "<optional>",
+     "follow_up_story_ids": [<if any>],
+     "ac_was_updated": <bool>,
+     "ac_update_reason": "<if applicable>"
+   }
+
+6. **Display Completion Summary:**
+   ✅ Story #[ID] Completed
+   📋 Resolution: [resolution]
+   📝 Delivered: [summary]
+   🔗 Evidence: [links]
+   ⚠️ Known Gaps: [gaps]
+   ➡️ Follow-ups: [story IDs]
+
+7. **STOP.**
+
+---
+
 ## Sprint Execution Routing
 - When user says "update status", "mark as done", "story X is done":
   - Enter **STATE 16** (update story status mode)
+
+- When user says "complete story", "story done with notes", "finish story with details":
+  - Enter **STATE 19** (complete story with documentation mode)
 
 - When user says "add story", "remove story", "add to sprint":
   - Enter **STATE 17** (modify sprint stories mode)

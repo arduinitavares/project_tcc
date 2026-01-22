@@ -54,6 +54,9 @@ from orchestrator_agent.agent_tools.sprint_planning.sprint_execution_tools impor
     batch_update_story_status,
     modify_sprint_stories,
     complete_sprint,
+    complete_story_with_notes,
+    update_acceptance_criteria,
+    create_follow_up_story,
 )
 from tools.orchestrator_tools import (
     count_projects,
@@ -114,6 +117,9 @@ root_agent = Agent(
         batch_update_story_status,
         modify_sprint_stories,
         complete_sprint,
+        complete_story_with_notes,
+        update_acceptance_criteria,
+        create_follow_up_story,
         # Agent tools
         AgentTool(agent=vision_agent),
         AgentTool(agent=roadmap_agent),
