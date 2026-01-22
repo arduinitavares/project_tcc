@@ -120,12 +120,11 @@ def persist_roadmap(
                 product_id=product_id,
             )
             session.add(theme)
-            session.commit()
-            session.refresh(theme)
+            session.flush()
 
             if theme.theme_id is None:
                 raise RuntimeError(
-                    f"Failed to create Theme '{theme.title}', ID is None after commit."
+                    f"Failed to create Theme '{theme.title}', ID is None after flush."
                 )
             created["themes"].append(
                 {"id": theme.theme_id, "title": theme.title}
@@ -139,12 +138,11 @@ def persist_roadmap(
                     theme_id=theme.theme_id,
                 )
                 session.add(epic)
-                session.commit()
-                session.refresh(epic)
+                session.flush()
 
                 if epic.epic_id is None:
                     raise RuntimeError(
-                        f"Failed to create Epic '{epic.title}', ID is None after commit."
+                        f"Failed to create Epic '{epic.title}', ID is None after flush."
                     )
                 created["epics"].append(
                     {"id": epic.epic_id, "title": epic.title}
@@ -158,12 +156,11 @@ def persist_roadmap(
                         epic_id=epic.epic_id,
                     )
                     session.add(feature)
-                    session.commit()
-                    session.refresh(feature)
+                    session.flush()
 
                     if feature.feature_id is None:
                         raise RuntimeError(
-                            "Failed to create Feature, ID is None after commit."
+                            "Failed to create Feature, ID is None after flush."
                         )
                     # Fix for Pylance (reportUnknownVariableType)
                     feature_dict: Dict[str, Any] = {
@@ -171,6 +168,8 @@ def persist_roadmap(
                         "title": feature.title,
                     }
                     created["features"].append(feature_dict)
+
+        session.commit()
 
         return {
             "success": True,
