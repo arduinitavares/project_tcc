@@ -6,6 +6,7 @@ Tools for creating and persisting user stories from the orchestrator.
 from typing import Annotated, Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
@@ -181,55 +182,80 @@ def query_features_for_stories(
                     "error": f"Product {query_input.product_id} not found",
                 }
 
+            # 1. Fetch all Themes
             themes = session.exec(
                 select(Theme).where(Theme.product_id == query_input.product_id)
             ).all()
+            theme_ids = [t.theme_id for t in themes]
 
+            # 2. Fetch all Epics for these themes
+            epics = []
+            if theme_ids:
+                epics = session.exec(
+                    select(Epic).where(Epic.theme_id.in_(theme_ids))
+                ).all()
+
+            epic_ids = [e.epic_id for e in epics]
+            epics_by_theme: Dict[int, List[Epic]] = {tid: [] for tid in theme_ids}
+            epic_to_theme: Dict[int, int] = {}
+            for epic in epics:
+                epics_by_theme[epic.theme_id].append(epic)
+                epic_to_theme[epic.epic_id] = epic.theme_id
+
+            # 3. Fetch all Features for these epics
+            features = []
+            if epic_ids:
+                features = session.exec(
+                    select(Feature).where(Feature.epic_id.in_(epic_ids))
+                ).all()
+
+            feature_ids = [f.feature_id for f in features]
+            features_by_epic: Dict[int, List[Feature]] = {eid: [] for eid in epic_ids}
+            features_by_theme: Dict[int, List[str]] = {tid: [] for tid in theme_ids}
+
+            for feature in features:
+                features_by_epic[feature.epic_id].append(feature)
+                # Map feature to theme via epic
+                theme_id = epic_to_theme.get(feature.epic_id)
+                if theme_id is not None:
+                    features_by_theme[theme_id].append(feature.title)
+
+            # 4. Fetch Story Counts grouped by feature
+            story_counts: Dict[int, int] = {}
+            if feature_ids:
+                story_counts_query = (
+                    select(UserStory.feature_id, func.count(UserStory.story_id))
+                    .where(UserStory.feature_id.in_(feature_ids))
+                    .group_by(UserStory.feature_id)
+                )
+                results = session.exec(story_counts_query).all()
+                story_counts = {row[0]: row[1] for row in results}
+
+            # 5. Assemble structure
             features_list: List[Dict[str, Any]] = []
             structure: List[Dict[str, Any]] = []
 
             for theme in themes:
-                # Collect all features in this theme for sibling_features
-                theme_all_features: List[str] = []
-                
                 theme_data: Dict[str, Any] = {
                     "theme_id": theme.theme_id,
                     "theme_title": theme.title,
                     "time_frame": theme.time_frame.value if theme.time_frame else None,
-                    "justification": theme.description,  # Theme.description = justification
+                    "justification": theme.description,
                     "epics": [],
                 }
 
-                epics = session.exec(
-                    select(Epic).where(Epic.theme_id == theme.theme_id)
-                ).all()
-                
-                # First pass: collect all feature titles in this theme
-                for epic in epics:
-                    epic_features = session.exec(
-                        select(Feature).where(Feature.epic_id == epic.epic_id)
-                    ).all()
-                    for f in epic_features:
-                        theme_all_features.append(f.title)
+                # Get all feature titles in this theme for sibling comparison
+                theme_all_features = features_by_theme.get(theme.theme_id, [])
 
-                for epic in epics:
+                for epic in epics_by_theme.get(theme.theme_id, []):
                     epic_data: Dict[str, Any] = {
                         "epic_id": epic.epic_id,
                         "epic_title": epic.title,
                         "features": [],
                     }
 
-                    features = session.exec(
-                        select(Feature).where(Feature.epic_id == epic.epic_id)
-                    ).all()
-
-                    for feature in features:
-                        # Count existing stories for this feature
-                        existing_stories = session.exec(
-                            select(UserStory).where(
-                                UserStory.feature_id == feature.feature_id
-                            )
-                        ).all()
+                    for feature in features_by_epic.get(epic.epic_id, []):
+                        count = story_counts.get(feature.feature_id, 0)
                         
                         # Sibling features = all features in this theme except current
                         sibling_features = [f for f in theme_all_features if f != feature.title]
@@ -237,10 +263,9 @@ def query_features_for_stories(
                         feature_info: Dict[str, Any] = {
                             "feature_id": feature.feature_id,
                             "feature_title": feature.title,
-                            "existing_stories_count": len(existing_stories),
-                            # Roadmap context for story pipeline
+                            "existing_stories_count": count,
                             "time_frame": theme.time_frame.value if theme.time_frame else None,
-                            "theme_justification": theme.description,  # Theme.description = justification
+                            "theme_justification": theme.description,
                             "sibling_features": sibling_features,
                         }
                         epic_data["features"].append(feature_info)
