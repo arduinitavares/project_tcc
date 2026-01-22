@@ -297,10 +297,57 @@ def query_product_structure(product_id: int) -> Dict[str, Any]:
                 "error": f"Product {product_id} not found",
             }
 
+        # 1. Fetch all themes
         themes = session.exec(
             select(Theme).where(Theme.product_id == product_id)
         ).all()
+        theme_ids = [t.theme_id for t in themes if t.theme_id is not None]
 
+        # 2. Fetch all epics
+        epics: List[Epic] = []
+        if theme_ids:
+            epics = session.exec(
+                select(Epic).where(Epic.theme_id.in_(theme_ids))
+            ).all()
+        epic_ids = [e.epic_id for e in epics if e.epic_id is not None]
+
+        # 3. Fetch all features
+        features: List[Feature] = []
+        if epic_ids:
+            features = session.exec(
+                select(Feature).where(Feature.epic_id.in_(epic_ids))
+            ).all()
+        feature_ids = [f.feature_id for f in features if f.feature_id is not None]
+
+        # 4. Fetch all stories
+        stories: List[UserStory] = []
+        if feature_ids:
+            stories = session.exec(
+                select(UserStory).where(UserStory.feature_id.in_(feature_ids))
+            ).all()
+
+        # 5. Build lookup maps
+        # Map: theme_id -> [epics]
+        epics_by_theme: Dict[int, List[Epic]] = {tid: [] for tid in theme_ids}
+        for epic in epics:
+            if epic.theme_id in epics_by_theme:
+                epics_by_theme[epic.theme_id].append(epic)
+
+        # Map: epic_id -> [features]
+        features_by_epic: Dict[int, List[Feature]] = {eid: [] for eid in epic_ids}
+        for feature in features:
+            if feature.epic_id in features_by_epic:
+                features_by_epic[feature.epic_id].append(feature)
+
+        # Map: feature_id -> [stories]
+        stories_by_feature: Dict[int, List[UserStory]] = {
+            fid: [] for fid in feature_ids
+        }
+        for story in stories:
+            if story.feature_id is not None and story.feature_id in stories_by_feature:
+                stories_by_feature[story.feature_id].append(story)
+
+        # 6. Assemble structure
         # Fix for Pylance (reportUnknownVariableType)
         structure: Dict[str, Any] = {
             "product": {
@@ -319,11 +366,9 @@ def query_product_structure(product_id: int) -> Dict[str, Any]:
                 "epics": [],
             }
 
-            epics = session.exec(
-                select(Epic).where(Epic.theme_id == theme.theme_id)
-            ).all()
+            theme_epics = epics_by_theme.get(theme.theme_id, [])
 
-            for epic in epics:
+            for epic in theme_epics:
                 # Fix for Pylance (reportUnknownVariableType)
                 epic_data: Dict[str, Any] = {
                     "id": epic.epic_id,
@@ -331,11 +376,9 @@ def query_product_structure(product_id: int) -> Dict[str, Any]:
                     "features": [],
                 }
 
-                features = session.exec(
-                    select(Feature).where(Feature.epic_id == epic.epic_id)
-                ).all()
+                epic_features = features_by_epic.get(epic.epic_id, [])
 
-                for feature in features:
+                for feature in epic_features:
                     # Fix for Pylance (reportUnknownVariableType)
                     feature_data: Dict[str, Any] = {
                         "id": feature.feature_id,
@@ -343,13 +386,11 @@ def query_product_structure(product_id: int) -> Dict[str, Any]:
                         "stories": [],
                     }
 
-                    stories = session.exec(
-                        select(UserStory).where(
-                            UserStory.feature_id == feature.feature_id
-                        )
-                    ).all()
+                    feature_stories = stories_by_feature.get(
+                        feature.feature_id, []
+                    )
 
-                    for story in stories:
+                    for story in feature_stories:
                         feature_data["stories"].append(
                             {
                                 "id": story.story_id,
