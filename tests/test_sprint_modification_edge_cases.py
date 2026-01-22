@@ -64,6 +64,8 @@ class TestSprintModification(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        if hasattr(cls, "engine") and cls.engine is not None:
+            cls.engine.dispose()
         if os.path.exists(TEST_DB):
             os.remove(TEST_DB)
 
