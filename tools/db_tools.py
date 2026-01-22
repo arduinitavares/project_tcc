@@ -394,7 +394,7 @@ def get_story_details(story_id: int) -> Dict[str, Any]:
             "title": story.title,
             "description": story.story_description,
             "acceptance_criteria": story.acceptance_criteria,
-            "status": story.status,
+            "status": story.status.value if hasattr(story.status, "value") else story.status,
             "story_points": story.story_points,
             "rank": story.rank,
             "feature_id": story.feature_id,

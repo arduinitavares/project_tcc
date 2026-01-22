@@ -316,7 +316,7 @@ For LEGACY bulk mode:
 - When user says "quick stories", "bulk stories", "skip validation":
   - Use legacy mode with `product_user_story_tool`
 - When user says "view story", "show story", "story details", "details for story [ID]", "story [ID] details":
-   - Enter **STATE 19** (view story details mode)
+   - Enter **STATE 20** (view story details mode)
 
 ---
 
@@ -329,7 +329,7 @@ For LEGACY bulk mode:
 
 ---
 
-## STATE 19 — VIEW STORY DETAILS MODE
+## STATE 20 — VIEW STORY DETAILS MODE
 
 **Trigger:**
 - User says: "view story", "show story", "story details", "details for story [ID]", "story [ID] details"
