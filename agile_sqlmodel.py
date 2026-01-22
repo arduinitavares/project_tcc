@@ -58,6 +58,15 @@ class TaskStatus(str, enum.Enum):
     DONE = "Done"
 
 
+class StoryResolution(str, enum.Enum):
+    """Resolution reason when story is marked DONE."""
+
+    COMPLETED = "Completed"
+    COMPLETED_WITH_CHANGES = "Completed with AC changes"
+    PARTIAL = "Partial"
+    WONT_DO = "Won't Do"
+
+
 class WorkflowEventType(str, enum.Enum):
     """Types of workflow events for metrics tracking."""
 
@@ -340,6 +349,17 @@ class UserStory(SQLModel, table=True):
     status: StoryStatus = Field(default=StoryStatus.TO_DO, nullable=False)
     story_points: Optional[int] = Field(default=None)
     rank: Optional[str] = Field(default=None, index=True)  # For ordering
+
+    # Completion tracking fields
+    resolution: Optional[StoryResolution] = Field(default=None)
+    completion_notes: Optional[str] = Field(default=None, sa_type=Text)
+    evidence_links: Optional[str] = Field(default=None, sa_type=Text)
+    completed_at: Optional[datetime] = Field(default=None)
+    # AC change tracking
+    original_acceptance_criteria: Optional[str] = Field(default=None, sa_type=Text)
+    ac_updated_at: Optional[datetime] = Field(default=None)
+    ac_update_reason: Optional[str] = Field(default=None, sa_type=Text)
+
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2
@@ -401,6 +421,28 @@ class Task(SQLModel, table=True):
     # Relationships
     story: "UserStory" = Relationship(back_populates="tasks")
     assignee: Optional["TeamMember"] = Relationship(back_populates="tasks")
+
+
+class StoryCompletionLog(SQLModel, table=True):
+    """Audit trail for story status changes."""
+
+    __tablename__ = "story_completion_logs"  # type: ignore
+
+    log_id: Optional[int] = Field(default=None, primary_key=True)
+    story_id: int = Field(foreign_key="user_stories.story_id", index=True)
+    old_status: StoryStatus
+    new_status: StoryStatus
+    resolution: Optional[StoryResolution] = Field(default=None)
+    delivered: Optional[str] = Field(default=None, sa_type=Text)
+    evidence: Optional[str] = Field(default=None, sa_type=Text)
+    known_gaps: Optional[str] = Field(default=None, sa_type=Text)
+    follow_ups_created: Optional[str] = Field(default=None, sa_type=Text)
+    changed_by: Optional[str] = Field(default=None)
+    changed_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"server_default": func.now()},
+        nullable=False,
+    )
 
 
 class WorkflowEvent(SQLModel, table=True):

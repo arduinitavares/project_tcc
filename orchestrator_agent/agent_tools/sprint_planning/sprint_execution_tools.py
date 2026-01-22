@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from sqlmodel import Session, select, col
 from agile_sqlmodel import (
     Sprint, UserStory, SprintStory, WorkflowEvent, WorkflowEventType,
-    StoryStatus, engine
+    StoryStatus, StoryResolution, StoryCompletionLog, engine
 )
 from pydantic import BaseModel, Field
 import json
@@ -116,6 +116,220 @@ def update_story_status(status_input: UpdateStoryStatusInput) -> Dict[str, Any]:
             "success": False,
             "error": f"Database error: {str(e)}"
         }
+
+
+# -----------------------------------------------------------------------------
+# Complete Story with Notes (Documentation)
+# -----------------------------------------------------------------------------
+
+class CompleteStoryInput(BaseModel):
+    """Input schema for completing a story with documentation."""
+    story_id: int = Field(..., description="ID of the story to complete")
+    sprint_id: Optional[int] = Field(None, description="Sprint ID (optional)")
+    resolution: Literal["COMPLETED", "COMPLETED_WITH_CHANGES", "PARTIAL", "WONT_DO"] = Field(
+        "COMPLETED", description="Resolution status"
+    )
+    delivered: str = Field(..., description="Summary of what was delivered")
+    evidence: Optional[str] = Field(None, description="Links to outputs/artifacts")
+    known_gaps: Optional[str] = Field(None, description="Limitations or assumptions")
+    follow_up_story_ids: Optional[List[int]] = Field(None, description="IDs of follow-up stories created")
+    ac_was_updated: bool = Field(False, description="Whether AC was updated during work")
+    ac_update_reason: Optional[str] = Field(None, description="Reason for AC update")
+
+
+def complete_story_with_notes(completion_input: CompleteStoryInput) -> Dict[str, Any]:
+    """
+    Mark a story as DONE with full documentation and traceability.
+
+    Returns:
+        Dict with success status and completion summary
+    """
+    if isinstance(completion_input, dict):
+        completion_input = CompleteStoryInput(**completion_input)
+
+    print(f"[Tool: complete_story_with_notes] Completing story {completion_input.story_id}")
+
+    try:
+        with Session(engine) as session:
+            # 1. Validate story exists
+            story = session.get(UserStory, completion_input.story_id)
+            if not story:
+                return {"success": False, "error": f"Story {completion_input.story_id} not found"}
+
+            old_status = story.status
+
+            # 2. Validate sprint membership if provided
+            if completion_input.sprint_id:
+                sprint_story = session.exec(
+                    select(SprintStory)
+                    .where(SprintStory.sprint_id == completion_input.sprint_id)
+                    .where(SprintStory.story_id == completion_input.story_id)
+                ).first()
+                if not sprint_story:
+                    return {"success": False, "error": f"Story {completion_input.story_id} not in sprint {completion_input.sprint_id}"}
+
+            # 3. Handle AC updates logic
+            if completion_input.ac_was_updated and story.original_acceptance_criteria is None:
+                # If this is the first time we're noting AC changes, save the current AC as "original"
+                # (Ideally this should have happened when AC changed, but this is a fallback)
+                story.original_acceptance_criteria = story.acceptance_criteria
+                if completion_input.ac_update_reason:
+                    story.ac_update_reason = completion_input.ac_update_reason
+
+            # 4. Update story status and fields
+            story.status = StoryStatus.DONE
+
+            # Map string resolution to Enum
+            res_map = {
+                "COMPLETED": StoryResolution.COMPLETED,
+                "COMPLETED_WITH_CHANGES": StoryResolution.COMPLETED_WITH_CHANGES,
+                "PARTIAL": StoryResolution.PARTIAL,
+                "WONT_DO": StoryResolution.WONT_DO
+            }
+            story.resolution = res_map.get(completion_input.resolution, StoryResolution.COMPLETED)
+
+            story.completion_notes = completion_input.delivered
+            story.evidence_links = completion_input.evidence
+            story.completed_at = datetime.now(timezone.utc)
+
+            session.add(story)
+
+            # 5. Create audit log
+            log = StoryCompletionLog(
+                story_id=story.story_id,
+                old_status=old_status,
+                new_status=StoryStatus.DONE,
+                resolution=story.resolution,
+                delivered=completion_input.delivered,
+                evidence=completion_input.evidence,
+                known_gaps=completion_input.known_gaps,
+                follow_ups_created=str(completion_input.follow_up_story_ids) if completion_input.follow_up_story_ids else None,
+                changed_by="Orchestrator" # Placeholder
+            )
+            session.add(log)
+            session.commit()
+
+            return {
+                "success": True,
+                "story_id": story.story_id,
+                "status": "DONE",
+                "resolution": story.resolution,
+                "message": f"✅ Story #{story.story_id} completed with notes recorded."
+            }
+
+    except Exception as e:
+        print(f"   [DB Error] {e}")
+        return {"success": False, "error": f"Database error: {str(e)}"}
+
+
+# -----------------------------------------------------------------------------
+# Update Acceptance Criteria
+# -----------------------------------------------------------------------------
+
+class UpdateACInput(BaseModel):
+    """Input schema for updating acceptance criteria."""
+    story_id: int = Field(..., description="ID of the story")
+    new_acceptance_criteria: str = Field(..., description="New acceptance criteria text")
+    reason: str = Field(..., description="Reason for the change")
+    is_scope_change: bool = Field(False, description="Does this change scope significantly?")
+
+
+def update_acceptance_criteria(ac_input: UpdateACInput) -> Dict[str, Any]:
+    """
+    Update acceptance criteria while preserving the original version.
+    """
+    if isinstance(ac_input, dict):
+        ac_input = UpdateACInput(**ac_input)
+
+    print(f"[Tool: update_acceptance_criteria] Updating AC for story {ac_input.story_id}")
+
+    try:
+        with Session(engine) as session:
+            story = session.get(UserStory, ac_input.story_id)
+            if not story:
+                return {"success": False, "error": f"Story {ac_input.story_id} not found"}
+
+            # Preserve original if not already saved
+            if story.original_acceptance_criteria is None:
+                story.original_acceptance_criteria = story.acceptance_criteria
+
+            story.acceptance_criteria = ac_input.new_acceptance_criteria
+            story.ac_updated_at = datetime.now(timezone.utc)
+            story.ac_update_reason = ac_input.reason
+
+            session.add(story)
+            session.commit()
+
+            msg = f"✅ Acceptance criteria updated for story #{story.story_id}."
+            if ac_input.is_scope_change:
+                msg += " (Scope change noted - consider creating a follow-up story for descoped items.)"
+
+            return {
+                "success": True,
+                "story_id": story.story_id,
+                "message": msg,
+                "suggestion": "Create follow-up story" if ac_input.is_scope_change else None
+            }
+
+    except Exception as e:
+        print(f"   [DB Error] {e}")
+        return {"success": False, "error": f"Database error: {str(e)}"}
+
+
+# -----------------------------------------------------------------------------
+# Create Follow-Up Story
+# -----------------------------------------------------------------------------
+
+class CreateFollowUpInput(BaseModel):
+    """Input schema for creating a follow-up story."""
+    parent_story_id: int = Field(..., description="ID of the parent/original story")
+    title: str = Field(..., description="Title of the new story")
+    description: str = Field(..., description="Description of the work")
+    acceptance_criteria: str = Field(..., description="Acceptance criteria")
+    reason: str = Field(..., description="Reason for splitting/follow-up")
+
+
+def create_follow_up_story(follow_up_input: CreateFollowUpInput) -> Dict[str, Any]:
+    """
+    Create a new story linked to a parent story (e.g., for descoped work).
+    """
+    if isinstance(follow_up_input, dict):
+        follow_up_input = CreateFollowUpInput(**follow_up_input)
+
+    print(f"[Tool: create_follow_up_story] Follow-up from {follow_up_input.parent_story_id}")
+
+    try:
+        with Session(engine) as session:
+            parent = session.get(UserStory, follow_up_input.parent_story_id)
+            if not parent:
+                return {"success": False, "error": f"Parent story {follow_up_input.parent_story_id} not found"}
+
+            # Create new story
+            new_desc = f"{follow_up_input.description}\n\n[Follow-up from Story #{parent.story_id}: {follow_up_input.reason}]"
+
+            new_story = UserStory(
+                title=follow_up_input.title,
+                story_description=new_desc,
+                acceptance_criteria=follow_up_input.acceptance_criteria,
+                product_id=parent.product_id,
+                feature_id=parent.feature_id, # Inherit feature
+                status=StoryStatus.TO_DO
+            )
+
+            session.add(new_story)
+            session.commit()
+            session.refresh(new_story)
+
+            return {
+                "success": True,
+                "new_story_id": new_story.story_id,
+                "parent_story_id": parent.story_id,
+                "message": f"✅ Follow-up story #{new_story.story_id} created."
+            }
+
+    except Exception as e:
+        print(f"   [DB Error] {e}")
+        return {"success": False, "error": f"Database error: {str(e)}"}
 
 
 # -----------------------------------------------------------------------------
