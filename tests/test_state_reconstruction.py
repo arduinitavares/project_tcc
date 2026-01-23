@@ -4,29 +4,50 @@ Test suite for validating state reconstruction in the product vision agent.
 These tests verify that the agent correctly preserves information across
 multiple turns (the "anti-goldfish memory" tests).
 """
+# pylint: disable=redefined-outer-name
+
+import json
+import os
+import re
+import uuid
 
 import pytest
-import os
-import json
-import uuid
-import re
-from google.adk.agents import Agent
-from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
 from google.genai import types
 
 from orchestrator_agent.agent_tools.product_vision_tool.agent import root_agent
 
+# pylint: disable=too-few-public-methods
 class StatefulVisionAgent:
+    """
+    Helper class to maintain state for the vision agent across test turns.
+    """
     def __init__(self, agent):
         self.agent = agent
         self.vision_components = None # dict
 
+    def _parse_json_response(self, response_text):
+        """Parses the JSON response from the LLM, handling markdown blocks."""
+        match = re.search(r"```json\n(.*?)\n```", response_text, re.DOTALL)
+        if match:
+            json_str = match.group(1)
+        else:
+            match = re.search(r"(\{.*\})$", response_text.strip(), re.DOTALL)
+            if match:
+                json_str = match.group(1)
+            else:
+                json_str = response_text
+
+        return json.loads(json_str)
+
     async def run(self, input_dict):
+        """Runs a single turn of the agent with the provided input."""
         user_text = input_dict.get("unstructured_requirements", "")
 
-        prior_state_str = json.dumps(self.vision_components) if self.vision_components else "NO_HISTORY"
+        prior_state_str = (
+            json.dumps(self.vision_components) if self.vision_components else "NO_HISTORY"
+        )
 
         prompt = f"""
         Input arguments:
@@ -50,23 +71,13 @@ class StatefulVisionAgent:
             session_id=session_id,
             new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
         ):
-             if event.content and event.content.parts:
-                 for part in event.content.parts:
-                     if part.text:
-                         response_text += part.text
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if part.text:
+                        response_text += part.text
 
         try:
-            match = re.search(r"```json\n(.*?)\n```", response_text, re.DOTALL)
-            if match:
-                json_str = match.group(1)
-            else:
-                match = re.search(r"(\{.*\})$", response_text.strip(), re.DOTALL)
-                if match:
-                    json_str = match.group(1)
-                else:
-                    json_str = response_text
-
-            data = json.loads(json_str)
+            data = self._parse_json_response(response_text)
 
             if "updated_components" in data:
                 self.vision_components = data["updated_components"]
@@ -83,11 +94,12 @@ class StatefulVisionAgent:
 
             return result
 
-        except Exception as e:
+        except Exception as e: # pylint: disable=broad-exception-caught
             return {"error": str(e), "raw": response_text}
 
 @pytest.fixture
 def agent_wrapper():
+    """Fixture to create a StatefulVisionAgent instance."""
     return StatefulVisionAgent(root_agent)
 
 @pytest.mark.skipif(not os.getenv("OPEN_ROUTER_API_KEY"), reason="No API Key")
@@ -306,7 +318,7 @@ class TestMergeLogic:
         """
         # Establish historical value
         turn1_input = {"unstructured_requirements": "Target users are tennis players"}
-        turn1_response = await agent_wrapper.run(turn1_input)
+        _ = await agent_wrapper.run(turn1_input)
 
         # Provide unrelated information (no mention of target user)
         turn2_input = {"unstructured_requirements": "The app will be free to download"}
@@ -323,7 +335,7 @@ class TestMergeLogic:
         """
         # Establish historical value
         turn1_input = {"unstructured_requirements": "Target users are tennis players"}
-        turn1_response = await agent_wrapper.run(turn1_input)
+        _ = await agent_wrapper.run(turn1_input)
 
         # Provide explicit update
         turn2_input = {
@@ -343,7 +355,7 @@ class TestMergeLogic:
         """
         # Turn 1: No target user mentioned
         turn1_input = {"unstructured_requirements": "Project name is NetSet"}
-        turn1_response = await agent_wrapper.run(turn1_input)
+        _ = await agent_wrapper.run(turn1_input)
 
         # Turn 2: Add target user
         turn2_input = {"unstructured_requirements": "For tennis players"}
@@ -360,7 +372,7 @@ class TestMergeLogic:
         """
         # Turn 1: Provide only project name
         turn1_input = {"unstructured_requirements": "Project name is NetSet"}
-        turn1_response = await agent_wrapper.run(turn1_input)
+        _ = await agent_wrapper.run(turn1_input)
 
         # Turn 2: Provide only target user (no mention of problem)
         turn2_input = {"unstructured_requirements": "For tennis players"}
@@ -374,6 +386,7 @@ class TestMergeLogic:
         )
 
 
+# pylint: disable=too-few-public-methods
 @pytest.mark.integration
 @pytest.mark.skipif(not os.getenv("OPEN_ROUTER_API_KEY"), reason="No API Key")
 class TestRealWorldScenarios:
