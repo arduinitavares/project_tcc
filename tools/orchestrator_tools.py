@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple, cast
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from agile_sqlmodel import Epic, Feature, Product, Theme, UserStory, engine
@@ -44,17 +45,33 @@ def _build_projects_payload(
 ) -> Tuple[int, List[Dict[str, Any]]]:
     """Build (count, projects_list) from DB rows."""
     projects: List[Dict[str, Any]] = []
+
+    # 1. Collect product IDs
+    product_ids = [p.product_id for p in products]
+
+    if not product_ids:
+        return 0, []
+
+    # 2. Fetch counts in one query
+    story_counts_query = (
+        select(UserStory.product_id, func.count(UserStory.story_id))
+        .where(UserStory.product_id.in_(product_ids))
+        .group_by(UserStory.product_id)
+    )
+
+    # Map product_id -> count
+    story_counts = {
+        pid: count for pid, count in session.exec(story_counts_query).all()
+    }
+
     for product in products:
-        stories = session.exec(
-            select(UserStory).where(UserStory.product_id == product.product_id)
-        ).all()
         projects.append(
             {
                 "product_id": product.product_id,
                 "name": product.name,
                 "vision": product.vision or "(No vision set)",
                 "roadmap": product.roadmap or "(No roadmap set)",
-                "user_stories_count": len(stories),
+                "user_stories_count": story_counts.get(product.product_id, 0),
             }
         )
     return len(projects), projects
