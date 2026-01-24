@@ -183,21 +183,29 @@ def get_project_details(product_id: int) -> Dict[str, Any]:
             print("   [DB] Product not found.")
             return {"success": False, "error": f"Product {product_id} not found"}
 
-        themes = session.exec(select(Theme).where(Theme.product_id == product_id)).all()
-        stories = session.exec(
-            select(UserStory).where(UserStory.product_id == product_id)
-        ).all()
+        # Optimized count queries using aggregations
+        theme_count = session.exec(
+            select(func.count(Theme.theme_id)).where(Theme.product_id == product_id)
+        ).one()
 
-        total_epics = 0
-        total_features = 0
-        for theme in themes:
-            epics = session.exec(select(Epic).where(Epic.theme_id == theme.theme_id)).all()
-            total_epics += len(epics)
-            for epic in epics:
-                features = session.exec(
-                    select(Feature).where(Feature.epic_id == epic.epic_id)
-                ).all()
-                total_features += len(features)
+        epic_count = session.exec(
+            select(func.count(Epic.epic_id))
+            .join(Theme)
+            .where(Theme.product_id == product_id)
+        ).one()
+
+        feature_count = session.exec(
+            select(func.count(Feature.feature_id))
+            .join(Epic)
+            .join(Theme)
+            .where(Theme.product_id == product_id)
+        ).one()
+
+        story_count = session.exec(
+            select(func.count(UserStory.story_id)).where(
+                UserStory.product_id == product_id
+            )
+        ).one()
 
         print(f"   [DB] Success. Found '{product.name}'.")
         return {
@@ -209,15 +217,15 @@ def get_project_details(product_id: int) -> Dict[str, Any]:
                 "roadmap": product.roadmap,
             },
             "structure": {
-                "themes": len(themes),
-                "epics": total_epics,
-                "features": total_features,
-                "user_stories": len(stories),
+                "themes": theme_count,
+                "epics": epic_count,
+                "features": feature_count,
+                "user_stories": story_count,
             },
             "message": (
-                f"Project '{product.name}' has {len(themes)} theme(s), "
-                f"{total_epics} epic(s), {total_features} feature(s), "
-                f"{len(stories)} story(ies)"
+                f"Project '{product.name}' has {theme_count} theme(s), "
+                f"{epic_count} epic(s), {feature_count} feature(s), "
+                f"{story_count} story(ies)"
             ),
         }
 
