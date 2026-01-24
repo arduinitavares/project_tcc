@@ -8,6 +8,7 @@ small summaries in ADK's persistent session state to reduce latency.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple, cast
 
 from google.adk.tools import ToolContext
@@ -248,6 +249,66 @@ def get_project_by_name(project_name: str) -> Dict[str, Any]:
         }
 
 
+def load_specification_from_file(
+    file_path: str,
+    tool_context: Optional[ToolContext] = None,
+) -> str:
+    """
+    Load a technical specification from a local file for project creation.
+
+    Args:
+        file_path: Absolute or relative path to specification file (.txt, .md, etc.)
+        tool_context: Optional ADK context for state tracking
+
+    Returns:
+        Full text content of the specification file
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        ValueError: If file exceeds size limit (100KB)
+
+    Examples:
+        - load_specification_from_file("docs/product_spec.md")
+        - load_specification_from_file("C:/Users/dev/specs/feature.txt")
+    """
+    path = Path(file_path)
+
+    # Validate existence
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Specification file not found: {file_path}\n"
+            f"Please check the path and try again."
+        )
+
+    # Validate file size (prevent loading huge files)
+    MAX_SIZE_KB = 100
+    file_size_kb = path.stat().st_size / 1024
+    if file_size_kb > MAX_SIZE_KB:
+        raise ValueError(
+            f"File too large ({file_size_kb:.1f}KB). "
+            f"Maximum allowed: {MAX_SIZE_KB}KB.\n"
+            f"Please use a smaller specification file."
+        )
+
+    # Read content
+    try:
+        content = path.read_text(encoding='utf-8')
+    except UnicodeDecodeError:
+        raise ValueError(
+            f"File encoding error. Please ensure {file_path} is UTF-8 text."
+        )
+
+    # Log to state for transparency
+    if tool_context and tool_context.state:
+        state: Dict[str, Any] = cast(Dict[str, Any], tool_context.state)
+        state["last_loaded_spec_path"] = str(path.absolute())
+        state["last_loaded_spec_size_kb"] = round(file_size_kb, 2)
+
+    print(f"[Tool: load_specification_from_file] Loaded {file_size_kb:.1f}KB from {path.name}")
+
+    return content
+
+
 def get_real_business_state() -> Dict[str, Any]:
     """
     Hydrates the initial session state by querying the Business DB.
@@ -302,4 +363,3 @@ def select_project(product_id: int, tool_context: ToolContext) -> Dict[str, Any]
         "active_project": state["active_project"],
         "message": f"Selected '{details['product']['name']}' as active project",
     }
-
