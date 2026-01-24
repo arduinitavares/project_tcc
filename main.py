@@ -200,6 +200,16 @@ def _display_tool_response(part: types.Part) -> None:
     console.print("[bold blue]ORCHESTRATOR > [/bold blue]", end="")
 
 
+async def get_user_input(prompt: str = "") -> str:
+    """
+    Async wrapper for console.input to prevent blocking the event loop.
+    Uses run_in_executor to offload the blocking call.
+    """
+    return await asyncio.get_running_loop().run_in_executor(
+        None, console.input, prompt
+    )
+
+
 # --- 2. WORKFLOW LOGIC ---
 
 
@@ -389,7 +399,8 @@ async def main():
     while True:
         try:
             # FIX: Use Rich's console.input for better UI
-            user_input = console.input("[bold green]USER > [/bold green]")
+            # We use get_user_input (async) to avoid blocking the event loop.
+            user_input = await get_user_input("[bold green]USER > [/bold green]")
 
             if user_input.lower() in ["exit", "quit"]:
                 app_logger.info("User requested session termination")
