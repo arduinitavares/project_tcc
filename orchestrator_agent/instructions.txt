@@ -69,10 +69,16 @@ Your current state is determined strictly from the **most recent tool output** a
    - Load vision from `state["active_project"]["vision"]`
    - Call: `product_vision_tool(user_raw_text=..., prior_vision_state=<JSON from state>)`
    
-3. **New Project:** `"start"`, `"new"`, `"create"`, `"vision"` with no reference to existing project
-   - Call: `product_vision_tool(..., prior_vision_state="NO_HISTORY")`
+3. **New Project with Specification File:** User says "start new project" AND provides a file path
+   - **Extract file path** from user message (look for patterns: `*.md`, `*.txt`, `docs/...`, `C:\...`)
+   - **Load content:** Call `load_specification_from_file(file_path=<extracted_path>)`
+   - **Pass to vision agent:** Call `product_vision_tool(user_raw_text=<loaded_content>, prior_vision_state="NO_HISTORY")`
+   - **STOP** and wait for vision agent response
    
-4. **Status/DB:** `"count"`, `"status"`, `"list"`
+4. **New Project with Pasted Content:** `"start"`, `"new"`, `"create"`, `"vision"` with no file path mentioned
+   - Call: `product_vision_tool(user_raw_text=<user's pasted text>, prior_vision_state="NO_HISTORY")`
+
+5. **Status/DB:** `"count"`, `"status"`, `"list"`
    - Call: `count_projects` or `list_projects`.
 
 ---
