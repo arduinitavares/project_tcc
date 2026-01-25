@@ -17,25 +17,32 @@ import dotenv
 from pydantic import BaseModel, Field
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
+from typing import Annotated
 
 # --- Load Environment ---
 dotenv.load_dotenv()
 
-# --- Output Schema ---
+# Define a constrained alias 
+Score = Annotated[int, Field(ge=0, le=20)]
+
 class InvestScores(BaseModel):
     """INVEST principle scores (0-20 each)."""
-    independent: int = Field(..., ge=0, le=20, description="Can be developed alone (0-20)")
-    negotiable: int = Field(..., ge=0, le=20, description="Room for discussion (0-20)")
-    valuable: int = Field(..., ge=0, le=20, description="Clear user value (0-20)")
-    estimable: int = Field(..., ge=0, le=20, description="Can be estimated (0-20)")
-    small: int = Field(..., ge=0, le=20, description="Fits in a sprint (0-20)")
-    testable: int = Field(..., ge=0, le=20, description="Has testable criteria (0-20)")
+
+    independent: Score = Field(description="Can be developed alone (0-20)")
+    negotiable: Score = Field(description="Room for discussion (0-20)")
+    valuable: Score = Field(description="Clear user value (0-20)")
+    estimable: Score = Field(description="Can be estimated (0-20)")
+    small: Score = Field(description="Fits in a sprint (0-20)")
+    testable: Score = Field(description="Has testable criteria (0-20)")
+
 
 
 class TimeFrameAlignment(BaseModel):
     """Time-frame alignment check result."""
-    is_aligned: bool = Field(..., description="True if story matches its time-frame")
-    issues: list[str] = Field(default_factory=list, description="Time-frame violation issues (empty if aligned)")
+    is_aligned: Annotated[bool, Field(..., description="True if story matches its time-frame")]
+    issues: Annotated[list[str], Field(default_factory=list, description="Time-frame violation issues (empty if aligned)")]
+
+
 
 
 class ValidationResult(BaseModel):
