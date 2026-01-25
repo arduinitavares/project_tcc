@@ -32,6 +32,11 @@ from orchestrator_agent.agent_tools.story_pipeline.alignment_checker import (
     detect_requirement_drift,
     create_rejection_response,
 )
+from orchestrator_agent.agent_tools.story_pipeline.persona_checker import (
+    validate_persona,
+    auto_correct_persona,
+    extract_persona_from_story,
+)
 
 # --- Schema for single story processing ---
 
@@ -414,7 +419,49 @@ async def process_single_story(
                     alignment_issues.append(drift_message)
                     log(f"{RED}[Drift Detection]{RESET} {drift_message}")
 
-                # 3c. DETERMINISTIC VETO: If alignment issues found, override LLM's is_valid
+                # 3c. DETERMINISTIC PERSONA ENFORCEMENT (Layer 3)
+                log(f"{CYAN}[Persona Guard] Validating persona...{RESET}")
+
+                persona_check = validate_persona(
+                    story_description=refined_story.get("description", ""),
+                    required_persona=story_input.user_persona,
+                    allow_synonyms=True,
+                )
+
+                if not persona_check.is_valid:
+                    log(
+                        f"{YELLOW}⚠️  Persona violation: {persona_check.violation_message}{RESET}"
+                    )
+
+                    # Attempt auto-correction
+                    refined_story = auto_correct_persona(
+                        refined_story, story_input.user_persona
+                    )
+                    log(
+                        f"{GREEN}✅ Auto-corrected persona to: {story_input.user_persona}{RESET}"
+                    )
+
+                    # Re-validate
+                    recheck = validate_persona(
+                        refined_story.get("description", ""), story_input.user_persona
+                    )
+                    if not recheck.is_valid:
+                        # Fail hard if we can't correct it
+                        # Instead of raising, we treat it as an alignment failure to keep the flow
+                        fail_msg = (
+                            f"PERSONA ENFORCEMENT FAILED: Required '{story_input.user_persona}', "
+                            f"Found '{recheck.extracted_persona}'"
+                        )
+                        alignment_issues.append(fail_msg)
+                        log(f"{RED}[Fatal Persona Error]{RESET} {fail_msg}")
+                    else:
+                        log(f"{GREEN}✅ Persona validation passed after correction{RESET}")
+                else:
+                    log(
+                        f"{GREEN}✅ Persona validation passed: {story_input.user_persona}{RESET}"
+                    )
+
+                # 3d. DETERMINISTIC VETO: If alignment issues found, override LLM's is_valid
                 if alignment_issues:
                     log(
                         f"{RED}[Deterministic Veto]{RESET} Overriding LLM validation due to alignment violations"
@@ -742,9 +789,12 @@ async def save_validated_stories(save_input: SaveStoriesInput) -> Dict[str, Any]
         with Session(engine) as session:
             for story_data in save_input.stories:
                 try:
+                    description = story_data.get("description", "")
                     user_story = UserStory(
                         title=story_data.get("title", "Untitled"),
-                        story_description=story_data.get("description", ""),
+                        story_description=description,
+                        # Auto-extract persona for denormalized field
+                        persona=extract_persona_from_story(description),
                         acceptance_criteria=story_data.get("acceptance_criteria"),
                         story_points=story_data.get("story_points"),
                         feature_id=story_data.get("feature_id"),

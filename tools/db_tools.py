@@ -18,7 +18,86 @@ from agile_sqlmodel import (
     Theme,
     UserStory,
     engine,
+    ProductPersona,
 )
+
+
+class SeedProductPersonasInput(BaseModel):
+    """Input schema for seed_product_personas tool."""
+
+    product_id: int
+
+
+def seed_product_personas(params: SeedProductPersonasInput) -> Dict[str, Any]:
+    """
+    Agent tool: Seed default personas for the Review-First product.
+    Call this after product creation.
+    """
+    with Session(engine) as session:
+        product = session.get(Product, params.product_id)
+        if not product:
+            return {
+                "success": False,
+                "error": f"Product {params.product_id} not found",
+            }
+
+        # Check if personas already exist
+        existing = session.exec(
+            select(ProductPersona).where(ProductPersona.product_id == params.product_id)
+        ).all()
+        if existing:
+            return {
+                "success": True,
+                "message": f"Personas already exist for product {params.product_id}",
+                "count": len(existing),
+            }
+
+        DEFAULT_PERSONAS = [
+            {
+                "name": "automation engineer",
+                "is_default": True,
+                "category": "primary_user",
+                "description": "Automation and control engineers performing P&ID review and extraction configuration",
+            },
+            {
+                "name": "engineering qa reviewer",
+                "is_default": False,
+                "category": "primary_user",
+                "description": "Engineering QA reviewers performing mandatory validation and sign-off",
+            },
+            {
+                "name": "it administrator",
+                "is_default": False,
+                "category": "admin",
+                "description": "IT administrators managing deployment, security, and user permissions",
+            },
+            {
+                "name": "ml engineer",
+                "is_default": False,
+                "category": "platform",
+                "description": "ML engineers training and tuning extraction models",
+            },
+        ]
+
+        created_count = 0
+        for p_data in DEFAULT_PERSONAS:
+            persona = ProductPersona(
+                product_id=params.product_id,
+                persona_name=p_data["name"],
+                is_default=p_data["is_default"],
+                category=p_data["category"],
+                description=p_data["description"],
+            )
+            session.add(persona)
+            created_count += 1
+
+        session.commit()
+        return {
+            "success": True,
+            "product_id": params.product_id,
+            "message": f"Seeded {created_count} default personas for product '{product.name}'",
+            "count": created_count,
+        }
 
 
 class CreateOrGetProductInput(BaseModel):

@@ -122,6 +122,32 @@ class SprintStory(SQLModel, table=True):
 # --- 3. Core Models ---
 
 
+class ProductPersona(SQLModel, table=True):
+    """Approved personas for a product."""
+
+    __tablename__ = "product_personas"  # type: ignore
+
+    persona_id: Optional[int] = Field(default=None, primary_key=True)
+    product_id: int = Field(foreign_key="products.product_id")
+    persona_name: str = Field(max_length=100, nullable=False)
+    is_default: bool = Field(default=False)
+    category: str = Field(max_length=50, default="primary_user")
+    description: Optional[str] = Field(default=None, sa_type=Text)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"server_default": func.now()},
+        nullable=False,
+    )
+
+    # Relationships
+    product: "Product" = Relationship(back_populates="personas")
+
+    # Constraints
+    __table_args__ = (
+        UniqueConstraint("product_id", "persona_name", name="unique_product_persona"),
+    )
+
+
 class Product(SQLModel, table=True):
     """A top-level product container."""
 
@@ -152,6 +178,7 @@ class Product(SQLModel, table=True):
     themes: List["Theme"] = Relationship(back_populates="product")
     stories: List["UserStory"] = Relationship(back_populates="product")
     sprints: List["Sprint"] = Relationship(back_populates="product")
+    personas: List["ProductPersona"] = Relationship(back_populates="product")
 
 
 class Team(SQLModel, table=True):
@@ -349,6 +376,14 @@ class UserStory(SQLModel, table=True):
     status: StoryStatus = Field(default=StoryStatus.TO_DO, nullable=False)
     story_points: Optional[int] = Field(default=None)
     rank: Optional[str] = Field(default=None, index=True)  # For ordering
+
+    # NEW: Persona field (auto-extracted from description)
+    persona: Optional[str] = Field(
+        default=None,
+        max_length=100,
+        index=True,
+        description="Extracted from 'As a [persona], I want...' format",
+    )
 
     # Completion tracking fields
     resolution: Optional[StoryResolution] = Field(default=None)
