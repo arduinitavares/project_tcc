@@ -19,9 +19,9 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from agile_sqlmodel import UserStory, engine
+from agile_sqlmodel import UserStory, engine, ProductPersona
 from orchestrator_agent.agent_tools.story_pipeline.pipeline import (
     story_validation_loop,
 )
@@ -31,6 +31,12 @@ from orchestrator_agent.agent_tools.story_pipeline.alignment_checker import (
     check_alignment_violation,
     detect_requirement_drift,
     create_rejection_response,
+)
+from orchestrator_agent.agent_tools.story_pipeline.persona_checker import (
+    validate_persona,
+    auto_correct_persona,
+    extract_persona_from_story,
+    normalize_persona,
 )
 
 # --- Schema for single story processing ---
@@ -88,6 +94,39 @@ class ProcessStoryInput(BaseModel):
     ]
 
 
+def validate_persona_against_registry(
+    product_id: int, requested_persona: str, db_session: Session
+) -> tuple[bool, Optional[str]]:
+    """
+    Check if persona is approved for this product.
+
+    Returns:
+        (is_valid, error_message)
+    """
+    # Query approved personas
+    approved = db_session.exec(
+        select(ProductPersona.persona_name).where(
+            ProductPersona.product_id == product_id
+        )
+    ).all()
+
+    if not approved:
+        # No personas defined - allow any (fallback)
+        return True, None
+
+    # Normalize for comparison
+    requested_norm = normalize_persona(requested_persona)
+    approved_norm = [normalize_persona(p) for p in approved]
+
+    if requested_norm in approved_norm:
+        return True, None
+
+    return False, (
+        f"Persona '{requested_persona}' not in approved list for this product. "
+        f"Approved personas: {list(approved)}"
+    )
+
+
 async def process_single_story(
     story_input: ProcessStoryInput,
     output_callback: Optional[Callable[[str], None]] = None,
@@ -126,6 +165,19 @@ async def process_single_story(
         f"\n{CYAN}[Pipeline]{RESET} Processing feature: {BOLD}'{story_input.feature_title}'{RESET}"
     )
     log(f"{DIM}   Theme: {story_input.theme} | Epic: {story_input.epic}{RESET}")
+
+    # --- STEP 0: Fail-Fast Persona Whitelist Check ---
+    with Session(engine) as session:
+        is_valid_persona, persona_error = validate_persona_against_registry(
+            story_input.product_id, story_input.user_persona, session
+        )
+        if not is_valid_persona:
+            log(f"{RED}[Persona REJECTED]{RESET} {persona_error}")
+            return {
+                "success": False,
+                "error": persona_error,
+                "story": None,
+            }
 
     # --- STEP 1: Extract forbidden capabilities from vision ---
     forbidden_capabilities = extract_forbidden_capabilities(story_input.product_vision)
@@ -414,7 +466,49 @@ async def process_single_story(
                     alignment_issues.append(drift_message)
                     log(f"{RED}[Drift Detection]{RESET} {drift_message}")
 
-                # 3c. DETERMINISTIC VETO: If alignment issues found, override LLM's is_valid
+                # 3c. DETERMINISTIC PERSONA ENFORCEMENT (Layer 3)
+                log(f"{CYAN}[Persona Guard] Validating persona...{RESET}")
+
+                persona_check = validate_persona(
+                    story_description=refined_story.get("description", ""),
+                    required_persona=story_input.user_persona,
+                    allow_synonyms=True,
+                )
+
+                if not persona_check.is_valid:
+                    log(
+                        f"{YELLOW}⚠️  Persona violation: {persona_check.violation_message}{RESET}"
+                    )
+
+                    # Attempt auto-correction
+                    refined_story = auto_correct_persona(
+                        refined_story, story_input.user_persona
+                    )
+                    log(
+                        f"{GREEN}✅ Auto-corrected persona to: {story_input.user_persona}{RESET}"
+                    )
+
+                    # Re-validate
+                    recheck = validate_persona(
+                        refined_story.get("description", ""), story_input.user_persona
+                    )
+                    if not recheck.is_valid:
+                        # Fail hard if we can't correct it
+                        # Instead of raising, we treat it as an alignment failure to keep the flow
+                        fail_msg = (
+                            f"PERSONA ENFORCEMENT FAILED: Required '{story_input.user_persona}', "
+                            f"Found '{recheck.extracted_persona}'"
+                        )
+                        alignment_issues.append(fail_msg)
+                        log(f"{RED}[Fatal Persona Error]{RESET} {fail_msg}")
+                    else:
+                        log(f"{GREEN}✅ Persona validation passed after correction{RESET}")
+                else:
+                    log(
+                        f"{GREEN}✅ Persona validation passed: {story_input.user_persona}{RESET}"
+                    )
+
+                # 3d. DETERMINISTIC VETO: If alignment issues found, override LLM's is_valid
                 if alignment_issues:
                     log(
                         f"{RED}[Deterministic Veto]{RESET} Overriding LLM validation due to alignment violations"
@@ -742,9 +836,12 @@ async def save_validated_stories(save_input: SaveStoriesInput) -> Dict[str, Any]
         with Session(engine) as session:
             for story_data in save_input.stories:
                 try:
+                    description = story_data.get("description", "")
                     user_story = UserStory(
                         title=story_data.get("title", "Untitled"),
-                        story_description=story_data.get("description", ""),
+                        story_description=description,
+                        # Auto-extract persona for denormalized field
+                        persona=extract_persona_from_story(description),
                         acceptance_criteria=story_data.get("acceptance_criteria"),
                         story_points=story_data.get("story_points"),
                         feature_id=story_data.get("feature_id"),

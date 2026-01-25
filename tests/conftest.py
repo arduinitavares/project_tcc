@@ -5,6 +5,7 @@ Pytest configuration and fixtures.
 import pytest
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
+from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 
@@ -26,7 +27,13 @@ def engine(test_db_url: str):  # pylint: disable=redefined-outer-name
         cursor.close()
 
     # Use _engine to avoid redefining the 'engine' fixture name
-    _engine = create_engine(test_db_url, echo=False)
+    # Use StaticPool to ensure in-memory DB persists across connections in the same test
+    _engine = create_engine(
+        test_db_url,
+        echo=False,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool
+    )
 
     # Import here to avoid circular imports.
     # We disable unused-import as these models are needed to populate

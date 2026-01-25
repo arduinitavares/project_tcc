@@ -17,7 +17,7 @@ import dotenv
 from pydantic import BaseModel, Field
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-from typing import Annotated
+from typing import Annotated, Optional
 
 # --- Load Environment ---
 dotenv.load_dotenv()
@@ -43,6 +43,17 @@ class TimeFrameAlignment(BaseModel):
     issues: Annotated[list[str], Field(default_factory=list, description="Time-frame violation issues (empty if aligned)")]
 
 
+class PersonaAlignment(BaseModel):
+    """Persona correctness check result."""
+
+    is_correct: bool = Field(..., description="True if story uses the required persona")
+    expected_persona: str = Field(..., description="The persona that should be used")
+    actual_persona: Optional[str] = Field(
+        None, description="The persona extracted from story"
+    )
+    issues: list[str] = Field(
+        default_factory=list, description="Persona mismatch details (empty if correct)"
+    )
 
 
 class ValidationResult(BaseModel):
@@ -51,6 +62,9 @@ class ValidationResult(BaseModel):
     validation_score: int = Field(..., ge=0, le=100, description="Overall quality score 0-100")
     invest_scores: InvestScores = Field(..., description="Individual INVEST principle scores")
     time_frame_alignment: TimeFrameAlignment = Field(..., description="Time-frame alignment result")
+    persona_alignment: PersonaAlignment = Field(
+        ..., description="Persona correctness validation result"
+    )
     issues: list[str] = Field(default_factory=list, description="Specific problems found. EMPTY [] if no issues.")
     suggestions: list[str] = Field(default_factory=list, description="Actionable improvements. MUST be EMPTY [] if no improvements needed. Never put positive feedback here.")
     verdict: str = Field(..., description="Brief summary of validation result")
@@ -149,6 +163,48 @@ Check if the story's assumptions match its time-frame:
 - Story references capabilities outside its theme without justification
 - Story contradicts the theme justification
 
+## 4. PERSONA ALIGNMENT (CRITICAL)
+
+### Persona Extraction
+Extract the persona from the story description using this pattern:
+- Format: "As a [PERSONA], I want..."
+- The [PERSONA] MUST exactly match the `user_persona` field provided in state
+
+### Persona Validation Rules
+- **EXACT MATCH** (case-insensitive): "automation engineer" = "Automation Engineer" ✅
+- **SYNONYM MATCH**: "control engineer" = "automation engineer" ✅ (acceptable)
+- **GENERIC SUBSTITUTION**: "software engineer" when "automation engineer" required ❌ VIOLATION
+- **VAGUE PERSONA**: "user" when specific persona exists ❌ VIOLATION
+- **MISSING PERSONA**: Story doesn't follow "As a [persona]" format ❌ VIOLATION
+
+### Common Violations to Flag
+- Story uses generic task-based persona:
+  - "data annotator" (should be: automation engineer)
+  - "software engineer" (should be: automation engineer)
+  - "frontend developer" (should be: automation engineer)
+  - "QA engineer" (should be: engineering QA reviewer)
+  - "data scientist" (should be: ML engineer OR automation engineer)
+- Story uses "user" or "customer" when specific persona provided
+- Persona is missing entirely from description
+
+### Output Format
+Always populate the `persona_alignment` field in your response:
+```json
+{
+  "persona_alignment": {
+    "is_correct": true,
+    "expected_persona": "automation engineer",
+    "actual_persona": "automation engineer",
+    "issues": []
+  }
+}
+```
+
+### Impact on is_valid
+A persona violation is a CRITICAL issue:
+- If persona_alignment.is_correct = false, then is_valid MUST be false
+- Even if INVEST scores are high (90+), wrong persona = invalid story
+
 # OUTPUT FORMAT
 You MUST output valid JSON matching the ValidationResult schema:
 ```json
@@ -166,6 +222,12 @@ You MUST output valid JSON matching the ValidationResult schema:
   "time_frame_alignment": {
     "is_aligned": <boolean>,
     "issues": ["<issue if misaligned>"]
+  },
+  "persona_alignment": {
+    "is_correct": <boolean>,
+    "expected_persona": "<string>",
+    "actual_persona": "<string>",
+    "issues": ["<issue if mismatch>"]
   },
   "issues": ["<specific issue 1>", "<specific issue 2>"],
   "suggestions": ["<actionable suggestion 1>"],

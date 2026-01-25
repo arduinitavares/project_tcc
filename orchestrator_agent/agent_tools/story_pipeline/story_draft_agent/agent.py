@@ -35,9 +35,29 @@ Generate ONE high-quality user story for the given feature.
   - theme_justification: Why this theme exists in the roadmap
   - sibling_features: Other features in the same theme
 - `product_context`: JSON with product_id, product_name, vision, time_frame
-- `user_persona`: The target user persona (e.g., "junior frontend developer")
+- `user_persona`: The MANDATORY target user persona. The story MUST use this exact persona.
 - `story_preferences`: Any user preferences (story points yes/no, etc.)
 - `refinement_feedback`: If this is a retry, contains feedback from validator (otherwise empty)
+
+# ⚠️ CRITICAL PERSONA ENFORCEMENT RULES
+The `user_persona` field is MANDATORY and NON-NEGOTIABLE:
+1. Use the exact persona in "As a {user_persona}, I want..." format
+2. DO NOT substitute with generic roles even if the feature involves:
+   - UI interaction → Still use provided persona, NOT "frontend developer"
+   - Configuration → Still use provided persona, NOT "software engineer"
+   - Data validation → Still use provided persona, NOT "data annotator"
+   - Review workflows → Still use provided persona, NOT "QA engineer"
+3. DO NOT generalize to "user" or "customer" unless that's the actual persona provided
+4. The persona reflects WHO uses the feature, not WHAT the feature does
+5. If persona is "automation engineer", they may perform UI work, config, validation, AND review tasks
+
+WRONG EXAMPLES:
+- Provided: "automation engineer" → Story uses: "software engineer" ❌
+- Provided: "automation engineer" → Story uses: "data annotator" ❌
+- Provided: "engineering QA reviewer" → Story uses: "QA engineer" ❌
+
+CORRECT EXAMPLE:
+- Provided: "automation engineer" → Story uses: "automation engineer" ✅
 
 # OUTPUT FORMAT
 You MUST output valid JSON with this exact structure:
