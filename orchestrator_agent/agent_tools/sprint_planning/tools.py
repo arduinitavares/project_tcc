@@ -361,8 +361,18 @@ def plan_sprint_tool(
             invalid_stories: List[Dict[str, Any]] = []
             total_points = 0
 
+            # Batch fetch stories with eager loading
+            stories = session.exec(
+                select(UserStory)
+                .options(joinedload(UserStory.feature))
+                .where(UserStory.story_id.in_(plan_input.selected_story_ids))
+            ).all()
+
+            # Create map for O(1) lookup
+            stories_map = {s.story_id: s for s in stories}
+
             for story_id in plan_input.selected_story_ids:
-                story = session.get(UserStory, story_id)
+                story = stories_map.get(story_id)
                 if not story:
                     invalid_stories.append({"story_id": story_id, "reason": "Not found"})
                     continue
