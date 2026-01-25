@@ -19,9 +19,9 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from agile_sqlmodel import UserStory, engine
+from agile_sqlmodel import UserStory, engine, ProductPersona
 from orchestrator_agent.agent_tools.story_pipeline.pipeline import (
     story_validation_loop,
 )
@@ -36,6 +36,7 @@ from orchestrator_agent.agent_tools.story_pipeline.persona_checker import (
     validate_persona,
     auto_correct_persona,
     extract_persona_from_story,
+    normalize_persona,
 )
 
 # --- Schema for single story processing ---
@@ -93,6 +94,39 @@ class ProcessStoryInput(BaseModel):
     ]
 
 
+def validate_persona_against_registry(
+    product_id: int, requested_persona: str, db_session: Session
+) -> tuple[bool, Optional[str]]:
+    """
+    Check if persona is approved for this product.
+
+    Returns:
+        (is_valid, error_message)
+    """
+    # Query approved personas
+    approved = db_session.exec(
+        select(ProductPersona.persona_name).where(
+            ProductPersona.product_id == product_id
+        )
+    ).all()
+
+    if not approved:
+        # No personas defined - allow any (fallback)
+        return True, None
+
+    # Normalize for comparison
+    requested_norm = normalize_persona(requested_persona)
+    approved_norm = [normalize_persona(p) for p in approved]
+
+    if requested_norm in approved_norm:
+        return True, None
+
+    return False, (
+        f"Persona '{requested_persona}' not in approved list for this product. "
+        f"Approved personas: {list(approved)}"
+    )
+
+
 async def process_single_story(
     story_input: ProcessStoryInput,
     output_callback: Optional[Callable[[str], None]] = None,
@@ -131,6 +165,19 @@ async def process_single_story(
         f"\n{CYAN}[Pipeline]{RESET} Processing feature: {BOLD}'{story_input.feature_title}'{RESET}"
     )
     log(f"{DIM}   Theme: {story_input.theme} | Epic: {story_input.epic}{RESET}")
+
+    # --- STEP 0: Fail-Fast Persona Whitelist Check ---
+    with Session(engine) as session:
+        is_valid_persona, persona_error = validate_persona_against_registry(
+            story_input.product_id, story_input.user_persona, session
+        )
+        if not is_valid_persona:
+            log(f"{RED}[Persona REJECTED]{RESET} {persona_error}")
+            return {
+                "success": False,
+                "error": persona_error,
+                "story": None,
+            }
 
     # --- STEP 1: Extract forbidden capabilities from vision ---
     forbidden_capabilities = extract_forbidden_capabilities(story_input.product_vision)
