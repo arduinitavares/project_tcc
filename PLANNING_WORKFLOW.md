@@ -388,6 +388,336 @@ CREATE TABLE features (
 
 ---
 
+## Phase 4: User Story Generation with INVEST Validation
+
+### Agent System: Story Pipeline (3-Agent LoopAgent)
+
+**Objective**: Transform features into INVEST-validated user stories through iterative refinement
+
+### Story Pipeline Architecture
+
+**Location:** `orchestrator_agent/agent_tools/story_pipeline/`
+
+The story pipeline uses a **LoopAgent + SequentialAgent hybrid** pattern:
+
+```
+LoopAgent: story_validation_loop (max 4 iterations)
+    ↓
+SequentialAgent: Draft → Validate → Refine
+    ↓
+Early Exit: INVEST score ≥ 90 OR max iterations reached
+    ↓
+Save to Database: status=TO_DO, validation_score stored
+```
+
+### Three-Agent Pipeline Flow
+
+#### Agent 1: Story Draft Agent
+**File:** `story_pipeline/story_draft_agent/agent.py`
+
+**Input:**
+- Feature description (title + epic context)
+- Product vision statement
+- Alignment constraints from `alignment_checker.py`
+
+**Output:**
+- Story title (user-centric format: "As a [role], I want [goal] so that [benefit]")
+- Story description (context, scope, constraints)
+- Acceptance Criteria (3-5 testable conditions)
+
+**Example:**
+```python
+# Feature: "Email notifications for task updates"
+# Output:
+{
+    "title": "As a team member, I want email alerts for task changes so that I stay informed without checking the app constantly",
+    "description": "Users receive configurable email notifications when tasks assigned to them are updated...",
+    "acceptance_criteria": [
+        "Email sent within 5 minutes of task update",
+        "Notification includes task name, what changed, and who changed it",
+        "Users can disable notifications in settings"
+    ]
+}
+```
+
+#### Agent 2: INVEST Validator Agent
+**File:** `story_pipeline/invest_validator_agent/agent.py`
+
+**INVEST Scoring System:**
+- **6 dimensions**, each scored 0-20 points (total 0-120, normalized to 0-100)
+- **Threshold:** Stories with score ≥ 90 accepted, < 90 require refinement
+
+| Dimension | Criteria | Example Violation (0 points) |
+|-----------|----------|------------------------------|
+| **Independent** | No dependencies on other stories | "After user login is implemented..." |
+| **Negotiable** | Allows flexibility in implementation | "Must use MySQL database" (too prescriptive) |
+| **Valuable** | Clear user benefit | "Refactor authentication code" (no user value) |
+| **Estimable** | Team can estimate effort | "Improve performance" (too vague) |
+| **Small** | Fits in one sprint | "Build entire admin dashboard" (too large) |
+| **Testable** | Has verifiable acceptance criteria | "System should be user-friendly" (subjective) |
+
+**Time-Frame Alignment Validation:**
+```python
+# RULE: Stories in "Now" roadmap can't reference "Later" features
+# Example violation:
+# Feature time_frame: "Now"
+# Story AC: "Integrate with advanced analytics dashboard" (analytics is "Later")
+# Result: INVEST score penalty, refinement required
+```
+
+**Output:**
+```json
+{
+    "validation_score": 85,
+    "invest_scores": {
+        "independent": 20,
+        "negotiable": 15,
+        "valuable": 20,
+        "estimable": 10,
+        "small": 20,
+        "testable": 0
+    },
+    "feedback": "Acceptance criteria are too vague. Specify measurable conditions.",
+    "needs_refinement": true
+}
+```
+
+#### Agent 3: Story Refiner Agent
+**File:** `story_pipeline/story_refiner_agent/agent.py`
+
+**Input:**
+- Original story draft
+- INVEST validator feedback
+- Vision constraints
+
+**Refinement Strategy:**
+- **Preserve approved elements** (dimensions with score ≥ 18)
+- **Focus improvements** on weak dimensions (score < 15)
+- **Maintain vision alignment** (don't introduce forbidden capabilities)
+
+**Example Refinement:**
+```python
+# Iteration 1: Score 65 (Testable=0, Estimable=5)
+# Original AC: "Notifications work correctly"
+
+# Refinement:
+# - AC 1: "Email delivered within 5 min (verified via email logs)"
+# - AC 2: "Email contains task ID, change type, timestamp"
+# - AC 3: "Users can toggle on/off in Settings > Notifications"
+# Result: Score 92 → ACCEPT
+```
+
+### Vision Alignment Enforcement
+
+**File:** `orchestrator_agent/agent_tools/story_pipeline/alignment_checker.py`
+
+**Purpose:** Prevent LLM drift from product vision through deterministic constraint checking
+
+#### 5 Vision Constraint Categories
+
+| Category | Vision Keyword | Forbidden Story Elements | Example |
+|----------|----------------|--------------------------|---------|
+| **Platform** | "mobile-only", "web-only" | Desktop, web, mobile (opposite) | Vision: "mobile-only" → Story can't mention "web dashboard" |
+| **Connectivity** | "offline-first", "cloud-native" | Real-time sync, local storage (opposite) | Vision: "offline-first" → Story can't require "live cloud sync" |
+| **UX Philosophy** | "distraction-free", "gamified" | Notifications, badges (opposite) | Vision: "distraction-free" → Story can't add "push notifications" |
+| **User Segment** | "enterprise", "casual users" | Industrial terms, complex features (opposite) | Vision: "casual users" → Story can't require "SAML SSO" |
+| **Scope** | "simple", "AI-powered" | Advanced analytics, manual config (opposite) | Vision: "simple" → Story can't need "custom SQL queries" |
+
+#### FAIL-FAST Validation Flow
+
+```python
+# BEFORE pipeline runs
+alignment_result = check_alignment_before_pipeline(
+    vision="offline-first mobile app for casual recipe browsing",
+    feature_description="Real-time collaborative editing with cloud sync"
+)
+
+# Returns:
+{
+    "aligned": False,
+    "violations": [
+        "Forbidden: real-time (conflicts with offline-first)",
+        "Forbidden: cloud sync (conflicts with offline-first)",
+        "Forbidden: collaborative (too complex for casual users)"
+    ]
+}
+# Pipeline does NOT run → Save LLM tokens, prevent bad stories
+```
+
+#### Post-Validation Drift Detection
+
+```python
+# AFTER pipeline generates story
+alignment_result = check_alignment_after_validation(
+    vision="mobile-only app",
+    story_title="As a user, I want to access my data from the web dashboard...",
+    story_description="...",
+    acceptance_criteria=[...]
+)
+
+# Returns:
+{
+    "aligned": False,
+    "violations": ["Forbidden: web dashboard (conflicts with mobile-only)"]
+}
+# Story rejected, pipeline re-runs with stricter constraints
+```
+
+### Complete Pipeline Iteration Example
+
+**Scenario:** Feature "User profile management" in "Now" roadmap
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ ITERATION 1                                             │
+├─────────────────────────────────────────────────────────┤
+│ 1. Alignment Check: ✅ PASS                            │
+│ 2. Draft Agent: Generates story                        │
+│    - Title: "As a user, I want to manage my profile"   │
+│    - AC: "Profile page exists", "Users can edit"       │
+│ 3. INVEST Validator: Score 65                          │
+│    - Independent: 20, Negotiable: 15, Valuable: 10     │
+│    - Estimable: 5, Small: 15, Testable: 0             │
+│    - Feedback: "Too vague, no clear benefit"           │
+│ 4. Continue? YES (score < 90)                          │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│ ITERATION 2                                             │
+├─────────────────────────────────────────────────────────┤
+│ 1. Refiner Agent: Improves Valuable, Testable          │
+│    - Title: "...so that I can keep my contact info up  │
+│      to date and control privacy settings"             │
+│    - AC: "Edit name, email, phone (saved on submit)"   │
+│           "Toggle profile visibility (public/private)"  │
+│           "Changes reflected within 5 seconds"         │
+│ 2. INVEST Validator: Score 85                          │
+│    - Valuable: 20 ↑, Testable: 15 ↑                    │
+│    - Feedback: "Estimable improved but scope unclear"   │
+│ 3. Continue? YES (score < 90)                          │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│ ITERATION 3                                             │
+├─────────────────────────────────────────────────────────┤
+│ 1. Refiner Agent: Narrows scope                        │
+│    - Description: "Limited to name, email, phone only. │
+│      Avatar upload is separate story."                 │
+│    - AC: Added acceptance test scenario                │
+│ 2. INVEST Validator: Score 92 ✅                       │
+│    - All dimensions ≥ 15                               │
+│ 3. Alignment Check: ✅ PASS                            │
+│ 4. Continue? NO (score ≥ 90) → ACCEPT                 │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│ SAVE TO DATABASE                                        │
+├─────────────────────────────────────────────────────────┤
+│ UserStory record created:                               │
+│   - status: TO_DO                                       │
+│   - validation_score: 92                                │
+│   - feature_id: 24                                      │
+│ WorkflowEvent emitted:                                  │
+│   - event_type: STORY_GENERATED                        │
+│   - metadata: {score: 92, iterations: 3}               │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Pipeline Tools API
+
+#### 1. Process Single Feature
+```python
+process_feature_for_stories(
+    product_id=10,
+    feature_id=24,
+    product_vision="For casual cooks who want quick recipes...",
+    max_iterations=4
+)
+
+# Returns:
+{
+    "success": True,
+    "stories_created": 1,
+    "feature_title": "User profile management",
+    "iterations_used": 3,
+    "final_score": 92,
+    "story_ids": [45]
+}
+```
+
+#### 2. Batch Process Features
+```python
+process_features_batch(
+    product_id=10,
+    feature_ids=[24, 25, 26],
+    product_vision="...",
+    max_features=10
+)
+
+# Returns:
+{
+    "success": True,
+    "total_stories_created": 3,
+    "results": [
+        {"feature_id": 24, "stories": 1, "score": 92},
+        {"feature_id": 25, "stories": 1, "score": 88},
+        {"feature_id": 26, "stories": 0, "error": "Alignment violation"}
+    ]
+}
+```
+
+#### 3. Save Pre-Validated Stories
+```python
+# For stories generated externally or manually
+save_validated_stories(
+    product_id=10,
+    stories=[
+        {
+            "title": "As a user...",
+            "description": "...",
+            "acceptance_criteria": ["AC1", "AC2"],
+            "feature_id": 24,
+            "validation_score": 95
+        }
+    ]
+)
+```
+
+### Exit Conditions
+
+The pipeline terminates when:
+1. **Early Success:** INVEST score ≥ 90 (story accepted)
+2. **Max Iterations:** 4 refinement cycles completed (accept best score)
+3. **Alignment Failure:** Vision violations persist after 2 attempts (reject feature)
+
+**Quality Thresholds:**
+- **90-100:** Production-ready, save immediately
+- **70-89:** Acceptable after max iterations, flag for review
+- **< 70:** Manual intervention required, pipeline failed
+
+### State Management
+
+**Pipeline does NOT persist state between features:**
+- Each feature starts fresh (no accumulated context)
+- Vision statement passed to every feature
+- Alignment constraints re-evaluated per feature
+
+**Story state after pipeline:**
+```python
+UserStory(
+    story_id=45,
+    title="As a user, I want to manage my profile...",
+    description="...",
+    acceptance_criteria=["AC1", "AC2", "AC3"],
+    status=StoryStatus.TO_DO,  # Ready for sprint planning
+    validation_score=92,
+    feature_id=24,
+    product_id=10
+)
+```
+
+---
+
 ## Phase 5: Sprint Planning
 
 ### Tools: Sprint Planning Toolkit (Scrum Master MVP)
@@ -517,6 +847,9 @@ WorkflowEvent(
 | Tool | Purpose | Input |
 |------|---------|-------|
 | `update_story_status` | Change story status | `{story_id, new_status, sprint_id}` |
+| `complete_story_with_notes` | Mark DONE with documentation | `{story_id, resolution_type, completion_notes, evidence_links}` |
+| `update_acceptance_criteria` | Update AC mid-sprint | `{story_id, updated_criteria, update_reason}` |
+| `create_followup_story` | Create descoped work story | `{parent_story_id, title, description, known_gaps}` |
 | `batch_update_story_status` | Update multiple stories | `{updates: [{story_id, new_status}], sprint_id}` |
 | `modify_sprint_stories` | Add/remove stories | `{sprint_id, add_story_ids, remove_story_ids}` |
 | `complete_sprint` | Mark sprint complete | `{sprint_id, notes}` |
@@ -635,6 +968,191 @@ complete_sprint({
 4. **Idempotent Operations**: Re-running same operation is safe
 5. **Story Status on Add**: Stories added to sprint become IN_PROGRESS
 6. **Story Status on Remove**: Stories removed return to TO_DO
+
+### Story Completion Tracking
+
+#### Complete Story with Documentation
+
+**Tool:** `complete_story_with_notes()`
+
+**Purpose:** Mark stories DONE with detailed completion documentation for audit trail and TCC evaluation
+
+**Input Schema:**
+```python
+{
+    "story_id": 35,
+    "resolution_type": "COMPLETED",  # COMPLETED | COMPLETED_WITH_CHANGES | PARTIAL | WONT_DO
+    "completion_notes": "Implemented for iOS and Android. Flutter framework used for cross-platform development.",
+    "evidence_links": ["https://github.com/repo/pull/123", "demo-video.mp4"],
+    "acceptance_criteria_updates": None,  # Optional: If ACs were modified
+    "known_gaps": None,  # Optional: If PARTIAL completion
+    "completion_confidence": 95  # Optional: 0-100 confidence score
+}
+```
+
+**Resolution Types:**
+
+| Type | When to Use | Example |
+|------|-------------|---------|
+| `COMPLETED` | All ACs met as originally defined | Story delivered exactly as planned |
+| `COMPLETED_WITH_CHANGES` | ACs were updated mid-sprint but all met | AC simplified due to time constraint |
+| `PARTIAL` | Some ACs met, others descoped | Login works but password reset descoped to next sprint |
+| `WONT_DO` | Story cancelled (e.g., priority change) | Feature no longer needed per product pivot |
+
+**Returns:**
+```json
+{
+    "success": true,
+    "story_id": 35,
+    "status": "DONE",
+    "resolution_type": "COMPLETED",
+    "completion_log_id": 12,
+    "message": "✅ Story #35 marked DONE (COMPLETED). Completion logged."
+}
+```
+
+**Database Actions:**
+1. Updates `user_stories.status` to `DONE`
+2. Sets `user_stories.resolution_type`, `completion_notes`, `evidence_links`, etc.
+3. Creates `StoryCompletionLog` record with timestamp, author, reason
+
+#### Update Acceptance Criteria Mid-Sprint
+
+**Tool:** `update_acceptance_criteria()`
+
+**Purpose:** Modify ACs during sprint with full traceability (preserves original ACs)
+
+**Input:**
+```python
+{
+    "story_id": 35,
+    "updated_criteria": [
+        "User can log in with email/password (Google OAuth descoped)",
+        "Session persists for 7 days",
+        "Logout button visible on all screens"
+    ],
+    "update_reason": "Google OAuth API quota exceeded; simplified to email/password only for MVP sprint"
+}
+```
+
+**Traceability Pattern:**
+```python
+# BEFORE update
+story.acceptance_criteria = ["AC1 original", "AC2 original", "AC3 original"]
+story.acceptance_criteria_updates = None
+
+# AFTER update
+story.acceptance_criteria = ["AC1 updated", "AC2 updated", "AC3 updated"]
+story.acceptance_criteria_updates = {
+    "original": ["AC1 original", "AC2 original", "AC3 original"],
+    "reason": "Google OAuth API quota exceeded...",
+    "updated_at": "2026-01-15T14:30:00Z"
+}
+```
+
+**Returns:**
+```json
+{
+    "success": true,
+    "story_id": 35,
+    "original_criteria": ["AC1 original", "AC2 original"],
+    "updated_criteria": ["AC1 updated", "AC2 updated"],
+    "message": "✅ Acceptance criteria updated. Original ACs preserved in 'acceptance_criteria_updates' field."
+}
+```
+
+#### Create Follow-Up Story
+
+**Tool:** `create_followup_story()`
+
+**Purpose:** Descope work to future sprint while maintaining parent-child traceability
+
+**Input:**
+```python
+{
+    "parent_story_id": 35,
+    "title": "As a user, I want to log in with Google OAuth so that I can access the app faster",
+    "description": "Descoped from Story #35 due to API quota constraints. Implement Google OAuth login flow.",
+    "acceptance_criteria": [
+        "User can click 'Sign in with Google' button",
+        "OAuth flow redirects to Google consent screen",
+        "Successful auth creates user session"
+    ],
+    "known_gaps": "Requires Google OAuth API approval (waiting on vendor)",
+    "feature_id": 24  # Optional: Link to same feature as parent
+}
+```
+
+**Returns:**
+```json
+{
+    "success": true,
+    "parent_story_id": 35,
+    "followup_story_id": 46,
+    "title": "As a user, I want to log in with Google OAuth...",
+    "status": "TO_DO",
+    "message": "✅ Follow-up story #46 created and linked to parent #35."
+}
+```
+
+**Database Relationships:**
+```sql
+-- parent story
+SELECT story_id, title, follow_up_story_id FROM user_stories WHERE story_id = 35;
+-- Result: (35, "User login", 46)
+
+-- followup story
+SELECT story_id, title, status FROM user_stories WHERE story_id = 46;
+-- Result: (46, "Google OAuth login", "TO_DO")
+```
+
+### Story Completion Audit System
+
+**Table:** `story_completion_log` (in `agile_sqlmodel.py`)
+
+**Purpose:** Immutable audit trail for all story status changes (TCC traceability requirement)
+
+**Schema:**
+```python
+class StoryCompletionLog(SQLModel, table=True):
+    log_id: int  # Primary key
+    story_id: int  # Foreign key to user_stories
+    changed_by: str  # User/agent who made change
+    changed_at: datetime  # Timestamp
+    old_status: str  # Previous status (e.g., "IN_PROGRESS")
+    new_status: str  # New status (e.g., "DONE")
+    resolution_type: Optional[str]  # COMPLETED, PARTIAL, etc.
+    completion_notes: Optional[str]  # Why/how completed
+    evidence_links: Optional[str]  # JSON array of proof links
+    known_gaps: Optional[str]  # What wasn't completed
+```
+
+**Automatic Logging:**
+- Every call to `complete_story_with_notes()` creates log entry
+- Every call to `update_story_status()` creates log entry (if changing to DONE)
+- Log entries are **immutable** (INSERT only, no UPDATE/DELETE)
+
+**Querying Audit Trail:**
+```python
+# Get all changes for a story
+logs = session.exec(
+    select(StoryCompletionLog)
+    .where(StoryCompletionLog.story_id == 35)
+    .order_by(StoryCompletionLog.changed_at)
+).all()
+
+# Result:
+# [
+#   Log(old_status="TO_DO", new_status="IN_PROGRESS", changed_at="2026-01-10 09:00"),
+#   Log(old_status="IN_PROGRESS", new_status="DONE", resolution_type="COMPLETED", changed_at="2026-01-15 14:30")
+# ]
+```
+
+**TCC Evaluation Use Cases:**
+1. **Cycle Time Measurement:** Time between TO_DO → DONE (first log entry to last)
+2. **Scope Change Analysis:** Count stories with `resolution_type=COMPLETED_WITH_CHANGES`
+3. **Completion Quality:** Analyze `completion_confidence` scores across sprints
+4. **Evidence Compliance:** Verify all DONE stories have `evidence_links` populated
 
 ---
 

@@ -10,33 +10,64 @@ flowchart TD
   
   %% Session state management
   O <--> SS["Session Service<br/>(DatabaseSessionService)"]:::store
-  SS --> SST["Session State<br/>• unstructured_requirements<br/>• product_vision_statement<br/>• product_roadmap<br/>• is_complete"]:::artifact
+  SS --> SST["Session State<br/>• unstructured_requirements<br/>• product_vision_statement<br/>• product_roadmap<br/>• is_complete<br/>• clarifying_questions<br/>• active_project (product_id, name)"]:::artifact
 
   %% Sub-agents as tools
   O <-->|AgentTool| VA["Product Vision Agent"]:::tool
   O <-->|AgentTool| RA["Product Roadmap Agent"]:::tool
 
+  %% Story pipeline agents (as tools)
+  O <-->|AgentTool| SDA["Story Draft Agent"]:::tool
+  O <-->|AgentTool| IVA["INVEST Validator Agent"]:::tool
+  O <-->|AgentTool| SRA["Story Refiner Agent"]:::tool
+
+  %% Story pipeline orchestrator (LoopAgent)
+  O --> SL["Story Validation Loop (LoopAgent)<br/>Draft → Validate → Refine<br/>max 4 iterations, accept ≥ 90"]:::agent
+  SL --> SDA
+  SL --> IVA
+  SL --> SRA
+
   %% Database query tools (FunctionTool)
   O <-->|FunctionTool| QT["Query Tools<br/>• count_projects()<br/>• list_projects()<br/>• get_project_details()<br/>• get_project_by_name()"]:::tool
   
   %% Database mutation tools (FunctionTool)
-  O <-->|FunctionTool| MT["Mutation Tools<br/>• create_or_get_product()<br/>• create_theme()<br/>• create_epic()<br/>• create_feature()"]:::tool
+  O <-->|FunctionTool| MT["Mutation Tools<br/>• create_or_get_product()<br/>• save_vision_tool()<br/>• save_roadmap_tool()"]:::tool
+
+  %% Story pipeline tools (FunctionTool)
+  O <-->|FunctionTool| SPT["Story Pipeline Tools<br/>• process_feature_for_stories()<br/>• process_features_batch()<br/>• save_validated_stories()"]:::tool
+
+  %% Sprint planning tools (FunctionTool)
+  O <-->|FunctionTool| SPT2["Sprint Planning Tools<br/>• get_backlog_for_planning()<br/>• plan_sprint_tool()<br/>• save_sprint_tool()<br/>• get_sprint_details()<br/>• list_sprints()"]:::tool
+
+  %% Sprint execution tools (FunctionTool)
+  O <-->|FunctionTool| SET["Sprint Execution Tools<br/>• update_story_status()<br/>• complete_story_with_notes()<br/>• update_acceptance_criteria()<br/>• create_followup_story()<br/>• batch_update_story_status()<br/>• modify_sprint_stories()<br/>• complete_sprint()"]:::tool
 
   %% SQLite persistence
-  QT --> DB["SQLite Database<br/>(agile_sqlmodel.db)"]:::db
+  QT --> DB["SQLite Database<br/>(agile_simple.db)"]:::db
   MT --> DB
+  SPT --> DB
+  SPT2 --> DB
+  SET --> DB
   SS -.->|session metadata| DB
 
   %% Database artifacts
-  DB --> DBA["Database Artifacts<br/>• products (vision, roadmap)<br/>• themes<br/>• epics<br/>• features<br/>• user_stories<br/>• sprints<br/>• tasks<br/>• teams/members"]:::artifact
+  DB --> DBA["Database Artifacts<br/>• products (vision, roadmap)<br/>• themes → epics → features<br/>• user_stories (INVEST score, status, completion fields)<br/>• story_completion_log (audit trail)<br/>• sprints (velocity metrics)<br/>• tasks<br/>• teams/members<br/>• workflow_events (TCC metrics)"]:::artifact
 
   %% Agent outputs
   VA -.->|JSON OutputSchema| VOut["Vision Output<br/>• product_vision_statement<br/>• is_complete<br/>• clarifying_questions"]:::artifact
   RA -.->|JSON OutputSchema| ROut["Roadmap Output<br/>• product_roadmap<br/>• is_complete<br/>• clarifying_questions"]:::artifact
 
+  %% Story pipeline outputs
+  SL -.->|Validated Story Output| SOut["Story Output<br/>• user_story (title, description, AC)<br/>• invest_scores + validation_score<br/>• iterations_used<br/>• aligned=true/false"]:::artifact
+
+  %% Deprecated legacy agent (documented for clarity)
+  O -.->|Deprecated| LUA["Legacy User Story Agent<br/>(deprecated)"]:::tool
+
   %% Flow notes
-  Note1["Note: Vision & Roadmap agents<br/>have NO direct user I/O<br/>(disallow_transfer_to_parent=True)"]
-  Note2["Note: Tool results cached in<br/>ToolContext (5min TTL)"]
+  Note1["Note: Child agents have NO direct user I/O<br/>(disallow_transfer_to_parent=True)"]
+  Note2["Note: Query tool results cached in<br/>ToolContext (5min TTL)"]
+  Note3["Note: Story pipeline enforces alignment<br/>before/after validation (FAIL-FAST + drift detection)"]
   
   style Note1 fill:#fff,stroke:#999,stroke-dasharray: 5 5
   style Note2 fill:#fff,stroke:#999,stroke-dasharray: 5 5
+  style Note3 fill:#fff,stroke:#999,stroke-dasharray: 5 5

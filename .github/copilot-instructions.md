@@ -101,9 +101,12 @@ This ensures agents maintain context across clarifying question rounds.
 - `epics` – Feature groups (belongs to theme, contains features)
 - `features` – User-facing capabilities (belongs to epic)
 - `user_stories` – INVEST-compliant stories (belongs to product, linked to sprints)
+  - **Completion tracking fields**: `resolution_type`, `completion_notes`, `acceptance_criteria_updates`, `known_gaps`, `evidence_links`, `completion_confidence`, `follow_up_story_id`, `completed_at`
+- `story_completion_log` – Audit trail for status changes (who, when, why, evidence)
 - `sprints` – Development cycles (tracks `start_date`, `end_date`, status)
 - `tasks` – Sprint tasks with assigned members
 - `teams` / `team_members` – Organizational structure
+- `workflow_events` – TCC evaluation metrics (event_type, duration_seconds, metadata)
 - **Link tables:** `TeamMembership`, `ProductTeam`, `SprintStory`
 
 **Key Patterns:**
@@ -113,7 +116,7 @@ This ensures agents maintain context across clarifying question rounds.
 
 ## Tool Architecture
 
-**Read-only tools** (`tools/orchestrator_tools.py`):
+### Read-Only Query Tools (`tools/orchestrator_tools.py`)
 - `count_projects()` – Count total projects (cached)
 - `list_projects()` – List all projects with summaries (cached)
 - `get_project_details(product_id)` – Get full hierarchy
@@ -121,9 +124,31 @@ This ensures agents maintain context across clarifying question rounds.
 
 **Caching Strategy:** Tools accept optional `ToolContext` to transparently cache results in ADK's persistent state. TTL defaults to 5 minutes (configurable). Cache keys: `projects_summary`, `projects_list`, `projects_last_refreshed_utc`.
 
-**Database Tools** (`tools/db_tools.py`):
+### Database Mutation Tools (`tools/db_tools.py`)
 - `create_or_get_product()` – Create product or return existing
-- Agent-facing tools for creating stories, tasks, themes, etc.
+- `save_vision_tool()` – Persist vision statement to database
+- `save_roadmap_tool()` – Create theme → epic → feature hierarchy
+
+### Story Pipeline Tools (`orchestrator_agent/agent_tools/story_pipeline/tools.py`)
+- `process_feature_for_stories()` – Generate stories for single feature with INVEST validation
+- `process_features_batch()` – Batch process multiple features (max 10)
+- `save_validated_stories()` – Persist pre-validated stories without re-processing
+
+### Sprint Planning Tools (`orchestrator_agent/agent_tools/sprint_planning/tools.py`)
+- `get_backlog_for_planning()` – Query TO_DO stories ready for sprint
+- `plan_sprint_tool()` – Create draft sprint with validation
+- `save_sprint_tool()` – Persist sprint to database with metrics
+- `get_sprint_details()` – View sprint information
+- `list_sprints()` – List all sprints for product
+
+### Sprint Execution Tools (`orchestrator_agent/agent_tools/sprint_planning/sprint_execution_tools.py`)
+- `update_story_status()` – Change story status (TO_DO/IN_PROGRESS/DONE)
+- `complete_story_with_notes()` – Mark story DONE with completion documentation
+- `update_acceptance_criteria()` – Update AC mid-sprint with traceability
+- `create_followup_story()` – Create descoped work story linked to parent
+- `batch_update_story_status()` – Daily standup batch status updates
+- `modify_sprint_stories()` – Add/remove stories mid-sprint
+- `complete_sprint()` – Mark sprint complete with velocity metrics
 
 ## Response Format Contract
 
@@ -142,14 +167,14 @@ All agents must return valid JSON matching their `OutputSchema`. Example:
 ## Session Persistence
 
 **How it works:**
-1. `DatabaseSessionService` manages sessions in SQLite (`agile_sqlmodel.db`)
+1. `DatabaseSessionService` manages sessions in SQLite (`agile_simple.db`)
 2. Each session is scoped by `(app_name, user_id, session_id)`
 3. State is a dict that persists across runner calls
-4. Sessions are reused on restart for conversation continuity
+4. **Note:** Current implementation uses `SESSION_ID = str(uuid.uuid4())` generating new session per run
 
 **Usage in ADK Web:**
 ```bash
-adk web --session_service_uri=sqlite:///agile_sqlmodel.db --agent-path=agent.py
+python main.py  # Starts orchestrator with session persistence
 ```
 
 ## Development Workflows
@@ -176,24 +201,110 @@ pytest tests/
 ```
 Test database fixtures in `tests/conftest.py` create fresh SQLite engine for each test.
 
+## Story Pipeline Architecture
+
+### Multi-Agent INVEST Validation System
+
+**Location:** `orchestrator_agent/agent_tools/story_pipeline/`
+
+**Architecture:** LoopAgent + SequentialAgent hybrid
+- `story_validation_loop` (LoopAgent) wraps sequential pipeline
+- Max 4 iterations with early exit when INVEST score ≥ 90
+- Three sub-agents process features in sequence:
+
+#### 1. Story Draft Agent
+**File:** `story_pipeline/story_draft_agent/agent.py`
+- Generates initial user story from feature description
+- Applies vision constraints from alignment checker
+- Outputs: story title, description, acceptance criteria (3-5 items)
+
+#### 2. INVEST Validator Agent
+**File:** `story_pipeline/invest_validator_agent/agent.py`
+- Validates against 6 INVEST principles (Independent, Negotiable, Valuable, Estimable, Small, Testable)
+- Returns granular scoring: 20 points per dimension (0-120 total → normalized 0-100)
+- Checks time-frame alignment ("Now" stories can't reference "Later" features)
+- Provides specific improvement suggestions for scores < 90
+
+#### 3. Story Refiner Agent
+**File:** `story_pipeline/story_refiner_agent/agent.py`
+- Refines story based on validation feedback
+- Preserves approved elements, improves weak dimensions
+- Re-validates until score ≥ 90 or max iterations reached
+
+### Vision Alignment Enforcement
+
+**File:** `orchestrator_agent/agent_tools/story_pipeline/alignment_checker.py`
+
+**Purpose:** Deterministic constraint enforcement to prevent LLM drift from product vision
+
+**Key Functions:**
+- `extract_forbidden_capabilities()` – Maps vision keywords to forbidden story elements
+- `check_alignment_before_pipeline()` – FAIL-FAST validation before story generation
+- `check_alignment_after_validation()` – Post-pipeline drift detection
+
+**Vision Constraint Patterns** (5 categories):
+1. **Platform Constraints**: "mobile-only" → forbids web/desktop mentions
+2. **Connectivity**: "offline-first" → forbids real-time sync, cloud storage
+3. **UX Philosophy**: "distraction-free" → forbids notifications, gamification
+4. **User Segment**: "casual users" → forbids industrial/enterprise terms
+5. **Scope Constraints**: "simple" → forbids AI/ML, advanced analytics
+
+**Example:**
+```python
+# Vision: "offline-first mobile app"
+# Feature: "Real-time cloud sync"
+# Result: REJECTED before pipeline runs (saves LLM tokens)
+alignment_result = check_alignment_before_pipeline(
+    vision="offline-first mobile app",
+    feature_description="Real-time cloud sync"
+)
+# Returns: {"aligned": False, "violations": ["Forbidden: real-time (conflicts with offline-first)"]}
+```
+
+### Pipeline Iteration Flow
+
+```
+Feature Input
+    ↓
+Alignment Check (FAIL-FAST)
+    ↓ (if aligned)
+Iteration 1: Draft → Validate (score: 65) → Refine
+    ↓
+Iteration 2: Validate (score: 85) → Refine
+    ↓
+Iteration 3: Validate (score: 92) → ACCEPT
+    ↓
+Post-Validation Alignment Check
+    ↓
+Save to Database (status: TO_DO, validation_score: 92)
+```
+
 ## Folder Structure (ADK Best Practices)
 
 ```
 orchestrator_agent/          # Root agent (entry point)
   ├── agent.py              # Defines root_agent and app (App object)
-  └── instructions.txt      # Orchestrator instructions
-
-product_vision_agent/
-  ├── agent.py              # Defines root_agent (wrapped by AgentTool)
-  └── instructions.txt
-
-product_roadmap_agent/
-  ├── agent.py              # Defines root_agent (wrapped by AgentTool)
-  └── instructions.txt
+  ├── instructions.txt      # Orchestrator instructions
+  └── agent_tools/
+      ├── product_vision_tool/
+      │   ├── agent.py      # Vision agent
+      │   └── instructions.txt
+      ├── product_roadmap_agent/
+      │   ├── agent.py      # Roadmap agent
+      │   └── instructions.txt
+      ├── story_pipeline/
+      │   ├── pipeline.py   # LoopAgent orchestrator
+      │   ├── tools.py      # process_feature_for_stories, batch
+      │   ├── alignment_checker.py  # Vision constraint enforcement
+      │   ├── story_draft_agent/
+      │   ├── invest_validator_agent/
+      │   └── story_refiner_agent/
+      └── sprint_planning/
+          ├── tools.py      # Sprint planning tools
+          ├── sprint_execution_tools.py  # Status updates, completion
+          └── sprint_query_tools.py      # Backlog queries
 
 tools/
-  ├── product_vision_tool.py      # AgentTool wrapper for vision agent
-  ├── product_roadmap_tool.py     # AgentTool wrapper for roadmap agent
   ├── orchestrator_tools.py       # Database query tools (FunctionTool)
   └── db_tools.py                 # Database mutation tools
 
@@ -205,14 +316,19 @@ main.py                      # CLI entry point (calls orchestrator app)
 | File | Purpose |
 |------|---------|
 | `main.py` | ADK Web bootstrap; session initialization |
-| `product_workflow.py` | LoopAgent orchestration example (vision → roadmap) |
-| `product_vision_agent/agent.py` | Vision agent definition |
-| `product_roadmap_agent/agent.py` | Roadmap agent definition |
-| `orchestrator.py` | Orchestrator routing logic (Claude with tools) |
+| `orchestrator_agent/agent.py` | Root orchestrator with all agent tools |
+| `orchestrator_agent/agent_tools/product_vision_tool/agent.py` | Vision agent definition |
+| `orchestrator_agent/agent_tools/product_roadmap_agent/agent.py` | Roadmap agent definition |
+| `orchestrator_agent/agent_tools/story_pipeline/pipeline.py` | Story validation LoopAgent |
+| `orchestrator_agent/agent_tools/story_pipeline/alignment_checker.py` | Vision constraint enforcement |
+| `orchestrator_agent/agent_tools/story_pipeline/story_draft_agent/agent.py` | Draft generator |
+| `orchestrator_agent/agent_tools/story_pipeline/invest_validator_agent/agent.py` | INVEST scorer |
+| `orchestrator_agent/agent_tools/story_pipeline/story_refiner_agent/agent.py` | Story refiner |
+| `orchestrator_agent/agent_tools/sprint_planning/tools.py` | Sprint planning tools |
+| `orchestrator_agent/agent_tools/sprint_planning/sprint_execution_tools.py` | Sprint status updates |
 | `agile_sqlmodel.py` | SQLModel schema and database initialization |
 | `utils/schemes.py` | Shared Pydantic schemas across agents |
 | `utils/response_parser.py` | JSON response validation |
-| `utils/agent_io.py` | High-level agent runner wrapper with event streaming |
 | `tools/orchestrator_tools.py` | Read-only project query tools |
 | `tools/db_tools.py` | Database mutation tools |
 
@@ -232,22 +348,63 @@ main.py                      # CLI entry point (calls orchestrator app)
 
 7. **Documentation Files:** Do NOT create `.md` files or documentation files unless the user explicitly asks for it. Focus on code implementation only.
 
+8. **Alignment Violations:** If story generation produces features contradicting the vision (e.g., "web UI" for "mobile-only" app), the alignment checker will reject them BEFORE pipeline runs. Don't try to transform violations—respect vision constraints.
+
+9. **Story Pipeline Early Exit:** Pipeline exits when INVEST score ≥ 90 OR max 4 iterations reached. Low-quality stories (score < 70) should be flagged for manual review, not auto-accepted.
+
 ## Evaluation Metrics (For TCC)
 
 The system will be validated using:
-- **Cognitive Load:** NASA-TLX questionnaire
-- **Artifact Quality:** INVEST criteria for user stories
-- **Workflow Efficiency:** Cycle time and lead time
+- **Cognitive Load:** NASA-TLX questionnaire (captured after sprint planning via `WorkflowEvent`)
+- **Artifact Quality:** INVEST criteria for user stories (automated scoring 0-100)
+- **Workflow Efficiency:** Cycle time and lead time (tracked via `WorkflowEvent` table)
 - **Baseline:** Performance vs. solo developer with traditional tools
 
-## Next Steps (Gap Analysis)
+### WorkflowEvent Metrics Collection
 
-**Prototype → Final Implementation:**
-- Implement three agents: Product Owner, Scrum Master, Developer Support
-- Add Scrum event orchestration (Sprint Planning, Daily, Review, Retrospective)
-- Implement Definition of Done (DoD) tracking
-- Add sprint artifact management (Product/Sprint Backlog)
-- Build evaluation framework (NASA-TLX, INVEST validator, cycle time tracker)
+**Table:** `workflow_events` (in `agile_sqlmodel.py`)
 
-See `CLAUDE.md` for complete target architecture details.
+**Event Types:**
+- `SPRINT_PLAN_DRAFT` – Draft creation (includes story count, duration)
+- `SPRINT_PLAN_SAVED` – Persistence (includes stories linked, tasks created)
+- `SPRINT_COMPLETED` – Sprint end (includes velocity, completion rate)
+- `STORY_GENERATED` – Story pipeline completion (includes INVEST score, iterations)
+- `VISION_SAVED`, `ROADMAP_SAVED` – Artifact creation timestamps
+
+**Querying Metrics:**
+```python
+# Get average planning duration
+events = session.exec(
+    select(WorkflowEvent).where(WorkflowEvent.event_type == WorkflowEventType.SPRINT_PLAN_DRAFT)
+).all()
+avg_duration = sum(e.duration_seconds for e in events) / len(events)
+
+# Get INVEST score distribution
+story_events = session.exec(
+    select(WorkflowEvent).where(WorkflowEvent.event_type == WorkflowEventType.STORY_GENERATED)
+).all()
+scores = [e.event_metadata.get("validation_score") for e in story_events]
+```
+
+## Current Implementation Status
+
+**✅ Fully Implemented:**
+- Product Owner Agent (vision + roadmap generation)
+- User Story Generation with INVEST validation (3-agent pipeline)
+- Sprint Planning Agent (draft → review → commit pattern)
+- Sprint Execution Tools (status updates, completion tracking, mid-sprint modifications)
+- Vision Alignment Enforcement (deterministic constraint checking)
+- Audit Logging (story completion, workflow events)
+
+**🚧 Partially Implemented:**
+- Scrum Master Event Orchestration (Sprint Planning complete; Daily, Review, Retrospective planned)
+- Definition of Done (DoD) tracking (story completion fields exist; formal DoD checklist not implemented)
+
+**📋 Planned (Not Yet Started):**
+- Daily Scrum Agent (automated standup facilitation)
+- Sprint Review Agent (demo coordination)
+- Sprint Retrospective Agent (improvement suggestion generation)
+- Developer Support Agent (task breakdown assistance)
+
+See `CLAUDE.md` for TCC research methodology and `PLANNING_WORKFLOW.md` for complete workflow documentation.
 

@@ -1,0 +1,11 @@
+REST API for Task Management
+
+Endpoints needed:
+- POST /tasks - Create task
+- GET /tasks - List all tasks
+- GET /tasks/:id - Get single task
+- PUT /tasks/:id - Update task
+- DELETE /tasks/:id - Delete task
+
+Authentication: JWT tokens
+Database: PostgreSQL
