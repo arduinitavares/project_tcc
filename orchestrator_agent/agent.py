@@ -35,8 +35,7 @@ from orchestrator_agent.agent_tools.story_pipeline import (
     story_validation_loop,
 )
 from orchestrator_agent.agent_tools.story_pipeline.tools import (
-    process_single_story,
-    process_story_batch,
+    process_story_batch,  # Main batch tool (process_single_story is internal)
     save_validated_stories,
 )
 # NEW: Sprint Planning tools (Scrum Master MVP)
@@ -108,8 +107,7 @@ root_agent = Agent(
         # Story query tools
         query_features_for_stories,
         # NEW: Story Pipeline tools (INVEST-validated)
-        process_single_story,
-        process_story_batch,
+        process_story_batch,  # Batch processing (calls process_single_story internally)
         save_validated_stories,  # Save without re-running pipeline
         # Legacy story tools (for backward compatibility)
         create_user_story_tool,
