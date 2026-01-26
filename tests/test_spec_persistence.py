@@ -129,7 +129,8 @@ class TestSaveProjectSpecification:
         # Assert - Return value
         assert result["success"] is True
         assert result["file_created"] is True
-        assert "specs/" in result["spec_path"]
+        # Check path contains specs dir (cross-platform: handles both / and \)
+        assert "specs" in result["spec_path"]
         assert result["spec_path"].endswith(".md")
 
         # Check filename pattern (should contain product_id)
