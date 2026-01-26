@@ -637,6 +637,7 @@ async def process_single_story(
                     validation_result=state.get("validation_result"),
                     spec_validation_result=state.get("spec_validation_result"),
                     refinement_result=refinement_result_dict,
+                    expected_feature_id=story_input.feature_id,  # Data integrity check
                 )
                 
                 if not contract_result.is_valid:

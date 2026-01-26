@@ -8,6 +8,8 @@ from orchestrator_agent.agent_tools.story_pipeline.story_contract_enforcer impor
     enforce_story_points_contract,
     enforce_persona_contract,
     enforce_scope_contract,
+    enforce_invest_result_presence,
+    enforce_feature_id_consistency,
     enforce_validator_state_consistency,
     format_contract_violations,
 )
@@ -109,6 +111,72 @@ class TestPersonaContract:
         assert violation.rule == "PERSONA_FORMAT_INVALID"
 
 
+class TestInvestResultPresence:
+    """Test Rule 3a: INVEST result presence."""
+
+    def test_invest_result_missing(self):
+        """No validation_result -> violation."""
+        violation = enforce_invest_result_presence(validation_result=None)
+
+        assert violation is not None
+        assert violation.rule == "INVEST_RESULT_MISSING"
+
+    def test_invest_score_missing(self):
+        """validation_result exists but no score -> violation."""
+        violation = enforce_invest_result_presence(validation_result={})
+
+        assert violation is not None
+        assert violation.rule == "INVEST_SCORE_MISSING"
+
+    def test_invest_score_zero(self):
+        """Score is 0 (validation didn't run) -> violation."""
+        violation = enforce_invest_result_presence(
+            validation_result={"validation_score": 0}
+        )
+
+        assert violation is not None
+        assert violation.rule == "INVEST_SCORE_ZERO"
+
+    def test_invest_result_valid(self):
+        """validation_result with non-zero score -> OK."""
+        violation = enforce_invest_result_presence(
+            validation_result={"validation_score": 85}
+        )
+
+        assert violation is None
+
+
+class TestFeatureIdConsistency:
+    """Test Rule 3b: Feature ID consistency."""
+
+    def test_feature_id_missing(self):
+        """Story has no feature_id -> violation."""
+        story = {"title": "Test story"}
+        violation = enforce_feature_id_consistency(story, expected_feature_id=42)
+
+        assert violation is not None
+        assert violation.rule == "FEATURE_ID_MISSING"
+        assert violation.expected == 42
+
+    def test_feature_id_mismatch(self):
+        """Story feature_id != expected -> violation (data corruption risk)."""
+        story = {"feature_id": 101}
+        violation = enforce_feature_id_consistency(story, expected_feature_id=82)
+
+        assert violation is not None
+        assert violation.rule == "FEATURE_ID_MISMATCH"
+        assert violation.expected == 82
+        assert violation.actual == 101
+        assert "data corruption" in violation.message.lower()
+
+    def test_feature_id_matches(self):
+        """Story feature_id == expected -> OK."""
+        story = {"feature_id": 42}
+        violation = enforce_feature_id_consistency(story, expected_feature_id=42)
+
+        assert violation is None
+
+
 class TestScopeContract:
     """Test Rule 3: Scope contract."""
 
@@ -144,6 +212,17 @@ class TestScopeContract:
 
 class TestValidatorStateConsistency:
     """Test Rule 4: Validator state consistency."""
+    
+    def test_refinement_result_missing(self):
+        """Refinement result missing -> violation."""
+        violations = enforce_validator_state_consistency(
+            validation_result={"validation_score": 95},
+            spec_validation_result={"is_compliant": True},
+            refinement_result=None,  # Missing
+        )
+
+        assert len(violations) == 1
+        assert violations[0].rule == "REFINEMENT_RESULT_MISSING"
 
     def test_mixed_signals_invest_pass_spec_fail(self):
         """INVEST passed but spec failed -> violation."""
@@ -213,6 +292,7 @@ class TestFullContractEnforcement:
     def test_all_contracts_pass(self):
         """Story passes all contracts -> valid."""
         story = {
+            "feature_id": 42,
             "title": "Enable PDF upload",
             "description": "As an automation engineer, I want to upload PDFs so that I can process them.",
             "acceptance_criteria": "- User can upload\n- System validates",
@@ -228,15 +308,69 @@ class TestFullContractEnforcement:
             validation_result={"validation_score": 95},
             spec_validation_result={"is_compliant": True, "suggestions": []},
             refinement_result={"is_valid": True},
+            expected_feature_id=42,
         )
 
         assert result.is_valid
         assert len(result.violations) == 0
         assert result.sanitized_story is not None
+    
+    def test_invest_score_zero_violation(self):
+        """Story with INVEST score of 0 -> violation."""
+        story = {
+            "feature_id": 42,
+            "title": "Enable PDF upload",
+            "description": "As an automation engineer, I want to upload PDFs so that I can process them.",
+            "acceptance_criteria": "- User can upload",
+            "story_points": None,
+        }
+
+        result = enforce_story_contracts(
+            story=story,
+            include_story_points=False,
+            expected_persona="automation engineer",
+            feature_time_frame=None,
+            allowed_scope=None,
+            validation_result={"validation_score": 0},  # Zero score - validation didn't run
+            spec_validation_result=None,
+            refinement_result={"is_valid": True},
+            expected_feature_id=42,
+        )
+
+        assert not result.is_valid
+        rules = [v.rule for v in result.violations]
+        assert "INVEST_SCORE_ZERO" in rules
+    
+    def test_feature_id_mismatch_violation(self):
+        """Story with wrong feature_id -> violation."""
+        story = {
+            "feature_id": 101,  # Wrong ID
+            "title": "Enable PDF upload",
+            "description": "As an automation engineer, I want to upload PDFs so that I can process them.",
+            "acceptance_criteria": "- User can upload",
+            "story_points": None,
+        }
+
+        result = enforce_story_contracts(
+            story=story,
+            include_story_points=False,
+            expected_persona="automation engineer",
+            feature_time_frame=None,
+            allowed_scope=None,
+            validation_result={"validation_score": 95},
+            spec_validation_result=None,
+            refinement_result={"is_valid": True},
+            expected_feature_id=82,  # Expected ID
+        )
+
+        assert not result.is_valid
+        rules = [v.rule for v in result.violations]
+        assert "FEATURE_ID_MISMATCH" in rules
 
     def test_multiple_violations(self):
         """Story violates multiple contracts -> all captured."""
         story = {
+            "feature_id": 101,  # Wrong ID
             "title": "Enable PDF upload",
             "description": "As a software engineer, I want to upload PDFs so that I can process them.",
             "acceptance_criteria": "- User can upload",
@@ -249,23 +383,27 @@ class TestFullContractEnforcement:
             expected_persona="automation engineer",  # Wrong persona
             feature_time_frame="Next",  # Wrong scope
             allowed_scope="Now",
-            validation_result={"validation_score": 95},
+            validation_result={"validation_score": 0},  # Score zero
             spec_validation_result={"is_compliant": False},  # Spec failed
             refinement_result={"is_valid": True},
+            expected_feature_id=82,  # Expected ID different
         )
 
         assert not result.is_valid
-        assert len(result.violations) >= 3  # At least points, persona, scope
+        assert len(result.violations) >= 4  # At least points, persona, invest score, feature ID
         
         # Check specific violations
         rules = [v.rule for v in result.violations]
         assert "STORY_POINTS_FORBIDDEN" in rules
         assert "PERSONA_MISMATCH" in rules
         assert "SCOPE_MISMATCH" in rules
+        assert "INVEST_SCORE_ZERO" in rules
+        assert "FEATURE_ID_MISMATCH" in rules
 
     def test_sanitization_strips_forbidden_points(self):
         """Sanitized story has points stripped when forbidden."""
         story = {
+            "feature_id": 42,
             "title": "Enable PDF upload",
             "description": "As an automation engineer, I want to upload PDFs so that I can process them.",
             "story_points": 5,
@@ -277,9 +415,10 @@ class TestFullContractEnforcement:
             expected_persona="automation engineer",
             feature_time_frame=None,
             allowed_scope=None,
-            validation_result=None,
+            validation_result={"validation_score": 85},
             spec_validation_result=None,
-            refinement_result=None,
+            refinement_result={"is_valid": True},
+            expected_feature_id=42,
         )
 
         assert not result.is_valid  # Violation detected

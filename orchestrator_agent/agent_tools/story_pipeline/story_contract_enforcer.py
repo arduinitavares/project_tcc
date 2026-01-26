@@ -145,6 +145,92 @@ def enforce_persona_contract(
     return None
 
 
+def enforce_invest_result_presence(
+    validation_result: Optional[Dict[str, Any]]
+) -> Optional[ContractViolation]:
+    """
+    Rule 3a: INVEST validation result must be present and meaningful.
+    
+    Stories claiming "INVEST-validated" must have actual validation scores.
+    A score of 0 or missing validation_result indicates no quality signal.
+    
+    Args:
+        validation_result: INVEST validation result from state
+    
+    Returns:
+        ContractViolation if INVEST result is missing or invalid
+    """
+    if validation_result is None:
+        return ContractViolation(
+            rule="INVEST_RESULT_MISSING",
+            message="Story marked as validated but INVEST validation result is missing",
+            field="validation_result",
+            expected="Present validation_result with score",
+            actual=None,
+        )
+    
+    validation_score = validation_result.get("validation_score")
+    if validation_score is None:
+        return ContractViolation(
+            rule="INVEST_SCORE_MISSING",
+            message="INVEST validation result exists but validation_score is missing",
+            field="validation_result.validation_score",
+            expected="Numeric score (0-100)",
+            actual=None,
+        )
+    
+    # Score of 0 indicates validation didn't run properly
+    if validation_score == 0:
+        return ContractViolation(
+            rule="INVEST_SCORE_ZERO",
+            message="INVEST validation score is 0, indicating validation did not run or failed",
+            field="validation_result.validation_score",
+            expected="Score > 0 (validation ran)",
+            actual=0,
+        )
+    
+    return None
+
+
+def enforce_feature_id_consistency(
+    story: Dict[str, Any], expected_feature_id: int
+) -> Optional[ContractViolation]:
+    """
+    Rule 3b: Story feature_id must match the input feature being processed.
+    
+    Data integrity bug: If story.feature_id != input.feature_id, the story
+    will be attached to the wrong feature downstream.
+    
+    Args:
+        story: The refined story dict
+        expected_feature_id: The feature ID from the input
+    
+    Returns:
+        ContractViolation if feature IDs don't match
+    """
+    story_feature_id = story.get("feature_id")
+    
+    if story_feature_id is None:
+        return ContractViolation(
+            rule="FEATURE_ID_MISSING",
+            message="Story is missing feature_id field",
+            field="feature_id",
+            expected=expected_feature_id,
+            actual=None,
+        )
+    
+    if story_feature_id != expected_feature_id:
+        return ContractViolation(
+            rule="FEATURE_ID_MISMATCH",
+            message=f"Story feature_id ({story_feature_id}) does not match input feature_id ({expected_feature_id}). This will cause data corruption.",
+            field="feature_id",
+            expected=expected_feature_id,
+            actual=story_feature_id,
+        )
+    
+    return None
+
+
 def enforce_scope_contract(
     feature_time_frame: Optional[str], allowed_scope: Optional[str]
 ) -> Optional[ContractViolation]:
@@ -189,9 +275,10 @@ def enforce_validator_state_consistency(
     refinement_result: Optional[Dict[str, Any]],
 ) -> List[ContractViolation]:
     """
-    Rule 4: Validator state must be consistent.
+    Rule 4: Validator state must be consistent and complete.
 
     Checks:
+    - Validator outputs are present (not None)
     - No mixed PASS/FAIL signals
     - No leftover suggestions when validation passed
     - No spec violations masked by high INVEST scores
@@ -205,10 +292,23 @@ def enforce_validator_state_consistency(
         List of ContractViolations (empty if consistent)
     """
     violations: List[ContractViolation] = []
+    
+    # MANDATORY: Refinement result must exist
+    if refinement_result is None:
+        violations.append(
+            ContractViolation(
+                rule="REFINEMENT_RESULT_MISSING",
+                message="Refinement result is missing - story did not complete refinement loop",
+                field="refinement_result",
+                expected="Present refinement_result",
+                actual=None,
+            )
+        )
+        return violations  # Can't check consistency without refinement result
 
     # Check for mixed signals between INVEST and spec validation
     invest_passed = False
-    spec_passed = True  # Default to true if not present
+    spec_passed = True  # Spec validation is optional (defaults to pass if not present)
 
     if validation_result:
         invest_score = validation_result.get("validation_score", 0)
@@ -271,6 +371,7 @@ def enforce_story_contracts(
     validation_result: Optional[Dict[str, Any]],
     spec_validation_result: Optional[Dict[str, Any]],
     refinement_result: Optional[Dict[str, Any]],
+    expected_feature_id: Optional[int] = None,
 ) -> ContractEnforcementResult:
     """
     Main entry point: Enforce ALL story contracts.
@@ -288,6 +389,7 @@ def enforce_story_contracts(
         validation_result: INVEST validation state
         spec_validation_result: Spec validation state
         refinement_result: Refinement state
+        expected_feature_id: Expected feature ID for data integrity check
 
     Returns:
         ContractEnforcementResult with violations (if any)
@@ -304,12 +406,23 @@ def enforce_story_contracts(
     if persona_violation:
         violations.append(persona_violation)
 
-    # Rule 3: Scope contract
+    # Rule 3a: INVEST result presence (quality signal)
+    invest_violation = enforce_invest_result_presence(validation_result)
+    if invest_violation:
+        violations.append(invest_violation)
+    
+    # Rule 3b: Feature ID consistency (data integrity)
+    if expected_feature_id is not None:
+        feature_id_violation = enforce_feature_id_consistency(story, expected_feature_id)
+        if feature_id_violation:
+            violations.append(feature_id_violation)
+
+    # Rule 3c: Scope contract
     scope_violation = enforce_scope_contract(feature_time_frame, allowed_scope)
     if scope_violation:
         violations.append(scope_violation)
 
-    # Rule 4: Validator state consistency
+    # Rule 4: Validator state consistency and completeness
     state_violations = enforce_validator_state_consistency(
         validation_result, spec_validation_result, refinement_result
     )
