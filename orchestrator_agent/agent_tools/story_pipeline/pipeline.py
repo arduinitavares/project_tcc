@@ -40,17 +40,19 @@ from orchestrator_agent.agent_tools.story_pipeline.spec_validator_agent.agent im
 from orchestrator_agent.agent_tools.story_pipeline.story_refiner_agent.agent import (
     story_refiner_agent,
 )
+from orchestrator_agent.agent_tools.utils.resilience import SelfHealingAgent
 
 
 # --- Sequential Pipeline ---
 # Runs: Draft → INVEST Validate → SPEC Validate → Refine in strict order
+# Each agent is wrapped in SelfHealingAgent to automatically retry on Pydantic validation errors.
 story_sequential_pipeline = SequentialAgent(
     name="StorySequentialPipeline",
     sub_agents=[
-        story_draft_agent,
-        invest_validator_agent,
-        spec_validator_agent,
-        story_refiner_agent,
+        SelfHealingAgent(story_draft_agent, max_retries=3),
+        SelfHealingAgent(invest_validator_agent, max_retries=3),
+        SelfHealingAgent(spec_validator_agent, max_retries=3),
+        SelfHealingAgent(story_refiner_agent, max_retries=3),
     ],
     description="Drafts a story, validates it, and refines if needed.",
 )

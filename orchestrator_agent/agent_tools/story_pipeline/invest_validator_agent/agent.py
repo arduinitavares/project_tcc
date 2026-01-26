@@ -12,62 +12,92 @@ Output is stored in state['validation_result'] for the next agent.
 """
 
 import os
+from typing import Annotated, Optional
 
 import dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator, ValidationInfo
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-from typing import Annotated, Optional
 
 # --- Load Environment ---
 dotenv.load_dotenv()
 
 # Define a constrained alias 
-Score = Annotated[int, Field(ge=0, le=20)]
+Score = Annotated[int, Field(ge=0, le=20, description="Score from 0 to 20")]
 
 class InvestScores(BaseModel):
     """INVEST principle scores (0-20 each)."""
-
-    independent: Score = Field(description="Can be developed alone (0-20)")
-    negotiable: Score = Field(description="Room for discussion (0-20)")
-    valuable: Score = Field(description="Clear user value (0-20)")
-    estimable: Score = Field(description="Can be estimated (0-20)")
-    small: Score = Field(description="Fits in a sprint (0-20)")
-    testable: Score = Field(description="Has testable criteria (0-20)")
-
+    independent: Score
+    negotiable: Score
+    valuable: Score
+    estimable: Score
+    small: Score
+    testable: Score
 
 
 class TimeFrameAlignment(BaseModel):
     """Time-frame alignment check result."""
-    is_aligned: Annotated[bool, Field(..., description="True if story matches its time-frame")]
+    is_aligned: Annotated[bool, Field(description="True if story matches its time-frame")]
     issues: Annotated[list[str], Field(default_factory=list, description="Time-frame violation issues (empty if aligned)")]
+
+    @model_validator(mode='after')
+    def validate_consistency(self) -> 'TimeFrameAlignment':
+        if not self.is_aligned and not self.issues:
+            raise ValueError("Logical inconsistency: is_aligned=False but issues list is empty.")
+        if self.is_aligned and self.issues:
+            raise ValueError("Logical inconsistency: is_aligned=True but issues list is not empty.")
+        return self
 
 
 class PersonaAlignment(BaseModel):
     """Persona correctness check result."""
+    is_correct: Annotated[bool, Field(description="True if story uses the required persona")]
+    expected_persona: Annotated[str, Field(description="The persona that should be used")]
+    actual_persona: Annotated[Optional[str], Field(default=None, description="The persona extracted from story")]
+    issues: Annotated[list[str], Field(default_factory=list, description="Persona mismatch details (empty if correct)")]
 
-    is_correct: bool = Field(..., description="True if story uses the required persona")
-    expected_persona: str = Field(..., description="The persona that should be used")
-    actual_persona: Optional[str] = Field(
-        None, description="The persona extracted from story"
-    )
-    issues: list[str] = Field(
-        default_factory=list, description="Persona mismatch details (empty if correct)"
-    )
+    @model_validator(mode='after')
+    def validate_consistency(self) -> 'PersonaAlignment':
+        if not self.is_correct and not self.issues:
+            raise ValueError("Logical inconsistency: is_correct=False but issues list is empty.")
+        if self.is_correct and self.issues:
+            raise ValueError("Logical inconsistency: is_correct=True but issues list is not empty.")
+        return self
 
 
 class ValidationResult(BaseModel):
     """Structured validation output - enables deterministic checking."""
-    is_valid: bool = Field(..., description="True if story passes validation (score >= 70, no critical issues, time-frame aligned)")
-    validation_score: int = Field(..., ge=0, le=100, description="Overall quality score 0-100")
-    invest_scores: InvestScores = Field(..., description="Individual INVEST principle scores")
-    time_frame_alignment: TimeFrameAlignment = Field(..., description="Time-frame alignment result")
-    persona_alignment: PersonaAlignment = Field(
-        ..., description="Persona correctness validation result"
-    )
-    issues: list[str] = Field(default_factory=list, description="Specific problems found. EMPTY [] if no issues.")
-    suggestions: list[str] = Field(default_factory=list, description="Actionable improvements. MUST be EMPTY [] if no improvements needed. Never put positive feedback here.")
-    verdict: str = Field(..., description="Brief summary of validation result")
+    is_valid: Annotated[bool, Field(description="True if story passes validation (score >= 70, no critical issues, time-frame aligned)")]
+    validation_score: Annotated[int, Field(ge=0, le=100, description="Overall quality score 0-100")]
+    invest_scores: Annotated[InvestScores, Field(description="Individual INVEST principle scores")]
+    time_frame_alignment: Annotated[TimeFrameAlignment, Field(description="Time-frame alignment result")]
+    persona_alignment: Annotated[PersonaAlignment, Field(description="Persona correctness validation result")]
+    issues: Annotated[list[str], Field(default_factory=list, description="Specific problems found. EMPTY [] if no issues.")]
+    suggestions: Annotated[list[str], Field(default_factory=list, description="Actionable improvements. MUST be EMPTY [] if no improvements needed. Never put positive feedback here.")]
+    verdict: Annotated[str, Field(description="Brief summary of validation result")]
+
+    @model_validator(mode='after')
+    def validate_model_consistency(self) -> 'ValidationResult':
+        """Enforce validation logic consistency across all fields."""
+
+        # Check Persona Alignment impact
+        if not self.persona_alignment.is_correct and self.is_valid:
+            raise ValueError("Logical inconsistency: is_valid=True but persona_alignment.is_correct=False. A persona mismatch is a critical failure.")
+
+        # Check Time Frame Alignment impact
+        if not self.time_frame_alignment.is_aligned and self.is_valid:
+            raise ValueError("Logical inconsistency: is_valid=True but time_frame_alignment.is_aligned=False. A time-frame violation is a critical failure.")
+
+        # Check Score impact
+        if self.validation_score < 70 and self.is_valid:
+            raise ValueError(f"Logical inconsistency: is_valid=True but validation_score={self.validation_score} (must be >= 70).")
+
+        # Rule 1: suggestions MUST be EMPTY [] when the story needs no improvements
+        # "If the story is good (score >= 85, no issues): 'suggestions': []"
+        if self.validation_score >= 85 and not self.issues and self.suggestions:
+            raise ValueError("Logical inconsistency: High score (>=85) and no issues, but 'suggestions' is not empty. If the story is valid and high-quality, suggestions must be empty.")
+
+        return self
 
 
 # --- Model ---
@@ -188,52 +218,12 @@ Extract the persona from the story description using this pattern:
 - Persona is missing entirely from description
 
 ### Output Format
-Always populate the `persona_alignment` field in your response:
-```json
-{
-  "persona_alignment": {
-    "is_correct": true,
-    "expected_persona": "automation engineer",
-    "actual_persona": "automation engineer",
-    "issues": []
-  }
-}
-```
+Always populate the `persona_alignment` field in your response.
 
 ### Impact on is_valid
 A persona violation is a CRITICAL issue:
 - If persona_alignment.is_correct = false, then is_valid MUST be false
 - Even if INVEST scores are high (90+), wrong persona = invalid story
-
-# OUTPUT FORMAT
-You MUST output valid JSON matching the ValidationResult schema:
-```json
-{
-  "is_valid": <boolean>,
-  "validation_score": <0-100>,
-  "invest_scores": {
-    "independent": <0-20>,
-    "negotiable": <0-20>,
-    "valuable": <0-20>,
-    "estimable": <0-20>,
-    "small": <0-20>,
-    "testable": <0-20>
-  },
-  "time_frame_alignment": {
-    "is_aligned": <boolean>,
-    "issues": ["<issue if misaligned>"]
-  },
-  "persona_alignment": {
-    "is_correct": <boolean>,
-    "expected_persona": "<string>",
-    "actual_persona": "<string>",
-    "issues": ["<issue if mismatch>"]
-  },
-  "issues": ["<specific issue 1>", "<specific issue 2>"],
-  "suggestions": ["<actionable suggestion 1>"],
-  "verdict": "<brief summary>"
-}
-```
 
 # ⚠️ CRITICAL RULES FOR suggestions FIELD
 
@@ -258,86 +248,6 @@ The `suggestions` array controls whether the refinement loop continues or exits.
 # VALIDATION THRESHOLDS
 - is_valid = TRUE if validation_score >= 70 AND no critical issues AND time_frame_alignment.is_aligned = TRUE
 - Critical issues: missing acceptance criteria, no user value, story too large, time-frame violation
-
-# EXAMPLE OUTPUT (Valid - score 95, no suggestions needed)
-```json
-{
-  "is_valid": true,
-  "validation_score": 95,
-  "invest_scores": {
-    "independent": 20,
-    "negotiable": 18,
-    "valuable": 20,
-    "estimable": 17,
-    "small": 15,
-    "testable": 20
-  },
-  "time_frame_alignment": {
-    "is_aligned": true,
-    "issues": []
-  },
-  "issues": [],
-  "suggestions": [],
-  "verdict": "Story meets all INVEST criteria. Well-defined acceptance criteria cover happy path and edge cases."
-}
-```
-
-# EXAMPLE OUTPUT (Valid - score 85, has suggestions for improvement)
-```json
-{
-  "is_valid": true,
-  "validation_score": 85,
-  "invest_scores": {
-    "independent": 20,
-    "negotiable": 15,
-    "valuable": 20,
-    "estimable": 15,
-    "small": 15,
-    "testable": 20
-  },
-  "time_frame_alignment": {
-    "is_aligned": true,
-    "issues": []
-  },
-  "issues": [],
-  "suggestions": [
-    "Consider adding an edge case for empty search results",
-    "Clarify behavior when user has no permissions"
-  ],
-  "verdict": "Story meets INVEST criteria. Minor improvements possible."
-}
-```
-
-# EXAMPLE OUTPUT (Invalid - Time-Frame Violation)
-```json
-{
-  "is_valid": false,
-  "validation_score": 60,
-  "invest_scores": {
-    "independent": 10,
-    "negotiable": 15,
-    "valuable": 20,
-    "estimable": 10,
-    "small": 5,
-    "testable": 15
-  },
-  "time_frame_alignment": {
-    "is_aligned": false,
-    "issues": ["Story assumes 'AI recommendations' feature exists, but that's in 'Later' time-frame while this feature is 'Now'"]
-  },
-  "issues": [
-    "Time-frame violation: depends on feature not yet built",
-    "Story is too large - tries to combine multiple capabilities"
-  ],
-  "suggestions": [
-    "Remove dependency on AI recommendations - implement basic version first",
-    "Split into smaller stories that can be delivered in current sprint"
-  ],
-  "verdict": "Story has time-frame violation. Cannot assume Later features exist in Now time-frame."
-}
-```
-
-Output ONLY the JSON object. No explanations, no markdown code fences.
 """
 
 # --- Agent Definition ---

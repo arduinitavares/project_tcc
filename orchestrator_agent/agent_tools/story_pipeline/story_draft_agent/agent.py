@@ -7,13 +7,53 @@ Output is stored in state['story_draft'] for the next agent in the pipeline.
 """
 
 import os
+from typing import Annotated, Optional
 
 import dotenv
+from pydantic import BaseModel, Field, field_validator
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 
 # --- Load Environment ---
 dotenv.load_dotenv()
+
+# --- Pydantic Model ---
+class StoryDraft(BaseModel):
+    """
+    Schema for a User Story draft.
+    """
+    feature_id: Annotated[int, Field(description="The ID of the feature this story belongs to.")]
+    feature_title: Annotated[str, Field(description="The title of the feature.")]
+    title: Annotated[str, Field(description="Short, action-oriented title for the story.")]
+    description: Annotated[str, Field(
+        description="The story narrative in the format: 'As a <persona>, I want <action> so that <benefit>.'"
+    )]
+    acceptance_criteria: Annotated[str, Field(
+        description="A list of 3-5 specific, testable criteria, each starting with '- '."
+    )]
+    story_points: Annotated[Optional[int], Field(
+        description="Estimated effort (1-8 points). Null if not estimable."
+    )]
+
+    @field_validator('description', mode='after')
+    @classmethod
+    def validate_description_format(cls, v: str) -> str:
+        """Enforce standard user story format."""
+        if not v.lower().startswith("as a"):
+            raise ValueError("Story description must start with 'As a ...'")
+        if " i want " not in v.lower():
+            raise ValueError("Story description must contain '... I want ...'")
+        if " so that " not in v.lower():
+            raise ValueError("Story description must contain '... so that ...'")
+        return v
+
+    @field_validator('story_points', mode='after')
+    @classmethod
+    def validate_story_points(cls, v: Optional[int]) -> Optional[int]:
+        """Enforce story point limits if provided."""
+        if v is not None and (v < 1 or v > 8):
+            raise ValueError("Story points must be between 1 and 8 (INVEST principle: Small).")
+        return v
 
 # --- Model ---
 model = LiteLlm(
@@ -72,19 +112,6 @@ WRONG EXAMPLES:
 CORRECT EXAMPLE:
 - Provided: "automation engineer" → Story uses: "automation engineer" ✅
 
-# OUTPUT FORMAT
-You MUST output valid JSON with this exact structure:
-```json
-{
-  "feature_id": <int>,
-  "feature_title": "<string>",
-  "title": "<short action-oriented title>",
-  "description": "As a <persona>, I want <action> so that <benefit>.",
-  "acceptance_criteria": "- Criterion 1\\n- Criterion 2\\n- Criterion 3\\n- Criterion 4",
-  "story_points": <int or null>
-}
-```
-
 # INVEST PRINCIPLES (follow strictly)
 - **Independent**: Story can be developed without depending on other stories
 - **Negotiable**: Details can be discussed, not a rigid contract
@@ -111,20 +138,6 @@ The validator found issues with your previous attempt. Address them:
 - Read the feedback carefully
 - Fix the specific issues mentioned
 - Keep what was good, improve what was flagged
-
-# EXAMPLE OUTPUT
-```json
-{
-  "feature_id": 13,
-  "feature_title": "Library of practical coding challenges",
-  "title": "Browse coding challenge library",
-  "description": "As a junior frontend developer preparing for interviews, I want to browse a library of coding challenges so that I can find practice problems matched to my skill level.",
-  "acceptance_criteria": "- User can view a list of available coding challenges\\n- Each challenge displays title, difficulty level, and estimated time\\n- User can filter challenges by skill area (HTML, CSS, JS)\\n- User can sort challenges by difficulty or recency\\n- Clicking a challenge opens its detail view",
-  "story_points": 3
-}
-```
-
-Output ONLY the JSON object. No explanations, no markdown code fences.
 """
 
 # --- Agent Definition ---
@@ -134,4 +147,5 @@ story_draft_agent = LlmAgent(
     instruction=STORY_DRAFT_INSTRUCTION,
     description="Generates a single user story draft from a feature.",
     output_key="story_draft",  # Stores output in state['story_draft']
+    output_schema=StoryDraft,  # Pydantic schema for structured output
 )
