@@ -42,9 +42,13 @@ class RefinementResult(BaseModel):
         if self.refinement_applied is False:
              notes = self.refinement_notes
              lower_notes = notes.lower()
-             if not any(phrase in lower_notes for phrase in ["no changes", "passed validation", "valid", "as is", "already good"]):
-                  # Heuristic check
-                  pass
+             valid_phrases = ["no changes", "passed validation", "valid", "as is", "already good"]
+             if not any(phrase in lower_notes for phrase in valid_phrases):
+                  # Raise error to enforce self-consistency
+                  raise ValueError(
+                      f"Logical inconsistency: refinement_applied=False but notes do not indicate validity. "
+                      f"Notes: '{notes}'. Expected phrases: {valid_phrases}"
+                  )
         return self
 
 # --- Model ---
