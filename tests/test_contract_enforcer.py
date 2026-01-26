@@ -62,6 +62,24 @@ class TestPersonaContract:
 
         assert violation is None
 
+    def test_persona_matches_plural_vs_singular(self):
+        """Story uses singular, expected is plural (or vice versa) -> OK after normalization."""
+        story = {
+            "description": "As a QA reviewer, I want to review documents so that quality is maintained."
+        }
+        violation = enforce_persona_contract(story, expected_persona="QA reviewers")
+
+        assert violation is None  # Should pass after normalization
+
+    def test_persona_matches_case_insensitive(self):
+        """Story uses different case -> OK after normalization."""
+        story = {
+            "description": "As an Automation Engineer, I want to upload PDFs so that I can process them."
+        }
+        violation = enforce_persona_contract(story, expected_persona="automation engineer")
+
+        assert violation is None
+
     def test_persona_mismatch(self):
         """Story uses wrong persona -> violation."""
         story = {

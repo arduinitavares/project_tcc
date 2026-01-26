@@ -11,6 +11,23 @@ from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
 
 
+def normalize_persona_for_comparison(persona: str) -> str:
+    """
+    Normalize persona for comparison (handles singular/plural, case).
+    
+    Matches the logic from persona_checker.py to ensure consistency.
+    """
+    if not persona:
+        return ""
+    normalized = persona.lower().strip()
+    
+    # Handle plural 's' at end (e.g., "reviewers" -> "reviewer")
+    if normalized.endswith("s") and not normalized.endswith("ss"):
+        normalized = normalized[:-1]
+    
+    return normalized
+
+
 @dataclass
 class ContractViolation:
     """Represents a single contract violation."""
@@ -113,8 +130,8 @@ def enforce_persona_contract(
         extracted_persona = description[6:persona_end].strip()
 
     # Normalize for comparison (lowercase, no extra spaces)
-    expected_norm = expected_persona.lower().strip()
-    extracted_norm = extracted_persona.lower().strip()
+    expected_norm = normalize_persona_for_comparison(expected_persona)
+    extracted_norm = normalize_persona_for_comparison(extracted_persona)
 
     if extracted_norm != expected_norm:
         return ContractViolation(
