@@ -47,27 +47,47 @@ def exit_loop(tool_context: ToolContext) -> dict[str, bool | str]:
     This will immediately stop the refinement loop.
     """
     # Helper to parse JSON from state
-    def parse_state_json(key):
-        val = tool_context.state.get(key)
-        if isinstance(val, str):
-            import json
-            try:
-                return json.loads(val)
-            except json.JSONDecodeError:
-                return {}
-        return val if isinstance(val, dict) else {}
+    def parse_state_json(key: str) -> dict:
+      val = tool_context.state.get(key)
+      if isinstance(val, str):
+        import json
+        try:
+          return json.loads(val)
+        except json.JSONDecodeError:
+          return {}
+      return val if isinstance(val, dict) else {}
+
+    def get_feature_title() -> str:
+      current_feature = tool_context.state.get("current_feature")
+      if isinstance(current_feature, str):
+        import json
+        try:
+          current_feature = json.loads(current_feature)
+        except json.JSONDecodeError:
+          current_feature = {}
+      if isinstance(current_feature, dict):
+        return str(current_feature.get("feature_title") or "")
+      return ""
+
+    def set_diag(diag: dict) -> None:
+      # Avoid noisy stdout prints (breaks batch logs due to async).
+      # Persist a diagnostic record so the runner can surface it deterministically.
+      diag.setdefault("feature_title", get_feature_title())
+      tool_context.state["exit_loop_diagnostic"] = diag
 
     # 1. Check INVEST Validation
     validation_result = parse_state_json("validation_result")
     invest_suggestions = validation_result.get("suggestions", [])
 
     if invest_suggestions and len(invest_suggestions) > 0:
-        print(f"   [exit_loop] ⚠️ BLOCKED - {len(invest_suggestions)} INVEST suggestions pending.")
-        return {
-            "loop_exit": False,
-            "reason": f"Cannot exit: {len(invest_suggestions)} INVEST suggestions remain.",
-            "pending_suggestions": invest_suggestions
-        }
+      diag = {
+        "loop_exit": False,
+        "blocked_by": "invest_suggestions",
+        "reason": f"Cannot exit: {len(invest_suggestions)} INVEST suggestions remain.",
+        "pending_suggestions": invest_suggestions,
+      }
+      set_diag(diag)
+      return diag
 
     # 2. Check SPEC Validation
     spec_result = parse_state_json("spec_validation_result")
@@ -75,24 +95,29 @@ def exit_loop(tool_context: ToolContext) -> dict[str, bool | str]:
     is_compliant = spec_result.get("is_compliant", True) # Default to true if missing
 
     if not is_compliant:
-        print(f"   [exit_loop] ⚠️ BLOCKED - Spec non-compliant.")
-        return {
-            "loop_exit": False,
-            "reason": "Cannot exit: Story is not compliant with technical spec.",
-            "spec_issues": spec_result.get("issues", [])
-        }
+      diag = {
+        "loop_exit": False,
+        "blocked_by": "spec_non_compliant",
+        "reason": "Cannot exit: Story is not compliant with technical spec.",
+        "spec_issues": spec_result.get("issues", []),
+      }
+      set_diag(diag)
+      return diag
 
     if spec_suggestions and len(spec_suggestions) > 0:
-        print(f"   [exit_loop] ⚠️ BLOCKED - {len(spec_suggestions)} Spec suggestions pending.")
-        return {
-            "loop_exit": False,
-            "reason": f"Cannot exit: {len(spec_suggestions)} Spec suggestions remain.",
-            "pending_suggestions": spec_suggestions
-        }
+      diag = {
+        "loop_exit": False,
+        "blocked_by": "spec_suggestions",
+        "reason": f"Cannot exit: {len(spec_suggestions)} Spec suggestions remain.",
+        "pending_suggestions": spec_suggestions,
+      }
+      set_diag(diag)
+      return diag
     
-    print(f"   [exit_loop] ✅ Story validated - exiting refinement loop")
+    diag = {"loop_exit": True, "reason": "Story validated successfully"}
+    set_diag(diag)
     tool_context.actions.escalate = True
-    return {"loop_exit": True, "reason": "Story validated successfully"}
+    return diag
 
 
 # --- Instructions ---
