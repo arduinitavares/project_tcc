@@ -35,7 +35,7 @@ class StoryDraft(BaseModel):
         description="A list of 3-5 specific, testable criteria, each starting with '- '."
     )]
     story_points: Annotated[Optional[int], Field(
-        description="Estimated effort (1-8 points). Null if not estimable."
+        description="Estimated effort (1-8 points). Null if not estimable or if story points are disabled."
     )]
 
     @field_validator('description', mode='after')

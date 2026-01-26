@@ -323,6 +323,14 @@ async def process_single_story(
                                 draft_data = json.loads(story_draft)
                             except (json.JSONDecodeError, TypeError):
                                 pass
+                        
+                        # POST-PROCESSING: Strip story_points if include_story_points=False
+                        # This ensures LLM output respects user preferences even if LLM didn't follow instructions
+                        if not story_input.include_story_points and draft_data.get("story_points") is not None:
+                            draft_data["story_points"] = None
+                            # Update state to persist the change
+                            state["story_draft"] = draft_data
+                        
                         if draft_data:
                             title = draft_data.get("title", "")
                             desc = draft_data.get("description", "")[:100]
@@ -492,6 +500,11 @@ async def process_single_story(
                 refined_story: Dict[str, Any] = refinement_data.get("refined_story", {})
                 is_valid: bool = bool(refinement_data.get("is_valid", False))
                 refinement_notes: str = str(refinement_data.get("refinement_notes", ""))
+                
+                # POST-PROCESSING: Strip story_points if include_story_points=False
+                # This is a safety net in case LLM didn't follow instructions
+                if not story_input.include_story_points and refined_story.get("story_points") is not None:
+                    refined_story["story_points"] = None
 
                 # --- STEP 3: POST-PIPELINE DETERMINISTIC ALIGNMENT ENFORCEMENT ---
                 # This catches cases where LLM validator missed alignment issues
@@ -605,6 +618,16 @@ async def process_single_story(
                 # --- STEP 4: CONTRACT ENFORCEMENT (Final deterministic boundary) ---
                 log(f"{CYAN}\n[Contract Enforcer] Running final validation...{RESET}")
                 
+                # Ensure refinement_result is a dict for contract enforcer
+                refinement_result_dict: Optional[Dict[str, Any]] = None
+                if isinstance(refinement_result, dict):
+                    refinement_result_dict = refinement_result
+                elif isinstance(refinement_result, str):
+                    try:
+                        refinement_result_dict = json.loads(refinement_result)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                
                 contract_result = enforce_story_contracts(
                     story=refined_story,
                     include_story_points=story_input.include_story_points,
@@ -613,7 +636,7 @@ async def process_single_story(
                     allowed_scope=None,  # TODO: Add scope filtering support
                     validation_result=state.get("validation_result"),
                     spec_validation_result=state.get("spec_validation_result"),
-                    refinement_result=refinement_result,
+                    refinement_result=refinement_result_dict,
                 )
                 
                 if not contract_result.is_valid:
