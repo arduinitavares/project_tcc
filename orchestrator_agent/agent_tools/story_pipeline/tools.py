@@ -32,6 +32,10 @@ from orchestrator_agent.agent_tools.story_pipeline.alignment_checker import (
     detect_requirement_drift,
     create_rejection_response,
 )
+from orchestrator_agent.agent_tools.story_pipeline.story_contract_enforcer import (
+    enforce_story_contracts,
+    format_contract_violations,
+)
 from orchestrator_agent.agent_tools.story_pipeline.persona_checker import (
     validate_persona,
     auto_correct_persona,
@@ -597,6 +601,39 @@ async def process_single_story(
 
                 # Use locally tracked iterations (current_iteration) instead of state
                 iterations = max(current_iteration, 1)  # At least 1 iteration
+                
+                # --- STEP 4: CONTRACT ENFORCEMENT (Final deterministic boundary) ---
+                log(f"{CYAN}\n[Contract Enforcer] Running final validation...{RESET}")
+                
+                contract_result = enforce_story_contracts(
+                    story=refined_story,
+                    include_story_points=story_input.include_story_points,
+                    expected_persona=story_input.user_persona,
+                    feature_time_frame=story_input.time_frame,
+                    allowed_scope=None,  # TODO: Add scope filtering support
+                    validation_result=state.get("validation_result"),
+                    spec_validation_result=state.get("spec_validation_result"),
+                    refinement_result=refinement_result,
+                )
+                
+                if not contract_result.is_valid:
+                    # Contract violations found - override LLM validation
+                    is_valid = False
+                    final_score = min(final_score, 30)  # Cap at 30 for contract failures
+                    status_icon = "❌"
+                    status_color = RED
+                    
+                    log(f"{RED}[Contract Enforcer] FAILED - {len(contract_result.violations)} violations{RESET}")
+                    log(format_contract_violations(contract_result.violations))
+                    
+                    # Add contract violations to alignment issues for reporting
+                    for violation in contract_result.violations:
+                        alignment_issues.append(f"[{violation.rule}] {violation.message}")
+                else:
+                    log(f"{GREEN}[Contract Enforcer] PASSED - All contracts satisfied{RESET}")
+                    # Use sanitized story (may have stripped forbidden fields)
+                    refined_story = contract_result.sanitized_story or refined_story
+                
                 log(
                     f"\n{status_color}   {status_icon} FINAL: '{refined_story.get('title', 'Unknown')}' | Score: {final_score}/100 | Iterations: {iterations}{RESET}"
                 )
