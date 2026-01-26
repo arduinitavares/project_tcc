@@ -4,35 +4,31 @@ Story Validation Pipeline - LoopAgent + SequentialAgent hybrid.
 
 Architecture:
 ┌──────────────────────────────────────────────────────────────┐
-│                 LoopAgent (max_iterations=2)                 │
+│              LoopAgent (max_iterations=4)                    │
 │  ┌─────────────────────────────────────────────────────────┐ │
 │  │            SequentialAgent (per story)                  │ │
 │  │                                                         │ │
 │  │  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐   │ │
-│  │  │ StoryDraft  │ → │  INVEST     │ → │ StoryRefine │   │ │
+│  │  │ StoryDraft  │ → │    SPEC     │ → │ StoryRefine │   │ │
 │  │  │   Agent     │   │  Validator  │   │   Agent     │   │ │
 │  │  └─────────────┘   └─────────────┘   └─────────────┘   │ │
 │  │        ↓                 ↓                 ↓            │ │
-│  │   state['draft']   state['valid']   state['refined']   │ │
+│  │   state['draft']   state['spec']    state['refined']   │ │
 │  └─────────────────────────────────────────────────────────┘ │
 │                              ↓                               │
-│         Iteration 1: Draft story, validate, get feedback     │
-│         Iteration 2: Refine based on feedback, validate      │
+│    Iteration 1: Draft story (INVEST built-in), spec check    │
+│    Iteration 2+: Refine based on spec feedback               │
 └──────────────────────────────────────────────────────────────┘
 
 The pipeline processes ONE feature → ONE story at a time.
-Two iterations provide:
-1. Initial draft + validation feedback
-2. Refined story incorporating feedback (typically improves 5-10 points)
+INVEST principles are enforced by the Draft Agent's instructions.
+Spec Validator ensures domain-specific artifact compliance.
 """
 
 from google.adk.agents import SequentialAgent
 
 from orchestrator_agent.agent_tools.story_pipeline.story_draft_agent.agent import (
     story_draft_agent,
-)
-from orchestrator_agent.agent_tools.story_pipeline.invest_validator_agent.agent import (
-    invest_validator_agent,
 )
 from orchestrator_agent.agent_tools.story_pipeline.spec_validator_agent.agent import (
     spec_validator_agent,
@@ -44,17 +40,17 @@ from orchestrator_agent.agent_tools.utils.resilience import SelfHealingAgent, Co
 
 
 # --- Sequential Pipeline ---
-# Runs: Draft → INVEST Validate → SPEC Validate → Refine in strict order
+# Runs: Draft → SPEC Validate → Refine in strict order
+# INVEST principles are enforced by Draft Agent's instructions (no separate validator needed)
 # Each agent is wrapped in SelfHealingAgent to automatically retry on Pydantic validation errors.
 story_sequential_pipeline = SequentialAgent(
     name="StorySequentialPipeline",
     sub_agents=[
         SelfHealingAgent(agent=story_draft_agent, max_retries=3),
-        SelfHealingAgent(agent=invest_validator_agent, max_retries=3),
         SelfHealingAgent(agent=spec_validator_agent, max_retries=3),
         SelfHealingAgent(agent=story_refiner_agent, max_retries=3),
     ],
-    description="Drafts a story, validates it, and refines if needed.",
+    description="Drafts a story, validates against spec, and refines if needed.",
 )
 
 
@@ -65,7 +61,7 @@ story_sequential_pipeline = SequentialAgent(
 story_validation_loop = ConditionalLoopAgent(
     name="StoryValidationLoop",
     agent=story_sequential_pipeline,
-    max_iterations=4,  # Safety limit - increased to allow feedback refinement at high scores
+    max_iterations=4,  # Safety limit - allows spec feedback refinement
     exit_condition_key="refinement_result.is_valid",
-    description="Loops through story creation until INVEST-valid (exits early when score >= 90 AND no suggestions).",
+    description="Loops through story creation until spec-compliant (exits when no suggestions remain).",
 )

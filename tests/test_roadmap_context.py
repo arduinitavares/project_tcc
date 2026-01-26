@@ -232,8 +232,8 @@ class TestProcessStoryInputWithRoadmapContext:
         assert input_data.sibling_features == ["Login/logout", "Password reset"]
 
 
-class TestInvestValidatorWithTimeFrameCheck:
-    """Test that INVEST validator catches time-frame conflicts."""
+class TestSpecValidatorWithTimeFrameCheck:
+    """Test that Spec validator has access to time-frame context."""
 
     def test_validator_catches_future_dependency(self):
         """Validator should flag stories that depend on 'Next' or 'Later' features."""

@@ -68,6 +68,16 @@ CORRECT EXAMPLE:
 - Include edge cases when relevant
 - Be specific, not vague
 
+# STORY POINTS (from story_preferences)
+Check `story_preferences` for "include_story_points":
+- If `include_story_points` is TRUE: Estimate effort (1-8 points) based on complexity
+- If `include_story_points` is FALSE: Set `story_points` to NULL (do not estimate)
+
+When estimating points:
+- 1-2: Simple UI change, single-field validation
+- 3-5: Moderate feature with backend integration
+- 6-8: Complex feature spanning multiple components
+
 # IF REFINEMENT_FEEDBACK IS PROVIDED
 The validator found issues with your previous attempt. Address them:
 - Read the feedback carefully

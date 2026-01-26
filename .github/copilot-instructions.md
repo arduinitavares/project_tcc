@@ -235,27 +235,28 @@ Test database fixtures in `tests/conftest.py` create fresh SQLite engine for eac
 
 ## Story Pipeline Architecture
 
-### Multi-Agent INVEST Validation System
+### Spec-Validated Story Generation System
 
 **Location:** `orchestrator_agent/agent_tools/story_pipeline/`
 
 **Architecture:** LoopAgent + SequentialAgent hybrid
 - `story_validation_loop` (LoopAgent) wraps sequential pipeline
-- Max 4 iterations with early exit when INVEST score ≥ 90
-- Three sub-agents process features in sequence:
+- Max 4 iterations with early exit when spec-compliant
+- Two sub-agents process features in sequence:
 
 #### 1. Story Draft Agent
 **File:** `story_pipeline/story_draft_agent/agent.py`
 - Generates initial user story from feature description
+- **Enforces INVEST principles directly in generation** (no separate validator needed)
 - Applies vision constraints from alignment checker
 - Outputs: story title, description, acceptance criteria (3-5 items)
 
-#### 2. INVEST Validator Agent
-**File:** `story_pipeline/invest_validator_agent/agent.py`
-- Validates against 6 INVEST principles (Independent, Negotiable, Valuable, Estimable, Small, Testable)
-- Returns granular scoring: 20 points per dimension (0-120 total → normalized 0-100)
-- Checks time-frame alignment ("Now" stories can't reference "Later" features)
-- Provides specific improvement suggestions for scores < 90
+#### 2. Spec Validator Agent
+**File:** `story_pipeline/spec_validator_agent/agent.py`
+- Validates stories against technical specification requirements
+- Domain-aware: binds requirements to stories based on feature context
+- Checks for missing artifacts, invariants, and domain-specific constraints
+- Returns compliance status with specific suggestions for missing items
 
 #### 3. Story Refiner Agent
 **File:** `story_pipeline/story_refiner_agent/agent.py`
@@ -300,15 +301,15 @@ Feature Input
     ↓
 Alignment Check (FAIL-FAST)
     ↓ (if aligned)
-Iteration 1: Draft → Validate (score: 65) → Refine
+Iteration 1: Draft (INVEST built-in) → Spec Validate → Refine (if needed)
     ↓
-Iteration 2: Validate (score: 85) → Refine
+Iteration 2: Spec Validate → Refine (if needed)
     ↓
-Iteration 3: Validate (score: 92) → ACCEPT
+Iteration N: Spec Validate → ACCEPT (when compliant)
     ↓
 Post-Validation Alignment Check
     ↓
-Save to Database (status: TO_DO, validation_score: 92)
+Save to Database (status: TO_DO)
 ```
 
 ## Folder Structure (ADK Best Practices)
@@ -328,8 +329,9 @@ orchestrator_agent/          # Root agent (entry point)
       │   ├── pipeline.py   # LoopAgent orchestrator
       │   ├── tools.py      # process_feature_for_stories, batch
       │   ├── alignment_checker.py  # Vision constraint enforcement
-      │   ├── story_draft_agent/
-      │   ├── invest_validator_agent/
+      │   ├── spec_requirement_extractor.py  # Domain-aware requirement binding
+      │   ├── story_draft_agent/    # Draft generator (INVEST built-in)
+      │   ├── spec_validator_agent/ # Spec compliance checker
       │   └── story_refiner_agent/
       └── sprint_planning/
           ├── tools.py      # Sprint planning tools
@@ -356,8 +358,9 @@ main.py                      # CLI entry point (calls orchestrator app)
 | `orchestrator_agent/agent_tools/product_roadmap_agent/agent.py` | Roadmap agent definition |
 | `orchestrator_agent/agent_tools/story_pipeline/pipeline.py` | Story validation LoopAgent |
 | `orchestrator_agent/agent_tools/story_pipeline/alignment_checker.py` | Vision constraint enforcement |
-| `orchestrator_agent/agent_tools/story_pipeline/story_draft_agent/agent.py` | Draft generator |
-| `orchestrator_agent/agent_tools/story_pipeline/invest_validator_agent/agent.py` | INVEST scorer |
+| `orchestrator_agent/agent_tools/story_pipeline/spec_requirement_extractor.py` | Domain-aware requirement binding |
+| `orchestrator_agent/agent_tools/story_pipeline/story_draft_agent/agent.py` | Draft generator (INVEST built-in) |
+| `orchestrator_agent/agent_tools/story_pipeline/spec_validator_agent/agent.py` | Spec compliance checker |
 | `orchestrator_agent/agent_tools/story_pipeline/story_refiner_agent/agent.py` | Story refiner |
 | `orchestrator_agent/agent_tools/sprint_planning/tools.py` | Sprint planning tools |
 | `orchestrator_agent/agent_tools/sprint_planning/sprint_execution_tools.py` | Sprint status updates |
@@ -388,7 +391,7 @@ main.py                      # CLI entry point (calls orchestrator app)
 
 9. **Alignment Violations:** If story generation produces features contradicting the vision (e.g., "web UI" for "mobile-only" app), the alignment checker will reject them BEFORE pipeline runs. Don't try to transform violations—respect vision constraints.
 
-10. **Story Pipeline Early Exit:** Pipeline exits when INVEST score ≥ 90 OR max 4 iterations reached. Low-quality stories (score < 70) should be flagged for manual review, not auto-accepted.
+10. **Story Pipeline Early Exit:** Pipeline exits when spec-compliant OR max 4 iterations reached. Stories that fail spec compliance after max iterations should be flagged for manual review.
 
 ## Evaluation Metrics (For TCC)
 
@@ -429,7 +432,8 @@ scores = [e.event_metadata.get("validation_score") for e in story_events]
 **✅ Fully Implemented:**
 - Product Owner Agent (vision + roadmap generation)
 - Specification Persistence (save/read from DB, file/text sources, on-demand access)
-- User Story Generation with INVEST validation (3-agent pipeline)
+- User Story Generation with INVEST principles (Draft Agent generates INVEST-ready stories)
+- Spec Validation Pipeline (domain-aware compliance checking, 2-agent pipeline)
 - Sprint Planning Agent (draft → review → commit pattern)
 - Sprint Execution Tools (status updates, completion tracking, mid-sprint modifications)
 - Vision Alignment Enforcement (deterministic constraint checking)

@@ -267,7 +267,6 @@ async def process_single_story(
 
     # --- Track state changes for verbose output ---
     last_story_draft: Optional[Any] = None
-    last_validation_result: Optional[Any] = None
     last_spec_validation_result: Optional[Any] = None
     last_refinement_result: Optional[Any] = None
     last_exit_loop_diagnostic: Optional[Any] = None
@@ -323,60 +322,13 @@ async def process_single_story(
                         if draft_data:
                             title = draft_data.get("title", "")
                             desc = draft_data.get("description", "")[:100]
-                            points = draft_data.get("story_points", "?")
                             log(f"{CYAN}   │ 📝 DRAFT:{RESET}")
                             log(f"{CYAN}   │{RESET}    Title: {title}")
                             log(f"{CYAN}   │{RESET}    Story: {desc}...")
-                            log(f"{CYAN}   │{RESET}    Points: {points}")
-
-                    # Check for validation result
-                    validation_result = state.get("validation_result")
-                    if (
-                        validation_result
-                        and validation_result != last_validation_result
-                    ):
-                        last_validation_result = validation_result
-                        val_data: Dict[str, Any] = (
-                            validation_result
-                            if isinstance(validation_result, dict)
-                            else {}
-                        )
-                        if isinstance(validation_result, str):
-                            try:
-                                val_data = json.loads(validation_result)
-                            except (json.JSONDecodeError, TypeError):
-                                pass
-                        if val_data:
-                            is_valid = val_data.get("is_valid", False)
-                            score = val_data.get("validation_score", 0)
-                            invest = val_data.get("invest_scores", {})
-                            issues = val_data.get("issues", [])
-                            suggestions = val_data.get("suggestions", [])
-
-                            status_icon = "✅" if is_valid else "❌"
-                            status_color = GREEN if is_valid else RED
-                            log(
-                                f"{YELLOW}   │ 🔍 VALIDATION: {status_color}{status_icon} {'PASS' if is_valid else 'FAIL'}{RESET} (Score: {score}/100)"
-                            )
-
-                            # Show INVEST scores
-                            if invest:
-                                invest_str = " | ".join(
-                                    [f"{k[0].upper()}:{v}" for k, v in invest.items()]
-                                )
-                                log(f"{YELLOW}   │{RESET}    INVEST: {invest_str}")
-
-                            # Show issues if failed
-                            if not is_valid and issues:
-                                log(f"{RED}   │{RESET}    Issues:")
-                                for issue in issues[:3]:  # Show first 3 issues
-                                    log(f"{RED}   │{RESET}      • {issue}")
-
-                            # Show suggestions
-                            if suggestions:
-                                log(f"{YELLOW}   │{RESET}    Feedback:")
-                                for sug in suggestions[:2]:  # Show first 2 suggestions
-                                    log(f"{YELLOW}   │{RESET}      → {sug}")
+                            # Only display points if include_story_points is enabled
+                            if story_input.include_story_points:
+                                points = draft_data.get("story_points", "?")
+                                log(f"{CYAN}   │{RESET}    Points: {points}")
 
                     # Check for spec validation result
                     spec_validation_result = state.get("spec_validation_result")
@@ -399,6 +351,7 @@ async def process_single_story(
                             is_compliant = bool(spec_data.get("is_compliant", True))
                             spec_issues = spec_data.get("issues", [])
                             spec_suggestions = spec_data.get("suggestions", [])
+                            domain_compliance = spec_data.get("domain_compliance", {})
 
                             status_icon = "✅" if is_compliant else "❌"
                             status_color = GREEN if is_compliant else RED
@@ -406,14 +359,28 @@ async def process_single_story(
                                 f"{YELLOW}   │ 🧾 SPEC: {status_color}{status_icon} {'OK' if is_compliant else 'VIOLATION'}{RESET}"
                             )
 
+                            # Show domain compliance details (NEW)
+                            if domain_compliance:
+                                domain_name = domain_compliance.get("matched_domain", "general")
+                                bound_count = domain_compliance.get("bound_requirement_count", 0)
+                                satisfied = domain_compliance.get("satisfied_count", 0)
+                                critical_gaps = domain_compliance.get("critical_gaps", [])
+                                
+                                log(f"{YELLOW}   │{RESET}    Domain: {domain_name} ({satisfied}/{bound_count} requirements)")
+                                
+                                if critical_gaps:
+                                    log(f"{RED}   │{RESET}    Critical Gaps ({len(critical_gaps)}):")
+                                    for gap in critical_gaps[:3]:  # Show first 3
+                                        log(f"{RED}   │{RESET}      ⚠ {gap}")
+
                             if (not is_compliant) and spec_issues:
                                 log(f"{RED}   │{RESET}    Spec issues:")
-                                for issue in spec_issues[:2]:
+                                for issue in spec_issues[:3]:  # Show first 3 issues
                                     log(f"{RED}   │{RESET}      • {issue}")
 
                             if spec_suggestions:
-                                log(f"{YELLOW}   │{RESET}    Spec fixes:")
-                                for sug in spec_suggestions[:2]:
+                                log(f"{YELLOW}   │{RESET}    Spec fixes needed:")
+                                for sug in spec_suggestions[:3]:  # Show first 3 suggestions
                                     log(f"{YELLOW}   │{RESET}      → {sug}")
 
                     # Check for exit_loop diagnostics (avoids noisy stdout prints)
@@ -462,16 +429,30 @@ async def process_single_story(
                             is_valid = ref_data.get("is_valid", False)
                             refined = ref_data.get("refined_story", {})
                             notes = ref_data.get("refinement_notes", "")
+                            refinement_applied = ref_data.get("refinement_applied", False)
 
                             status_color = GREEN if is_valid else YELLOW
-                            log(f"{status_color}   │ ✨ REFINED:{RESET}")
+                            refinement_icon = "🔧" if refinement_applied else "✓"
+                            log(f"{status_color}   │ ✨ REFINED: {refinement_icon} {'Changes applied' if refinement_applied else 'No changes'}{RESET}")
                             if refined:
+                                title = refined.get('title', '')
                                 log(
-                                    f"{status_color}   │{RESET}    Title: {refined.get('title', '')}"
+                                    f"{status_color}   │{RESET}    Title: {title}"
                                 )
+                                # Show acceptance criteria count
+                                # Note: acceptance_criteria is a string (bullets), not a list
+                                ac_raw = refined.get('acceptance_criteria', '')
+                                if ac_raw:
+                                    # Parse bullet-point string into list
+                                    ac_list = [line.strip() for line in ac_raw.strip().split('\n') if line.strip().startswith('-')]
+                                    log(f"{status_color}   │{RESET}    AC Count: {len(ac_list)} criteria")
+                                    # Show first 2 AC to verify spec compliance fixes
+                                    for ac in ac_list[:2]:
+                                        ac_preview = ac[:60] + "..." if len(ac) > 60 else ac
+                                        log(f"{status_color}   │{RESET}      • {ac_preview}")
                             if notes:
                                 log(
-                                    f"{status_color}   │{RESET}    Notes: {notes[:80]}..."
+                                    f"{status_color}   │{RESET}    Notes: {notes[:100]}{'...' if len(notes) > 100 else ''}"
                                 )
                             log(
                                 f"{MAGENTA}   ╰────────────────────────────────────────────────╯{RESET}"

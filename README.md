@@ -22,7 +22,7 @@ Vision → Roadmap → Features → User Stories → Sprint Planning → Executi
 |-------|------|--------------|
 | **Product Vision Agent** | Product Owner | Guides users through 7-component vision creation via multi-turn conversation |
 | **Roadmap Agent** | Product Owner | Converts vision into prioritized themes with Now/Next/Later timeframes |
-| **Story Pipeline** | Developer Support | Generates INVEST-compliant user stories with validation |
+| **Story Pipeline** | Developer Support | Generates INVEST-ready user stories with spec validation |
 | **Sprint Planning** | Scrum Master | Plans sprints with capacity modeling and team auto-creation |
 | **Sprint Execution** | Scrum Master | Tracks progress, status updates, and velocity metrics |
 
@@ -44,8 +44,8 @@ Vision → Roadmap → Features → User Stories → Sprint Planning → Executi
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
 │  │   Vision    │  │   Roadmap   │  │   Story Pipeline    │  │
-│  │   Agent     │  │   Agent     │  │ (Draft→Validate→    │  │
-│  │             │  │             │  │  Refine)            │  │
+│  │   Agent     │  │   Agent     │  │ (Draft→Spec→      │  │
+│  │             │  │             │  │  Refine)           │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
 │  ┌─────────────────────────────────────────────────────────┐│
 │  │              Sprint Planning & Execution                 ││
@@ -184,7 +184,7 @@ project_tcc/
 │       ├── product_vision_tool/     # Vision gathering agent
 │       ├── product_roadmap_agent/   # Roadmap planning agent
 │       ├── product_user_story_tool/ # Story generation
-│       ├── story_pipeline/          # INVEST validation pipeline
+│       ├── story_pipeline/          # Spec validation pipeline (INVEST built into Draft)
 │       └── sprint_planning/         # Sprint planning & execution
 │           ├── tools.py             # Planning tools (706 lines)
 │           ├── sprint_query_tools.py
@@ -221,7 +221,7 @@ products ─┬─> themes ─┬─> epics ─┬─> features
 Key tables:
 - **products**: Top-level container with vision and roadmap
 - **themes/epics/features**: Hierarchical product structure
-- **user_stories**: INVEST-compliant stories with status tracking
+- **user_stories**: INVEST-ready stories with status tracking
 - **sprints**: Sprint planning with goals and dates
 - **workflow_events**: Metrics for TCC evaluation
 
@@ -248,7 +248,7 @@ This system is designed for academic evaluation using:
 | Metric | Method | Purpose |
 |--------|--------|---------|
 | **Cognitive Load** | NASA-TLX questionnaire | Measure mental demand reduction |
-| **Artifact Quality** | INVEST criteria validation | Ensure story quality |
+| **Artifact Quality** | Spec compliance validation | Ensure story quality |
 | **Workflow Efficiency** | Cycle time & lead time | Track planning speed |
 | **Baseline Comparison** | Solo developer with traditional tools | Validate improvement |
 
@@ -280,7 +280,7 @@ pytest tests/test_orchestrator_tools.py -v
 - [x] Product Vision Agent (7-component gathering)
 - [x] Roadmap Agent (Now/Next/Later prioritization)
 - [x] Database structure creation (Theme → Epic → Feature)
-- [x] Story Pipeline with INVEST validation
+- [x] Story Pipeline with spec validation (INVEST built into Draft Agent)
 - [x] Sprint Planning MVP (9 tools)
 - [x] Sprint Execution (status, modify, complete)
 - [x] WorkflowEvent metrics capture

@@ -275,3 +275,84 @@ class TestEdgeCases:
         )
         assert len(result.issues) == 100
         assert len(result.suggestions) == 100
+
+
+class TestDomainComplianceField:
+    """Test the new domain_compliance field and its validators."""
+    
+    def test_domain_compliance_is_optional(self):
+        """domain_compliance can be None (for stories without spec)."""
+        result = SpecValidationResult(
+            is_compliant=True,
+            issues=[],
+            suggestions=[],
+            domain_compliance=None,
+            verdict="No spec provided"
+        )
+        assert result.domain_compliance is None
+    
+    def test_domain_compliance_with_no_gaps_valid(self):
+        """Valid: domain_compliance with empty critical_gaps when compliant."""
+        from orchestrator_agent.agent_tools.story_pipeline.spec_validator_agent.agent import (
+            DomainComplianceInfo,
+        )
+        
+        result = SpecValidationResult(
+            is_compliant=True,
+            issues=[],
+            suggestions=[],
+            domain_compliance=DomainComplianceInfo(
+                matched_domain="review",
+                bound_requirement_count=3,
+                satisfied_count=3,
+                critical_gaps=[]
+            ),
+            verdict="All domain requirements satisfied"
+        )
+        assert result.is_compliant is True
+        assert result.domain_compliance.matched_domain == "review"
+    
+    def test_domain_compliance_with_gaps_forces_non_compliant(self):
+        """Invalid: is_compliant=True but domain_compliance has critical_gaps."""
+        from orchestrator_agent.agent_tools.story_pipeline.spec_validator_agent.agent import (
+            DomainComplianceInfo,
+        )
+        
+        with pytest.raises(ValidationError) as exc_info:
+            SpecValidationResult(
+                is_compliant=True,  # Invalid: gaps exist
+                issues=[],
+                suggestions=[],
+                domain_compliance=DomainComplianceInfo(
+                    matched_domain="review",
+                    bound_requirement_count=5,
+                    satisfied_count=2,
+                    critical_gaps=["review_actions artifact", "gold_primitives artifact"]
+                ),
+                verdict="Compliant"  # Contradicts critical_gaps
+            )
+        
+        error_msg = str(exc_info.value)
+        assert "Logical inconsistency" in error_msg
+        assert "critical_gaps" in error_msg
+    
+    def test_domain_compliance_non_compliant_with_gaps_valid(self):
+        """Valid: is_compliant=False when domain_compliance has critical_gaps."""
+        from orchestrator_agent.agent_tools.story_pipeline.spec_validator_agent.agent import (
+            DomainComplianceInfo,
+        )
+        
+        result = SpecValidationResult(
+            is_compliant=False,
+            issues=["Missing review_actions artifact", "Missing gold_primitives artifact"],
+            suggestions=["Add AC for review_actions_v{n}.jsonl", "Add AC for gold_primitives"],
+            domain_compliance=DomainComplianceInfo(
+                matched_domain="review",
+                bound_requirement_count=5,
+                satisfied_count=2,
+                critical_gaps=["review_actions artifact", "gold_primitives artifact"]
+            ),
+            verdict="Domain requirements not satisfied"
+        )
+        assert result.is_compliant is False
+        assert len(result.domain_compliance.critical_gaps) == 2

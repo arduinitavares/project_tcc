@@ -388,11 +388,13 @@ CREATE TABLE features (
 
 ---
 
-## Phase 4: User Story Generation with INVEST Validation
+## Phase 4: User Story Generation with Spec Validation
 
-### Agent System: Story Pipeline (3-Agent LoopAgent)
+### Agent System: Story Pipeline (2-Agent LoopAgent)
 
-**Objective**: Transform features into INVEST-validated user stories through iterative refinement
+**Objective**: Transform features into INVEST-ready, spec-compliant user stories through iterative refinement
+
+> **Note:** INVEST principles (Independent, Negotiable, Valuable, Estimable, Small, Testable) are enforced directly by the Draft Agent's instructions. The separate INVEST Validator was removed as it was redundant—the Draft Agent already generates INVEST-compliant stories.
 
 ### Story Pipeline Architecture
 
@@ -403,14 +405,16 @@ The story pipeline uses a **LoopAgent + SequentialAgent hybrid** pattern:
 ```
 LoopAgent: story_validation_loop (max 4 iterations)
     ↓
-SequentialAgent: Draft → Validate → Refine
+SequentialAgent: Draft → Spec Validate → Refine
     ↓
-Early Exit: INVEST score ≥ 90 OR max iterations reached
+Early Exit: Spec compliant OR max iterations reached
     ↓
-Save to Database: status=TO_DO, validation_score stored
+Save to Database: status=TO_DO
 ```
 
-### Three-Agent Pipeline Flow
+### Two-Agent Pipeline Flow
+
+> **Architecture Change:** The INVEST Validator Agent was removed. INVEST principles are now enforced directly by the Draft Agent's instructions, which explicitly require Independent, Negotiable, Valuable, Estimable, Small, and Testable stories. The Spec Validator focuses on domain-specific compliance.
 
 #### Agent 1: Story Draft Agent
 **File:** `story_pipeline/story_draft_agent/agent.py`
@@ -419,6 +423,15 @@ Save to Database: status=TO_DO, validation_score stored
 - Feature description (title + epic context)
 - Product vision statement
 - Alignment constraints from `alignment_checker.py`
+
+**INVEST Enforcement (Built-in):**
+The Draft Agent's instructions explicitly require INVEST-compliant stories:
+- **Independent**: Story can be developed without depending on other stories
+- **Negotiable**: Details can be discussed, not a rigid contract
+- **Valuable**: Delivers clear value to the user
+- **Estimable**: Small enough to estimate accurately
+- **Small**: Fits in a single sprint (1-8 story points)
+- **Testable**: Acceptance criteria are verifiable
 
 **Output:**
 - Story title (user-centric format: "As a [role], I want [goal] so that [benefit]")
@@ -440,45 +453,43 @@ Save to Database: status=TO_DO, validation_score stored
 }
 ```
 
-#### Agent 2: INVEST Validator Agent
-**File:** `story_pipeline/invest_validator_agent/agent.py`
+#### Agent 2: Spec Validator Agent
+**File:** `story_pipeline/spec_validator_agent/agent.py`
 
-**INVEST Scoring System:**
-- **6 dimensions**, each scored 0-20 points (total 0-120, normalized to 0-100)
-- **Threshold:** Stories with score ≥ 90 accepted, < 90 require refinement
+**Purpose:** Validates stories against the technical specification requirements
 
-| Dimension | Criteria | Example Violation (0 points) |
-|-----------|----------|------------------------------|
-| **Independent** | No dependencies on other stories | "After user login is implemented..." |
-| **Negotiable** | Allows flexibility in implementation | "Must use MySQL database" (too prescriptive) |
-| **Valuable** | Clear user benefit | "Refactor authentication code" (no user value) |
-| **Estimable** | Team can estimate effort | "Improve performance" (too vague) |
-| **Small** | Fits in one sprint | "Build entire admin dashboard" (too large) |
-| **Testable** | Has verifiable acceptance criteria | "System should be user-friendly" (subjective) |
+**Domain-Aware Validation:**
+The spec validator uses `spec_requirement_extractor.py` to:
+1. Extract hard requirements from the spec (MUST, SHALL, REQUIRED patterns)
+2. Bind requirements to stories based on domain keywords (ingestion, review, audit, etc.)
+3. Check acceptance criteria for concrete artifacts and invariants
 
-**Time-Frame Alignment Validation:**
-```python
-# RULE: Stories in "Now" roadmap can't reference "Later" features
-# Example violation:
-# Feature time_frame: "Now"
-# Story AC: "Integrate with advanced analytics dashboard" (analytics is "Later")
-# Result: INVEST score penalty, refinement required
-```
+| Domain | Example Keywords | Required Artifacts |
+|--------|------------------|-------------------|
+| **Ingestion** | upload, pdf, document | `doc_revision_id`, `input_hash` |
+| **Revision** | version, change, update | `revision_id`, event log |
+| **Review** | approve, reject, corrections | `review_actions_vN.jsonl` |
+| **Provenance** | model, inference, training | `model_provenance` |
+| **Audit** | history, tracking, log | event-sourced deltas |
 
 **Output:**
 ```json
 {
-    "validation_score": 85,
-    "invest_scores": {
-        "independent": 20,
-        "negotiable": 15,
-        "valuable": 20,
-        "estimable": 10,
-        "small": 20,
-        "testable": 0
-    },
-    "feedback": "Acceptance criteria are too vague. Specify measurable conditions.",
-    "needs_refinement": true
+    "is_compliant": false,
+    "issues": [
+        "Missing required artifact: immutable doc_revision_id",
+        "AC lacks input hash reference for traceability"
+    ],
+    "suggestions": [
+        "Add AC: 'System generates immutable doc_revision_id from SHA-256 hash'",
+        "Add AC: 'System captures input_hash for each uploaded PDF'"
+    ],
+    "domain_compliance": {
+        "domain_name": "ingestion",
+        "requirements_satisfied": 3,
+        "requirements_bound": 6,
+        "critical_gaps": ["immutable doc_revision_id invariant"]
+    }
 }
 ```
 
@@ -487,24 +498,24 @@ Save to Database: status=TO_DO, validation_score stored
 
 **Input:**
 - Original story draft
-- INVEST validator feedback
+- Spec validator feedback
 - Vision constraints
 
 **Refinement Strategy:**
-- **Preserve approved elements** (dimensions with score ≥ 18)
-- **Focus improvements** on weak dimensions (score < 15)
+- **Spec compliance is BLOCKING** - must fix spec violations before story is valid
+- **Add missing artifacts** using exact names from suggestions
 - **Maintain vision alignment** (don't introduce forbidden capabilities)
 
 **Example Refinement:**
 ```python
-# Iteration 1: Score 65 (Testable=0, Estimable=5)
-# Original AC: "Notifications work correctly"
+# Iteration 1: Spec NOT compliant (missing doc_revision_id)
+# Original AC: "User can upload PDF documents"
 
 # Refinement:
-# - AC 1: "Email delivered within 5 min (verified via email logs)"
-# - AC 2: "Email contains task ID, change type, timestamp"
-# - AC 3: "Users can toggle on/off in Settings > Notifications"
-# Result: Score 92 → ACCEPT
+# - AC 1: "User can upload PDF documents via upload interface"
+# - AC 2: "System generates immutable doc_revision_id from SHA-256(pdf_content)"
+# - AC 3: "System captures input_hash for each uploaded PDF"
+# Result: Spec compliant → ACCEPT
 ```
 
 ### Vision Alignment Enforcement
