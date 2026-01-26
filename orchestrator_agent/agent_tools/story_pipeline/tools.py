@@ -678,10 +678,10 @@ async def process_single_story(
 
                 return {
                     "success": True,
-                    "is_valid": is_valid, if final_score is not None else 0,  # Default to 0 for backward compatibility
+                    "is_valid": is_valid,
                     "rejected": len(alignment_issues) > 0,  # Mark as rejected if alignment issues
                     "story": refined_story,
-                    "validation_score": final_score,
+                    "validation_score": final_score if final_score is not None else 0,  # Default to 0 for backward compatibility
                     "iterations": iterations,
                     "refinement_notes": refinement_notes,
                     "alignment_issues": alignment_issues,  # Always include (may be empty)
