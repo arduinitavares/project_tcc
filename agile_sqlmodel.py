@@ -157,6 +157,21 @@ class Product(SQLModel, table=True):
     description: Optional[str] = Field(default=None, sa_type=Text)
     vision: Optional[str] = Field(default=None, sa_type=Text)
     roadmap: Optional[str] = Field(default=None, sa_type=Text)
+
+    # NEW: Specification persistence fields
+    technical_spec: Optional[str] = Field(
+        default=None,
+        sa_type=Text  # Use Text for large content (>65KB)
+    )
+    spec_file_path: Optional[str] = Field(
+        default=None,
+        description="Path to original spec file or generated backup file"
+    )
+    spec_loaded_at: Optional[datetime] = Field(
+        default=None,
+        description="When the specification was saved to this product"
+    )
+
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2

@@ -65,6 +65,10 @@ from tools.orchestrator_tools import (
     select_project,
     load_specification_from_file,
 )
+from tools.spec_tools import (
+    save_project_specification,
+    read_project_specification,
+)
 from tools.db_tools import (
     get_story_details,
 )
@@ -97,6 +101,9 @@ root_agent = Agent(
         get_project_by_name,
         select_project,
         load_specification_from_file,
+        # Specification tools
+        save_project_specification,
+        read_project_specification,
         # Story query tools
         get_story_details,
         query_features_for_stories,
