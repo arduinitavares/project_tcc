@@ -72,7 +72,7 @@ class ValidationResult(BaseModel):
 
 # --- Model ---
 model = LiteLlm(
-    model="openrouter/openai/gpt-4.1-mini",  # Fast validation
+    model="openrouter/openai/gpt-4o-mini",  # Fast validation
     api_key=os.getenv("OPEN_ROUTER_API_KEY"),
     drop_params=True,
 )

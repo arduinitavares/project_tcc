@@ -24,7 +24,7 @@ dotenv.load_dotenv()
 
 # --- Model ---
 model = LiteLlm(
-    model="openrouter/openai/gpt-4.1-mini",  # Refinement model
+    model="openrouter/openai/gpt-4o-mini",  # Refinement model
     api_key=os.getenv("OPEN_ROUTER_API_KEY"),
     drop_params=True,
 )
@@ -35,74 +35,129 @@ def exit_loop(tool_context: ToolContext) -> dict[str, bool | str]:
     """
     Call this tool to signal that the story is COMPLETE and no more refinement iterations are needed.
     
-    ONLY call this when BOTH conditions are met:
-    - validation_score >= 90 (high quality)
-    - validation_result.suggestions is EMPTY (no actionable feedback remaining)
+    ONLY call this when ALL conditions are met:
+    - INVEST validation_score >= 90 (high quality)
+    - INVEST suggestions is EMPTY (no actionable feedback remaining)
+    - SPEC validation is_compliant is TRUE
+    - SPEC suggestions is EMPTY
     
     Do NOT call this if there are still actionable suggestions to apply.
     Apply the suggestions first, then exit on the next iteration.
     
     This will immediately stop the refinement loop.
     """
-    # Programmatic guard: Check if suggestions exist in state
-    validation_result = tool_context.state.get("validation_result")
-    if validation_result:
-        # Try to parse if it's a string
-        if isinstance(validation_result, str):
-            import json
-            try:
-                validation_result = json.loads(validation_result)
-            except json.JSONDecodeError:
-                pass  # Keep as string if parsing fails
-        
-        # Check for suggestions - now a simple length check since validator outputs [] when none
-        if isinstance(validation_result, dict):
-            suggestions = validation_result.get("suggestions", [])
-            if suggestions and len(suggestions) > 0:
-                print(f"   [exit_loop] ⚠️ BLOCKED - {len(suggestions)} suggestions pending. Apply them first!")
-                return {
-                    "loop_exit": False, 
-                    "reason": f"Cannot exit: {len(suggestions)} suggestions remain. Apply them and try again.",
-                    "pending_suggestions": suggestions
-                }
+    # Helper to parse JSON from state
+    def parse_state_json(key: str) -> dict:
+      val = tool_context.state.get(key)
+      if isinstance(val, str):
+        import json
+        try:
+          return json.loads(val)
+        except json.JSONDecodeError:
+          return {}
+      return val if isinstance(val, dict) else {}
+
+    def get_feature_title() -> str:
+      current_feature = tool_context.state.get("current_feature")
+      if isinstance(current_feature, str):
+        import json
+        try:
+          current_feature = json.loads(current_feature)
+        except json.JSONDecodeError:
+          current_feature = {}
+      if isinstance(current_feature, dict):
+        return str(current_feature.get("feature_title") or "")
+      return ""
+
+    def set_diag(diag: dict) -> None:
+      # Avoid noisy stdout prints (breaks batch logs due to async).
+      # Persist a diagnostic record so the runner can surface it deterministically.
+      diag.setdefault("feature_title", get_feature_title())
+      tool_context.state["exit_loop_diagnostic"] = diag
+
+    # 1. Check INVEST Validation
+    validation_result = parse_state_json("validation_result")
+    invest_suggestions = validation_result.get("suggestions", [])
+
+    if invest_suggestions and len(invest_suggestions) > 0:
+      diag = {
+        "loop_exit": False,
+        "blocked_by": "invest_suggestions",
+        "reason": f"Cannot exit: {len(invest_suggestions)} INVEST suggestions remain.",
+        "pending_suggestions": invest_suggestions,
+      }
+      set_diag(diag)
+      return diag
+
+    # 2. Check SPEC Validation
+    spec_result = parse_state_json("spec_validation_result")
+    spec_suggestions = spec_result.get("suggestions", [])
+    is_compliant = spec_result.get("is_compliant", True) # Default to true if missing
+
+    if not is_compliant:
+      diag = {
+        "loop_exit": False,
+        "blocked_by": "spec_non_compliant",
+        "reason": "Cannot exit: Story is not compliant with technical spec.",
+        "spec_issues": spec_result.get("issues", []),
+      }
+      set_diag(diag)
+      return diag
+
+    if spec_suggestions and len(spec_suggestions) > 0:
+      diag = {
+        "loop_exit": False,
+        "blocked_by": "spec_suggestions",
+        "reason": f"Cannot exit: {len(spec_suggestions)} Spec suggestions remain.",
+        "pending_suggestions": spec_suggestions,
+      }
+      set_diag(diag)
+      return diag
     
-    print(f"   [exit_loop] ✅ Story validated - exiting refinement loop")
+    diag = {"loop_exit": True, "reason": "Story validated successfully"}
+    set_diag(diag)
     tool_context.actions.escalate = True
-    return {"loop_exit": True, "reason": "Story validated successfully"}
+    return diag
 
 
 # --- Instructions ---
 STORY_REFINER_INSTRUCTION = """You are an expert Agile coach specializing in refining user stories.
 
 # ⚠️ MANDATORY FIRST STEP - DO THIS BEFORE ANYTHING ELSE
-Before taking any action, you MUST check the validation_result.suggestions array:
+Before taking any action, you MUST check BOTH validation results:
+1. `validation_result.suggestions` (INVEST feedback)
+2. `spec_validation_result.suggestions` (Spec feedback)
 
-1. Count the suggestions: len(validation_result.suggestions)
-2. If count > 0: You have actionable feedback → DO NOT call exit_loop
-3. If count == 0: No feedback remaining → You MAY call exit_loop (if score >= 90)
+Combine them into a single list of required edits.
+- If ANY suggestions exist: You have actionable feedback → DO NOT call exit_loop
+- If `spec_validation_result.is_compliant` is FALSE → DO NOT call exit_loop
+- If ALL suggestions are empty AND is_compliant is TRUE → You MAY call exit_loop (if score >= 90)
 
 # YOUR TASK
 Based on the validation feedback, decide:
-1. If score >= 90 AND suggestions is EMPTY: Call `exit_loop` and output story as-is
-2. If score >= 90 BUT suggestions exist: Apply suggestions WITHOUT calling exit_loop
+1. If score >= 90 AND ALL suggestions are EMPTY: Call `exit_loop` and output story as-is
+2. If suggestions exist (INVEST or Spec): Apply ALL suggestions WITHOUT calling exit_loop
 3. If score < 90: Apply all feedback to improve the story
 
 # INPUT (from state)
 - `story_draft`: The original story JSON
-- `validation_result`: Validation feedback with is_valid, validation_score, issues, suggestions
+- `validation_result`: INVEST feedback (is_valid, score, suggestions)
+- `spec_validation_result`: Technical spec feedback (is_compliant, issues, suggestions)
 - `current_feature`: The feature context
 
 # 🚫 EXIT_LOOP GATE - READ CAREFULLY
-**You are FORBIDDEN from calling exit_loop if validation_result.suggestions has ANY items.**
+**You are FORBIDDEN from calling exit_loop if ANY suggestions exist.**
 
-Even if validation_score is 90, 95, or 100 - if there are suggestions, you MUST:
-1. Apply all suggestions to improve the story
+Even if validation_score is 90, 95, or 100 - if there are suggestions from EITHER validator, you MUST:
+1. Apply all suggestions (Spec violations are MANDATORY fixes)
 2. Output the refined story
 3. Let the loop continue so the next iteration can validate your improvements
 
 **The ONLY time you may call exit_loop:**
 - validation_score >= 90 AND
-- validation_result.suggestions == [] (empty array, zero items)
+- validation_result.suggestions == [] AND
+- spec_validation_result.suggestions == [] AND
+- spec_validation_result.is_compliant == true
 
 # DECISION LOGIC
 

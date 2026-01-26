@@ -34,16 +34,24 @@ from orchestrator_agent.agent_tools.story_pipeline.story_draft_agent.agent impor
 from orchestrator_agent.agent_tools.story_pipeline.invest_validator_agent.agent import (
     invest_validator_agent,
 )
+from orchestrator_agent.agent_tools.story_pipeline.spec_validator_agent.agent import (
+    spec_validator_agent,
+)
 from orchestrator_agent.agent_tools.story_pipeline.story_refiner_agent.agent import (
     story_refiner_agent,
 )
 
 
 # --- Sequential Pipeline ---
-# Runs: Draft → Validate → Refine in strict order
+# Runs: Draft → INVEST Validate → SPEC Validate → Refine in strict order
 story_sequential_pipeline = SequentialAgent(
     name="StorySequentialPipeline",
-    sub_agents=[story_draft_agent, invest_validator_agent, story_refiner_agent],
+    sub_agents=[
+        story_draft_agent,
+        invest_validator_agent,
+        spec_validator_agent,
+        story_refiner_agent,
+    ],
     description="Drafts a story, validates it, and refines if needed.",
 )
 

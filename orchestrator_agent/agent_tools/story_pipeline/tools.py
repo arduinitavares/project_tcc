@@ -268,7 +268,9 @@ async def process_single_story(
     # --- Track state changes for verbose output ---
     last_story_draft: Optional[Any] = None
     last_validation_result: Optional[Any] = None
+    last_spec_validation_result: Optional[Any] = None
     last_refinement_result: Optional[Any] = None
+    last_exit_loop_diagnostic: Optional[Any] = None
     current_iteration: int = 0  # Track locally by counting new drafts
     seen_drafts: Set[int] = set()  # Track unique drafts to count iterations
 
@@ -375,6 +377,69 @@ async def process_single_story(
                                 log(f"{YELLOW}   │{RESET}    Feedback:")
                                 for sug in suggestions[:2]:  # Show first 2 suggestions
                                     log(f"{YELLOW}   │{RESET}      → {sug}")
+
+                    # Check for spec validation result
+                    spec_validation_result = state.get("spec_validation_result")
+                    if (
+                        spec_validation_result
+                        and spec_validation_result != last_spec_validation_result
+                    ):
+                        last_spec_validation_result = spec_validation_result
+                        spec_data: Dict[str, Any] = (
+                            spec_validation_result
+                            if isinstance(spec_validation_result, dict)
+                            else {}
+                        )
+                        if isinstance(spec_validation_result, str):
+                            try:
+                                spec_data = json.loads(spec_validation_result)
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+                        if spec_data:
+                            is_compliant = bool(spec_data.get("is_compliant", True))
+                            spec_issues = spec_data.get("issues", [])
+                            spec_suggestions = spec_data.get("suggestions", [])
+
+                            status_icon = "✅" if is_compliant else "❌"
+                            status_color = GREEN if is_compliant else RED
+                            log(
+                                f"{YELLOW}   │ 🧾 SPEC: {status_color}{status_icon} {'OK' if is_compliant else 'VIOLATION'}{RESET}"
+                            )
+
+                            if (not is_compliant) and spec_issues:
+                                log(f"{RED}   │{RESET}    Spec issues:")
+                                for issue in spec_issues[:2]:
+                                    log(f"{RED}   │{RESET}      • {issue}")
+
+                            if spec_suggestions:
+                                log(f"{YELLOW}   │{RESET}    Spec fixes:")
+                                for sug in spec_suggestions[:2]:
+                                    log(f"{YELLOW}   │{RESET}      → {sug}")
+
+                    # Check for exit_loop diagnostics (avoids noisy stdout prints)
+                    exit_loop_diag = state.get("exit_loop_diagnostic")
+                    if exit_loop_diag and exit_loop_diag != last_exit_loop_diagnostic:
+                        last_exit_loop_diagnostic = exit_loop_diag
+                        diag_data: Dict[str, Any] = (
+                            exit_loop_diag if isinstance(exit_loop_diag, dict) else {}
+                        )
+                        if isinstance(exit_loop_diag, str):
+                            try:
+                                diag_data = json.loads(exit_loop_diag)
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+                        if diag_data:
+                            loop_exit = bool(diag_data.get("loop_exit", False))
+                            blocked_by = diag_data.get("blocked_by")
+                            reason = diag_data.get("reason", "")
+                            if loop_exit:
+                                log(f"{GREEN}   │ 🧰 LOOP EXIT: ready{RESET}")
+                            else:
+                                log(
+                                    f"{YELLOW}   │ 🧰 LOOP EXIT: blocked ({blocked_by}){RESET}"
+                                )
+                            if reason:
+                                log(f"{YELLOW}   │{RESET}      → {reason}")
 
                     # Check for refinement result
                     refinement_result = state.get("refinement_result")
@@ -647,6 +712,19 @@ class ProcessBatchInput(BaseModel):
         ),
     ]
 
+    max_concurrency: Annotated[
+        int,
+        Field(
+            default=1,
+            ge=1,
+            le=10,
+            description=(
+                "Maximum number of features to process in parallel. "
+                "Default is 1 for deterministic, in-order logs. Increase for speed."
+            ),
+        ),
+    ]
+
 
 async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
     """
@@ -696,7 +774,7 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
     total_iterations: int = 0
 
     # Synchronization primitives
-    semaphore = asyncio.Semaphore(10)
+    semaphore = asyncio.Semaphore(batch_input.max_concurrency)
     console_lock = asyncio.Lock()
 
     async def process_story_safe(idx: int, feature: Dict[str, Any]) -> Any:
