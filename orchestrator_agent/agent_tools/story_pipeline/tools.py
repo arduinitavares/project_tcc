@@ -593,20 +593,22 @@ async def process_single_story(
                     is_valid = False  # Force invalid regardless of LLM score
 
                 # Final summary
-                final_score = 0
+                # Note: validation_result no longer exists (INVEST Validator removed)
+                # Score defaults to None to indicate "not applicable"
+                final_score: Optional[int] = None
                 if isinstance(state.get("validation_result"), dict):
                     final_score = state.get("validation_result", {}).get(
-                        "validation_score", 0
+                        "validation_score", None
                     )
                 elif isinstance(state.get("validation_result"), str):
                     try:
                         val = json.loads(state.get("validation_result", "{}"))
-                        final_score = val.get("validation_score", 0)
+                        final_score = val.get("validation_score", None)
                     except (json.JSONDecodeError, TypeError):
                         pass
 
                 # If deterministic veto applied, cap the score
-                if alignment_issues:
+                if alignment_issues and final_score is not None:
                     final_score = min(
                         final_score, 40
                     )  # Cap at 40 for alignment violations
@@ -648,7 +650,8 @@ async def process_single_story(
                 if not contract_result.is_valid:
                     # Contract violations found - override LLM validation
                     is_valid = False
-                    final_score = min(final_score, 30)  # Cap at 30 for contract failures
+                    if final_score is not None:
+                        final_score = min(final_score, 30)  # Cap at 30 for contract failures
                     status_icon = "❌"
                     status_color = RED
                     
@@ -663,8 +666,11 @@ async def process_single_story(
                     # Use sanitized story (may have stripped forbidden fields)
                     refined_story = contract_result.sanitized_story or refined_story
                 
+                # Format score display (N/A if no INVEST validation)
+                score_display = f"{final_score}/100" if final_score is not None else "N/A"
+                
                 log(
-                    f"\n{status_color}   {status_icon} FINAL: '{refined_story.get('title', 'Unknown')}' | Score: {final_score}/100 | Iterations: {iterations}{RESET}"
+                    f"\n{status_color}   {status_icon} FINAL: '{refined_story.get('title', 'Unknown')}' | Score: {score_display} | Iterations: {iterations}{RESET}"
                 )
 
                 if alignment_issues:
@@ -672,7 +678,7 @@ async def process_single_story(
 
                 return {
                     "success": True,
-                    "is_valid": is_valid,
+                    "is_valid": is_valid, if final_score is not None else 0,  # Default to 0 for backward compatibility
                     "rejected": len(alignment_issues) > 0,  # Mark as rejected if alignment issues
                     "story": refined_story,
                     "validation_score": final_score,
