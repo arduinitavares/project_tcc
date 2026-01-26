@@ -10,8 +10,9 @@ pipeline can use to trigger retries or provide feedback to upstream agents.
 """
 
 import os
-import dotenv
 from typing import Annotated
+
+import dotenv
 from pydantic import BaseModel, Field, field_validator, ValidationInfo
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
@@ -132,9 +133,6 @@ If the spec explicitly states a story of this type MUST produce a specific outpu
 When marking a story as non-compliant, provide specific, actionable edits to resolve each violation.
 
 Example: "Change the database technology from MongoDB to PostgreSQL to comply with spec requirement in Section 3.2."
-
-# DEVELOPER NOTE
-To extend this validator later, consider adding an invariant registry or specific rule sets for different project types (e.g. P&ID, SCADA, Web App). For now, rely on text inference from the provided spec.
 """
 
 # --- Agent Definition ---
