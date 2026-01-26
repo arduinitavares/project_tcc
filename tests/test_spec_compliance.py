@@ -6,7 +6,7 @@ import pytest
 import json
 from unittest.mock import MagicMock
 # exit_loop is removed, so we remove the import and the class testing it.
-from orchestrator_agent.agent_tools.story_pipeline.spec_validator_agent.agent import SpecValidationResult, SPEC_VALIDATOR_INSTRUCTION, spec_validator_agent
+from orchestrator_agent.agent_tools.story_pipeline.spec_validator_agent.agent import SpecValidationResult, spec_validator_agent
 from orchestrator_agent.agent_tools.story_pipeline.pipeline import story_sequential_pipeline
 
 class TestSpecValidatorConfiguration:
@@ -14,16 +14,18 @@ class TestSpecValidatorConfiguration:
 
     def test_instruction_contains_default_compliant_rule(self):
         """Instruction must tell LLM to default to compliant if spec is empty."""
-        assert "If `technical_spec` is EMPTY" in SPEC_VALIDATOR_INSTRUCTION
+        instruction = spec_validator_agent.instruction
+        assert "If `technical_spec` is EMPTY" in instruction
         # Note: "is_compliant: true" string might have been removed during prompt cleanup (JSON removal).
         # We check for the concept logic instead.
-        assert "mark the story as compliant" in SPEC_VALIDATOR_INSTRUCTION
+        assert "mark the story as compliant" in instruction
 
     def test_instruction_emphasizes_explicit_violations(self):
         """Instruction must emphasize explicit constraints (must/shall)."""
-        assert "EXPLICIT" in SPEC_VALIDATOR_INSTRUCTION
-        assert "MUST" in SPEC_VALIDATOR_INSTRUCTION
-        assert "SHALL" in SPEC_VALIDATOR_INSTRUCTION
+        instruction = spec_validator_agent.instruction
+        assert "EXPLICIT" in instruction
+        assert "MUST" in instruction
+        assert "SHALL" in instruction
 
     def test_schema_allows_empty_suggestions(self):
         """Verify the Pydantic model allows empty lists."""
