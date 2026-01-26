@@ -19,8 +19,34 @@ import re
 
 from sqlmodel import Session
 from google.adk.tools import ToolContext
+from pydantic import BaseModel, Field
 
 from agile_sqlmodel import Product, engine
+
+
+# --- Input Schemas ---
+
+
+class SaveProjectSpecificationInput(BaseModel):
+    """Input schema for save_project_specification tool."""
+
+    product_id: int = Field(description="ID of project to attach specification to")
+    spec_source: str = Field(
+        description='Source type: "file" (load from file path) or "text" (pasted content)'
+    )
+    content: str = Field(
+        description="File path (if spec_source='file') or raw text content (if spec_source='text')"
+    )
+
+
+class ReadProjectSpecificationInput(BaseModel):
+    """Input schema for read_project_specification tool.
+    
+    This tool requires no parameters - it reads the spec for the active project
+    from tool_context.state['active_project'].
+    """
+
+    pass  # No parameters needed
 
 
 def save_project_specification(
@@ -36,7 +62,7 @@ def save_project_specification(
             "spec_source": str,       # Required - "file" or "text"
             "content": str,           # Required - File path OR raw text content
         }
-        tool_context: Optional ADK context (not used, for consistency)
+        tool_context: Optional ADK context (not used internally, for signature consistency)
 
     Returns:
         {
@@ -72,15 +98,17 @@ def save_project_specification(
         })
     """
     # Validate inputs
-    product_id = params.get("product_id")
-    spec_source = params.get("spec_source")
-    content = params.get("content")
-
-    if not all([product_id, spec_source, content]):
+    try:
+        parsed = SaveProjectSpecificationInput.model_validate(params or {})
+    except Exception as e:
         return {
             "success": False,
-            "error": "Missing required parameters: product_id, spec_source, content"
+            "error": f"Invalid parameters: {str(e)}"
         }
+    
+    product_id = parsed.product_id
+    spec_source = parsed.spec_source
+    content = parsed.content
 
     if spec_source not in ["file", "text"]:
         return {
@@ -185,7 +213,7 @@ def save_project_specification(
 
 
 def read_project_specification(
-    params: Any = None,
+    params: Any,
     tool_context: Optional[ToolContext] = None,
 ) -> Dict[str, Any]:
     """
@@ -196,7 +224,7 @@ def read_project_specification(
 
     Args:
         params: Not used (for consistency with ADK tool signature)
-        tool_context: Required - Must contain active_project in state
+        tool_context: Optional - Must contain active_project in state (when called by agent)
 
     Returns:
         {
@@ -219,12 +247,15 @@ def read_project_specification(
 
     Examples:
         # In agent code (with active project selected)
-        spec = read_project_specification(tool_context=context)
+        spec = read_project_specification({}, tool_context=context)
         if "authentication" in spec["spec_content"].lower():
             # Extract auth requirements from spec
         else:
             # Ask user about authentication
     """
+    # Validate inputs (no params needed, but validate for consistency)
+    ReadProjectSpecificationInput.model_validate(params or {})
+    
     if not tool_context or not tool_context.state:
         return {
             "success": False,

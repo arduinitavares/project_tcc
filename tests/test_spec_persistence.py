@@ -364,7 +364,7 @@ class TestReadProjectSpecification:
         })
 
         # Act
-        result = read_project_specification(tool_context=context)
+        result = read_project_specification({}, context)
 
         # Assert
         assert result["success"] is True
@@ -389,7 +389,7 @@ class TestReadProjectSpecification:
         context = MockToolContext(state={})
 
         # Act
-        result = read_project_specification(tool_context=context)
+        result = read_project_specification({}, context)
 
         # Assert
         assert result["success"] is False
@@ -416,7 +416,7 @@ class TestReadProjectSpecification:
         })
 
         # Act
-        result = read_project_specification(tool_context=context)
+        result = read_project_specification({}, context)
 
         # Assert
         assert result["success"] is False
@@ -470,7 +470,7 @@ class TestSpecWorkflowIntegration:
                 "name": product.name,
             }
         })
-        read_result = read_project_specification(tool_context=context)
+        read_result = read_project_specification({}, context)
 
         # Assert: Consistency
         assert read_result["success"] is True
@@ -525,7 +525,7 @@ This is a test specification pasted by the user.
                 "name": "Pasted Project",
             }
         })
-        read_result = read_project_specification(tool_context=context)
+        read_result = read_project_specification({}, context)
 
         # Assert: Content matches exactly
         assert read_result["success"] is True

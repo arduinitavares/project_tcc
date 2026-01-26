@@ -87,7 +87,7 @@ Your current state is determined strictly from the **most recent tool output** a
    - When vision is approved and saved:
      a. Call `save_vision_tool(...)` → creates product, returns product_id
      b. Immediately call `save_project_specification(product_id=<new_id>, spec_source="file", content=<file_path>)`
-     c. Confirm: "Project and specification saved successfully. Specification loaded from {file_path}"
+     c. Confirm: "Project and specification saved successfully. Specification loaded from <the file path>."
    - **STOP** and ask what to do next
    
 4. **New Project with Pasted Content:** `"start"`, `"new"`, `"create"`, `"vision"` with no file path mentioned
@@ -97,8 +97,8 @@ Your current state is determined strictly from the **most recent tool output** a
    - When vision is approved:
      a. Call `save_vision_tool(...)`
      b. Call `save_project_specification(product_id=<new_id>, spec_source="text", content=<pasted_text>)`
-     c. System will create backup file: `specs/{project_name}_spec.md`
-     d. Confirm: "Project saved. Specification backed up to {backup_path}"
+     c. System will create backup file in specs/ folder with pattern: <project_name>_<id>_spec.md
+     d. Confirm: "Project saved. Specification backed up to specs/ folder."
 
 5. **Status/DB:** `"count"`, `"status"`, `"list"`
    - Call: `count_projects` or `list_projects`.

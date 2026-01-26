@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
-from agile_sqlmodel import UserStory, engine, ProductPersona
+from agile_sqlmodel import UserStory, engine, ProductPersona, Product
 from orchestrator_agent.agent_tools.story_pipeline.pipeline import (
     story_validation_loop,
 )
@@ -90,6 +90,13 @@ class ProcessStoryInput(BaseModel):
         Field(
             default=True,
             description="Whether to include story point estimates.",
+        ),
+    ]
+    technical_spec: Annotated[
+        Optional[str],
+        Field(
+            default=None,
+            description="Technical specification document for domain context.",
         ),
     ]
 
@@ -240,6 +247,8 @@ async def process_single_story(
         ),
         "refinement_feedback": "",  # Empty for first iteration
         "iteration_count": 0,
+        # Technical specification for domain context (optional)
+        "technical_spec": story_input.technical_spec or "",
     }
 
     # --- Create session and runner ---
@@ -630,6 +639,13 @@ class ProcessBatchInput(BaseModel):
             description="Whether to include story point estimates.",
         ),
     ]
+    technical_spec: Annotated[
+        Optional[str],
+        Field(
+            default=None,
+            description="Technical specification document for domain context. If not provided, will be fetched from DB.",
+        ),
+    ]
 
 
 async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
@@ -650,6 +666,15 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
     RESET = "\033[0m"
     BOLD = "\033[1m"
 
+    # --- Fetch technical spec from DB if not provided ---
+    technical_spec = batch_input.technical_spec
+    if technical_spec is None:
+        with Session(engine) as db_session:
+            product = db_session.get(Product, batch_input.product_id)
+            if product and product.technical_spec:
+                technical_spec = product.technical_spec
+                print(f"{CYAN}[Spec]{RESET} Loaded technical specification (~{len(technical_spec) // 4} tokens)")
+
     print(f"\n{CYAN}{'═' * 60}{RESET}")
     print(f"{CYAN}{BOLD}  INVEST-VALIDATED STORY PIPELINE{RESET}")
     print(
@@ -660,6 +685,10 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
         if len(batch_input.user_persona) > 50
         else f"{CYAN}  Persona: {batch_input.user_persona}{RESET}"
     )
+    if technical_spec:
+        print(f"{CYAN}  Spec: ✓ Available ({len(technical_spec)} chars){RESET}")
+    else:
+        print(f"{YELLOW}  Spec: ✗ Not available (stories generated from feature titles only){RESET}")
     print(f"{CYAN}{'═' * 60}{RESET}")
 
     validated_stories: List[Dict[str, Any]] = []
@@ -699,6 +728,8 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
                         time_frame=feature.get("time_frame"),
                         theme_justification=feature.get("theme_justification"),
                         sibling_features=feature.get("sibling_features"),
+                        # Technical spec for domain context
+                        technical_spec=technical_spec,
                     ),
                     output_callback=log_capture,
                 )

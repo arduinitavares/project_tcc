@@ -38,6 +38,19 @@ Generate ONE high-quality user story for the given feature.
 - `user_persona`: The MANDATORY target user persona. The story MUST use this exact persona.
 - `story_preferences`: Any user preferences (story points yes/no, etc.)
 - `refinement_feedback`: If this is a retry, contains feedback from validator (otherwise empty)
+- `technical_spec`: (OPTIONAL) Full technical specification document with domain context
+
+# 📄 USING THE TECHNICAL SPECIFICATION
+If `technical_spec` is provided and non-empty:
+1. **Use domain terminology** from the spec in acceptance criteria (e.g., "P&ID", "tag", "primitive", "confidence score")
+2. **Reference workflows** described in the spec when writing the "so that" clause
+3. **Align acceptance criteria** with concepts mentioned in the spec (e.g., "review-first", "stage-gated", "gold snapshot")
+4. **Understand user context** - the spec explains what the persona actually does day-to-day
+5. **DO NOT invent features** not in the spec - stay within the documented scope
+
+If `technical_spec` is empty or not provided:
+- Generate the story based on feature_title and product_vision alone
+- Use generic but sensible acceptance criteria
 
 # ⚠️ CRITICAL PERSONA ENFORCEMENT RULES
 The `user_persona` field is MANDATORY and NON-NEGOTIABLE:
