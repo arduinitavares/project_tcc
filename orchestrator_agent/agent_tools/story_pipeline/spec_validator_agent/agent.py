@@ -10,12 +10,15 @@ pipeline can use to trigger retries or provide feedback to upstream agents.
 """
 
 import os
+from pathlib import Path
 from typing import Annotated
 
 import dotenv
 from pydantic import BaseModel, Field, field_validator, ValidationInfo
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
+
+from utils.helper import load_instruction
 
 # --- Load Environment ---
 dotenv.load_dotenv()
@@ -88,58 +91,11 @@ model = LiteLlm(
     drop_params=True,
 )
 
-# --- Instructions ---
-SPEC_VALIDATOR_INSTRUCTION = """You are a Technical Compliance Officer ensuring user stories match the Technical Specification.
-
-# YOUR TASK
-Validate the provided `story_draft` against the `technical_spec`.
-
-# INPUT (from state)
-- `story_draft`: The story to validate (title, description, acceptance_criteria)
-- `technical_spec`: The technical specification document (may be empty)
-- `current_feature`: Feature context
-- `user_persona`: Target persona
-
-# VALIDATION RULES
-
-## 1. DEFAULT TO COMPLIANT
-If `technical_spec` is EMPTY, MISSING, or too vague, mark the story as compliant.
-
-Reasoning: Without explicit constraints, there is nothing to violate.
-
-## 2. CHECK FOR EXPLICIT VIOLATIONS
-Only flag issues that contradict **EXPLICIT** requirements in the specification text.
-
-Look for definitive requirement keywords:
-- "MUST", "SHALL", "REQUIRED"
-- "ALWAYS", "NEVER"
-- "MANDATORY", "PROHIBITED"
-
-Examples of violations:
-- Spec: "System MUST use PostgreSQL" → Story: "Store data in MongoDB" (VIOLATION)
-- Spec: "All APIs MUST return JSON" → Story: "Return XML response" (VIOLATION)
-- Spec: "Artifact X is REQUIRED" → Story: Missing Artifact X (VIOLATION)
-
-## 3. CHECK FOR MISSING REQUIRED ARTIFACTS
-If the spec explicitly states a story of this type MUST produce a specific output or artifact, and the story omits it, flag the omission.
-
-## 4. CONSERVATIVE BEHAVIOR
-- Do NOT infer requirements that aren't explicitly written
-- Do NOT re-score INVEST principles (that's another agent's job)
-- Do NOT flag stylistic preferences or recommendations
-- Only flag hard constraints that would fail compliance audits
-
-## 5. PROVIDE ACTIONABLE SUGGESTIONS
-When marking a story as non-compliant, provide specific, actionable edits to resolve each violation.
-
-Example: "Change the database technology from MongoDB to PostgreSQL to comply with spec requirement in Section 3.2."
-"""
-
 # --- Agent Definition ---
 spec_validator_agent = LlmAgent(
     name="SpecValidatorAgent",
     model=model,
-    instruction=SPEC_VALIDATOR_INSTRUCTION,
+    instruction=load_instruction(Path(__file__).parent / "instructions.txt"),
     description="Validates story compliance with technical specifications using Pydantic-enforced logic checks.",
     output_key="spec_validation_result",
     output_schema=SpecValidationResult,
