@@ -8,7 +8,6 @@ from orchestrator_agent.agent_tools.story_pipeline.story_contract_enforcer impor
     enforce_story_points_contract,
     enforce_persona_contract,
     enforce_scope_contract,
-    enforce_invest_result_presence,
     enforce_feature_id_consistency,
     enforce_validator_state_consistency,
     format_contract_violations,
@@ -111,43 +110,8 @@ class TestPersonaContract:
         assert violation.rule == "PERSONA_FORMAT_INVALID"
 
 
-class TestInvestResultPresence:
-    """Test Rule 3a: INVEST result presence."""
-
-    def test_invest_result_missing(self):
-        """No validation_result -> violation."""
-        violation = enforce_invest_result_presence(validation_result=None)
-
-        assert violation is not None
-        assert violation.rule == "INVEST_RESULT_MISSING"
-
-    def test_invest_score_missing(self):
-        """validation_result exists but no score -> violation."""
-        violation = enforce_invest_result_presence(validation_result={})
-
-        assert violation is not None
-        assert violation.rule == "INVEST_SCORE_MISSING"
-
-    def test_invest_score_zero(self):
-        """Score is 0 (validation didn't run) -> violation."""
-        violation = enforce_invest_result_presence(
-            validation_result={"validation_score": 0}
-        )
-
-        assert violation is not None
-        assert violation.rule == "INVEST_SCORE_ZERO"
-
-    def test_invest_result_valid(self):
-        """validation_result with non-zero score -> OK."""
-        violation = enforce_invest_result_presence(
-            validation_result={"validation_score": 85}
-        )
-
-        assert violation is None
-
-
 class TestFeatureIdConsistency:
-    """Test Rule 3b: Feature ID consistency."""
+    """Test Rule 3: Feature ID consistency."""
 
     def test_feature_id_missing(self):
         """Story has no feature_id -> violation."""
@@ -178,7 +142,7 @@ class TestFeatureIdConsistency:
 
 
 class TestScopeContract:
-    """Test Rule 3: Scope contract."""
+    """Test Rule 4: Scope contract."""
 
     def test_scope_matches(self):
         """Feature time_frame matches allowed scope -> OK."""
@@ -211,7 +175,7 @@ class TestScopeContract:
 
 
 class TestValidatorStateConsistency:
-    """Test Rule 4: Validator state consistency."""
+    """Test Rule 5: Validator state consistency."""
     
     def test_refinement_result_missing(self):
         """Refinement result missing -> violation."""
@@ -315,32 +279,6 @@ class TestFullContractEnforcement:
         assert len(result.violations) == 0
         assert result.sanitized_story is not None
     
-    def test_invest_score_zero_violation(self):
-        """Story with INVEST score of 0 -> violation."""
-        story = {
-            "feature_id": 42,
-            "title": "Enable PDF upload",
-            "description": "As an automation engineer, I want to upload PDFs so that I can process them.",
-            "acceptance_criteria": "- User can upload",
-            "story_points": None,
-        }
-
-        result = enforce_story_contracts(
-            story=story,
-            include_story_points=False,
-            expected_persona="automation engineer",
-            feature_time_frame=None,
-            allowed_scope=None,
-            validation_result={"validation_score": 0},  # Zero score - validation didn't run
-            spec_validation_result=None,
-            refinement_result={"is_valid": True},
-            expected_feature_id=42,
-        )
-
-        assert not result.is_valid
-        rules = [v.rule for v in result.violations]
-        assert "INVEST_SCORE_ZERO" in rules
-    
     def test_feature_id_mismatch_violation(self):
         """Story with wrong feature_id -> violation."""
         story = {
@@ -383,21 +321,20 @@ class TestFullContractEnforcement:
             expected_persona="automation engineer",  # Wrong persona
             feature_time_frame="Next",  # Wrong scope
             allowed_scope="Now",
-            validation_result={"validation_score": 0},  # Score zero
+            validation_result={"validation_score": 95},
             spec_validation_result={"is_compliant": False},  # Spec failed
             refinement_result={"is_valid": True},
             expected_feature_id=82,  # Expected ID different
         )
 
         assert not result.is_valid
-        assert len(result.violations) >= 4  # At least points, persona, invest score, feature ID
+        assert len(result.violations) >= 4  # At least points, persona, feature ID, scope
         
         # Check specific violations
         rules = [v.rule for v in result.violations]
         assert "STORY_POINTS_FORBIDDEN" in rules
         assert "PERSONA_MISMATCH" in rules
         assert "SCOPE_MISMATCH" in rules
-        assert "INVEST_SCORE_ZERO" in rules
         assert "FEATURE_ID_MISMATCH" in rules
 
     def test_sanitization_strips_forbidden_points(self):
@@ -421,8 +358,7 @@ class TestFullContractEnforcement:
             expected_feature_id=42,
         )
 
-        assert not result.is_valid  # Violation detected
-        assert result.sanitized_story["story_points"] is None  # But sanitized
+        assert result.sanitized_story["story_points"] is None
 
 
 class TestFormatting:

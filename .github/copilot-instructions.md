@@ -65,6 +65,22 @@ app = App(name="project_tcc", root_agent=root_agent)
 - Database query tools also wrapped as `FunctionTool`
 - Root agent must export `app = App(...)` object for ADK web CLI
 
+### Contract Enforcement
+
+The story pipeline includes deterministic contract enforcement (post-LLM validation):
+
+**File:** `orchestrator_agent/agent_tools/story_pipeline/story_contract_enforcer.py`
+
+**Enforced Contracts (5 rules):**
+1. **Story Points**: NULL when `include_story_points=False`, 1-8 or NULL otherwise
+2. **Persona**: Exact match with expected persona (normalized, case-insensitive)
+3. **Feature ID**: story.feature_id must == input.feature_id (prevents data corruption)
+4. **Scope**: Feature must belong to allowed time_frame ("Now", "Next", "Later")
+5. **Validator State Consistency**: refinement_result must exist, no mixed signals
+
+**Note on INVEST:** INVEST principles are enforced by the Draft Agent's Pydantic schema validators,
+not by a separate contract. The enforcer focuses on data integrity and state consistency.
+
 ### Orchestration Patterns
 
 **Pattern 1: Sequential via LoopAgent** (`product_workflow.py`)

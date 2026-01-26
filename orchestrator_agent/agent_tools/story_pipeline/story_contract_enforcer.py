@@ -5,6 +5,10 @@ This module provides hard contract enforcement AFTER the LLM refinement loop.
 It ensures stories meet non-negotiable requirements before persistence.
 
 Unlike LLM-based validation (which can drift), this is deterministic and strict.
+
+NOTE: INVEST principles are enforced by the Draft Agent's instructions (schema validation).
+This contract enforcer focuses on data integrity (feature_id, persona, story_points) and
+state consistency (refinement completeness), not INVEST scoring.
 """
 
 from typing import Dict, Any, List, Optional, Tuple
@@ -235,7 +239,7 @@ def enforce_scope_contract(
     feature_time_frame: Optional[str], allowed_scope: Optional[str]
 ) -> Optional[ContractViolation]:
     """
-    Rule 3: Feature must belong to the active scope (e.g., "Now" slice only).
+    Rule 4: Feature must belong to the active scope (e.g., "Now" slice only).
 
     Args:
         feature_time_frame: The feature's time frame ("Now", "Next", "Later")
@@ -406,23 +410,18 @@ def enforce_story_contracts(
     if persona_violation:
         violations.append(persona_violation)
 
-    # Rule 3a: INVEST result presence (quality signal)
-    invest_violation = enforce_invest_result_presence(validation_result)
-    if invest_violation:
-        violations.append(invest_violation)
-    
-    # Rule 3b: Feature ID consistency (data integrity)
+    # Rule 3: Feature ID consistency (data integrity)
     if expected_feature_id is not None:
         feature_id_violation = enforce_feature_id_consistency(story, expected_feature_id)
         if feature_id_violation:
             violations.append(feature_id_violation)
 
-    # Rule 3c: Scope contract
+    # Rule 4: Scope contract
     scope_violation = enforce_scope_contract(feature_time_frame, allowed_scope)
     if scope_violation:
         violations.append(scope_violation)
 
-    # Rule 4: Validator state consistency and completeness
+    # Rule 5: Validator state consistency and completeness
     state_violations = enforce_validator_state_consistency(
         validation_result, spec_validation_result, refinement_result
     )

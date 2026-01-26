@@ -501,6 +501,11 @@ async def process_single_story(
                 is_valid: bool = bool(refinement_data.get("is_valid", False))
                 refinement_notes: str = str(refinement_data.get("refinement_notes", ""))
                 
+                # POST-PROCESSING: Add feature_id from input state (prevent LLM override)
+                # LLM should not regenerate this - it causes data corruption
+                refined_story["feature_id"] = story_input.feature_id
+                refined_story["feature_title"] = story_input.feature_title
+                
                 # POST-PROCESSING: Strip story_points if include_story_points=False
                 # This is a safety net in case LLM didn't follow instructions
                 if not story_input.include_story_points and refined_story.get("story_points") is not None:

@@ -24,9 +24,9 @@ dotenv.load_dotenv()
 class StoryDraft(BaseModel):
     """
     Schema for a User Story draft.
+    NOTE: feature_id and feature_title are NOT part of this schema.
+    They are preserved from input state to prevent LLM override causing data corruption.
     """
-    feature_id: Annotated[int, Field(description="The ID of the feature this story belongs to.")]
-    feature_title: Annotated[str, Field(description="The title of the feature.")]
     title: Annotated[str, Field(description="Short, action-oriented title for the story.")]
     description: Annotated[str, Field(
         description="The story narrative in the format: 'As a <persona>, I want <action> so that <benefit>.'"

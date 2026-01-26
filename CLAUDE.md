@@ -40,15 +40,15 @@ The TCC will be validated using:
 The existing codebase demonstrates:
 - **Agent orchestration** using Google ADK and LiteLLM
 - **Session-based state management** with SQLite persistence
-- **8 specialized agents:**
+- **7 specialized agents:**
   1. **Product Vision Agent** - Multi-turn vision building (7 components)
   2. **Product Roadmap Agent** - Theme-based roadmap planning
-  3. **Story Draft Agent** - Initial story generation from features
-  4. **INVEST Validator Agent** - 6-dimension scoring (0-100)
+  3. **Story Draft Agent** - INVEST-compliant story generation via schema validation
+  4. **Spec Validator Agent** - Domain-aware technical specification compliance
   5. **Story Refiner Agent** - Iterative refinement (max 4 loops)
   6. **Orchestrator Agent** - Root coordinator with all tools
   7. **Story Pipeline Orchestrator** (LoopAgent) - Manages draft → validate → refine cycle
-  8. **Legacy User Story Agent** (deprecated)
+- **INVEST enforcement** - Draft Agent's Pydantic validators enforce INVEST principles
 - **Vision alignment enforcement** - Deterministic constraint checking via `alignment_checker.py`
 - **Sprint planning** - Draft → review → commit pattern with team auto-creation
 - **Sprint execution** - 7 tools for status updates, AC changes, completion tracking
@@ -88,7 +88,7 @@ The application uses OpenRouter to access LLM models (currently configured for `
 
 ## Architecture
 
-### Current Agent System (8 Agents)
+### Current Agent System (7 Agents)
 
 The codebase implements a sophisticated multi-agent system:
 
@@ -109,25 +109,25 @@ The codebase implements a sophisticated multi-agent system:
    - 4-step process: Identify → Group → Prioritize → Finalize
 
 4. **Story Draft Agent** (`orchestrator_agent/agent_tools/story_pipeline/story_draft_agent/`)
-   - Generates initial user story from feature description
+   - Generates INVEST-compliant user stories from feature descriptions
+   - Pydantic schema validators enforce INVEST principles (story points 1-8, \"As a... I want... so that...\" format)
    - Applies vision constraints from alignment checker
    - Outputs: title, description, 3-5 acceptance criteria
 
-5. **INVEST Validator Agent** (`orchestrator_agent/agent_tools/story_pipeline/invest_validator_agent/`)
-   - Validates stories against 6 INVEST principles
-   - Granular scoring: 20 points per dimension (0-120 total → normalized 0-100)
-   - Checks time-frame alignment ("Now" stories can't reference "Later" features)
-   - Provides specific improvement suggestions for scores < 90
+5. **Spec Validator Agent** (`orchestrator_agent/agent_tools/story_pipeline/spec_validator_agent/`)
+   - Domain-aware validation against technical specification requirements
+   - Binds requirements to stories based on feature context
+   - Returns compliance status with specific suggestions for missing artifacts
 
 6. **Story Refiner Agent** (`orchestrator_agent/agent_tools/story_pipeline/story_refiner_agent/`)
-   - Refines story based on validation feedback
+   - Refines story based on spec validation feedback
    - Preserves approved elements, improves weak dimensions
-   - Re-validates until score ≥ 90 or max 4 iterations reached
+   - Re-validates until spec-compliant or max 4 iterations reached
 
 7. **Story Pipeline Orchestrator** (`orchestrator_agent/agent_tools/story_pipeline/pipeline.py`)
-   - LoopAgent that manages Draft → Validate → Refine cycle
-   - Max 4 iterations with early exit when INVEST score ≥ 90
-   - Enforces vision alignment before and after pipeline
+   - LoopAgent that manages Draft → Spec Validate → Refine cycle
+   - Max 4 iterations with early exit when spec-compliant
+   - Enforces vision alignment and data integrity contracts before persistence
 
 8. **Legacy User Story Agent** (deprecated, to be removed)
 
