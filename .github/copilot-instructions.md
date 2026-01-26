@@ -97,6 +97,7 @@ This ensures agents maintain context across clarifying question rounds.
 
 **Core Tables** (from `agile_sqlmodel.py`):
 - `products` – Top-level container (has `vision`, `roadmap` fields)
+  - **Specification fields**: `technical_spec` (Text), `spec_file_path`, `spec_loaded_at`
 - `themes` – Product groupings (belongs to product, contains epics)
 - `epics` – Feature groups (belongs to theme, contains features)
 - `features` – User-facing capabilities (belongs to epic)
@@ -121,6 +122,7 @@ This ensures agents maintain context across clarifying question rounds.
 - `list_projects()` – List all projects with summaries (cached)
 - `get_project_details(product_id)` – Get full hierarchy
 - `get_project_by_name(project_name)` – Search by name
+- `load_specification_from_file(file_path)` – Load spec from file (legacy, use for initial load)
 
 **Caching Strategy:** Tools accept optional `ToolContext` to transparently cache results in ADK's persistent state. TTL defaults to 5 minutes (configurable). Cache keys: `projects_summary`, `projects_list`, `projects_last_refreshed_utc`.
 
@@ -128,6 +130,36 @@ This ensures agents maintain context across clarifying question rounds.
 - `create_or_get_product()` – Create product or return existing
 - `save_vision_tool()` – Persist vision statement to database
 - `save_roadmap_tool()` – Create theme → epic → feature hierarchy
+
+### Specification Persistence Tools (`tools/spec_tools.py`)
+- `save_project_specification(product_id, spec_source, content)` – Save/update specification
+  - **spec_source="file"**: Loads from file path, stores path reference (no backup)
+  - **spec_source="text"**: Saves pasted content, creates backup in `specs/{safe_name}_{product_id}_spec.md`
+  - Validates file size (<100KB), handles UTF-8 encoding
+  - Updates existing spec if product already has one
+- `read_project_specification()` – Retrieve spec for active project
+  - Returns full spec content, file path, token estimate (~chars/4)
+  - Extracts markdown headings for navigation (max 20)
+  - Agents should call this BEFORE asking questions to check if info exists in spec
+
+**Usage Pattern:**
+```python
+# During project creation (orchestrator)
+spec_content = load_specification_from_file("test_specs/spec.md")
+# After vision saved
+save_project_specification({
+    "product_id": new_product_id,
+    "spec_source": "file",
+    "content": "test_specs/spec.md"
+})
+
+# In downstream agents (roadmap, stories)
+spec = read_project_specification(tool_context=context)
+if spec["success"]:
+    # Search spec_content before asking questions
+    if "authentication" in spec["spec_content"].lower():
+        # Extract requirements from spec
+```
 
 ### Story Pipeline Tools (`orchestrator_agent/agent_tools/story_pipeline/tools.py`)
 - `process_feature_for_stories()` – Generate stories for single feature with INVEST validation
@@ -306,7 +338,10 @@ orchestrator_agent/          # Root agent (entry point)
 
 tools/
   ├── orchestrator_tools.py       # Database query tools (FunctionTool)
-  └── db_tools.py                 # Database mutation tools
+  ├── db_tools.py                 # Database mutation tools
+  └── spec_tools.py               # Specification persistence tools
+
+specs/                       # Auto-created backup files for pasted specs
 
 main.py                      # CLI entry point (calls orchestrator app)
 ```
@@ -331,6 +366,7 @@ main.py                      # CLI entry point (calls orchestrator app)
 | `utils/response_parser.py` | JSON response validation |
 | `tools/orchestrator_tools.py` | Read-only project query tools |
 | `tools/db_tools.py` | Database mutation tools |
+| `tools/spec_tools.py` | Specification persistence and retrieval |
 
 ## Common Pitfalls
 
@@ -346,11 +382,13 @@ main.py                      # CLI entry point (calls orchestrator app)
 
 6. **Accumulating State:** Vision agent must receive full requirement history for context, not just the latest user message.
 
-7. **Documentation Files:** Do NOT create `.md` files or documentation files unless the user explicitly asks for it. Focus on code implementation only.
+7. **Specification Amnesia:** Specifications are now persisted in the database and retrievable on-demand. Agents should call `read_project_specification()` BEFORE asking questions to check if the answer already exists in the spec. This prevents redundant questioning.
 
-8. **Alignment Violations:** If story generation produces features contradicting the vision (e.g., "web UI" for "mobile-only" app), the alignment checker will reject them BEFORE pipeline runs. Don't try to transform violations—respect vision constraints.
+8. **Documentation Files:** Do NOT create `.md` files or documentation files unless the user explicitly asks for it. Focus on code implementation only.
 
-9. **Story Pipeline Early Exit:** Pipeline exits when INVEST score ≥ 90 OR max 4 iterations reached. Low-quality stories (score < 70) should be flagged for manual review, not auto-accepted.
+9. **Alignment Violations:** If story generation produces features contradicting the vision (e.g., "web UI" for "mobile-only" app), the alignment checker will reject them BEFORE pipeline runs. Don't try to transform violations—respect vision constraints.
+
+10. **Story Pipeline Early Exit:** Pipeline exits when INVEST score ≥ 90 OR max 4 iterations reached. Low-quality stories (score < 70) should be flagged for manual review, not auto-accepted.
 
 ## Evaluation Metrics (For TCC)
 
@@ -390,6 +428,7 @@ scores = [e.event_metadata.get("validation_score") for e in story_events]
 
 **✅ Fully Implemented:**
 - Product Owner Agent (vision + roadmap generation)
+- Specification Persistence (save/read from DB, file/text sources, on-demand access)
 - User Story Generation with INVEST validation (3-agent pipeline)
 - Sprint Planning Agent (draft → review → commit pattern)
 - Sprint Execution Tools (status updates, completion tracking, mid-sprint modifications)
