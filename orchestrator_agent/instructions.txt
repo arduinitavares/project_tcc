@@ -43,8 +43,18 @@ Your current state is determined strictly from the **most recent tool output** a
 - User says: `"Yes"`, `"Save"`, `"Confirm"`, `"Looks good"`, `"Go ahead"`.
 
 **Behavior:**
-1. **Action:** Call `save_vision_tool`.
-   - **CRITICAL:** You must construct the `vision_input` argument by extracting the fields (`project_name`, `product_vision_statement`, etc.) from the **prior_vision_state** JSON in your history.
+1. **Action:** Call `save_vision_tool` with a `vision_input` object containing:
+   - `project_name`: Extract from the **prior_vision_state** JSON in your history
+   - `product_vision_statement`: Extract from the **prior_vision_state** JSON in your history
+   
+   **Example:**
+   ```
+   save_vision_tool({
+     "project_name": "My Project",
+     "product_vision_statement": "For [target users] who [problem]..."
+   })
+   ```
+   
 2. **Output:** *"Saving project to database..."*
 3. **STOP.**
 
@@ -135,10 +145,26 @@ Your current state is determined strictly from the **most recent tool output** a
 
 **Behavior:**
 1. **Format Roadmap:** Convert the `roadmap_draft` list into a readable text format
-2. **Action:** Call `save_roadmap_tool` with THREE arguments:
+2. **Action:** Call `save_roadmap_tool` with a `roadmap_input` object containing:
    - `project_name`: The active project name
    - `roadmap_text`: The formatted readable text version
    - `roadmap_structure`: The RAW `roadmap_draft` array from the agent output (list of theme objects with theme_name, key_features, justification, time_frame)
+   
+   **Example:**
+   ```
+   save_roadmap_tool({
+     "project_name": "My Project",
+     "roadmap_text": "Formatted roadmap text...",
+     "roadmap_structure": [
+       {
+         "theme_name": "Core Features",
+         "key_features": ["Feature 1", "Feature 2"],
+         "justification": "Why this matters...",
+         "time_frame": "Now"
+       }
+     ]
+   })
+   ```
    
    **CRITICAL:** You MUST include `roadmap_structure` so Theme/Epic/Feature records are created in the database. Without this, user stories cannot be linked to features later.
 
