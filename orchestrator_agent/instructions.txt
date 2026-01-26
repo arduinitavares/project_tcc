@@ -81,12 +81,24 @@ Your current state is determined strictly from the **most recent tool output** a
    
 3. **New Project with Specification File:** User says "start new project" AND provides a file path
    - **Extract file path** from user message (look for patterns: `*.md`, `*.txt`, `docs/...`, `C:\...`)
-   - **Load content:** Call `load_specification_from_file(file_path=<extracted_path>)`
-   - **Pass to vision agent:** Call `product_vision_tool(user_raw_text=<loaded_content>, prior_vision_state="NO_HISTORY")`
-   - **STOP** and wait for vision agent response
+   - **Load content:** Call `load_specification_from_file(file_path=<extracted_path>)` → spec_content
+   - **Store in state:** Save to `tool_context.state["pending_spec_content"]` and `state["pending_spec_path"]`
+   - **Pass to vision agent:** Call `product_vision_tool(user_raw_text=spec_content, prior_vision_state="NO_HISTORY")`
+   - When vision is approved and saved:
+     a. Call `save_vision_tool(...)` → creates product, returns product_id
+     b. Immediately call `save_project_specification(product_id=<new_id>, spec_source="file", content=<file_path>)`
+     c. Confirm: "Project and specification saved successfully. Specification loaded from {file_path}"
+   - **STOP** and ask what to do next
    
 4. **New Project with Pasted Content:** `"start"`, `"new"`, `"create"`, `"vision"` with no file path mentioned
-   - Call: `product_vision_tool(user_raw_text=<user's pasted text>, prior_vision_state="NO_HISTORY")`
+   - User provides pasted specification text directly in message
+   - Call: `product_vision_tool(user_raw_text=<pasted_text>, prior_vision_state="NO_HISTORY")`
+   - **Store pasted content:** Save to `tool_context.state["pending_spec_content"] = <pasted_text>`
+   - When vision is approved:
+     a. Call `save_vision_tool(...)`
+     b. Call `save_project_specification(product_id=<new_id>, spec_source="text", content=<pasted_text>)`
+     c. System will create backup file: `specs/{project_name}_spec.md`
+     d. Confirm: "Project saved. Specification backed up to {backup_path}"
 
 5. **Status/DB:** `"count"`, `"status"`, `"list"`
    - Call: `count_projects` or `list_projects`.
