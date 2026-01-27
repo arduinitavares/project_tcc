@@ -293,10 +293,10 @@ def load_specification_from_file(
     # Read content
     try:
         content = path.read_text(encoding='utf-8')
-    except UnicodeDecodeError:
+    except UnicodeDecodeError as exc:
         raise ValueError(
             f"File encoding error. Please ensure {file_path} is UTF-8 text."
-        )
+        ) from exc
 
     # Log to state for transparency
     if tool_context and tool_context.state:

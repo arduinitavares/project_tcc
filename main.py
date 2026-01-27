@@ -101,17 +101,17 @@ def get_current_state(
         row = cursor.fetchone()
         conn.close()
         state: Dict[str, Any] = json.loads(row[0]) if row else {}
-        app_logger.debug(f"Retrieved state: {json.dumps(state, indent=2)}")
+        app_logger.debug("Retrieved state: %s", json.dumps(state, indent=2))
         return state
     except sqlite3.Error as e:
-        app_logger.error(f"Error fetching state from DB: {e}")
+        app_logger.error("Error fetching state from DB: %s", e)
         app_logger.error(traceback.format_exc())
         return {}
 
 
 def update_state_in_db(partial_update: Dict[str, Any]) -> None:
     """Updates the Volatile State (O in your diagram)."""
-    app_logger.info(f"Updating state with: {json.dumps(partial_update, indent=2)}")
+    app_logger.info("Updating state with: %s", json.dumps(partial_update, indent=2))
     current = get_current_state(APP_NAME, USER_ID, SESSION_ID)
     current.update(partial_update)
 
@@ -126,7 +126,7 @@ def update_state_in_db(partial_update: Dict[str, Any]) -> None:
         conn.close()
         app_logger.info("State updated successfully in DB")
     except sqlite3.Error as e:
-        app_logger.error(f"DB WRITE ERROR: {e}")
+        app_logger.error("DB WRITE ERROR: %s", e)
         app_logger.error(traceback.format_exc())
         console.print(f"[bold red]DB WRITE ERROR:[/bold red] {e}")
 
@@ -160,8 +160,8 @@ def _display_tool_call(part: types.Part) -> None:
     args_json = json.dumps(args, indent=2, ensure_ascii=False)
 
     # Log the tool call
-    app_logger.info(f"TOOL CALL: {tool_name}")
-    app_logger.info(f"TOOL ARGUMENTS:\n{args_json}")
+    app_logger.info("TOOL CALL: %s", tool_name)
+    app_logger.info("TOOL ARGUMENTS:\n%s", args_json)
 
     tool_panel = Panel(
         f"[bold]Function:[/bold] {tool_name}\n[bold]Arguments:[/bold]\n{args_json}",
@@ -186,8 +186,8 @@ def _display_tool_response(part: types.Part) -> None:
     resp_json = json.dumps(response_content, indent=2, ensure_ascii=False)
 
     # Log the tool response
-    app_logger.info(f"TOOL RESPONSE FROM: {tool_name}")
-    app_logger.info(f"TOOL RESULT:\n{resp_json}")
+    app_logger.info("TOOL RESPONSE FROM: %s", tool_name)
+    app_logger.info("TOOL RESULT:\n%s", resp_json)
 
     tool_panel = Panel(
         f"[bold]From:[/bold] {tool_name}\n[bold]Result:[/bold]\n{resp_json}",
@@ -240,9 +240,9 @@ async def run_agent_turn(
     """
     # Log the input
     if is_system_trigger:
-        app_logger.info(f"SYSTEM TRIGGER INPUT: {user_input}")
+        app_logger.info("SYSTEM TRIGGER INPUT: %s", user_input)
     else:
-        app_logger.info(f"USER INPUT: {user_input}")
+        app_logger.info("USER INPUT: %s", user_input)
     
     # 1. PREPARE STATE
     full_state = get_current_state(APP_NAME, USER_ID, SESSION_ID)
@@ -311,9 +311,9 @@ async def run_agent_turn(
         console.print("\n")
         
         # Log the complete response
-        app_logger.info(f"AGENT RESPONSE TEXT:\n{full_response_text}")
+        app_logger.info("AGENT RESPONSE TEXT:\n%s", full_response_text)
     except Exception as e:
-        app_logger.error(f"Error during agent turn: {e}")
+        app_logger.error("Error during agent turn: %s", e)
         app_logger.error(traceback.format_exc())
         console.print(f"\n[bold red]ERROR during agent turn: {e}[/bold red]")
         raise
@@ -366,8 +366,8 @@ async def main():
     """Main application loop."""
     console.clear()
     app_logger.info("="*80)
-    app_logger.info(f"NEW SESSION STARTED: {SESSION_ID}")
-    app_logger.info(f"Log file: {LOG_FILENAME}")
+    app_logger.info("NEW SESSION STARTED: %s", SESSION_ID)
+    app_logger.info("Log file: %s", LOG_FILENAME)
     app_logger.info("="*80)
     print_system_message(f"INITIALIZING SESSION: {SESSION_ID}")
     print_system_message(f"Logging to: {LOG_FILENAME}")
@@ -381,7 +381,7 @@ async def main():
         "[bold green]Hydrating Business State...", spinner="dots"
     ):
         initial_state = get_real_business_state()
-        app_logger.info(f"Initial business state loaded: {json.dumps(initial_state, indent=2)}")
+        app_logger.info("Initial business state loaded: %s", json.dumps(initial_state, indent=2))
 
     await session_service.create_session(
         app_name=APP_NAME,
@@ -431,7 +431,7 @@ async def main():
             print_system_message("\nINTERRUPTED.")
             break
         except Exception as e:
-            app_logger.error(f"Unexpected error in main loop: {e}")
+            app_logger.error("Unexpected error in main loop: %s", e)
             app_logger.error(traceback.format_exc())
             console.print(f"[bold red]ERROR:[/bold red] {e}")
             console.print(f"[dim]See log file for details: {LOG_FILENAME}[/dim]")
@@ -441,7 +441,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except Exception as e:
-        app_logger.critical(f"Critical error in application: {e}")
+        app_logger.critical("Critical error in application: %s", e)
         app_logger.critical(traceback.format_exc())
         console.print(f"\n[bold red]CRITICAL ERROR:[/bold red] {e}")
         console.print(f"[dim]See log file for details: {LOG_FILENAME}[/dim]")

@@ -1,3 +1,4 @@
+# pylint: disable=no-member
 # tools/db_tools.py
 
 """
@@ -521,4 +522,3 @@ def get_story_details(story_id: int) -> Dict[str, Any]:
             "created_at": str(story.created_at),
             "updated_at": str(story.updated_at),
         }
-

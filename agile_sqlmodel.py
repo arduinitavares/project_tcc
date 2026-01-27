@@ -1,3 +1,4 @@
+# pylint: disable=not-callable, no-member
 # agile_sqlmodel.py
 
 """
