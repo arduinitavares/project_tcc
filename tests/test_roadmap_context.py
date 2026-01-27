@@ -154,18 +154,18 @@ class TestQueryFeaturesWithRoadmapContext:
             QueryFeaturesInput(product_id=product_with_roadmap.product_id)
         )
 
-        assert result["success"] is True
-        features_flat = result["features_flat"]
+        assert result.success is True
+        features_flat = result.features_flat
 
         # Find a "Now" feature
-        user_reg = next(f for f in features_flat if f["feature_title"] == "User registration")
-        assert user_reg["time_frame"] == "Now"
-        assert user_reg["theme_justification"] == "Essential foundation for user identity"
+        user_reg = next(f for f in features_flat if f.feature_title == "User registration")
+        assert user_reg.time_frame == "Now"
+        assert user_reg.theme_justification == "Essential foundation for user identity"
 
         # Find a "Next" feature
-        priority_pred = next(f for f in features_flat if f["feature_title"] == "Priority prediction")
-        assert priority_pred["time_frame"] == "Next"
-        assert priority_pred["theme_justification"] == "Differentiator; requires task data first"
+        priority_pred = next(f for f in features_flat if f.feature_title == "Priority prediction")
+        assert priority_pred.time_frame == "Next"
+        assert priority_pred.theme_justification == "Differentiator; requires task data first"
 
     def test_features_include_sibling_features(
         self, session: Session, product_with_roadmap: Product, engine, monkeypatch
@@ -184,15 +184,15 @@ class TestQueryFeaturesWithRoadmapContext:
             QueryFeaturesInput(product_id=product_with_roadmap.product_id)
         )
 
-        features_flat = result["features_flat"]
+        features_flat = result.features_flat
 
         # Find a "Now" feature and check siblings
-        user_reg = next(f for f in features_flat if f["feature_title"] == "User registration")
-        assert "sibling_features" in user_reg
-        assert "Login/logout" in user_reg["sibling_features"]
-        assert "Password reset" in user_reg["sibling_features"]
+        user_reg = next(f for f in features_flat if f.feature_title == "User registration")
+        assert user_reg.sibling_features  # Has siblings
+        assert "Login/logout" in user_reg.sibling_features
+        assert "Password reset" in user_reg.sibling_features
         # Should NOT include itself
-        assert "User registration" not in user_reg["sibling_features"]
+        assert "User registration" not in user_reg.sibling_features
 
 
 class TestProcessStoryInputWithRoadmapContext:

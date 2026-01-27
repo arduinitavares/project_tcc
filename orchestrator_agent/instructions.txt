@@ -234,7 +234,8 @@ Each story is validated against INVEST principles (Independent, Negotiable, Valu
 **Pre-Condition Check:**
 1. Ensure `active_project` is set. If not, ask user to select a project first.
 2. Call `query_features_for_stories` with the product_id to get available features.
-3. If no features exist, inform user: "No features found. Please create a roadmap hierarchy first."
+3. **CRITICAL:** Store the `features_flat` array in your working memory - you will need this for STATE 9
+4. If no features exist, inform user: "No features found. Please create a roadmap hierarchy first."
 
 **Behavior:**
 1. **Display Features:** Show the available features grouped by theme/epic.
@@ -253,40 +254,57 @@ Each story is validated against INVEST principles (Independent, Negotiable, Valu
 - Features are available from `query_features_for_stories`
 
 **Behavior:**
-1. **Output Lead-in:** *"Starting INVEST-validated story pipeline..."*
-2. **For BATCH Processing:** Use `process_story_batch` with:
+1. **CRITICAL FIRST STEP - Query Features:**
+   - ALWAYS call `query_features_for_stories` with product_id FIRST
+   - Extract the `features_flat` array from the response
+   - This array contains features WITH theme and epic metadata already attached
+   
+2. **Output Lead-in:** *"Starting INVEST-validated story pipeline..."*
+
+3. **For BATCH Processing:** Use `process_story_batch` with:
    ```json
    {
      "product_id": <from active project>,
      "product_name": "<from active project>",
      "product_vision": "<from active project>",
-     "features": [<selected features array>],
+     "features": [<USE features_flat FROM query_features_for_stories>],
      "user_persona": "<user's specified persona>",
      "include_story_points": true/false,
-     "save_to_db": false  // Don't save yet, let user review
+     "max_concurrency": 1
    }
    ```
+   
+   **CRITICAL:** The `features` array MUST come from `query_features_for_stories()["features_flat"]`.
+   Each feature dict already contains:
+   - `feature_id`, `feature_title`
+   - `theme`, `epic` (REQUIRED - these fields must NEVER be "Unknown")
+   - `time_frame`, `theme_justification`, `sibling_features`
+   
+   **DO NOT** manually construct feature objects - always use the query result.
 
-3. **For SINGLE Feature:** Use `process_single_story` with:
+4. **For SINGLE Feature:** Use `process_single_story` with:
    ```json
    {
      "product_id": <int>,
      "product_name": "<string>",
      "feature_id": <int>,
      "feature_title": "<string>",
-     "theme": "<string>",
-     "epic": "<string>",
+     "theme": "<string FROM query result>",
+     "epic": "<string FROM query result>",
      "user_persona": "<string>",
      "include_story_points": true/false
    }
    ```
+   ```
 
 4. **Display Results:** Show each story with:
+   - **Theme and Epic** (to verify metadata propagated correctly)
    - Title and description
-   - Acceptance criteria
+   - Acceptance criteria  
    - Validation score (0-100)
    - Number of refinement iterations needed
    - Story points (if requested)
+   - **Any contract violations** (especially theme/epic metadata issues)
 
 5. **Prompt:** *"Generated [N] INVEST-validated stories (avg validation score: [X]). Would you like to save these to the backlog?"*
 6. **STOP.**

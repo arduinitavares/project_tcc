@@ -235,11 +235,167 @@ def enforce_feature_id_consistency(
     return None
 
 
+def enforce_theme_epic_contract(
+    story: Dict[str, Any],
+    expected_theme: Optional[str],
+    expected_epic: Optional[str],
+    expected_theme_id: Optional[int] = None,
+    expected_epic_id: Optional[int] = None,
+) -> List[ContractViolation]:
+    """
+    Rule 4: Theme and Epic metadata must be present, valid, and match source feature.
+    
+    This rule enforces FOUR constraints:
+    1. Theme/Epic must be present on the story output (not None)
+    2. Theme/Epic must not be empty, whitespace-only, or "Unknown"
+    3. Theme/Epic must EXACTLY match the source feature's values (prevents data corruption)
+    4. If theme_id/epic_id are provided, they must match (eliminates duplicate name ambiguity)
+    
+    These are critical for roadmap organization, reporting, and backlog slicing.
+    Stories without proper theme/epic metadata cannot be properly categorized.
+    
+    Args:
+        story: The refined story dict (must contain theme/epic keys)
+        expected_theme: Theme title from source feature (authoritative)
+        expected_epic: Epic title from source feature (authoritative)
+        expected_theme_id: Theme database ID from source feature (stable reference)
+        expected_epic_id: Epic database ID from source feature (stable reference)
+    
+    Returns:
+        List of ContractViolations (empty if valid)
+    """
+    violations: List[ContractViolation] = []
+    
+    # --- Validate EXPECTED values (source feature metadata) ---
+    if expected_theme is None or expected_theme == "Unknown" or not expected_theme.strip():
+        violations.append(
+            ContractViolation(
+                rule="SOURCE_THEME_INVALID",
+                message="Source feature has invalid theme metadata. This indicates a data integrity issue upstream.",
+                field="expected_theme",
+                expected="Valid theme name from source feature",
+                actual=expected_theme,
+            )
+        )
+    
+    if expected_epic is None or expected_epic == "Unknown" or not expected_epic.strip():
+        violations.append(
+            ContractViolation(
+                rule="SOURCE_EPIC_INVALID",
+                message="Source feature has invalid epic metadata. This indicates a data integrity issue upstream.",
+                field="expected_epic",
+                expected="Valid epic name from source feature",
+                actual=expected_epic,
+            )
+        )
+    
+    # If source is invalid, don't proceed with story validation
+    if violations:
+        return violations
+    
+    # --- Validate STORY output has theme/epic attached ---
+    story_theme = story.get("theme")
+    story_epic = story.get("epic")
+    
+    if story_theme is None:
+        violations.append(
+            ContractViolation(
+                rule="STORY_THEME_MISSING",
+                message="Story output is missing 'theme' key. Metadata was not propagated through pipeline.",
+                field="story.theme",
+                expected=expected_theme,
+                actual=None,
+            )
+        )
+    elif story_theme == "Unknown" or not story_theme.strip():
+        violations.append(
+            ContractViolation(
+                rule="STORY_THEME_INVALID",
+                message=f"Story theme is empty or 'Unknown'. Must have valid theme for roadmap organization.",
+                field="story.theme",
+                expected=expected_theme,
+                actual=story_theme,
+            )
+        )
+    elif story_theme != expected_theme:
+        violations.append(
+            ContractViolation(
+                rule="STORY_THEME_MISMATCH",
+                message=f"Story theme does not match source feature. This indicates data corruption in pipeline.",
+                field="story.theme",
+                expected=expected_theme,
+                actual=story_theme,
+            )
+        )
+    
+    if story_epic is None:
+        violations.append(
+            ContractViolation(
+                rule="STORY_EPIC_MISSING",
+                message="Story output is missing 'epic' key. Metadata was not propagated through pipeline.",
+                field="story.epic",
+                expected=expected_epic,
+                actual=None,
+            )
+        )
+    elif story_epic == "Unknown" or not story_epic.strip():
+        violations.append(
+            ContractViolation(
+                rule="STORY_EPIC_INVALID",
+                message=f"Story epic is empty or 'Unknown'. Must have valid epic for feature grouping.",
+                field="story.epic",
+                expected=expected_epic,
+                actual=story_epic,
+            )
+        )
+    elif story_epic != expected_epic:
+        violations.append(
+            ContractViolation(
+                rule="STORY_EPIC_MISMATCH",
+                message=f"Story epic does not match source feature. This indicates data corruption in pipeline.",
+                field="story.epic",
+                expected=expected_epic,
+                actual=story_epic,
+            )
+        )
+    
+    # --- Validate stable ID references (if provided) ---
+    # ID-based validation eliminates ambiguity from duplicate theme/epic names
+    story_theme_id = story.get("theme_id")
+    story_epic_id = story.get("epic_id")
+    
+    if expected_theme_id is not None and story_theme_id is not None:
+        if story_theme_id != expected_theme_id:
+            violations.append(
+                ContractViolation(
+                    rule="STORY_THEME_ID_MISMATCH",
+                    message="Story theme_id does not match source feature. IDs provide stable validation against duplicate names.",
+                    field="story.theme_id",
+                    expected=expected_theme_id,
+                    actual=story_theme_id,
+                )
+            )
+    
+    if expected_epic_id is not None and story_epic_id is not None:
+        if story_epic_id != expected_epic_id:
+            violations.append(
+                ContractViolation(
+                    rule="STORY_EPIC_ID_MISMATCH",
+                    message="Story epic_id does not match source feature. IDs provide stable validation against duplicate names.",
+                    field="story.epic_id",
+                    expected=expected_epic_id,
+                    actual=story_epic_id,
+                )
+            )
+    
+    return violations
+
+
 def enforce_scope_contract(
     feature_time_frame: Optional[str], allowed_scope: Optional[str]
 ) -> Optional[ContractViolation]:
     """
-    Rule 4: Feature must belong to the active scope (e.g., "Now" slice only).
+    Rule 5: Feature must belong to the active scope (e.g., "Now" slice only).
 
     Args:
         feature_time_frame: The feature's time frame ("Now", "Next", "Later")
@@ -376,6 +532,10 @@ def enforce_story_contracts(
     spec_validation_result: Optional[Dict[str, Any]],
     refinement_result: Optional[Dict[str, Any]],
     expected_feature_id: Optional[int] = None,
+    theme: Optional[str] = None,
+    epic: Optional[str] = None,
+    theme_id: Optional[int] = None,
+    epic_id: Optional[int] = None,
 ) -> ContractEnforcementResult:
     """
     Main entry point: Enforce ALL story contracts.
@@ -394,6 +554,10 @@ def enforce_story_contracts(
         spec_validation_result: Spec validation state
         refinement_result: Refinement state
         expected_feature_id: Expected feature ID for data integrity check
+        theme: Theme title from feature (required)
+        epic: Epic title from feature (required)
+        theme_id: Theme database ID from feature (stable reference, optional)
+        epic_id: Epic database ID from feature (stable reference, optional)
 
     Returns:
         ContractEnforcementResult with violations (if any)
@@ -416,12 +580,20 @@ def enforce_story_contracts(
         if feature_id_violation:
             violations.append(feature_id_violation)
 
-    # Rule 4: Scope contract
+    # Rule 4: Theme and Epic metadata presence AND matching (data integrity)
+    # Validates: (1) expected values are valid, (2) story has theme/epic attached,
+    # (3) story values match expected, (4) IDs match if provided (eliminates duplicate name ambiguity)
+    theme_epic_violations = enforce_theme_epic_contract(
+        story, theme, epic, expected_theme_id=theme_id, expected_epic_id=epic_id
+    )
+    violations.extend(theme_epic_violations)
+
+    # Rule 5: Scope contract
     scope_violation = enforce_scope_contract(feature_time_frame, allowed_scope)
     if scope_violation:
         violations.append(scope_violation)
 
-    # Rule 5: Validator state consistency and completeness
+    # Rule 6: Validator state consistency and completeness
     state_violations = enforce_validator_state_consistency(
         validation_result, spec_validation_result, refinement_result
     )

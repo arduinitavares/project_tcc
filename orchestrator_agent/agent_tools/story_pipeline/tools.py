@@ -42,12 +42,21 @@ from orchestrator_agent.agent_tools.story_pipeline.persona_checker import (
     extract_persona_from_story,
     normalize_persona,
 )
+from orchestrator_agent.agent_tools.product_user_story_tool.tools import (
+    FeatureForStory,
+)
 
 # --- Schema for single story processing ---
 
 
 class ProcessStoryInput(BaseModel):
-    """Input schema for process_single_story tool."""
+    """Input schema for process_single_story tool.
+    
+    IMMUTABILITY: This model is frozen to prevent accidental mutation during pipeline processing.
+    Source metadata (theme, epic, theme_id, epic_id) must remain unchanged from construction
+    through contract enforcement to ensure data integrity.
+    """
+    model_config = {"frozen": True}  # Immutable after construction
 
     product_id: Annotated[int, Field(description="The product ID.")]
     product_name: Annotated[str, Field(description="The product name.")]
@@ -58,6 +67,22 @@ class ProcessStoryInput(BaseModel):
         int, Field(description="The feature ID to create a story for.")
     ]
     feature_title: Annotated[str, Field(description="The feature title.")]
+    # --- Stable ID-based references (for contract validation) ---
+    theme_id: Annotated[
+        Optional[int],
+        Field(
+            default=None,
+            description="Theme database ID (stable reference - eliminates duplicate name ambiguity)",
+        )
+    ]
+    epic_id: Annotated[
+        Optional[int],
+        Field(
+            default=None,
+            description="Epic database ID (stable reference - eliminates duplicate name ambiguity)",
+        )
+    ]
+    # --- Title-based references ---
     theme: Annotated[str, Field(description="The theme this feature belongs to.")]
     epic: Annotated[str, Field(description="The epic this feature belongs to.")]
     # NEW: Roadmap context fields for strategic awareness
@@ -602,6 +627,16 @@ async def process_single_story(
                 # Use locally tracked iterations (current_iteration) instead of state
                 iterations = max(current_iteration, 1)  # At least 1 iteration
                 
+                # --- ATTACH METADATA BEFORE CONTRACT ENFORCEMENT ---
+                # Theme/epic must be on the story BEFORE contract validation
+                # This ensures the contract enforcer can validate the metadata was propagated
+                # Include stable IDs if available (eliminates duplicate name ambiguity)
+                refined_story["theme"] = story_input.theme
+                refined_story["epic"] = story_input.epic
+                refined_story["feature_id"] = story_input.feature_id
+                refined_story["theme_id"] = story_input.theme_id  # Stable reference
+                refined_story["epic_id"] = story_input.epic_id    # Stable reference
+                
                 # --- STEP 4: CONTRACT ENFORCEMENT (Final deterministic boundary) ---
                 log(f"{CYAN}\n[Contract Enforcer] Running final validation...{RESET}")
                 
@@ -625,6 +660,10 @@ async def process_single_story(
                     spec_validation_result=state.get("spec_validation_result"),
                     refinement_result=refinement_result_dict,
                     expected_feature_id=story_input.feature_id,  # Data integrity check
+                    theme=story_input.theme,  # Theme title from feature
+                    epic=story_input.epic,    # Epic title from feature
+                    theme_id=story_input.theme_id,  # Stable ID reference
+                    epic_id=story_input.epic_id,    # Stable ID reference
                 )
                 
                 if not contract_result.is_valid:
@@ -651,6 +690,8 @@ async def process_single_story(
                 if alignment_issues:
                     log(f"{RED}   Alignment issues: {len(alignment_issues)}{RESET}")
 
+                # Metadata already attached before contract enforcement
+                # Just return the refined_story (which has theme/epic/feature_id)
                 return {
                     "success": True,
                     "is_valid": is_valid,
@@ -672,6 +713,12 @@ async def process_single_story(
                     story_draft = json.loads(story_draft)
                 except json.JSONDecodeError:
                     pass
+
+            # Attach metadata to fallback story
+            if isinstance(story_draft, dict):
+                story_draft["theme"] = story_input.theme
+                story_draft["epic"] = story_input.epic
+                story_draft["feature_id"] = story_input.feature_id
 
             return {
                 "success": True,
@@ -709,11 +756,13 @@ class ProcessBatchInput(BaseModel):
         Optional[str], Field(default=None, description="The product vision statement.")
     ]
     features: Annotated[
-        List[Dict[str, Any]],
+        List[FeatureForStory],
         Field(
             description=(
-                "List of feature dicts with: feature_id, feature_title, theme, epic, "
-                "and optional roadmap context: time_frame, theme_justification, sibling_features"
+                "List of validated FeatureForStory objects with guaranteed theme/epic fields. "
+                "Obtain this from query_features_for_stories tool (do NOT construct manually). "
+                "Each feature must have: feature_id, feature_title, theme (min 1 char), epic (min 1 char), "
+                "and optional roadmap context: time_frame, theme_justification, sibling_features."
             )
         ),
     ]
@@ -804,7 +853,7 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
     semaphore = asyncio.Semaphore(batch_input.max_concurrency)
     console_lock = asyncio.Lock()
 
-    async def process_story_safe(idx: int, feature: Dict[str, Any]) -> Any:
+    async def process_story_safe(idx: int, feature: FeatureForStory) -> Any:
         logs: List[str] = []
 
         def log_capture(msg: str):
@@ -812,7 +861,7 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
 
         # Pre-buffer the header
         log_capture(
-            f"\n{YELLOW}[{idx + 1}/{len(batch_input.features)}]{RESET} {BOLD}{feature.get('feature_title', 'Unknown')}{RESET}"
+            f"\n{YELLOW}[{idx + 1}/{len(batch_input.features)}]{RESET} {BOLD}{feature.feature_title}{RESET}"
         )
 
         result = None
@@ -823,16 +872,20 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
                         product_id=batch_input.product_id,
                         product_name=batch_input.product_name,
                         product_vision=batch_input.product_vision,
-                        feature_id=feature["feature_id"],
-                        feature_title=feature["feature_title"],
-                        theme=feature.get("theme", "Unknown"),
-                        epic=feature.get("epic", "Unknown"),
+                        feature_id=feature.feature_id,
+                        feature_title=feature.feature_title,
+                        # Stable ID references (preferred for validation)
+                        theme_id=feature.theme_id,  # Immutable from source
+                        epic_id=feature.epic_id,    # Immutable from source
+                        # Title references (guaranteed non-empty by FeatureForStory)
+                        theme=feature.theme,
+                        epic=feature.epic,
                         user_persona=batch_input.user_persona,
                         include_story_points=batch_input.include_story_points,
                         # Roadmap context (optional)
-                        time_frame=feature.get("time_frame"),
-                        theme_justification=feature.get("theme_justification"),
-                        sibling_features=feature.get("sibling_features"),
+                        time_frame=feature.time_frame,
+                        theme_justification=feature.theme_justification,
+                        sibling_features=feature.sibling_features,
                         # Technical spec for domain context
                         technical_spec=technical_spec,
                     ),
@@ -864,8 +917,8 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
         if isinstance(result, Exception):
             failed_stories.append(
                 {
-                    "feature_id": feature["feature_id"],
-                    "feature_title": feature["feature_title"],
+                    "feature_id": feature.feature_id,
+                    "feature_title": feature.feature_title,
                     "error": str(result),
                     "error_type": type(result).__name__,
                 }
@@ -876,8 +929,8 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
         if isinstance(result, dict) and result.get("success") and result.get("is_valid"):
             validated_stories.append(
                 {
-                    "feature_id": feature["feature_id"],
-                    "feature_title": feature["feature_title"],
+                    "feature_id": feature.feature_id,
+                    "feature_title": feature.feature_title,
                     "story": result["story"],
                     "iterations": result.get("iterations", 1),
                 }
@@ -893,8 +946,8 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
 
             failed_stories.append(
                 {
-                    "feature_id": feature["feature_id"],
-                    "feature_title": feature["feature_title"],
+                    "feature_id": feature.feature_id,
+                    "feature_title": feature.feature_title,
                     "error": error_msg,
                     "partial_story": partial,
                 }
