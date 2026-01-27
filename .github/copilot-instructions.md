@@ -83,13 +83,7 @@ not by a separate contract. The enforcer focuses on data integrity and state con
 
 ### Orchestration Patterns
 
-**Pattern 1: Sequential via LoopAgent** (`product_workflow.py`)
-- Root `LoopAgent` calls sub-agents in sequence via `ORCHESTRATOR_INSTRUCTIONS`
-- Each sub-agent returns structured output
-- Root agent passes previous agent's output to next agent
-- **Key:** Instructions tell the orchestrator how to call sub-agents; no explicit `add_edge()` calls
-
-**Pattern 2: Session-Based Interactive** (`main.py`)
+**Session-Based Interactive Pattern** (`main.py`)
 - User-scoped sessions with persistent state (`DatabaseSessionService`)
 - State accumulates requirements across multiple turns
 - System switches agents when conditions are met (e.g., vision complete → roadmap)
@@ -138,7 +132,7 @@ This ensures agents maintain context across clarifying question rounds.
 - `list_projects()` – List all projects with summaries (cached)
 - `get_project_details(product_id)` – Get full hierarchy
 - `get_project_by_name(project_name)` – Search by name
-- `load_specification_from_file(file_path)` – Load spec from file (legacy, use for initial load)
+- `load_specification_from_file(file_path)` – Load spec content from file path
 
 **Caching Strategy:** Tools accept optional `ToolContext` to transparently cache results in ADK's persistent state. TTL defaults to 5 minutes (configurable). Cache keys: `projects_summary`, `projects_list`, `projects_last_refreshed_utc`.
 
@@ -236,12 +230,6 @@ Starts ADK Web with:
 - Orchestrator agent as root (with App object)
 - All sub-agents accessible via AgentTool
 - Pre-loaded project state on startup
-
-### Run Full Automated Workflow
-```bash
-python product_workflow.py
-```
-Executes vision → roadmap pipeline with complete input. Demonstrates LoopAgent orchestration pattern (legacy, for reference).
 
 ### Run Tests
 ```bash

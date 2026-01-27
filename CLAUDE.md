@@ -72,9 +72,6 @@ pip install -e .
 
 # Run the main interactive application
 python main.py
-
-# Run the workflow example (demonstrates LoopAgent orchestration)
-python product_workflow.py
 ```
 
 ### Environment Configuration
@@ -128,8 +125,6 @@ The codebase implements a sophisticated multi-agent system:
    - LoopAgent that manages Draft → Spec Validate → Refine cycle
    - Max 4 iterations with early exit when spec-compliant
    - Enforces vision alignment and data integrity contracts before persistence
-
-8. **Legacy User Story Agent** (deprecated, to be removed)
 
 ### Vision Alignment Enforcement
 
@@ -266,12 +261,6 @@ Per the approved TCC proposal, the final system needs:
   - `run_vision_agent()`: Calls vision agent with accumulated requirements
   - `save_state()`: Persists state to database
 
-**2. Automated Orchestration Workflow** (`product_workflow.py`)
-- Uses `LoopAgent` as master orchestrator
-- Chains vision → roadmap agents automatically
-- Single-pass execution with complete requirements
-- Demonstrates declarative workflow orchestration via agent instructions
-
 ### State Management
 
 The session state tracks:
@@ -355,7 +344,6 @@ When agent responses fail to parse:
 - `main.py:234-237` - State mirroring from agent output
 - `main.py:265-271` - Runner switching logic
 - `utils/response_parser.py:19-49` - Response validation with detailed error reporting
-- `product_workflow.py:70-105` - LoopAgent orchestration instructions
 
 ## Database
 
