@@ -9,6 +9,7 @@ many-to-many relationships, and sets up a SQLite database.
 This version fixes the 'utcnow' deprecation warning and the
 'func.now' runtime error.
 """
+# pylint: disable=not-callable
 
 import enum
 from datetime import date, datetime, timezone  # Import timezone
@@ -135,7 +136,7 @@ class ProductPersona(SQLModel, table=True):
     description: Optional[str] = Field(default=None, sa_type=Text)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
-        sa_column_kwargs={"server_default": func.now()},
+        sa_column_kwargs={"server_default": func.now()},  # pylint: disable=not-callable
         nullable=False,
     )
 
@@ -174,7 +175,7 @@ class Product(SQLModel, table=True):
 
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now()},  # FIX 2
+        sa_column_kwargs={"server_default": func.now()},  # pylint: disable=not-callable
         nullable=False,
     )
     updated_at: datetime = Field(
@@ -204,7 +205,7 @@ class Team(SQLModel, table=True):
     name: str = Field(index=True, unique=True)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now()},  # FIX 2
+        sa_column_kwargs={"server_default": func.now()},  # pylint: disable=not-callable
         nullable=False,
     )
     updated_at: datetime = Field(
@@ -235,7 +236,7 @@ class TeamMember(SQLModel, table=True):
     email: str = Field(unique=True, index=True)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now()},  # FIX 2
+        sa_column_kwargs={"server_default": func.now()},  # pylint: disable=not-callable
         nullable=False,
     )
     updated_at: datetime = Field(
@@ -267,7 +268,7 @@ class Theme(SQLModel, table=True):
     time_frame: Optional[TimeFrame] = Field(default=None)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now()},  # FIX 2
+        sa_column_kwargs={"server_default": func.now()},  # pylint: disable=not-callable
         nullable=False,
     )
     updated_at: datetime = Field(
@@ -296,7 +297,7 @@ class Epic(SQLModel, table=True):
     summary: Optional[str] = Field(default=None, sa_type=Text)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now()},  # FIX 2
+        sa_column_kwargs={"server_default": func.now()},  # pylint: disable=not-callable
         nullable=False,
     )
     updated_at: datetime = Field(
@@ -325,7 +326,7 @@ class Feature(SQLModel, table=True):
     description: Optional[str] = Field(default=None, sa_type=Text)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now()},  # FIX 2
+        sa_column_kwargs={"server_default": func.now()},  # pylint: disable=not-callable
         nullable=False,
     )
     updated_at: datetime = Field(
@@ -356,7 +357,7 @@ class Sprint(SQLModel, table=True):
     status: SprintStatus = Field(default=SprintStatus.PLANNED, nullable=False)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now()},  # FIX 2
+        sa_column_kwargs={"server_default": func.now()},  # pylint: disable=not-callable
         nullable=False,
     )
     updated_at: datetime = Field(
@@ -412,7 +413,7 @@ class UserStory(SQLModel, table=True):
 
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now()},  # FIX 2
+        sa_column_kwargs={"server_default": func.now()},  # pylint: disable=not-callable
         nullable=False,
     )
     updated_at: datetime = Field(
@@ -450,7 +451,7 @@ class Task(SQLModel, table=True):
     status: TaskStatus = Field(default=TaskStatus.TO_DO, nullable=False)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
-        sa_column_kwargs={"server_default": func.now()},  # FIX 2
+        sa_column_kwargs={"server_default": func.now()},  # pylint: disable=not-callable
         nullable=False,
     )
     updated_at: datetime = Field(
@@ -490,7 +491,7 @@ class StoryCompletionLog(SQLModel, table=True):
     changed_by: Optional[str] = Field(default=None)
     changed_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
-        sa_column_kwargs={"server_default": func.now()},
+        sa_column_kwargs={"server_default": func.now()},  # pylint: disable=not-callable
         nullable=False,
     )
 
@@ -512,7 +513,7 @@ class WorkflowEvent(SQLModel, table=True):
     event_type: WorkflowEventType = Field(nullable=False, index=True)
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
-        sa_column_kwargs={"server_default": func.now()},
+        sa_column_kwargs={"server_default": func.now()},  # pylint: disable=not-callable
         nullable=False,
     )
     # Optional timing metrics

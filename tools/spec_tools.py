@@ -46,8 +46,6 @@ class ReadProjectSpecificationInput(BaseModel):
     from tool_context.state['active_project'].
     """
 
-    pass  # No parameters needed
-
 
 def save_project_specification(
     params: dict,

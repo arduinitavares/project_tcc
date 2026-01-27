@@ -7,6 +7,8 @@ small summaries in ADK's persistent session state to reduce latency.
 
 from __future__ import annotations
 
+# pylint: disable=not-callable
+
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple, cast
@@ -56,7 +58,7 @@ def _build_projects_payload(
     # 2. Fetch counts in one query
     story_counts_query = (
         select(UserStory.product_id, func.count(UserStory.story_id))
-        .where(UserStory.product_id.in_(product_ids))
+        .where(UserStory.product_id.in_(product_ids))  # pylint: disable=no-member
         .group_by(UserStory.product_id)
     )
 
@@ -293,10 +295,10 @@ def load_specification_from_file(
     # Read content
     try:
         content = path.read_text(encoding='utf-8')
-    except UnicodeDecodeError:
+    except UnicodeDecodeError as exc:
         raise ValueError(
             f"File encoding error. Please ensure {file_path} is UTF-8 text."
-        )
+        ) from exc
 
     # Log to state for transparency
     if tool_context and tool_context.state:

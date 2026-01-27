@@ -385,7 +385,7 @@ def query_product_structure(product_id: int) -> Dict[str, Any]:
         epics: List[Epic] = []
         if theme_ids:
             epics = session.exec(
-                select(Epic).where(Epic.theme_id.in_(theme_ids))
+                select(Epic).where(Epic.theme_id.in_(theme_ids))  # pylint: disable=no-member
             ).all()
         epic_ids = [e.epic_id for e in epics if e.epic_id is not None]
 
@@ -393,7 +393,7 @@ def query_product_structure(product_id: int) -> Dict[str, Any]:
         features: List[Feature] = []
         if epic_ids:
             features = session.exec(
-                select(Feature).where(Feature.epic_id.in_(epic_ids))
+                select(Feature).where(Feature.epic_id.in_(epic_ids))  # pylint: disable=no-member
             ).all()
         feature_ids = [f.feature_id for f in features if f.feature_id is not None]
 
@@ -401,7 +401,7 @@ def query_product_structure(product_id: int) -> Dict[str, Any]:
         stories: List[UserStory] = []
         if feature_ids:
             stories = session.exec(
-                select(UserStory).where(UserStory.feature_id.in_(feature_ids))
+                select(UserStory).where(UserStory.feature_id.in_(feature_ids))  # pylint: disable=no-member
             ).all()
 
         # 5. Build lookup maps
