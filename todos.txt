@@ -1,0 +1,59 @@
+
+TODO – Project Workflow Redesign (Spec-Driven, No Human PO)
+
+1. Replace the Product Owner role with a **Specification Authority**
+   - Treat the technical specification as the single source of truth
+   - The Specification Authority:
+     - Defines which Themes (Now / Next / Later) are in scope
+     - Defines which Epics and Features are eligible for story generation
+     - Enforces non-negotiable constraints and invariants from the spec
+     - Does NOT prioritize based on business opinion or simulate a customer
+   - Any story that violates the spec is rejected deterministically
+
+2. Story Generation (intentionally “good enough”)
+   - Generate user stories from eligible Features only
+   - Accept that initial stories can be mediocre but must be:
+     - Spec-compliant
+     - Persona-correct
+     - Theme/Epic-consistent
+   - Validate stories using:
+     - Spec validator
+     - Contract enforcer (theme, epic, persona, invariants)
+   - Persist only contract-clean stories
+
+3. Sprint Framing (no task breakdown yet)
+   - Inputs:
+     - Spec-approved stories
+     - Sprint timebox / capacity
+   - Outputs:
+     - Sprint goal (derived from selected stories)
+     - List of stories included in the sprint
+   - No task decomposition at this stage
+
+4. Team Simulation Agent (planning intelligence)
+   - Simulates a development team to suggest:
+     - Which story to start with
+     - Ordering based on:
+       - Risk
+       - Dependencies
+       - Unknowns
+       - Shared setup / context
+   - Does NOT break stories into tasks yet
+   - Warns against unsafe parallelization
+
+5. Just-In-Time Task Breakdown
+   - After sprint start, and ONLY for the selected next story:
+     - Break the story into tasks
+     - Identify spikes and unknowns
+   - Avoid global or speculative task decomposition
+
+6. One-Story-at-a-Time Execution
+   - Execute and complete the current story end-to-end
+   - Validate acceptance criteria and contracts
+   - Only after completion:
+     - Select the next story
+     - Perform its task breakdown
+
+Goal:
+A fully spec-driven, deterministic workflow that replaces subjective Product Owner decisions with a Specification Authority, while using agents only where reasoning and risk assessment genuinely add value.
+
