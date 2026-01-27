@@ -41,17 +41,18 @@ class SaveProjectSpecificationInput(BaseModel):
 
 class ReadProjectSpecificationInput(BaseModel):
     """Input schema for read_project_specification tool.
-    
+
     This tool requires no parameters - it reads the spec for the active project
     from tool_context.state['active_project'].
     """
 
-    pass  # No parameters needed
 
-
+# pylint: disable=too-many-locals,too-many-return-statements
+# Justification: Tool validation requires multiple early returns for error handling.
+# Local variables are needed to handle both file and text spec sources.
 def save_project_specification(
-    params: dict,
-    tool_context: Optional[ToolContext] = None,
+    params: Dict[str, Any],
+    tool_context: Optional[ToolContext] = None,  # pylint: disable=unused-argument
 ) -> Dict[str, Any]:
     """
     Save or update technical specification for a project.
@@ -100,12 +101,12 @@ def save_project_specification(
     # Validate inputs
     try:
         parsed = SaveProjectSpecificationInput.model_validate(params or {})
-    except Exception as e:
+    except ValueError as e:
         return {
             "success": False,
             "error": f"Invalid parameters: {str(e)}"
         }
-    
+
     product_id = parsed.product_id
     spec_source = parsed.spec_source
     content = parsed.content
@@ -115,6 +116,12 @@ def save_project_specification(
             "success": False,
             "error": f"Invalid spec_source: '{spec_source}'. Must be 'file' or 'text'"
         }
+
+    # Initialize variables to avoid possibly-used-before-assignment
+    spec_path = ""
+    file_created = False
+    spec_text = ""
+    file_size_kb = 0.0
 
     # Verify product exists
     with Session(engine) as session:
@@ -178,7 +185,7 @@ def save_project_specification(
             # Write backup file
             try:
                 spec_path_obj.write_text(spec_text, encoding='utf-8')
-            except Exception as e:
+            except (OSError, IOError) as e:
                 return {
                     "success": False,
                     "error": f"Failed to create backup file: {str(e)}"
@@ -199,7 +206,10 @@ def save_project_specification(
         session.commit()
 
         action = "updated" if is_update else "saved"
-        print(f"[save_project_specification] Spec {action} for '{product.name}' ({file_size_kb:.1f}KB)")
+        print(
+            f"[save_project_specification] Spec {action} "
+            f"for '{product.name}' ({file_size_kb:.1f}KB)"
+        )
 
         return {
             "success": True,
@@ -208,12 +218,14 @@ def save_project_specification(
             "spec_path": spec_path,
             "spec_size_kb": round(file_size_kb, 2),
             "file_created": file_created,
-            "message": f"Specification {action} successfully ({file_size_kb:.1f}KB)",
+            "message": (
+                f"Specification {action} successfully ({file_size_kb:.1f}KB)"
+            ),
         }
 
 
 def read_project_specification(
-    params: Any,
+    params: Dict[str, Any],
     tool_context: Optional[ToolContext] = None,
 ) -> Dict[str, Any]:
     """
@@ -255,7 +267,7 @@ def read_project_specification(
     """
     # Validate inputs (no params needed, but validate for consistency)
     ReadProjectSpecificationInput.model_validate(params or {})
-    
+
     if not tool_context or not tool_context.state:
         return {
             "success": False,
@@ -279,11 +291,15 @@ def read_project_specification(
     with Session(engine) as session:
         product = session.get(Product, product_id)
         if not product or not product.technical_spec:
+            project_name = active_project.get('name')
             return {
                 "success": False,
-                "error": f"Project '{active_project.get('name')}' has no specification saved",
+                "error": f"Project '{project_name}' has no specification saved",
                 "spec_content": None,
-                "hint": "Spec may have been created without a specification file. Ask user to provide one.",
+                "hint": (
+                    "Spec may have been created without a specification file. "
+                    "Ask user to provide one."
+                ),
             }
 
         # Extract section headings for navigation (markdown ## headings)
@@ -292,7 +308,10 @@ def read_project_specification(
         # Estimate tokens (rough: 1 token approx 4 characters)
         token_estimate = len(product.technical_spec) // 4
 
-        print(f"[read_project_specification] Loaded spec for '{product.name}' (~{token_estimate} tokens)")
+        print(
+            f"[read_project_specification] Loaded spec for "
+            f"'{product.name}' (~{token_estimate} tokens)"
+        )
 
         return {
             "success": True,
@@ -300,7 +319,10 @@ def read_project_specification(
             "spec_path": product.spec_file_path,
             "token_estimate": token_estimate,
             "sections": sections,
-            "message": f"Loaded specification (~{token_estimate} tokens, {len(sections)} sections)",
+            "message": (
+                f"Loaded specification (~{token_estimate} tokens, "
+                f"{len(sections)} sections)"
+            ),
         }
 
 
