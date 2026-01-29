@@ -119,8 +119,8 @@ class PlanSprintInput(BaseModel):
     product_id: Annotated[int, Field(description="The product ID for the sprint.")]
     team_id: Annotated[
         Optional[int],
-        Field(default=None, description="Optional team ID. If not provided, uses first team linked to product."),
-    ]
+        Field(description="Optional team ID. If not provided, uses first team linked to product."),
+    ] = None
     sprint_goal: Annotated[
         str,
         Field(description="The sprint goal describing what the team commits to achieve."),
@@ -131,20 +131,20 @@ class PlanSprintInput(BaseModel):
     ]
     start_date: Annotated[
         Optional[str],
-        Field(default=None, description="Sprint start date (YYYY-MM-DD). Defaults to today."),
-    ]
+        Field(description="Sprint start date (YYYY-MM-DD). Defaults to today if not provided."),
+    ] = None
     duration_days: Annotated[
-        int,
-        Field(default=14, description="Sprint duration in days. Default is 14 (2 weeks)."),
-    ]
+        Optional[int],
+        Field(description="Sprint duration in days. Defaults to 14 (2 weeks) if not provided."),
+    ] = None
     capacity_points: Annotated[
         Optional[int],
-        Field(default=None, description="Team capacity in story points for this sprint."),
-    ]
+        Field(description="Team capacity in story points for this sprint. Defaults to None if not provided."),
+    ] = None
     task_breakdown: Annotated[
         Optional[List[TaskBreakdown]],
-        Field(default=None, description="Optional task breakdown for stories."),
-    ]
+        Field(description="Optional task breakdown for stories. Defaults to None if not provided."),
+    ] = None
 
 
 class SaveSprintInput(BaseModel):
@@ -158,17 +158,17 @@ class SaveSprintInput(BaseModel):
     end_date: Annotated[str, Field(description="Sprint end date (YYYY-MM-DD).")]
     task_breakdown: Annotated[
         Optional[List[TaskBreakdown]],
-        Field(default=None, description="Optional tasks to create."),
-    ]
+        Field(description="Optional tasks to create. Defaults to None if not provided."),
+    ] = None
     # Metrics for TCC
     planning_turn_count: Annotated[
         Optional[int],
-        Field(default=None, description="Number of conversation turns during planning."),
-    ]
+        Field(description="Number of conversation turns during planning. Defaults to None if not provided."),
+    ] = None
     planning_start_time: Annotated[
         Optional[str],
-        Field(default=None, description="ISO timestamp when planning started."),
-    ]
+        Field(description="ISO timestamp when planning started. Defaults to None if not provided."),
+    ] = None
 
 
 # =============================================================================

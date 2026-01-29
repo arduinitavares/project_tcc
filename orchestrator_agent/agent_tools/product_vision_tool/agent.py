@@ -15,7 +15,7 @@ from google.adk.models.lite_llm import LiteLlm
 
 from utils.helper import load_instruction
 from utils.schemes import InputSchema, OutputSchema
-from utils.model_config import get_model_id
+from utils.model_config import get_model_id, get_openrouter_extra_body
 
 # --- Load Instruction ---
 INSTRUCTIONS_PATH: Path = Path(
@@ -31,6 +31,7 @@ model: LiteLlm = LiteLlm(
     model=get_model_id("product_vision"),
     api_key=os.getenv("OPEN_ROUTER_API_KEY"),
     drop_params=True,  # Prevent passing unsupported params that trigger logging
+    extra_body=get_openrouter_extra_body(),
 )
 
 

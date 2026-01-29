@@ -743,10 +743,14 @@ def set_sqlite_pragma(dbapi_connection, _connection_record):
 
 
 def create_db_and_tables():
-    """Create the database and all tables."""
+    """Create the database and all tables, then run migrations."""
     print("Creating tables...")
     SQLModel.metadata.create_all(engine)
     print("Tables created successfully.")
+    
+    # Run idempotent migrations to handle schema drift
+    from db.migrations import ensure_schema_current
+    ensure_schema_current(engine)
 
 
 if __name__ == "__main__":

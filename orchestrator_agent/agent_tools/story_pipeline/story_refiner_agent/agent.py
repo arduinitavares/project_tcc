@@ -21,7 +21,7 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.tool_context import ToolContext
 
 from utils.helper import load_instruction
-from utils.model_config import get_model_id
+from utils.model_config import get_model_id, get_openrouter_extra_body
 
 # Import StoryDraft schema
 from orchestrator_agent.agent_tools.story_pipeline.story_draft_agent.agent import StoryDraft
@@ -60,6 +60,7 @@ model = LiteLlm(
     model=get_model_id("story_refiner"),
     api_key=os.getenv("OPEN_ROUTER_API_KEY"),
     drop_params=True,
+    extra_body=get_openrouter_extra_body(),
 )
 
 # --- Agent Definition ---

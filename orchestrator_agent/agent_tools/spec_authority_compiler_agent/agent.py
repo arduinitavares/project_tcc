@@ -7,7 +7,7 @@ from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
 
 from utils.schemes import SpecAuthorityCompilerInput, SpecAuthorityCompilerEnvelope
-from utils.model_config import get_model_id
+from utils.model_config import get_model_id, get_openrouter_extra_body
 from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (
     SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
 )
@@ -20,6 +20,7 @@ model = LiteLlm(
     model=get_model_id("spec_authority_compiler"),
     api_key=os.getenv("OPEN_ROUTER_API_KEY"),
     drop_params=True,
+    extra_body=get_openrouter_extra_body(),
 )
 
 # --- Create Agent ---

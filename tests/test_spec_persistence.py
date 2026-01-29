@@ -497,6 +497,31 @@ class TestSpecWorkflowIntegration:
         db_session.refresh(product)
 
         # Step 2: Save pasted spec
+
+    def test_save_project_specification_sets_pending_state(self, db_session, tmp_path):
+        """save_project_specification should persist pending spec state for downstream tools."""
+        product = Product(name="Spec Pending Project", vision="Pending spec")
+        db_session.add(product)
+        db_session.commit()
+        db_session.refresh(product)
+
+        spec_path = tmp_path / "pending_spec.md"
+        spec_path.write_text("# Pending Spec\n\nContent", encoding="utf-8")
+
+        context = MockToolContext(state={})
+
+        result = save_project_specification(
+            {
+                "product_id": product.product_id,
+                "spec_source": "file",
+                "content": str(spec_path),
+            },
+            tool_context=context,
+        )
+
+        assert result["success"] is True
+        assert context.state["pending_spec_path"] == str(spec_path)
+        assert "Pending Spec" in context.state["pending_spec_content"]
         pasted_text = """# Pasted Specification
 ## Section 1: Overview
 This is a test specification pasted by the user.

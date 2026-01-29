@@ -3,7 +3,6 @@
 import asyncio
 
 import pytest
-from pydantic import ValidationError
 from sqlmodel import Session, select
 
 from agile_sqlmodel import CompiledSpecAuthority, Product, SpecRegistry
@@ -77,17 +76,23 @@ def compiler_stub(monkeypatch):
     return raw_json
 
 
-def test_story_pipeline_requires_spec_version_id(
+@pytest.mark.asyncio
+async def test_story_pipeline_requires_spec_input_when_no_authority(
     sample_product: Product,
 ) -> None:
-    """Public pipeline entrypoint should fail fast without spec_version_id."""
-    with pytest.raises(ValidationError):
-        ProcessBatchInput(
-            product_id=sample_product.product_id,
-            product_name=sample_product.name,
-            product_vision=sample_product.vision,
-            features=[],
-        )
+    """Pipeline should fail fast if no authority exists and no spec content is provided."""
+    batch_input = ProcessBatchInput(
+        product_id=sample_product.product_id,
+        product_name=sample_product.name,
+        product_vision=sample_product.vision,
+        features=[],
+        spec_version_id=None,
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        await process_story_batch(batch_input)
+
+    assert "spec" in str(exc.value).lower()
 
 
 def test_update_spec_and_compile_returns_pinned_version_and_pipeline_accepts_it(

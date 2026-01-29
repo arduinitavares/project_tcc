@@ -34,6 +34,7 @@ from rich.panel import Panel
 # Import Agent
 from orchestrator_agent.agent import root_agent
 from tools.orchestrator_tools import get_real_business_state
+from utils.model_config import OPENROUTER_PRIVACY_ERROR_MESSAGE
 
 # --- CONFIGURATION ---
 litellm.telemetry = False
@@ -61,8 +62,10 @@ logging.basicConfig(
 app_logger = logging.getLogger("main")
 app_logger.setLevel(logging.INFO)
 
-# Suppress verbose logs from dependencies
-logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+# Configure dependency log levels
+# SQLAlchemy at INFO to capture SQL queries for debugging
+logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
+# Suppress verbose LiteLLM logs
 logging.getLogger("litellm").setLevel(logging.ERROR)
 logging.getLogger("LiteLLM").setLevel(logging.ERROR)
 
@@ -71,6 +74,9 @@ load_dotenv()
 
 APP_NAME = "agile_orchestrator"
 USER_ID = "local_developer"
+PERSIST_LLM_OUTPUT = os.getenv("PERSIST_LLM_OUTPUT", "0") == "1"
+SHOW_TOOL_PAYLOADS = os.getenv("SHOW_TOOL_PAYLOADS", "1") == "1"
+MAX_TOOL_PAYLOAD_CHARS = int(os.getenv("MAX_TOOL_PAYLOAD_CHARS", "4000"))
 
 # --- FIX 1: VOLATILE SESSION (Random ID) ---
 # Every time you run this script, it generates a NEW ID.
@@ -101,17 +107,19 @@ def get_current_state(
         row = cursor.fetchone()
         conn.close()
         state: Dict[str, Any] = json.loads(row[0]) if row else {}
-        app_logger.debug("Retrieved state: %s", json.dumps(state, indent=2))
+        app_logger.debug("Retrieved state (redacted).")
         return state
     except sqlite3.Error as e:
-        app_logger.error("Error fetching state from DB: %s", e)
-        app_logger.error(traceback.format_exc())
+        app_logger.error("Error fetching state from DB.")
         return {}
 
 
 def update_state_in_db(partial_update: Dict[str, Any]) -> None:
     """Updates the Volatile State (O in your diagram)."""
-    app_logger.info("Updating state with: %s", json.dumps(partial_update, indent=2))
+    if not PERSIST_LLM_OUTPUT:
+        app_logger.info("State persistence disabled; skipping update.")
+        return
+    app_logger.info("Updating state (redacted).")
     current = get_current_state(APP_NAME, USER_ID, SESSION_ID)
     current.update(partial_update)
 
@@ -126,9 +134,8 @@ def update_state_in_db(partial_update: Dict[str, Any]) -> None:
         conn.close()
         app_logger.info("State updated successfully in DB")
     except sqlite3.Error as e:
-        app_logger.error("DB WRITE ERROR: %s", e)
-        app_logger.error(traceback.format_exc())
-        console.print(f"[bold red]DB WRITE ERROR:[/bold red] {e}")
+        app_logger.error("DB WRITE ERROR.")
+        console.print("[bold red]DB WRITE ERROR.[/bold red]")
 
 
 def extract_json_from_response(text: str) -> Dict[str, Any]:
@@ -150,6 +157,18 @@ def print_system_message(text: str, style: str = "bold cyan") -> None:
     console.print(f"[{style}]{text}[/{style}]")
 
 
+def _serialize_for_display(payload: Any) -> str:
+    """Serialize payloads for console display with safe truncation."""
+    try:
+        text = json.dumps(payload, indent=2, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        text = str(payload)
+
+    if len(text) > MAX_TOOL_PAYLOAD_CHARS:
+        return f"{text[:MAX_TOOL_PAYLOAD_CHARS]}\n... (truncated)"
+    return text
+
+
 def _display_tool_call(part: types.Part) -> None:
     """Helper to visualize tool calls."""
     if not part.function_call:
@@ -157,11 +176,15 @@ def _display_tool_call(part: types.Part) -> None:
 
     tool_name = part.function_call.name
     args = part.function_call.args
-    args_json = json.dumps(args, indent=2, ensure_ascii=False)
+    if SHOW_TOOL_PAYLOADS:
+        args_json = _serialize_for_display(args)
+    else:
+        args_keys = sorted(args.keys()) if isinstance(args, dict) else []
+        args_json = json.dumps({"keys": args_keys}, indent=2, ensure_ascii=False)
 
-    # Log the tool call
+    # Log the tool call with full arguments
     app_logger.info("TOOL CALL: %s", tool_name)
-    app_logger.info("TOOL ARGUMENTS:\n%s", args_json)
+    app_logger.info("TOOL ARGUMENTS:\n%s", _serialize_for_display(args))
 
     tool_panel = Panel(
         f"[bold]Function:[/bold] {tool_name}\n[bold]Arguments:[/bold]\n{args_json}",
@@ -182,12 +205,18 @@ def _display_tool_response(part: types.Part) -> None:
     tool_name = part.function_response.name
     response_content = part.function_response.response
 
-    # Pretty print the response dictionary
-    resp_json = json.dumps(response_content, indent=2, ensure_ascii=False)
+    if SHOW_TOOL_PAYLOADS:
+        resp_json = _serialize_for_display(response_content)
+    else:
+        # Pretty print only response keys (redacted)
+        resp_keys = (
+            sorted(response_content.keys()) if isinstance(response_content, dict) else []
+        )
+        resp_json = json.dumps({"keys": resp_keys}, indent=2, ensure_ascii=False)
 
-    # Log the tool response
+    # Log the tool response with full result
     app_logger.info("TOOL RESPONSE FROM: %s", tool_name)
-    app_logger.info("TOOL RESULT:\n%s", resp_json)
+    app_logger.info("TOOL RESULT:\n%s", _serialize_for_display(response_content))
 
     tool_panel = Panel(
         f"[bold]From:[/bold] {tool_name}\n[bold]Result:[/bold]\n{resp_json}",
@@ -238,7 +267,7 @@ async def run_agent_turn(
     """
     Executes a single turn of the agent.
     """
-    # Log the input
+    # Log the input with actual text
     if is_system_trigger:
         app_logger.info("SYSTEM TRIGGER INPUT: %s", user_input)
     else:
@@ -310,12 +339,23 @@ async def run_agent_turn(
 
         console.print("\n")
         
-        # Log the complete response
-        app_logger.info("AGENT RESPONSE TEXT:\n%s", full_response_text)
+        # Log the complete response text
+        if full_response_text:
+            app_logger.info("AGENT RESPONSE TEXT:\n%s", full_response_text)
+        else:
+            app_logger.info("AGENT RESPONSE: (no text, tool-only turn)")
     except Exception as e:
-        app_logger.error("Error during agent turn: %s", e)
-        app_logger.error(traceback.format_exc())
-        console.print(f"\n[bold red]ERROR during agent turn: {e}[/bold red]")
+        message = str(e).lower()
+        if (
+            "zdr" in message
+            or "data_collection" in message
+            or "provider" in message
+            or "no providers" in message
+        ):
+            app_logger.error("OpenRouter privacy routing failure.")
+            raise RuntimeError(OPENROUTER_PRIVACY_ERROR_MESSAGE) from e
+        app_logger.error("Error during agent turn.")
+        console.print("\n[bold red]ERROR during agent turn.[/bold red]")
         raise
 
     # 4. CAPTURE OUTPUT & UPDATE DB
@@ -381,7 +421,7 @@ async def main():
         "[bold green]Hydrating Business State...", spinner="dots"
     ):
         initial_state = get_real_business_state()
-        app_logger.info("Initial business state loaded: %s", json.dumps(initial_state, indent=2))
+        app_logger.info("Initial business state loaded: %s", json.dumps(initial_state, indent=2, ensure_ascii=False, default=str))
 
     await session_service.create_session(
         app_name=APP_NAME,
@@ -431,8 +471,7 @@ async def main():
             print_system_message("\nINTERRUPTED.")
             break
         except Exception as e:
-            app_logger.error("Unexpected error in main loop: %s", e)
-            app_logger.error(traceback.format_exc())
+            app_logger.error("Unexpected error in main loop.")
             console.print(f"[bold red]ERROR:[/bold red] {e}")
             console.print(f"[dim]See log file for details: {LOG_FILENAME}[/dim]")
 
@@ -441,8 +480,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except Exception as e:
-        app_logger.critical("Critical error in application: %s", e)
-        app_logger.critical(traceback.format_exc())
+        app_logger.critical("Critical error in application.")
         console.print(f"\n[bold red]CRITICAL ERROR:[/bold red] {e}")
         console.print(f"[dim]See log file for details: {LOG_FILENAME}[/dim]")
         sys.exit(1)

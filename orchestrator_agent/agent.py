@@ -70,18 +70,30 @@ from tools.spec_tools import (
     read_project_specification,
     compile_spec_authority_for_version,
     update_spec_and_compile_authority,
+    ensure_accepted_spec_authority,
 )
 from tools.db_tools import (
     get_story_details,
 )
 from utils.helper import load_instruction
 from utils.schemes import InputSchema
-from utils.model_config import get_model_id
+from utils.model_config import (
+    get_model_id,
+    get_openrouter_extra_body,
+    get_story_pipeline_mode,
+)
 
 # --- Load environment and instruction ---
 dotenv.load_dotenv()
 INSTRUCTIONS_PATH = Path("orchestrator_agent/instructions.txt")
 instruction_text = load_instruction(INSTRUCTIONS_PATH)
+story_pipeline_mode = get_story_pipeline_mode()
+instruction_text += (
+    "\n\n[CONFIG] Story pipeline mode: "
+    f"{story_pipeline_mode}. "
+    "If mode is 'single', call process_single_story once per feature. "
+    "If mode is 'batch', call process_story_batch."
+)
 
 
 # --- Initialize model ---
@@ -89,6 +101,7 @@ model = LiteLlm(
     model=get_model_id("orchestrator"),
     api_key=os.getenv("OPEN_ROUTER_API_KEY"),
     drop_params=True,  # Prevent passing unsupported params that trigger logging
+    extra_body=get_openrouter_extra_body(),
 )
 
 # --- Define the agent ---
@@ -109,6 +122,7 @@ root_agent = Agent(
         read_project_specification,
         compile_spec_authority_for_version,
         update_spec_and_compile_authority,
+        ensure_accepted_spec_authority,
         # Story query tools
         get_story_details,
         query_features_for_stories,

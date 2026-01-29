@@ -15,7 +15,7 @@ from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
 from pydantic import BaseModel, Field
 
-from utils.model_config import get_model_id
+from utils.model_config import get_model_id, get_openrouter_extra_body
 
 
 def load_instruction(path: Path) -> str:
@@ -40,6 +40,7 @@ model: LiteLlm = LiteLlm(
     model=get_model_id("product_user_story"),
     api_key=os.getenv("OPEN_ROUTER_API_KEY"),
     drop_params=True,
+    extra_body=get_openrouter_extra_body(),
 )
 
 

@@ -11,6 +11,18 @@ import yaml
 
 _CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "models.yaml"
 
+OPENROUTER_PROVIDER: Dict[str, Any] = {
+    "data_collection": "deny",
+    "zdr": True,
+    "sort": "price",
+    "allow_fallbacks": False,
+    "require_parameters": True,
+}
+
+OPENROUTER_PRIVACY_ERROR_MESSAGE = (
+    "No ZDR/data_collection=deny provider available for this model"
+)
+
 
 @lru_cache(maxsize=1)
 def _load_config() -> Dict[str, Any]:
@@ -40,3 +52,27 @@ def get_model_id(key: str) -> str:
     if not model_id:
         raise KeyError(f"Model key not found in models.yaml: {key}")
     return str(model_id)
+
+
+def get_openrouter_extra_body() -> Dict[str, Any]:
+    """Return extra_body for OpenRouter requests with strict privacy routing."""
+    return {"provider": dict(OPENROUTER_PROVIDER)}
+
+
+def get_story_pipeline_mode() -> str:
+    """Return story pipeline mode from config.
+
+    Allowed values: "batch" or "single".
+    Defaults to "batch" when not configured.
+    """
+    data = _load_config()
+    pipeline = data.get("story_pipeline", {})
+    if pipeline is None:
+        pipeline = {}
+    if not isinstance(pipeline, dict):
+        raise ValueError("story_pipeline must be a mapping in models.yaml")
+
+    mode = str(pipeline.get("mode", "batch")).strip().lower()
+    if mode not in {"batch", "single"}:
+        raise ValueError("story_pipeline.mode must be 'batch' or 'single'")
+    return mode

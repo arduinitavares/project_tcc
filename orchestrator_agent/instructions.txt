@@ -270,9 +270,19 @@ Each story is validated against INVEST principles (Independent, Negotiable, Valu
      "features": [<USE features_flat FROM query_features_for_stories>],
      "user_persona": "<user's specified persona>",
      "include_story_points": true/false,
-     "max_concurrency": 1
+     "max_concurrency": 1,
+     "spec_content": <from tool_context.state["pending_spec_content"]> | null,
+     "content_ref": <from tool_context.state["pending_spec_path"]> | null
    }
    ```
+   
+   **SPEC AUTHORITY GATE (Automatic):**
+   - If `spec_version_id` is omitted, the pipeline runs the **Authority Gate** internally.
+   - The gate checks for an existing accepted+compiled spec authority.
+   - If no accepted authority exists, it uses `spec_content` or `content_ref` to compile one.
+   - **Source of spec_content/content_ref:** Use values from `tool_context.state["pending_spec_content"]` 
+     (set in STATE 1 or STATE 1B) or `state["pending_spec_path"]` (file path from STATE 1).
+   - If no accepted authority exists AND no spec_content/content_ref provided, the gate raises an error.
    
    **CRITICAL:** The `features` array MUST come from `query_features_for_stories()["features_flat"]`.
    Each feature dict already contains:
@@ -292,12 +302,13 @@ Each story is validated against INVEST principles (Independent, Negotiable, Valu
      "theme": "<string FROM query result>",
      "epic": "<string FROM query result>",
      "user_persona": "<string>",
-     "include_story_points": true/false
+     "include_story_points": true/false,
+     "spec_content": <from state["pending_spec_content"]> | null,
+     "content_ref": <from state["pending_spec_path"]> | null
    }
    ```
-   ```
 
-4. **Display Results:** Show each story with:
+5. **Display Results:** Show each story with:
    - **Theme and Epic** (to verify metadata propagated correctly)
    - Title and description
    - Acceptance criteria  
@@ -306,8 +317,8 @@ Each story is validated against INVEST principles (Independent, Negotiable, Valu
    - Story points (if requested)
    - **Any contract violations** (especially theme/epic metadata issues)
 
-5. **Prompt:** *"Generated [N] INVEST-validated stories (avg validation score: [X]). Would you like to save these to the backlog?"*
-6. **STOP.**
+6. **Prompt:** *"Generated [N] INVEST-validated stories (avg validation score: [X]). Would you like to save these to the backlog?"*
+7. **STOP.**
 
 ---
 
@@ -320,13 +331,24 @@ Each story is validated against INVEST principles (Independent, Negotiable, Valu
 **Behavior:**
 1. **IMPORTANT: Do NOT re-run the pipeline!** Use `save_validated_stories` to save the EXACT stories already shown to the user.
    
-   Call `save_validated_stories` with:
+   Call `save_validated_stories` with minimal parameters (stories are auto-retrieved from session state):
    ```json
    {
      "save_input": {
        "product_id": <product_id>,
+       "spec_version_id": <spec_version_id>
+     }
+   }
+   ```
+   
+   The `stories` field is **optional** - if omitted, the tool automatically retrieves them from session state 
+   (set by `process_story_batch`). You can also provide stories explicitly if needed:
+   ```json
+   {
+     "save_input": {
+       "product_id": <product_id>,
+       "spec_version_id": <spec_version_id>,
        "stories": [
-         // Copy each validated story from the previous response:
          {
            "feature_id": <feature_id>,
            "title": "<story title>",
