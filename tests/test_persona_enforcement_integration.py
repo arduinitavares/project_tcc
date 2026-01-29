@@ -3,15 +3,25 @@ import asyncio
 import json
 from unittest.mock import MagicMock, patch, AsyncMock
 from orchestrator_agent.agent_tools.story_pipeline.tools import ProcessStoryInput, process_single_story, save_validated_stories, SaveStoriesInput
-from agile_sqlmodel import Product, ProductPersona, UserStory
+from agile_sqlmodel import Product, ProductPersona, UserStory, SpecAuthorityAcceptance
 from sqlmodel import Session, select
+from utils.schemes import (
+    SpecAuthorityCompilationSuccess,
+    SpecAuthorityCompilerOutput,
+    SourceMapEntry,
+    Invariant,
+    InvariantType,
+    RequiredFieldParams,
+)
+from tools.spec_tools import ensure_spec_authority_accepted
 
 # --- Patch engine to use test DB ---
 @pytest.fixture(autouse=True)
 def patch_engines(engine):
     """Patch the engines in the tools modules to use the test database."""
     with patch("orchestrator_agent.agent_tools.story_pipeline.tools.engine", engine), \
-         patch("tools.db_tools.engine", engine):
+         patch("tools.db_tools.engine", engine), \
+         patch("tools.spec_tools.engine", engine):
         yield
 
 # Helper to mock async iterator
@@ -31,6 +41,7 @@ class AsyncIterator:
 def review_first_product(session):
     """Create Review-First product with persona whitelist AND feature hierarchy."""
     from agile_sqlmodel import Theme, Epic, Feature
+    from tools.spec_tools import register_spec_version, approve_spec_version, compile_spec_authority_for_version
 
     # Check if exists
     product = session.exec(select(Product).where(Product.name == "Review-First P&ID Extraction")).first()
@@ -86,8 +97,69 @@ def review_first_product(session):
         session.commit()
         session.refresh(feature)
 
-    # Attach feature for test access
+    # Create a compiled spec version for validation pinning
+    spec_content = """
+# Review-First Spec
+
+## Requirements
+- Stories MUST include acceptance criteria
+- Stories MUST use persona format
+"""
+
+    reg_result = register_spec_version(
+        {"product_id": product.product_id, "content": spec_content},
+        tool_context=None,
+    )
+    spec_version_id = reg_result["spec_version_id"]
+
+    approve_spec_version(
+        {"spec_version_id": spec_version_id, "approved_by": "tester"},
+        tool_context=None,
+    )
+    def _build_raw_compiler_output(excerpt: str, field_name: str) -> str:
+        invariant = Invariant(
+            id="INV-0000000000000000",
+            type=InvariantType.REQUIRED_FIELD,
+            parameters=RequiredFieldParams(field_name=field_name),
+        )
+        success = SpecAuthorityCompilationSuccess(
+            scope_themes=["Scope"],
+            invariants=[invariant],
+            eligible_feature_rules=[],
+            gaps=[],
+            assumptions=[],
+            source_map=[
+                SourceMapEntry(
+                    invariant_id=invariant.id,
+                    excerpt=excerpt,
+                    location=None,
+                )
+            ],
+            compiler_version="0.0.0",
+            prompt_hash="0" * 64,
+        )
+        return SpecAuthorityCompilerOutput(root=success).model_dump_json()
+
+    raw_json = _build_raw_compiler_output(
+        excerpt="Stories MUST include acceptance criteria.",
+        field_name="acceptance_criteria",
+    )
+    with patch("tools.spec_tools._invoke_spec_authority_compiler", lambda **_: raw_json):
+        compile_spec_authority_for_version(
+            {"spec_version_id": spec_version_id},
+            tool_context=None,
+        )
+        ensure_spec_authority_accepted(
+            product_id=product.product_id,
+            spec_version_id=spec_version_id,
+            policy="auto",
+            decided_by="system",
+            rationale="Auto-accepted on compile success",
+        )
+
+    # Attach feature and spec for test access
     product._test_feature = feature
+    product._test_spec_version_id = spec_version_id
     return product
 
 @pytest.mark.asyncio
@@ -97,6 +169,7 @@ async def test_persona_drift_prevented(review_first_product):
         product_id=review_first_product.product_id,
         product_name=review_first_product.name,
         product_vision=review_first_product.vision,
+        spec_version_id=review_first_product._test_spec_version_id,
         feature_id=1,
         feature_title="Interactive UI",
         theme="Core",
@@ -170,6 +243,7 @@ async def test_unapproved_persona_rejected(review_first_product, session):
         product_id=review_first_product.product_id,
         product_name=review_first_product.name,
         product_vision=review_first_product.vision,
+        spec_version_id=review_first_product._test_spec_version_id,
         feature_id=1,
         feature_title="Interactive UI",
         theme="Core",
@@ -201,6 +275,7 @@ async def test_persona_field_population(session, review_first_product):
     # 2. Save it using the tool
     save_input = SaveStoriesInput(
         product_id=review_first_product.product_id,
+        spec_version_id=review_first_product._test_spec_version_id,
         stories=[validated_story]
     )
 

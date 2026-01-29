@@ -15,6 +15,7 @@ from google.adk.models.lite_llm import LiteLlm
 
 from utils.helper import load_instruction
 from utils.schemes import InputSchema, OutputSchema
+from utils.model_config import get_model_id
 
 # --- Load Instruction ---
 INSTRUCTIONS_PATH: Path = Path(
@@ -27,7 +28,7 @@ dotenv.load_dotenv()
 
 # --- Initialize Model with drop_params to prevent logging issues ---
 model: LiteLlm = LiteLlm(
-    model="openrouter/openai/gpt-5.1",
+    model=get_model_id("product_vision"),
     api_key=os.getenv("OPEN_ROUTER_API_KEY"),
     drop_params=True,  # Prevent passing unsupported params that trigger logging
 )

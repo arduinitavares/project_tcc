@@ -21,6 +21,7 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.tool_context import ToolContext
 
 from utils.helper import load_instruction
+from utils.model_config import get_model_id
 
 # Import StoryDraft schema
 from orchestrator_agent.agent_tools.story_pipeline.story_draft_agent.agent import StoryDraft
@@ -56,7 +57,7 @@ class RefinementResult(BaseModel):
 
 # --- Model ---
 model = LiteLlm(
-    model="openrouter/openai/gpt-4o-mini",  # Refinement model
+    model=get_model_id("story_refiner"),
     api_key=os.getenv("OPEN_ROUTER_API_KEY"),
     drop_params=True,
 )
@@ -69,4 +70,6 @@ story_refiner_agent = LlmAgent(
     description="Refines a user story based on validation feedback.",
     output_key="refinement_result",  # Stores output in state['refinement_result']
     output_schema=RefinementResult,
+    disallow_transfer_to_parent=True,
+    disallow_transfer_to_peers=True,
 )

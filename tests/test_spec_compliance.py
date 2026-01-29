@@ -15,18 +15,17 @@ class TestSpecValidatorConfiguration:
     def test_instruction_contains_default_compliant_rule(self):
         """Instruction must tell LLM to default to compliant if spec is empty."""
         instruction = spec_validator_agent.instruction
-        # Updated: The new instruction uses "NO TECHNICAL_SPEC or EMPTY SPEC" section
-        assert "NO TECHNICAL_SPEC" in instruction or "EMPTY SPEC" in instruction
+        # The instruction uses "NO AUTHORITY INVARIANTS" section with compliant default
+        assert "NO AUTHORITY INVARIANTS" in instruction or "no spec" in instruction.lower()
         # Check for the concept that empty spec = compliant
         assert "is_compliant: true" in instruction or "compliant by default" in instruction
 
     def test_instruction_emphasizes_explicit_violations(self):
-        """Instruction must emphasize explicit constraints (must/shall)."""
+        """Instruction must emphasize explicit constraints (must/required)."""
         instruction = spec_validator_agent.instruction
-        # Updated: New instruction uses domain-aware validation with explicit requirement keywords
+        # The instruction uses domain-aware validation with MUST/REQUIRED keywords
         assert "MUST" in instruction
-        assert "SHALL" in instruction
-        # The new instruction emphasizes domain requirements instead of just EXPLICIT
+        # SHALL was removed in favor of REQUIRED in domain-aware validation
         assert "REQUIRED" in instruction or "requirement" in instruction.lower()
 
     def test_schema_allows_empty_suggestions(self):

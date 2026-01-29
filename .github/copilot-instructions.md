@@ -1,457 +1,247 @@
-# AI Agent Instructions for project_tcc
+# Development Standards for project_tcc
 
-This codebase implements an **Autonomous Agile Management Platform** – a multi-agent system that simulates Scrum roles to reduce cognitive load for small teams (1-4 developers).
+## Development Best Practices
 
-## Project Context
+### Test-Driven Development (TDD)
 
-**TCC Status:** Early prototype phase. Current implementation demonstrates agent orchestration; the approved proposal targets three agents (Product Owner, Scrum Master, Developer Support) simulating a complete Scrum workflow. See `CLAUDE.md` for detailed requirements and design science research methodology.
+**All new code MUST follow TDD workflow:**
 
-**Key Technologies:**
-- Google ADK (Agent Development Kit) for agent orchestration
-- LiteLLM for LLM abstraction (OpenRouter API)
-- SQLModel for ORM with SQLite persistence
-- Pydantic for schema validation
+1. **Write Test First** – Before implementing any feature or fix:
+   - Create test file in `tests/` directory (use `test_*.py` naming)
+   - Write failing test that describes expected behavior
+   - Run test to confirm it fails: `pytest tests/test_your_feature.py -v`
 
-## Architecture Patterns
+2. **Implement Minimum Code** – Write simplest code to make test pass:
+   - Focus on making the test green, not perfect code
+   - Avoid over-engineering or premature optimization
 
-### Agent Structure
+3. **Refactor** – Improve code while keeping tests green:
+   - Extract functions, improve naming, remove duplication
+   - Run tests after each refactor: `pytest tests/ -v`
 
-All agents follow this pattern:
-1. **Schema Definition** – Pydantic `InputSchema` and `OutputSchema` (see `utils/schemes.py`)
-2. **Instruction File** – External `instructions.txt` loaded via `load_instruction()` (from `utils/helper.py`)
-3. **Agent Creation** – `Agent()` or `LoopAgent()` with `disallow_transfer_to_parent=True` and `disallow_transfer_to_peers=True`
-4. **Response Parsing** – Structured JSON validated by `parse_agent_output()` from `utils/response_parser.py`
+**Testing Standards:**
 
-**Example:**
-```python
-# product_vision_agent/agent.py
-root_agent = Agent(
-    name="product_vision_agent",
-    model=LiteLlm(...),
-    input_schema=InputSchema,
-    output_schema=OutputSchema,
-    instruction=load_instruction(Path("product_vision_agent/instructions.txt")),
-    disallow_transfer_to_parent=True,
-)
-```
+- **Unit Tests** (`tests/unit/` or `tests/test_*.py`):
+  - Test individual functions/classes in isolation
+  - Use mocks for database/external dependencies
+  - Each test should be independent (no shared state)
+  - Test fixtures in `tests/conftest.py` for reusable setup
 
-### Root Orchestrator with App Object
+- **Integration Tests** (`tests/integration/`):
+  - Test agent interactions end-to-end
+  - Test database operations with fresh SQLite engine (see `conftest.py`)
+  - Validate JSON schema compliance for agent outputs
 
-The orchestrator is the **root agent** for the entire application:
-```python
-# orchestrator_agent/agent.py
-from google.adk.apps import App
-from google.adk.tools import AgentTool
+- **Coverage Requirements:**
+  - Minimum 80% code coverage for new features
+  - Run: `pytest --cov=. --cov-report=html tests/`
+  - Critical paths (agent pipelines, database mutations) require 100% coverage
 
-root_agent = Agent(
-    name="orchestrator_agent",
-    model=LiteLlm(...),
-    tools=[
-        AgentTool(agent=vision_agent),  # Other agents as tools
-        AgentTool(agent=roadmap_agent),
-        FunctionTool(func=count_projects),  # Database queries
-        # ... more tools
-    ],
-    instruction=load_instruction(...),
-)
-
-# Export as app (required for ADK web)
-app = App(name="project_tcc", root_agent=root_agent)
-```
-
-**Key Pattern:**
-- Child agents (vision, roadmap) are **wrapped in `AgentTool`** and included in root's `tools` list
-- Root agent calls them explicitly as tools, passing input and capturing output
-- Database query tools also wrapped as `FunctionTool`
-- Root agent must export `app = App(...)` object for ADK web CLI
-
-### Contract Enforcement
-
-The story pipeline includes deterministic contract enforcement (post-LLM validation):
-
-**File:** `orchestrator_agent/agent_tools/story_pipeline/story_contract_enforcer.py`
-
-**Enforced Contracts (5 rules):**
-1. **Story Points**: NULL when `include_story_points=False`, 1-8 or NULL otherwise
-2. **Persona**: Exact match with expected persona (normalized, case-insensitive)
-3. **Feature ID**: story.feature_id must == input.feature_id (prevents data corruption)
-4. **Scope**: Feature must belong to allowed time_frame ("Now", "Next", "Later")
-5. **Validator State Consistency**: refinement_result must exist, no mixed signals
-
-**Note on INVEST:** INVEST principles are enforced by the Draft Agent's Pydantic schema validators,
-not by a separate contract. The enforcer focuses on data integrity and state consistency.
-
-### Orchestration Patterns
-
-**Session-Based Interactive Pattern** (`main.py`)
-- User-scoped sessions with persistent state (`DatabaseSessionService`)
-- State accumulates requirements across multiple turns
-- System switches agents when conditions are met (e.g., vision complete → roadmap)
-- **State keys:** `product_vision_statement`, `product_roadmap`, `unstructured_requirements`, `is_complete`, `clarifying_questions`
-
-### Multi-Turn Context Handling (Critical)
-
-**The agent must receive ALL accumulated requirements, not just the latest message:**
+**Test Patterns:**
 
 ```python
-# Correct: Pass full accumulated history
-append_user_text_to_requirements(state, user_text)  # Accumulate
-response = await run_vision_agent(
-    accumulated_requirements=str(state["unstructured_requirements"])  # Full history
-)
+# Unit test example (with mocks)
+def test_save_vision_tool_creates_product(mock_session):
+    result = save_vision_tool(
+        product_name="Test Product",
+        vision_statement="Clear vision",
+        tool_context=None
+    )
+    assert result["success"] is True
+    mock_session.add.assert_called_once()
+
+# Integration test example (with real DB)
+def test_story_pipeline_generates_invest_compliant_stories(test_engine):
+    session = Session(test_engine)
+    result = process_feature_for_stories(
+        feature_id=1,
+        include_story_points=True
+    )
+    assert result["validation_score"] >= 80
+    stories = session.exec(select(UserStory)).all()
+    assert len(stories) > 0
 ```
 
-This ensures agents maintain context across clarifying question rounds.
+**Test Organization:**
+- Group related tests in classes: `class TestVisionAgent:`
+- Use descriptive test names: `test_vision_agent_rejects_incomplete_requirements`
+- Add docstrings for complex test scenarios
+- Use `pytest.mark.parametrize` for testing multiple inputs
 
-## Database Schema
+**Pre-Commit Checklist:**
+- [ ] All tests pass: `pytest tests/ -v`
+- [ ] No test skips without documented reason
+- [ ] New features have corresponding tests
+- [ ] Test coverage meets minimum threshold
 
-**Core Tables** (from `agile_sqlmodel.py`):
-- `products` – Top-level container (has `vision`, `roadmap` fields)
-  - **Specification fields**: `technical_spec` (Text), `spec_file_path`, `spec_loaded_at`
-- `themes` – Product groupings (belongs to product, contains epics)
-- `epics` – Feature groups (belongs to theme, contains features)
-- `features` – User-facing capabilities (belongs to epic)
-- `user_stories` – INVEST-compliant stories (belongs to product, linked to sprints)
-  - **Completion tracking fields**: `resolution_type`, `completion_notes`, `acceptance_criteria_updates`, `known_gaps`, `evidence_links`, `completion_confidence`, `follow_up_story_id`, `completed_at`
-- `story_completion_log` – Audit trail for status changes (who, when, why, evidence)
-- `sprints` – Development cycles (tracks `start_date`, `end_date`, status)
-- `tasks` – Sprint tasks with assigned members
-- `teams` / `team_members` – Organizational structure
-- `workflow_events` – TCC evaluation metrics (event_type, duration_seconds, metadata)
-- **Link tables:** `TeamMembership`, `ProductTeam`, `SprintStory`
+### Tech Stack and Dependencies
 
-**Key Patterns:**
-- Foreign keys enforced via SQLite pragma: `PRAGMA foreign_keys=ON`
-- Timestamps use `func.now()` for server defaults
-- Many-to-many relationships defined via explicit link tables
+**Core Technologies (Fixed – DO NOT change):**
+- **Python 3.11+** – All async/await features available
+- **Google ADK 0.0.42** – Agent orchestration framework
+- **LiteLLM 1.64.3** – LLM abstraction (OpenRouter API)
+- **SQLModel 0.0.22** – ORM with Pydantic integration
+- **SQLite 3.37+** – Embedded database with foreign key support
+- **Pydantic 2.10.6** – Schema validation and serialization
+- **Pytest 8.3.4** – Testing framework
 
-## Tool Architecture
+**Dependency Management:**
+- Use `pyproject.toml` for all dependencies (managed via Poetry)
+- Pin major versions to prevent breaking changes
+- Test dependency updates in isolated branch before merging
+- Run `poetry lock` after changing dependencies
 
-### Read-Only Query Tools (`tools/orchestrator_tools.py`)
-- `count_projects()` – Count total projects (cached)
-- `list_projects()` – List all projects with summaries (cached)
-- `get_project_details(product_id)` – Get full hierarchy
-- `get_project_by_name(project_name)` – Search by name
-- `load_specification_from_file(file_path)` – Load spec content from file path
+### Code Quality Standards
 
-**Caching Strategy:** Tools accept optional `ToolContext` to transparently cache results in ADK's persistent state. TTL defaults to 5 minutes (configurable). Cache keys: `projects_summary`, `projects_list`, `projects_last_refreshed_utc`.
+**Style and Formatting:**
+- Follow PEP 8 (enforced by Ruff/Black if configured)
+- Maximum line length: 100 characters
+- Use type hints for all function signatures:
+  ```python
+  def process_feature(feature_id: int, context: Optional[ToolContext] = None) -> dict[str, Any]:
+  ```
+- Docstrings for public functions (Google style):
+  ```python
+  def save_vision_tool(product_name: str) -> dict[str, Any]:
+      """Save product vision to database.
+      
+      Args:
+          product_name: Unique product identifier
+          
+      Returns:
+          Dict with 'success' (bool) and 'product_id' (int) keys
+      """
+  ```
 
-### Database Mutation Tools (`tools/db_tools.py`)
-- `create_or_get_product()` – Create product or return existing
-- `save_vision_tool()` – Persist vision statement to database
-- `save_roadmap_tool()` – Create theme → epic → feature hierarchy
+**Error Handling:**
+- Use explicit exception types (avoid bare `except:`)
+- Log errors with context: `logger.error(f"Failed to save vision: {e}")`
+- Return structured error responses:
+  ```python
+  return {"success": False, "error": str(e), "details": {"product_id": None}}
+  ```
 
-### Specification Persistence Tools (`tools/spec_tools.py`)
-- `save_project_specification(product_id, spec_source, content)` – Save/update specification
-  - **spec_source="file"**: Loads from file path, stores path reference (no backup)
-  - **spec_source="text"**: Saves pasted content, creates backup in `specs/{safe_name}_{product_id}_spec.md`
-  - Validates file size (<100KB), handles UTF-8 encoding
-  - Updates existing spec if product already has one
-- `read_project_specification()` – Retrieve spec for active project
-  - Returns full spec content, file path, token estimate (~chars/4)
-  - Extracts markdown headings for navigation (max 20)
-  - Agents should call this BEFORE asking questions to check if info exists in spec
+**Naming Conventions:**
+- Files: `snake_case.py`
+- Classes: `PascalCase` (e.g., `ProductVisionAgent`)
+- Functions/variables: `snake_case` (e.g., `process_feature_for_stories`)
+- Constants: `UPPER_SNAKE_CASE` (e.g., `MAX_ITERATIONS`)
+- Private methods: `_leading_underscore`
 
-**Usage Pattern:**
+**Performance Optimization:**
+- Use SQLModel `select()` with filtering, not `session.exec(select(Table)).all()` then filter in Python
+- Batch database operations when possible (see `batch_update_story_status`)
+- Cache expensive operations via `ToolContext` (see `orchestrator_tools.py`)
+- Limit query results with pagination (default: 100 max)
+
+**Security:**
+- Never hardcode API keys (use environment variables)
+- Validate all user inputs (Pydantic schemas enforce this)
+- Sanitize file paths (use `Path.resolve()` to prevent traversal)
+- SQL injection protected by SQLModel parameterization
+
+### File Organization Rules
+
+**When to Create New Files:**
+- New agent → new folder in `orchestrator_agent/agent_tools/`
+- New tool → add to appropriate file in `tools/` (or create `tools/new_category_tools.py`)
+- New schema → add to `utils/schemes.py` (keep all Pydantic schemas centralized)
+- Test file → mirror source structure in `tests/` (e.g., `tools/db_tools.py` → `tests/test_db_tools.py`)
+
+**DO NOT Create:**
+- Markdown documentation files unless explicitly requested
+- Backup files or archives (use Git for version control)
+- Duplicate utility functions (check `utils/` first)
+- Configuration files for tools not in `pyproject.toml`
+
+**Import Organization:**
 ```python
-# During project creation (orchestrator)
-spec_content = load_specification_from_file("test_specs/spec.md")
-# After vision saved
-save_project_specification({
-    "product_id": new_product_id,
-    "spec_source": "file",
-    "content": "test_specs/spec.md"
-})
+# Standard library
+import json
+from pathlib import Path
+from typing import Optional
 
-# In downstream agents (roadmap, stories)
-spec = read_project_specification(tool_context=context)
-if spec["success"]:
-    # Search spec_content before asking questions
-    if "authentication" in spec["spec_content"].lower():
-        # Extract requirements from spec
+# Third-party
+from pydantic import BaseModel, Field
+from sqlmodel import Session, select
+
+# Local
+from agile_sqlmodel import Product, UserStory
+from utils.helper import load_instruction
 ```
 
-### Story Pipeline Tools (`orchestrator_agent/agent_tools/story_pipeline/tools.py`)
-- `process_feature_for_stories()` – Generate stories for single feature with INVEST validation
-- `process_features_batch()` – Batch process multiple features (max 10)
-- `save_validated_stories()` – Persist pre-validated stories without re-processing
+## Google ADK + Pydantic v2 Structured I/O Standards (Mandatory)
 
-### Sprint Planning Tools (`orchestrator_agent/agent_tools/sprint_planning/tools.py`)
-- `get_backlog_for_planning()` – Query TO_DO stories ready for sprint
-- `plan_sprint_tool()` – Create draft sprint with validation
-- `save_sprint_tool()` – Persist sprint to database with metrics
-- `get_sprint_details()` – View sprint information
-- `list_sprints()` – List all sprints for product
+### Core rule: schemas are contracts; instructions enforce compliance
+- When using ADK `input_schema` and/or `output_schema`, treat Pydantic models as:
+  - **Validation + serialization contracts** (hard constraints).
+  - **Not** sufficient “teaching” for the LLM by themselves.
+- Therefore, **ALWAYS include explicit format guidance in `instruction`**:
+  - For `input_schema`: state the input is a **JSON string** matching the schema and give a minimal example.
+  - For `output_schema`: state **return ONLY JSON** matching the schema; no markdown fences; no commentary.
 
-### Sprint Execution Tools (`orchestrator_agent/agent_tools/sprint_planning/sprint_execution_tools.py`)
-- `update_story_status()` – Change story status (TO_DO/IN_PROGRESS/DONE)
-- `complete_story_with_notes()` – Mark story DONE with completion documentation
-- `update_acceptance_criteria()` – Update AC mid-sprint with traceability
-- `create_followup_story()` – Create descoped work story linked to parent
-- `batch_update_story_status()` – Daily standup batch status updates
-- `modify_sprint_stories()` – Add/remove stories mid-sprint
-- `complete_sprint()` – Mark sprint complete with velocity metrics
+### Instruction patterns (copy/paste)
+- **Structured input (required if `input_schema` is set):**
+  - Include:
+    - “Input is a JSON string matching this schema.”
+    - One example payload.
+  - Example wording:
+    - `The user will provide input as a JSON string like {"field": "value"}.`
 
-## Response Format Contract
+- **Structured output (required if `output_schema` is set):**
+  - Include:
+    - “Return ONLY a JSON object matching the output schema.”
+    - “Do not wrap in markdown. Do not include any extra keys.”
+    - One example output (optional but recommended).
+  - Example wording:
+    - `Respond ONLY with JSON matching the schema. No prose. No markdown.`
 
-All agents must return valid JSON matching their `OutputSchema`. Example:
+### Pydantic v2 + typing.Annotated conventions
+- All structured schemas MUST be Pydantic v2 `BaseModel`.
+- Use `typing.Annotated[...]` + `pydantic.Field(...)` for constraints and documentation:
+  - Use `description=` for every public field.
+  - Prefer tight bounds (e.g., `min_length`, `max_length`, `ge`, `le`) to reduce model drift.
+- Serialization:
+  - Use `model_dump()` / `model_dump_json()` for producing JSON.
+  - Use `model_validate_json()` for parsing JSON outputs.
+- Config:
+  - Prefer strictness for external-facing outputs:
+    - Consider `model_config = ConfigDict(extra="forbid")` for output models when feasible.
+  - If strictness causes frequent failures, handle via retry/repair logic at the orchestrator level, not by loosening schema without tests.
 
-```json
-{
-  "product_vision_statement": "Unified inbox for busy professionals...",
-  "is_complete": true,
-  "clarifying_questions": []
-}
-```
+### ADK interaction rules for structured I/O
+- If `input_schema` is set:
+  - The message content passed into the agent MUST be a JSON string.
+  - Upstream code or upstream agent must construct that JSON string from the Pydantic model.
+  - Add tests that verify invalid/non-JSON input fails fast.
+- If `output_schema` is set:
+  - The agent’s final response MUST be JSON conforming to the schema.
+  - Add tests that:
+    - parse with `OutputModel.model_validate_json(text)`;
+    - assert schema constraints (required fields, bounds);
+    - assert there is no extra text (no markdown fences).
 
-**Error Handling:** If parsing fails, `parse_agent_output()` returns `(None, error_message)`. The system preserves state and allows users to continue despite parse failures.
+### Tools vs structured output (avoid conflicts)
+- Do NOT combine tool-use behavior and `output_schema` in the same ADK agent unless the current ADK version explicitly supports it.
+- Preferred pipeline when tools are needed:
+  1) Tool-capable agent (no `output_schema`) writes results into session state
+  2) Formatter agent (with `output_schema`, no tools) emits strict JSON
 
-## Session Persistence
+### Testing requirements for structured I/O (in addition to project TDD rules)
+- Unit tests:
+  - Validate schema constraints for representative payloads (valid/invalid).
+  - Validate JSON round-trip: `model_dump_json()` -> `model_validate_json()`.
+- Integration tests:
+  - Run the ADK agent and assert:
+    - input passed is a JSON string (when `input_schema` is used);
+    - output event text parses with `model_validate_json()` (when `output_schema` is used).
+  - Add at least one test that fails if the model returns:
+    - markdown fenced JSON
+    - extra commentary
+    - missing/renamed keys
 
-**How it works:**
-1. `DatabaseSessionService` manages sessions in SQLite (`agile_simple.db`)
-2. Each session is scoped by `(app_name, user_id, session_id)`
-3. State is a dict that persists across runner calls
-4. **Note:** Current implementation uses `SESSION_ID = str(uuid.uuid4())` generating new session per run
-
-**Usage in ADK Web:**
-```bash
-python main.py  # Starts orchestrator with session persistence
-```
-
-## Development Workflows
-
-### Run Interactive Orchestrator (Recommended)
-```bash
-python main.py
-```
-Starts ADK Web with:
-- Session persistence via `DatabaseSessionService`
-- Orchestrator agent as root (with App object)
-- All sub-agents accessible via AgentTool
-- Pre-loaded project state on startup
-
-### Run Tests
-```bash
-pytest tests/
-```
-Test database fixtures in `tests/conftest.py` create fresh SQLite engine for each test.
-
-## Story Pipeline Architecture
-
-### Spec-Validated Story Generation System
-
-**Location:** `orchestrator_agent/agent_tools/story_pipeline/`
-
-**Architecture:** LoopAgent + SequentialAgent hybrid
-- `story_validation_loop` (LoopAgent) wraps sequential pipeline
-- Max 4 iterations with early exit when spec-compliant
-- Two sub-agents process features in sequence:
-
-#### 1. Story Draft Agent
-**File:** `story_pipeline/story_draft_agent/agent.py`
-- Generates initial user story from feature description
-- **Enforces INVEST principles directly in generation** (no separate validator needed)
-- Applies vision constraints from alignment checker
-- Outputs: story title, description, acceptance criteria (3-5 items)
-
-#### 2. Spec Validator Agent
-**File:** `story_pipeline/spec_validator_agent/agent.py`
-- Validates stories against technical specification requirements
-- Domain-aware: binds requirements to stories based on feature context
-- Checks for missing artifacts, invariants, and domain-specific constraints
-- Returns compliance status with specific suggestions for missing items
-
-#### 3. Story Refiner Agent
-**File:** `story_pipeline/story_refiner_agent/agent.py`
-- Refines story based on validation feedback
-- Preserves approved elements, improves weak dimensions
-- Re-validates until score ≥ 90 or max iterations reached
-
-### Vision Alignment Enforcement
-
-**File:** `orchestrator_agent/agent_tools/story_pipeline/alignment_checker.py`
-
-**Purpose:** Deterministic constraint enforcement to prevent LLM drift from product vision
-
-**Key Functions:**
-- `extract_forbidden_capabilities()` – Maps vision keywords to forbidden story elements
-- `check_alignment_before_pipeline()` – FAIL-FAST validation before story generation
-- `check_alignment_after_validation()` – Post-pipeline drift detection
-
-**Vision Constraint Patterns** (5 categories):
-1. **Platform Constraints**: "mobile-only" → forbids web/desktop mentions
-2. **Connectivity**: "offline-first" → forbids real-time sync, cloud storage
-3. **UX Philosophy**: "distraction-free" → forbids notifications, gamification
-4. **User Segment**: "casual users" → forbids industrial/enterprise terms
-5. **Scope Constraints**: "simple" → forbids AI/ML, advanced analytics
-
-**Example:**
-```python
-# Vision: "offline-first mobile app"
-# Feature: "Real-time cloud sync"
-# Result: REJECTED before pipeline runs (saves LLM tokens)
-alignment_result = check_alignment_before_pipeline(
-    vision="offline-first mobile app",
-    feature_description="Real-time cloud sync"
-)
-# Returns: {"aligned": False, "violations": ["Forbidden: real-time (conflicts with offline-first)"]}
-```
-
-### Pipeline Iteration Flow
-
-```
-Feature Input
-    ↓
-Alignment Check (FAIL-FAST)
-    ↓ (if aligned)
-Iteration 1: Draft (INVEST built-in) → Spec Validate → Refine (if needed)
-    ↓
-Iteration 2: Spec Validate → Refine (if needed)
-    ↓
-Iteration N: Spec Validate → ACCEPT (when compliant)
-    ↓
-Post-Validation Alignment Check
-    ↓
-Save to Database (status: TO_DO)
-```
-
-## Folder Structure (ADK Best Practices)
-
-```
-orchestrator_agent/          # Root agent (entry point)
-  ├── agent.py              # Defines root_agent and app (App object)
-  ├── instructions.txt      # Orchestrator instructions
-  └── agent_tools/
-      ├── product_vision_tool/
-      │   ├── agent.py      # Vision agent
-      │   └── instructions.txt
-      ├── product_roadmap_agent/
-      │   ├── agent.py      # Roadmap agent
-      │   └── instructions.txt
-      ├── story_pipeline/
-      │   ├── pipeline.py   # LoopAgent orchestrator
-      │   ├── tools.py      # process_feature_for_stories, batch
-      │   ├── alignment_checker.py  # Vision constraint enforcement
-      │   ├── spec_requirement_extractor.py  # Domain-aware requirement binding
-      │   ├── story_draft_agent/    # Draft generator (INVEST built-in)
-      │   ├── spec_validator_agent/ # Spec compliance checker
-      │   └── story_refiner_agent/
-      └── sprint_planning/
-          ├── tools.py      # Sprint planning tools
-          ├── sprint_execution_tools.py  # Status updates, completion
-          └── sprint_query_tools.py      # Backlog queries
-
-tools/
-  ├── orchestrator_tools.py       # Database query tools (FunctionTool)
-  ├── db_tools.py                 # Database mutation tools
-  └── spec_tools.py               # Specification persistence tools
-
-specs/                       # Auto-created backup files for pasted specs
-
-main.py                      # CLI entry point (calls orchestrator app)
-```
-
-## Key Files Reference
-
-| File | Purpose |
-|------|---------|
-| `main.py` | ADK Web bootstrap; session initialization |
-| `orchestrator_agent/agent.py` | Root orchestrator with all agent tools |
-| `orchestrator_agent/agent_tools/product_vision_tool/agent.py` | Vision agent definition |
-| `orchestrator_agent/agent_tools/product_roadmap_agent/agent.py` | Roadmap agent definition |
-| `orchestrator_agent/agent_tools/story_pipeline/pipeline.py` | Story validation LoopAgent |
-| `orchestrator_agent/agent_tools/story_pipeline/alignment_checker.py` | Vision constraint enforcement |
-| `orchestrator_agent/agent_tools/story_pipeline/spec_requirement_extractor.py` | Domain-aware requirement binding |
-| `orchestrator_agent/agent_tools/story_pipeline/story_draft_agent/agent.py` | Draft generator (INVEST built-in) |
-| `orchestrator_agent/agent_tools/story_pipeline/spec_validator_agent/agent.py` | Spec compliance checker |
-| `orchestrator_agent/agent_tools/story_pipeline/story_refiner_agent/agent.py` | Story refiner |
-| `orchestrator_agent/agent_tools/sprint_planning/tools.py` | Sprint planning tools |
-| `orchestrator_agent/agent_tools/sprint_planning/sprint_execution_tools.py` | Sprint status updates |
-| `agile_sqlmodel.py` | SQLModel schema and database initialization |
-| `utils/schemes.py` | Shared Pydantic schemas across agents |
-| `utils/response_parser.py` | JSON response validation |
-| `tools/orchestrator_tools.py` | Read-only project query tools |
-| `tools/db_tools.py` | Database mutation tools |
-| `tools/spec_tools.py` | Specification persistence and retrieval |
-
-## Common Pitfalls
-
-1. **Agent Transfer Blocking:** Always set `disallow_transfer_to_parent=True` and `disallow_transfer_to_peers=True` to prevent unwanted agent transfers.
-
-2. **Schema Mismatch:** Agent `OutputSchema` must exactly match the model's `output_schema` parameter. Mismatches cause parsing failures.
-
-3. **Missing Instructions:** Agents require instruction text (typically from external file). Ensure `load_instruction()` path is correct.
-
-4. **Cached Tool Results:** If `ToolContext` is missing (e.g., in unit tests), tools bypass cache and hit DB directly. This is intentional.
-
-5. **Foreign Key Errors:** Always enable SQLite pragmas before creating tables. See `agile_sqlmodel.py` for event listener pattern.
-
-6. **Accumulating State:** Vision agent must receive full requirement history for context, not just the latest user message.
-
-7. **Specification Amnesia:** Specifications are now persisted in the database and retrievable on-demand. Agents should call `read_project_specification()` BEFORE asking questions to check if the answer already exists in the spec. This prevents redundant questioning.
-
-8. **Documentation Files:** Do NOT create `.md` files or documentation files unless the user explicitly asks for it. Focus on code implementation only.
-
-9. **Alignment Violations:** If story generation produces features contradicting the vision (e.g., "web UI" for "mobile-only" app), the alignment checker will reject them BEFORE pipeline runs. Don't try to transform violations—respect vision constraints.
-
-10. **Story Pipeline Early Exit:** Pipeline exits when spec-compliant OR max 4 iterations reached. Stories that fail spec compliance after max iterations should be flagged for manual review.
-
-## Evaluation Metrics (For TCC)
-
-The system will be validated using:
-- **Cognitive Load:** NASA-TLX questionnaire (captured after sprint planning via `WorkflowEvent`)
-- **Artifact Quality:** INVEST criteria for user stories (automated scoring 0-100)
-- **Workflow Efficiency:** Cycle time and lead time (tracked via `WorkflowEvent` table)
-- **Baseline:** Performance vs. solo developer with traditional tools
-
-### WorkflowEvent Metrics Collection
-
-**Table:** `workflow_events` (in `agile_sqlmodel.py`)
-
-**Event Types:**
-- `SPRINT_PLAN_DRAFT` – Draft creation (includes story count, duration)
-- `SPRINT_PLAN_SAVED` – Persistence (includes stories linked, tasks created)
-- `SPRINT_COMPLETED` – Sprint end (includes velocity, completion rate)
-- `STORY_GENERATED` – Story pipeline completion (includes INVEST score, iterations)
-- `VISION_SAVED`, `ROADMAP_SAVED` – Artifact creation timestamps
-
-**Querying Metrics:**
-```python
-# Get average planning duration
-events = session.exec(
-    select(WorkflowEvent).where(WorkflowEvent.event_type == WorkflowEventType.SPRINT_PLAN_DRAFT)
-).all()
-avg_duration = sum(e.duration_seconds for e in events) / len(events)
-
-# Get INVEST score distribution
-story_events = session.exec(
-    select(WorkflowEvent).where(WorkflowEvent.event_type == WorkflowEventType.STORY_GENERATED)
-).all()
-scores = [e.event_metadata.get("validation_score") for e in story_events]
-```
-
-## Current Implementation Status
-
-**✅ Fully Implemented:**
-- Product Owner Agent (vision + roadmap generation)
-- Specification Persistence (save/read from DB, file/text sources, on-demand access)
-- User Story Generation with INVEST principles (Draft Agent generates INVEST-ready stories)
-- Spec Validation Pipeline (domain-aware compliance checking, 2-agent pipeline)
-- Sprint Planning Agent (draft → review → commit pattern)
-- Sprint Execution Tools (status updates, completion tracking, mid-sprint modifications)
-- Vision Alignment Enforcement (deterministic constraint checking)
-- Audit Logging (story completion, workflow events)
-
-**🚧 Partially Implemented:**
-- Scrum Master Event Orchestration (Sprint Planning complete; Daily, Review, Retrospective planned)
-- Definition of Done (DoD) tracking (story completion fields exist; formal DoD checklist not implemented)
-
-**📋 Planned (Not Yet Started):**
-- Daily Scrum Agent (automated standup facilitation)
-- Sprint Review Agent (demo coordination)
-- Sprint Retrospective Agent (improvement suggestion generation)
-- Developer Support Agent (task breakdown assistance)
-
-See `CLAUDE.md` for TCC research methodology and `PLANNING_WORKFLOW.md` for complete workflow documentation.
-
+### Copilot behavior requirements when generating ADK agents
+- When creating/updating an ADK agent using `input_schema`/`output_schema`, Copilot MUST:
+  - create/update the Pydantic v2 models with `Annotated` + `Field(description=...)`;
+  - include explicit JSON format requirements in `instruction` (input + output);
+  - add/extend tests first (TDD) to cover JSON validity and schema conformance.

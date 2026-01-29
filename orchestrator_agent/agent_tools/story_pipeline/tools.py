@@ -7,13 +7,15 @@ These tools handle:
 2. Running the pipeline
 3. Extracting the validated story
 4. Batch processing multiple features
-5. Deterministic alignment enforcement (vision constraint checking)
+5. Deterministic alignment enforcement (spec authority forbidden capability checking)
 """
 
 import asyncio
+import copy
 import json
 from typing import Annotated, Any, Callable, Dict, List, Optional, Set
 
+from google.adk.agents import BaseAgent, LlmAgent, SequentialAgent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
@@ -21,16 +23,34 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
-from agile_sqlmodel import UserStory, engine, ProductPersona, Product
+from agile_sqlmodel import (
+    UserStory,
+    engine,
+    ProductPersona,
+    Product,
+    SpecRegistry,
+    CompiledSpecAuthority,
+    SpecAuthorityAcceptance,
+)
 from orchestrator_agent.agent_tools.story_pipeline.pipeline import (
     story_validation_loop,
 )
+from orchestrator_agent.agent_tools.story_pipeline.story_draft_agent.agent import (
+    story_draft_agent,
+)
+from orchestrator_agent.agent_tools.story_pipeline.story_refiner_agent.agent import (
+    story_refiner_agent,
+)
+from orchestrator_agent.agent_tools.story_pipeline.story_generation_context import (
+    build_generation_context,
+)
 from orchestrator_agent.agent_tools.story_pipeline.alignment_checker import (
-    extract_forbidden_capabilities,
     validate_feature_alignment,
     check_alignment_violation,
     detect_requirement_drift,
     create_rejection_response,
+    derive_forbidden_capabilities_from_authority,
+    extract_invariants_from_authority,
 )
 from orchestrator_agent.agent_tools.story_pipeline.story_contract_enforcer import (
     enforce_story_contracts,
@@ -45,6 +65,73 @@ from orchestrator_agent.agent_tools.story_pipeline.persona_checker import (
 from orchestrator_agent.agent_tools.product_user_story_tool.tools import (
     FeatureForStory,
 )
+from orchestrator_agent.agent_tools.utils.resilience import SelfHealingAgent
+
+
+def _ensure_spec_version_metadata(
+    story_payload: Dict[str, Any],
+    spec_version_id: int,
+) -> Dict[str, Any]:
+    metadata = story_payload.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    metadata["spec_version_id"] = spec_version_id
+    story_payload["metadata"] = metadata
+    return story_payload
+
+
+def _clone_agent(agent: BaseAgent) -> BaseAgent:
+    if isinstance(agent, LlmAgent):
+        return LlmAgent(
+            name=agent.name,
+            model=agent.model,
+            instruction=agent.instruction,
+            description=getattr(agent, "description", None),
+            output_key=getattr(agent, "output_key", None),
+            output_schema=getattr(agent, "output_schema", None),
+            disallow_transfer_to_parent=getattr(agent, "disallow_transfer_to_parent", False),
+            disallow_transfer_to_peers=getattr(agent, "disallow_transfer_to_peers", False),
+        )
+    cloned = copy.deepcopy(agent)
+    if hasattr(cloned, "parent"):
+        setattr(cloned, "parent", None)
+    if hasattr(cloned, "_parent"):
+        setattr(cloned, "_parent", None)
+    return cloned
+
+
+def _load_compiled_authority(
+    session: Session,
+    product_id: int,
+    spec_version_id: int,
+) -> tuple[SpecRegistry, CompiledSpecAuthority, str]:
+    """Load compiled authority and spec content for a pinned spec version."""
+    spec_version = session.get(SpecRegistry, spec_version_id)
+    if not spec_version:
+        raise ValueError(f"Spec version {spec_version_id} not found")
+    if spec_version.product_id != product_id:
+        raise ValueError(
+            f"Spec version {spec_version_id} does not belong to product {product_id}"
+        )
+    compiled_authority = session.exec(
+        select(CompiledSpecAuthority).where(
+            CompiledSpecAuthority.spec_version_id == spec_version_id
+        )
+    ).first()
+    if not compiled_authority:
+        raise ValueError(f"spec_version_id {spec_version_id} is not compiled")
+    acceptance = session.exec(
+        select(SpecAuthorityAcceptance).where(
+            SpecAuthorityAcceptance.spec_version_id == spec_version_id,
+            SpecAuthorityAcceptance.status == "accepted",
+        )
+    ).first()
+    if not acceptance:
+        raise ValueError(
+            f"spec_version_id {spec_version_id} authority not accepted"
+        )
+    technical_spec = spec_version.content or ""
+    return spec_version, compiled_authority, technical_spec
 
 # --- Schema for single story processing ---
 
@@ -121,11 +208,29 @@ class ProcessStoryInput(BaseModel):
             description="Whether to include story point estimates.",
         ),
     ]
-    technical_spec: Annotated[
-        Optional[str],
+    spec_version_id: Annotated[
+        int,
+        Field(description="Compiled spec version ID to validate against."),
+    ]
+    enable_story_refiner: Annotated[
+        bool,
         Field(
-            default=None,
-            description="Technical specification document for domain context.",
+            default=True,
+            description="Whether to run the story refiner loop (A/B testing).",
+        ),
+    ]
+    enable_spec_validator: Annotated[
+        bool,
+        Field(
+            default=True,
+            description="Whether to run the spec validator agent.",
+        ),
+    ]
+    pass_raw_spec_text: Annotated[
+        bool,
+        Field(
+            default=True,
+            description="Whether to pass raw spec text into session state.",
         ),
     ]
 
@@ -171,7 +276,7 @@ async def process_single_story(
     Process a single feature through the story validation pipeline.
 
     This tool:
-    1. Validates feature alignment with product vision (FAIL-FAST on violations)
+    1. Validates feature alignment with spec authority forbidden capabilities
     2. Sets up initial state with feature context + forbidden capabilities
     3. Runs the LoopAgent pipeline (Draft → Validate → Refine)
     4. Applies deterministic post-validation (catches LLM misses + drift)
@@ -202,6 +307,12 @@ async def process_single_story(
     )
     log(f"{DIM}   Theme: {story_input.theme} | Epic: {story_input.epic}{RESET}")
 
+    if not story_input.spec_version_id:
+        return {
+            "success": False,
+            "error": "spec_version_id is required",
+        }
+
     # --- STEP 0: Fail-Fast Persona Whitelist Check ---
     with Session(engine) as session:
         is_valid_persona, persona_error = validate_persona_against_registry(
@@ -215,21 +326,43 @@ async def process_single_story(
                 "story": None,
             }
 
-    # --- STEP 1: Extract forbidden capabilities from vision ---
-    forbidden_capabilities = extract_forbidden_capabilities(story_input.product_vision)
+    # --- STEP 1: Load compiled spec authority by spec_version_id (no fallbacks) ---
+    with Session(engine) as session:
+        try:
+            spec_version, compiled_authority, technical_spec = _load_compiled_authority(
+                session=session,
+                product_id=story_input.product_id,
+                spec_version_id=story_input.spec_version_id,
+            )
+        except ValueError as exc:
+            return {
+                "success": False,
+                "error": str(exc),
+            }
+
+    invariants = extract_invariants_from_authority(compiled_authority)
+    forbidden_items = derive_forbidden_capabilities_from_authority(
+        compiled_authority,
+        invariants=invariants,
+    )
+    forbidden_capabilities = [item.term for item in forbidden_items]
     if forbidden_capabilities:
         log(
-            f"{YELLOW}[Constraints]{RESET} Forbidden capabilities detected: {forbidden_capabilities}"
+            f"{YELLOW}[Constraints]{RESET} Forbidden capabilities (spec authority): "
+            f"{forbidden_capabilities}"
         )
 
     # --- STEP 2: FAIL-FAST - Check feature alignment BEFORE running pipeline ---
-    # This catches obvious violations early (e.g., "web dashboard" for mobile-only app)
     feature_alignment = validate_feature_alignment(
-        story_input.feature_title, story_input.product_vision
+        story_input.feature_title,
+        compiled_authority=compiled_authority,
     )
 
     if not feature_alignment.is_aligned:
-        log(f"{RED}[Alignment REJECTED]{RESET} Feature violates product vision:")
+        log(
+            f"{RED}[Alignment REJECTED]{RESET} "
+            f"Feature violates spec authority forbidden capabilities:"
+        )
         for issue in feature_alignment.alignment_issues:
             log(f"   {RED}✗{RESET} {issue}")
 
@@ -237,8 +370,15 @@ async def process_single_story(
         return create_rejection_response(
             feature_title=story_input.feature_title,
             alignment_issues=feature_alignment.alignment_issues,
-            product_vision=story_input.product_vision,
+            invariants=invariants,
         )
+
+
+    authority_context = build_generation_context(
+        compiled_authority=compiled_authority,
+        spec_version_id=story_input.spec_version_id,
+        spec_hash=getattr(spec_version, "spec_hash", None),
+    )
 
     # --- Set up initial state (includes forbidden_capabilities for validator) ---
     initial_state: Dict[str, Any] = {
@@ -265,6 +405,8 @@ async def process_single_story(
                 "time_frame": story_input.time_frame,
             }
         ),
+        "spec_version_id": story_input.spec_version_id,
+        "authority_context": json.dumps(authority_context),
         # Store original feature for drift detection
         "original_feature_title": story_input.feature_title,
         "forbidden_capabilities": json.dumps(forbidden_capabilities),
@@ -276,9 +418,10 @@ async def process_single_story(
         ),
         "refinement_feedback": "",  # Empty for first iteration
         "iteration_count": 0,
-        # Technical specification for domain context (optional)
-        "technical_spec": story_input.technical_spec or "",
     }
+    if story_input.pass_raw_spec_text:
+        # Raw spec text for phrasing only (NON-authoritative)
+        initial_state["raw_spec_text"] = technical_spec
 
     # --- Create session and runner ---
     session_service = InMemorySessionService()
@@ -288,8 +431,22 @@ async def process_single_story(
         state=initial_state,
     )
 
+    if story_input.enable_story_refiner:
+        if story_input.enable_spec_validator:
+            agent_to_run = story_validation_loop
+        else:
+            agent_to_run = SequentialAgent(
+                name="StorySequentialNoSpecValidator",
+                sub_agents=[
+                    SelfHealingAgent(agent=_clone_agent(story_draft_agent), max_retries=3),
+                    SelfHealingAgent(agent=_clone_agent(story_refiner_agent), max_retries=3),
+                ],
+                description="Drafts and refines a story (no spec validator).",
+            )
+    else:
+        agent_to_run = story_draft_agent
     runner = Runner(
-        agent=story_validation_loop,
+        agent=agent_to_run,
         app_name="story_pipeline",
         session_service=session_service,
     )
@@ -354,6 +511,13 @@ async def process_single_story(
                         if not story_input.include_story_points and draft_data.get("story_points") is not None:
                             draft_data["story_points"] = None
                             # Update state to persist the change
+                            state["story_draft"] = draft_data
+
+                        if draft_data:
+                            _ensure_spec_version_metadata(
+                                draft_data,
+                                story_input.spec_version_id,
+                            )
                             state["story_draft"] = draft_data
                         
                         if draft_data:
@@ -530,6 +694,7 @@ async def process_single_story(
                 # LLM should not regenerate this - it causes data corruption
                 refined_story["feature_id"] = story_input.feature_id
                 refined_story["feature_title"] = story_input.feature_title
+                _ensure_spec_version_metadata(refined_story, story_input.spec_version_id)
                 
                 # POST-PROCESSING: Strip story_points if include_story_points=False
                 # This is a safety net in case LLM didn't follow instructions
@@ -650,23 +815,41 @@ async def process_single_story(
                     except (json.JSONDecodeError, TypeError):
                         pass
                 
+                # Normalize validation result payloads (can be JSON strings)
+                validation_result_payload = state.get("validation_result")
+                if isinstance(validation_result_payload, str):
+                    try:
+                        validation_result_payload = json.loads(validation_result_payload)
+                    except (json.JSONDecodeError, TypeError):
+                        validation_result_payload = None
+
+                spec_validation_payload = state.get("spec_validation_result")
+                if isinstance(spec_validation_payload, str):
+                    try:
+                        spec_validation_payload = json.loads(spec_validation_payload)
+                    except (json.JSONDecodeError, TypeError):
+                        spec_validation_payload = None
+
                 contract_result = enforce_story_contracts(
                     story=refined_story,
                     include_story_points=story_input.include_story_points,
                     expected_persona=story_input.user_persona,
                     feature_time_frame=story_input.time_frame,
                     allowed_scope=None,  # TODO: Add scope filtering support
-                    validation_result=state.get("validation_result"),
-                    spec_validation_result=state.get("spec_validation_result"),
+                    validation_result=validation_result_payload,
+                    spec_validation_result=spec_validation_payload,
                     refinement_result=refinement_result_dict,
                     expected_feature_id=story_input.feature_id,  # Data integrity check
                     theme=story_input.theme,  # Theme title from feature
                     epic=story_input.epic,    # Epic title from feature
                     theme_id=story_input.theme_id,  # Stable ID reference
                     epic_id=story_input.epic_id,    # Stable ID reference
+                    # INVEST validator only runs when BOTH refiner AND spec_validator are enabled
+                    invest_validation_expected=(story_input.enable_story_refiner and story_input.enable_spec_validator),
                 )
                 
-                if not contract_result.is_valid:
+                # Handle three-state contract result: True (pass), False (fail), None (unknown/skipped)
+                if contract_result.is_valid is False:
                     # Contract violations found - override LLM validation
                     is_valid = False
                     status_icon = "❌"
@@ -674,10 +857,17 @@ async def process_single_story(
                     
                     log(f"{RED}[Contract Enforcer] FAILED - {len(contract_result.violations)} violations{RESET}")
                     log(format_contract_violations(contract_result.violations))
-                    
-                    # Add contract violations to alignment issues for reporting
-                    for violation in contract_result.violations:
-                        alignment_issues.append(f"[{violation.rule}] {violation.message}")
+                    # NOTE: Contract violations are NOT alignment issues (alignment = spec authority forbidden capabilities)
+                    # Contract violations only affect is_valid, not 'rejected' status
+                elif contract_result.is_valid is None:
+                    # Validation was skipped (e.g., spec_validator disabled)
+                    # Keep is_valid as None to propagate "unknown" state
+                    is_valid = None
+                    status_icon = "❔"
+                    status_color = YELLOW
+                    log(f"{YELLOW}[Contract Enforcer] SKIPPED - INVEST validation not run (validator disabled){RESET}")
+                    # Use sanitized story
+                    refined_story = contract_result.sanitized_story or refined_story
                 else:
                     log(f"{GREEN}[Contract Enforcer] PASSED - All contracts satisfied{RESET}")
                     # Use sanitized story (may have stripped forbidden fields)
@@ -705,6 +895,224 @@ async def process_single_story(
                     + (f" - REJECTED: {len(alignment_issues)} alignment violations" if alignment_issues else ""),
                 }
 
+        # If refiner disabled, synthesize refinement_result from draft
+        if not story_input.enable_story_refiner:
+            story_draft = state.get("story_draft")
+            if isinstance(story_draft, str):
+                try:
+                    story_draft = json.loads(story_draft)
+                except json.JSONDecodeError:
+                    story_draft = None
+
+            if isinstance(story_draft, dict):
+                _ensure_spec_version_metadata(story_draft, story_input.spec_version_id)
+                state["refinement_result"] = {
+                    "refined_story": story_draft,
+                    "is_valid": True,
+                    "refinement_applied": False,
+                    "refinement_notes": "Story refiner disabled.",
+                }
+                refinement_result = state.get("refinement_result")
+
+                # Re-run the standard refined-story path
+                if refinement_result:
+                    if isinstance(refinement_result, dict):
+                        refinement_data = refinement_result
+                    else:
+                        refinement_data = {}
+                    refined_story = refinement_data.get("refined_story", {})
+                    is_valid = bool(refinement_data.get("is_valid", False))
+                    refinement_notes = str(refinement_data.get("refinement_notes", ""))
+
+                    # POST-PROCESSING: Add feature_id from input state (prevent LLM override)
+                    refined_story["feature_id"] = story_input.feature_id
+                    refined_story["feature_title"] = story_input.feature_title
+                    _ensure_spec_version_metadata(refined_story, story_input.spec_version_id)
+
+                    # POST-PROCESSING: Strip story_points if include_story_points=False
+                    if (
+                        not story_input.include_story_points
+                        and refined_story.get("story_points") is not None
+                    ):
+                        refined_story["story_points"] = None
+
+                    # --- STEP 3: POST-PIPELINE DETERMINISTIC ALIGNMENT ENFORCEMENT ---
+                    alignment_issues: List[str] = []
+
+                    story_text = (
+                        f"{refined_story.get('title', '')} {refined_story.get('description', '')}"
+                    )
+                    story_alignment = check_alignment_violation(
+                        story_text,
+                        forbidden_capabilities,
+                        "generated story",
+                    )
+                    if not story_alignment.is_aligned:
+                        alignment_issues.extend(story_alignment.alignment_issues)
+                        log(
+                            f"{RED}[Post-Validation]{RESET} Story contains forbidden capabilities:"
+                        )
+                        for issue in story_alignment.alignment_issues:
+                            log(f"   {RED}✗{RESET} {issue}")
+
+                    drift_detected, drift_message = detect_requirement_drift(
+                        original_feature=story_input.feature_title,
+                        final_story_title=refined_story.get("title", ""),
+                        final_story_description=refined_story.get("description", ""),
+                        forbidden_capabilities=forbidden_capabilities,
+                    )
+                    if drift_detected and drift_message:
+                        alignment_issues.append(drift_message)
+                        log(f"{RED}[Drift Detection]{RESET} {drift_message}")
+
+                    log(f"{CYAN}[Persona Guard] Validating persona...{RESET}")
+
+                    persona_check = validate_persona(
+                        story_description=refined_story.get("description", ""),
+                        required_persona=story_input.user_persona,
+                        allow_synonyms=True,
+                    )
+
+                    if not persona_check.is_valid:
+                        log(
+                            f"{YELLOW}⚠️  Persona violation: {persona_check.violation_message}{RESET}"
+                        )
+
+                        refined_story = auto_correct_persona(
+                            refined_story, story_input.user_persona
+                        )
+                        log(
+                            f"{GREEN}✅ Auto-corrected persona to: {story_input.user_persona}{RESET}"
+                        )
+
+                        recheck = validate_persona(
+                            refined_story.get("description", ""), story_input.user_persona
+                        )
+                        if not recheck.is_valid:
+                            fail_msg = (
+                                f"PERSONA ENFORCEMENT FAILED: Required '{story_input.user_persona}', "
+                                f"Found '{recheck.extracted_persona}'"
+                            )
+                            alignment_issues.append(fail_msg)
+                            log(f"{RED}[Fatal Persona Error]{RESET} {fail_msg}")
+                        else:
+                            log(f"{GREEN}✅ Persona validation passed after correction{RESET}")
+                    else:
+                        log(
+                            f"{GREEN}✅ Persona validation passed: {story_input.user_persona}{RESET}"
+                        )
+
+                    if alignment_issues:
+                        log(
+                            f"{RED}[Deterministic Veto]{RESET} Overriding LLM validation due to alignment violations"
+                        )
+                        is_valid = False
+
+                    status_icon = "✅" if is_valid else "⚠️"
+                    status_color = GREEN if is_valid else YELLOW
+                    if alignment_issues:
+                        status_icon = "❌"
+                        status_color = RED
+
+                    iterations = max(current_iteration, 1)
+
+                    refined_story["theme"] = story_input.theme
+                    refined_story["epic"] = story_input.epic
+                    refined_story["feature_id"] = story_input.feature_id
+                    refined_story["theme_id"] = story_input.theme_id
+                    refined_story["epic_id"] = story_input.epic_id
+
+                    log(f"{CYAN}\n[Contract Enforcer] Running final validation...{RESET}")
+
+                    refinement_result_dict = state.get("refinement_result")
+
+                    validation_result_payload = state.get("validation_result")
+                    if isinstance(validation_result_payload, str):
+                        try:
+                            validation_result_payload = json.loads(validation_result_payload)
+                        except (json.JSONDecodeError, TypeError):
+                            validation_result_payload = None
+
+                    spec_validation_payload = state.get("spec_validation_result")
+                    if isinstance(spec_validation_payload, str):
+                        try:
+                            spec_validation_payload = json.loads(spec_validation_payload)
+                        except (json.JSONDecodeError, TypeError):
+                            spec_validation_payload = None
+
+                    contract_result = enforce_story_contracts(
+                        story=refined_story,
+                        include_story_points=story_input.include_story_points,
+                        expected_persona=story_input.user_persona,
+                        feature_time_frame=story_input.time_frame,
+                        allowed_scope=None,
+                        validation_result=validation_result_payload,
+                        spec_validation_result=spec_validation_payload,
+                        refinement_result=refinement_result_dict,
+                        expected_feature_id=story_input.feature_id,
+                        theme=story_input.theme,
+                        epic=story_input.epic,
+                        theme_id=story_input.theme_id,
+                        epic_id=story_input.epic_id,
+                        # INVEST validator only runs when BOTH refiner AND spec_validator are enabled
+                        invest_validation_expected=(story_input.enable_story_refiner and story_input.enable_spec_validator),
+                    )
+
+                    # Handle three-state contract result: True (pass), False (fail), None (unknown/skipped)
+                    if contract_result.is_valid is False:
+                        is_valid = False
+                        status_icon = "❌"
+                        status_color = RED
+
+                        log(
+                            f"{RED}[Contract Enforcer] FAILED - {len(contract_result.violations)} violations{RESET}"
+                        )
+                        log(format_contract_violations(contract_result.violations))
+                        # NOTE: Contract violations are NOT alignment issues (alignment = spec authority forbidden capabilities)
+                        # Contract violations only affect is_valid, not 'rejected' status
+                    elif contract_result.is_valid is None:
+                        # Validation was skipped (e.g., spec_validator disabled)
+                        is_valid = None
+                        status_icon = "❔"
+                        status_color = YELLOW
+                        log(f"{YELLOW}[Contract Enforcer] SKIPPED - INVEST validation not run (validator disabled){RESET}")
+                        refined_story = (
+                            contract_result.sanitized_story or refined_story
+                        )
+                    else:
+                        log(
+                            f"{GREEN}[Contract Enforcer] PASSED - All contracts satisfied{RESET}"
+                        )
+                        refined_story = (
+                            contract_result.sanitized_story or refined_story
+                        )
+
+                    log(
+                        f"\n{status_color}   {status_icon} FINAL: '{refined_story.get('title', 'Unknown')}' | Iterations: {iterations}{RESET}"
+                    )
+
+                    if alignment_issues:
+                        log(
+                            f"{RED}   Alignment issues: {len(alignment_issues)}{RESET}"
+                        )
+
+                    return {
+                        "success": True,
+                        "is_valid": is_valid,
+                        "rejected": len(alignment_issues) > 0,
+                        "story": refined_story,
+                        "iterations": iterations,
+                        "refinement_notes": refinement_notes,
+                        "alignment_issues": alignment_issues,
+                        "message": f"Generated story '{refined_story.get('title', 'Unknown')}' "
+                        f"(valid={is_valid}, iterations={iterations})"
+                        + (
+                            f" - REJECTED: {len(alignment_issues)} alignment violations"
+                            if alignment_issues
+                            else ""
+                        ),
+                    }
+
         # Fallback: try to get story_draft
         story_draft = state.get("story_draft")
         if story_draft:
@@ -719,6 +1127,7 @@ async def process_single_story(
                 story_draft["theme"] = story_input.theme
                 story_draft["epic"] = story_input.epic
                 story_draft["feature_id"] = story_input.feature_id
+                _ensure_spec_version_metadata(story_draft, story_input.spec_version_id)
 
             return {
                 "success": True,
@@ -780,11 +1189,15 @@ class ProcessBatchInput(BaseModel):
             description="Whether to include story point estimates.",
         ),
     ]
-    technical_spec: Annotated[
-        Optional[str],
+    spec_version_id: Annotated[
+        int,
+        Field(description="Compiled spec version ID to validate against."),
+    ]
+    enable_story_refiner: Annotated[
+        bool,
         Field(
-            default=None,
-            description="Technical specification document for domain context. If not provided, will be fetched from DB.",
+            default=True,
+            description="Whether to run the story refiner loop (A/B testing).",
         ),
     ]
 
@@ -820,14 +1233,23 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
     RESET = "\033[0m"
     BOLD = "\033[1m"
 
-    # --- Fetch technical spec from DB if not provided ---
-    technical_spec = batch_input.technical_spec
-    if technical_spec is None:
-        with Session(engine) as db_session:
-            product = db_session.get(Product, batch_input.product_id)
-            if product and product.technical_spec:
-                technical_spec = product.technical_spec
-                print(f"{CYAN}[Spec]{RESET} Loaded technical specification (~{len(technical_spec) // 4} tokens)")
+    # --- Fetch technical spec by spec_version_id (no fallbacks) ---
+    with Session(engine) as db_session:
+        try:
+            _, _, technical_spec = _load_compiled_authority(
+                session=db_session,
+                product_id=batch_input.product_id,
+                spec_version_id=batch_input.spec_version_id,
+            )
+        except ValueError as exc:
+            return {
+                "success": False,
+                "error": str(exc),
+            }
+        print(
+            f"{CYAN}[Spec]{RESET} Loaded technical specification "
+            f"(~{len(technical_spec) // 4} tokens)"
+        )
 
     print(f"\n{CYAN}{'═' * 60}{RESET}")
     print(f"{CYAN}{BOLD}  INVEST-VALIDATED STORY PIPELINE{RESET}")
@@ -839,10 +1261,7 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
         if len(batch_input.user_persona) > 50
         else f"{CYAN}  Persona: {batch_input.user_persona}{RESET}"
     )
-    if technical_spec:
-        print(f"{CYAN}  Spec: ✓ Available ({len(technical_spec)} chars){RESET}")
-    else:
-        print(f"{YELLOW}  Spec: ✗ Not available (stories generated from feature titles only){RESET}")
+    print(f"{CYAN}  Spec: ✓ Available ({len(technical_spec)} chars){RESET}")
     print(f"{CYAN}{'═' * 60}{RESET}")
 
     validated_stories: List[Dict[str, Any]] = []
@@ -886,8 +1305,9 @@ async def process_story_batch(batch_input: ProcessBatchInput) -> Dict[str, Any]:
                         time_frame=feature.time_frame,
                         theme_justification=feature.theme_justification,
                         sibling_features=feature.sibling_features,
-                        # Technical spec for domain context
-                        technical_spec=technical_spec,
+                        # Spec version required for validation
+                        spec_version_id=batch_input.spec_version_id,
+                        enable_story_refiner=batch_input.enable_story_refiner,
                     ),
                     output_callback=log_capture,
                 )
@@ -985,6 +1405,10 @@ class SaveStoriesInput(BaseModel):
     """Input schema for save_validated_stories tool."""
 
     product_id: Annotated[int, Field(description="The product ID.")]
+    spec_version_id: Annotated[
+        int,
+        Field(description="Compiled spec version ID used for validation."),
+    ]
     stories: Annotated[
         List[Dict[str, Any]],
         Field(
@@ -1019,6 +1443,7 @@ async def save_validated_stories(save_input: SaveStoriesInput) -> Dict[str, Any]
 
     saved_ids: List[int] = []
     failed_saves: List[Dict[str, Any]] = []
+    failed_validations: List[Dict[str, Any]] = []
 
     try:
         with Session(engine) as session:
@@ -1038,10 +1463,35 @@ async def save_validated_stories(save_input: SaveStoriesInput) -> Dict[str, Any]
                     session.add(user_story)
                     session.commit()
                     session.refresh(user_story)
-                    saved_ids.append(user_story.story_id)
-                    print(
-                        f"   {GREEN}✓{RESET} Saved story ID: {user_story.story_id} - {story_data.get('title', '')[:40]}"
+                    from tools.spec_tools import validate_story_with_spec_authority
+
+                    validation = validate_story_with_spec_authority(
+                        {
+                            "story_id": user_story.story_id,
+                            "spec_version_id": save_input.spec_version_id,
+                        },
+                        tool_context=None,
                     )
+
+                    if not validation.get("success") or not validation.get("passed"):
+                        failed_validations.append(
+                            {
+                                "story_id": user_story.story_id,
+                                "title": story_data.get("title", "Unknown"),
+                                "error": validation.get(
+                                    "error",
+                                    "Validation failed",
+                                ),
+                            }
+                        )
+                        print(
+                            f"   {RED}✗{RESET} Validation failed for story ID: {user_story.story_id}"
+                        )
+                    else:
+                        saved_ids.append(user_story.story_id)
+                        print(
+                            f"   {GREEN}✓{RESET} Saved story ID: {user_story.story_id} - {story_data.get('title', '')[:40]}"
+                        )
                 except SQLAlchemyError as e:
                     failed_saves.append(
                         {
@@ -1058,14 +1508,18 @@ async def save_validated_stories(save_input: SaveStoriesInput) -> Dict[str, Any]
             "success": False,
             "error": f"Database error: {str(e)}",
             "saved_story_ids": saved_ids,
+            "failed_saves": failed_saves,
+            "failed_validations": failed_validations,
         }
 
     return {
-        "success": True,
+        "success": len(failed_saves) == 0 and len(failed_validations) == 0,
         "saved_count": len(saved_ids),
         "failed_count": len(failed_saves),
         "saved_story_ids": saved_ids,
         "failed_saves": failed_saves,
+        "failed_validations": failed_validations,
         "message": f"Saved {len(saved_ids)} stories to database"
-        + (f" ({len(failed_saves)} failed)" if failed_saves else ""),
+        + (f" ({len(failed_saves)} failed)" if failed_saves else "")
+        + (f" ({len(failed_validations)} failed validation)" if failed_validations else ""),
     }

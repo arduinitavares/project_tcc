@@ -68,12 +68,15 @@ from tools.orchestrator_tools import (
 from tools.spec_tools import (
     save_project_specification,
     read_project_specification,
+    compile_spec_authority_for_version,
+    update_spec_and_compile_authority,
 )
 from tools.db_tools import (
     get_story_details,
 )
 from utils.helper import load_instruction
 from utils.schemes import InputSchema
+from utils.model_config import get_model_id
 
 # --- Load environment and instruction ---
 dotenv.load_dotenv()
@@ -83,7 +86,7 @@ instruction_text = load_instruction(INSTRUCTIONS_PATH)
 
 # --- Initialize model ---
 model = LiteLlm(
-    model="openrouter/google/gemini-2.5-pro",
+    model=get_model_id("orchestrator"),
     api_key=os.getenv("OPEN_ROUTER_API_KEY"),
     drop_params=True,  # Prevent passing unsupported params that trigger logging
 )
@@ -104,6 +107,8 @@ root_agent = Agent(
         # Specification tools
         save_project_specification,
         read_project_specification,
+        compile_spec_authority_for_version,
+        update_spec_and_compile_authority,
         # Story query tools
         get_story_details,
         query_features_for_stories,

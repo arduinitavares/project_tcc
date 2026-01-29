@@ -512,7 +512,7 @@ def _detect_generic_criteria(acceptance_criteria: List[str]) -> List[str]:
     return issues
 
 
-def validate_story_against_spec(
+def _validate_story_against_spec(
     story_title: str,
     story_description: str,
     acceptance_criteria: List[str],
@@ -522,6 +522,8 @@ def validate_story_against_spec(
     spec_text: str,
 ) -> SpecComplianceCheckResult:
     """
+    INTERNAL: use validate_story_with_spec_authority() for all external calls.
+
     Main entry point: Full spec compliance validation for a story.
     
     This function:

@@ -1,0 +1,10 @@
+models:
+  orchestrator: "openrouter/google/gemini-2.5-pro"
+  spec_authority_compiler: "openrouter/openai/gpt-5.1"
+  product_vision: "openrouter/openai/gpt-5.1"
+  product_roadmap: "openrouter/openai/gpt-5.1"
+  product_user_story: "openrouter/openai/gpt-5.1"
+  story_draft: "openrouter/openai/gpt-4.1-mini"
+  spec_validator: "openrouter/openai/gpt-4o-mini"
+  story_refiner: "openrouter/openai/gpt-4o-mini"
+  invest_validator: "openrouter/openai/gpt-4o-mini"
