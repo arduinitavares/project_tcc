@@ -449,3 +449,153 @@ class TestDevEscapeHatch:
         REQUIREMENT: Even with auto-accept, the response must show what was accepted.
         """
         pytest.skip("Dev escape hatch not yet implemented")
+
+
+class TestDualSpecSourceHandling:
+    """Tests for handling when both spec_content and content_ref are available."""
+
+    def test_process_story_batch_prefers_content_ref_over_spec_content(
+        self, engine, sample_product: Product, session: Session
+    ):
+        """
+        REGRESSION TEST: When tool_context has pending_spec_content AND batch_input
+        has content_ref, process_story_batch should prefer content_ref to avoid
+        ValueError("Provide exactly one of spec_content or content_ref").
+        
+        This was the root cause of the authority_gate.compile_result error.
+        """
+        from orchestrator_agent.agent_tools.story_pipeline.tools import (
+            process_story_batch,
+            ProcessBatchInput,
+            FeatureForStory,
+        )
+        import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
+        story_tools.engine = engine
+
+        # Simulate the scenario: tool_context has pending_spec_content from load_specification_from_file
+        mock_context = MockToolContext(state={
+            "pending_spec_path": "/some/path/spec.md",
+            "pending_spec_content": "# Spec content from state",
+        })
+
+        # Batch input has content_ref (from agent's tool call)
+        batch_input = ProcessBatchInput(
+            product_id=sample_product.product_id,
+            product_name=sample_product.name,
+            product_vision=sample_product.vision or "",
+            user_persona="Test Engineer",
+            include_story_points=False,
+            content_ref="specs/hashbrown.md",  # Explicit content_ref
+            features=[
+                FeatureForStory(
+                    feature_id=1,
+                    feature_title="Test Feature",
+                    theme="Test Theme",
+                    epic="Test Epic",
+                )
+            ],
+        )
+
+        captured_calls = []
+
+        def capture_ensure_call(
+            product_id,
+            *,
+            spec_content=None,
+            content_ref=None,
+            recompile=False,
+            tool_context=None,
+        ):
+            captured_calls.append({
+                "product_id": product_id,
+                "spec_content": spec_content,
+                "content_ref": content_ref,
+            })
+            raise RuntimeError("Captured - stopping here")
+
+        with patch(
+            "orchestrator_agent.agent_tools.story_pipeline.tools.ensure_accepted_spec_authority",
+            side_effect=capture_ensure_call,
+        ):
+            import asyncio
+            try:
+                asyncio.run(process_story_batch(batch_input, tool_context=mock_context))
+            except RuntimeError as e:
+                if "Captured" not in str(e):
+                    raise
+
+        assert len(captured_calls) == 1
+        call = captured_calls[0]
+
+        # KEY ASSERTION: Only one of spec_content or content_ref should be set
+        # When both are available, content_ref should be preferred
+        assert call["content_ref"] == "specs/hashbrown.md", "content_ref should be preserved"
+        assert call["spec_content"] is None, (
+            "spec_content should be None when content_ref is set to avoid "
+            "ValueError('Provide exactly one of spec_content or content_ref')"
+        )
+
+    def test_process_single_story_prefers_content_ref_over_spec_content(
+        self, engine, sample_product: Product, session: Session
+    ):
+        """
+        Same regression test for process_single_story.
+        """
+        from orchestrator_agent.agent_tools.story_pipeline.tools import (
+            process_single_story,
+            ProcessStoryInput,
+        )
+        import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
+        story_tools.engine = engine
+
+        mock_context = MockToolContext(state={
+            "pending_spec_path": "/some/path/spec.md",
+            "pending_spec_content": "# Spec content from state",
+        })
+
+        story_input = ProcessStoryInput(
+            product_id=sample_product.product_id,
+            product_name=sample_product.name,
+            product_vision=sample_product.vision or "",
+            feature_id=1,
+            feature_title="Test Feature",
+            theme="Test Theme",
+            epic="Test Epic",
+            user_persona="Test Engineer",
+            include_story_points=False,
+            content_ref="specs/hashbrown.md",
+        )
+
+        captured_calls = []
+
+        def capture_ensure_call(
+            product_id,
+            *,
+            spec_content=None,
+            content_ref=None,
+            recompile=False,
+            tool_context=None,
+        ):
+            captured_calls.append({
+                "product_id": product_id,
+                "spec_content": spec_content,
+                "content_ref": content_ref,
+            })
+            raise RuntimeError("Captured - stopping here")
+
+        with patch(
+            "orchestrator_agent.agent_tools.story_pipeline.tools.ensure_accepted_spec_authority",
+            side_effect=capture_ensure_call,
+        ):
+            import asyncio
+            try:
+                asyncio.run(process_single_story(story_input, tool_context=mock_context))
+            except RuntimeError as e:
+                if "Captured" not in str(e):
+                    raise
+
+        assert len(captured_calls) == 1
+        call = captured_calls[0]
+
+        assert call["content_ref"] == "specs/hashbrown.md"
+        assert call["spec_content"] is None

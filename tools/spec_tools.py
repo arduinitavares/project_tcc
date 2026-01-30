@@ -1421,6 +1421,7 @@ def ensure_accepted_spec_authority(
                 "accepted": False,
                 "spec_version_id": None,
                 "error_type": type(exc).__name__,
+                "error_message": str(exc),
             },
         )
         raise

@@ -159,6 +159,64 @@ async def test_process_story_batch_uses_pending_spec_from_context(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_process_story_batch_treats_rejected_as_failure(monkeypatch):
+    """process_story_batch should not validate stories rejected by constraint checks."""
+    import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
+
+    captured = {}
+
+    async def fake_process_single_story(story_input, output_callback=None, tool_context=None):
+        captured["time_frame"] = story_input.time_frame
+        return {
+            "success": True,
+            "is_valid": True,
+            "rejected": True,
+            "alignment_issues": [
+                "Constraint check: IoU >= 0.7 violates your instruction",
+            ],
+            "story": {
+                "title": "IoU gating",
+                "description": "As a user, I want IoU threshold gating.",
+                "acceptance_criteria": "- IoU >= 0.7",
+                "story_points": 3,
+            },
+        }
+
+    def fake_load_compiled_authority(*_args, **_kwargs):
+        return None, None, "spec text"
+
+    monkeypatch.setattr(story_tools, "process_single_story", fake_process_single_story)
+    monkeypatch.setattr(story_tools, "_load_compiled_authority", fake_load_compiled_authority)
+    monkeypatch.setattr(story_tools, "ensure_accepted_spec_authority", lambda *_a, **_k: 1)
+
+    feature = FeatureForStory(
+        feature_id=1,
+        feature_title="IoU feature",
+        theme_id=None,
+        epic_id=None,
+        theme="Theme",
+        epic="Epic",
+        time_frame="Now",
+    )
+
+    batch_input = ProcessBatchInput(
+        product_id=1,
+        product_name="Test Product",
+        product_vision="Vision",
+        features=[feature],
+        spec_version_id=None,
+        spec_content="Spec v1",
+    )
+
+    result = await process_story_batch(batch_input)
+
+    assert captured["time_frame"] == "Now"
+    assert result["failed_count"] == 1
+    assert result["validated_count"] == 0
+    assert result["validated_stories"] == []
+
+
+@pytest.mark.asyncio
 async def test_save_validated_stories_delegates_to_validation(monkeypatch, engine):
     """save_validated_stories should delegate to validate_story_with_spec_authority."""
     spec_tools.engine = engine

@@ -354,6 +354,11 @@ async def process_single_story(
             spec_content = spec_content or tool_context.state.get("pending_spec_content")
             content_ref = content_ref or tool_context.state.get("pending_spec_path")
 
+        # Authority gate requires exactly one of spec_content or content_ref.
+        # If both are set, prefer content_ref (file path) as the canonical source.
+        if spec_content and content_ref:
+            spec_content = None
+
         try:
             effective_spec_version_id = ensure_accepted_spec_authority(
                 story_input.product_id,
@@ -1347,6 +1352,11 @@ async def process_story_batch(
             spec_content = spec_content or tool_context.state.get("pending_spec_content")
             content_ref = content_ref or tool_context.state.get("pending_spec_path")
 
+        # Authority gate requires exactly one of spec_content or content_ref.
+        # If both are set, prefer content_ref (file path) as the canonical source.
+        if spec_content and content_ref:
+            spec_content = None
+
         effective_spec_version_id = ensure_accepted_spec_authority(
             batch_input.product_id,
             spec_content=spec_content,
@@ -1469,7 +1479,14 @@ async def process_story_batch(
             continue
 
         # Check for dict errors returned by process_single_story
-        if isinstance(result, dict) and result.get("success") and result.get("is_valid"):
+        # Correction: Explicitly check for 'rejected' flag. "is_valid" might be True (LLM)
+        # but rejected by post-validation constraints (alignment, drift, etc.)
+        if (
+            isinstance(result, dict)
+            and result.get("success")
+            and result.get("is_valid")
+            and not result.get("rejected")
+        ):
             validated_stories.append(
                 {
                     "feature_id": feature.feature_id,
@@ -1484,7 +1501,15 @@ async def process_story_batch(
             error_msg = "Validation failed"
             partial = {}
             if isinstance(result, dict):
-                error_msg = result.get("error", "Validation failed")
+                if result.get("rejected"):
+                    issues = result.get("alignment_issues", [])
+                    error_msg = (
+                        f"Alignment/Constraint Rejection: {issues[0]}"
+                        if issues
+                        else "Rejected by constraints"
+                    )
+                else:
+                    error_msg = result.get("error", "Validation failed")
                 partial = result.get("story", {})
 
             failed_stories.append(

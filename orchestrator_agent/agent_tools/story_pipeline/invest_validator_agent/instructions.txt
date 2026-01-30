@@ -89,27 +89,33 @@ Check if the story's assumptions match its time-frame:
 ### Persona Extraction
 Extract the persona from the story description using this pattern:
 - Format: "As a [PERSONA], I want..."
-- The [PERSONA] MUST exactly match the `user_persona` field provided in state
+- The [PERSONA] MUST match the `user_persona` field provided in state (this is the AUTHORITATIVE source)
 
 ### Persona Validation Rules
-- **EXACT MATCH** (case-insensitive): "automation engineer" = "Automation Engineer" ✅
-- **SYNONYM MATCH**: "control engineer" = "automation engineer" ✅ (acceptable)
-- **GENERIC SUBSTITUTION**: "software engineer" when "automation engineer" required ❌ VIOLATION
-- **VAGUE PERSONA**: "user" when specific persona exists ❌ VIOLATION
+- **AUTHORITATIVE SOURCE**: The `user_persona` field in state is the ONLY correct persona. Do NOT use hardcoded assumptions.
+- **EXACT MATCH** (case-insensitive): Compare extracted persona against `user_persona` from state
+- **PREFIX MATCH**: If `user_persona` is long (e.g., "Machine-vision engineer implementing..."), the story may use just the role prefix (e.g., "Machine-vision engineer") ✅
+- **VAGUE PERSONA**: "user" or "customer" when a specific `user_persona` was provided ❌ VIOLATION
 - **MISSING PERSONA**: Story doesn't follow "As a [persona]" format ❌ VIOLATION
+- **WRONG PERSONA**: Story uses a different role than what's in `user_persona` ❌ VIOLATION
 
 ### Common Violations to Flag
-- Story uses generic task-based persona:
-  - "data annotator" (should be: automation engineer)
-  - "software engineer" (should be: automation engineer)
-  - "frontend developer" (should be: automation engineer)
-  - "QA engineer" (should be: engineering QA reviewer)
-  - "data scientist" (should be: ML engineer OR automation engineer)
-- Story uses "user" or "customer" when specific persona provided
+- Story uses a generic persona ("software engineer", "developer", "user") when `user_persona` specifies a domain-specific role
+- Story uses "user" or "customer" when specific `user_persona` was provided
 - Persona is missing entirely from description
+- Story invents a different persona than the one provided in `user_persona`
+
+### IMPORTANT: Dynamic Persona Resolution
+Do NOT assume personas like "automation engineer" are always correct. The correct persona is ALWAYS the value in `user_persona` from state. Examples:
+- If `user_persona` = "Machine-vision engineer..." → story MUST use "Machine-vision engineer"
+- If `user_persona` = "automation engineer" → story MUST use "automation engineer"
+- If `user_persona` = "food quality engineer" → story MUST use "food quality engineer"
 
 ### Output Format
-Always populate the `persona_alignment` field in your response.
+Always populate the `persona_alignment` field in your response:
+- `expected_persona`: Copy the `user_persona` value from state
+- `actual_persona`: The persona extracted from the story description
+- `is_correct`: true if actual matches expected (case-insensitive, prefix allowed)
 
 ### Impact on is_valid
 A persona violation is a CRITICAL issue:
