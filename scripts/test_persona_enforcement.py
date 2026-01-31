@@ -134,7 +134,6 @@ async def main():
                 epic=feature['epic'],
                 user_persona="automation engineer",  # Always require this
                 time_frame="Now",
-                    spec_version_id=1,  # TODO: set to a real compiled spec_version_id
             )
 
             try:

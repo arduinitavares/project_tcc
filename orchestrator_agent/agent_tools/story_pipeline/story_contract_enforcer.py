@@ -45,18 +45,11 @@ class ContractViolation:
 
 @dataclass
 class ContractEnforcementResult:
-    """Result of contract enforcement.
-    
-    is_valid can be:
-    - True: All contracts passed
-    - False: One or more contracts violated
-    - None: Validity unknown (e.g., INVEST validation was skipped and no other violations)
-    """
+    """Result of contract enforcement."""
 
-    is_valid: Optional[bool]  # None means "unknown" (validation skipped)
+    is_valid: bool
     violations: List[ContractViolation]
     sanitized_story: Optional[Dict[str, Any]] = None  # Story after fixes applied
-    validation_skipped: bool = False  # True when INVEST validation was intentionally skipped
 
 
 def enforce_story_points_contract(
@@ -157,8 +150,7 @@ def enforce_persona_contract(
 
 
 def enforce_invest_result_presence(
-    validation_result: Optional[Dict[str, Any]],
-    invest_validation_expected: bool = True,
+    validation_result: Optional[Dict[str, Any]]
 ) -> Optional[ContractViolation]:
     """
     Rule 3a: INVEST validation result must be present and meaningful.
@@ -166,21 +158,13 @@ def enforce_invest_result_presence(
     Stories claiming "INVEST-validated" must have actual validation scores.
     A score of 0 or missing validation_result indicates no quality signal.
     
-    When invest_validation_expected=False (spec validator disabled), missing
-    validation_result is NOT a violation - validation was intentionally skipped.
-    
     Args:
         validation_result: INVEST validation result from state
-        invest_validation_expected: Whether INVEST validation was expected to run.
-            When False (validator disabled), missing result is acceptable.
     
     Returns:
-        ContractViolation if INVEST result is missing/invalid AND expected
+        ContractViolation if INVEST result is missing or invalid
     """
     if validation_result is None:
-        if not invest_validation_expected:
-            # Validation was intentionally skipped - not a violation
-            return None
         return ContractViolation(
             rule="INVEST_RESULT_MISSING",
             message="Story marked as validated but INVEST validation result is missing",
@@ -552,7 +536,6 @@ def enforce_story_contracts(
     epic: Optional[str] = None,
     theme_id: Optional[int] = None,
     epic_id: Optional[int] = None,
-    invest_validation_expected: bool = True,
 ) -> ContractEnforcementResult:
     """
     Main entry point: Enforce ALL story contracts.
@@ -560,10 +543,6 @@ def enforce_story_contracts(
     This is a deterministic, non-LLM validation stage that runs AFTER refinement.
     If any contract is violated, the story is considered INVALID regardless of
     prior LLM validation scores.
-    
-    When invest_validation_expected=False (spec validator disabled), missing
-    INVEST validation_result is acceptable and returns is_valid=None (unknown)
-    instead of is_valid=False.
 
     Args:
         story: The refined story dict
@@ -579,12 +558,9 @@ def enforce_story_contracts(
         epic: Epic title from feature (required)
         theme_id: Theme database ID from feature (stable reference, optional)
         epic_id: Epic database ID from feature (stable reference, optional)
-        invest_validation_expected: Whether INVEST validation was expected.
-            When False (validator disabled), missing result returns is_valid=None.
 
     Returns:
-        ContractEnforcementResult with violations (if any), or is_valid=None
-        when validation was skipped and no other violations exist.
+        ContractEnforcementResult with violations (if any)
     """
     violations: List[ContractViolation] = []
 
@@ -618,20 +594,10 @@ def enforce_story_contracts(
         violations.append(scope_violation)
 
     # Rule 6: Validator state consistency and completeness
-    # NOTE: When invest_validation_expected=False, we skip INVEST presence check
-    # but still check other consistency rules
     state_violations = enforce_validator_state_consistency(
         validation_result, spec_validation_result, refinement_result
     )
     violations.extend(state_violations)
-
-    # Rule 3a: INVEST validation result presence (conditional on invest_validation_expected)
-    # This must be checked AFTER state consistency, as it has special handling for skipped validation
-    invest_violation = enforce_invest_result_presence(
-        validation_result, invest_validation_expected=invest_validation_expected
-    )
-    if invest_violation:
-        violations.append(invest_violation)
 
     # Sanitize story if possible (strip forbidden fields)
     sanitized_story = story.copy()
@@ -639,24 +605,10 @@ def enforce_story_contracts(
         # Strip story points if they shouldn't be there
         sanitized_story["story_points"] = None
 
-    # Determine is_valid:
-    # - If violations exist: is_valid=False
-    # - If no violations AND validation was skipped: is_valid=None (unknown)
-    # - If no violations AND validation ran: is_valid=True
-    validation_skipped = (not invest_validation_expected) and (validation_result is None)
-    
-    if len(violations) > 0:
-        is_valid = False
-    elif validation_skipped:
-        is_valid = None  # Unknown - validation was intentionally skipped
-    else:
-        is_valid = True
+    is_valid = len(violations) == 0
 
     return ContractEnforcementResult(
-        is_valid=is_valid,
-        violations=violations,
-        sanitized_story=sanitized_story,
-        validation_skipped=validation_skipped,
+        is_valid=is_valid, violations=violations, sanitized_story=sanitized_story
     )
 
 

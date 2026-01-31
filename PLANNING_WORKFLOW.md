@@ -1,8 +1,8 @@
 # Planning Workflow Documentation
-## Vision → Specification → Roadmap → Features → Stories → Sprint Planning (COMPLETE PIPELINE)
+## Vision → Roadmap → Features → Stories → Sprint Planning (COMPLETE PIPELINE)
 
-**Last Updated**: January 31, 2026  
-**Status**: ✅ **Spec-Driven Architecture Implemented**  
+**Last Updated**: January 17, 2026  
+**Status**: ✅ **FULLY IMPLEMENTED AND WORKING**  
 **Purpose**: Reference document for understanding the multi-agent planning workflow in the Autonomous Agile Management Platform
 
 ---
@@ -10,22 +10,21 @@
 ## Table of Contents
 1. [Overview](#overview)
 2. [Phase 1: Vision Planning](#phase-1-vision-planning)
-3. [Phase 2: Specification Authority](#phase-2-specification-authority)
-4. [Phase 3: Roadmap Planning](#phase-3-roadmap-planning)
-5. [Phase 4: Database Structure Creation](#phase-4-database-structure-creation)
-6. [Phase 5: User Story Generation with Spec Validation](#phase-5-user-story-generation)
-7. [Phase 6: Sprint Planning](#phase-6-sprint-planning)
-8. [Phase 7: Sprint Execution](#phase-7-sprint-execution)
-9. [State Management Architecture](#state-management-architecture)
-10. [Orchestrator State Machine](#orchestrator-state-machine)
-11. [Key Design Patterns](#key-design-patterns)
-12. [Code Examples](#code-examples)
+3. [Phase 2: Roadmap Planning](#phase-2-roadmap-planning)
+4. [Phase 3: Database Structure Creation](#phase-3-database-structure-creation)
+5. [Phase 4: User Story Generation with INVEST Validation](#phase-4-user-story-generation)
+6. [Phase 5: Sprint Planning](#phase-5-sprint-planning)
+7. [Phase 6: Sprint Execution](#phase-6-sprint-execution)
+8. [State Management Architecture](#state-management-architecture)
+9. [Orchestrator State Machine](#orchestrator-state-machine)
+10. [Key Design Patterns](#key-design-patterns)
+11. [Code Examples](#code-examples)
 
 ---
 
 ## Overview
 
-The system implements a **conversational, iterative planning workflow** where specialized agents guide users through structured product discovery. The workflow progresses through five main phases:
+The system implements a **conversational, iterative planning workflow** where specialized agents guide users through structured product discovery. The workflow progresses through four main phases:
 
 ```
 User Requirements (Unstructured)
@@ -33,10 +32,6 @@ User Requirements (Unstructured)
     Vision Agent
          ↓
 Vision Statement (7 Components)
-         ↓
-  Spec Authority (Compiler)
-         ↓
-Compiled Invariants & Gates
          ↓
     Roadmap Agent
          ↓
@@ -48,12 +43,11 @@ Theme → Epic → Feature Hierarchy
          ↓
    Story Pipeline
          ↓
-Story Draft → INVEST Validation (Pinned to Spec) → Refinement
+Story Draft → INVEST Validation → Refinement
          ↓
 User Stories (Backlog Ready)
          ↓
    Sprint Planning
-
          ↓
 Sprint Goal + Story Selection + Team
          ↓
@@ -187,29 +181,7 @@ save_vision_tool(vision_input={
 
 ---
 
-## Phase 2: Specification Authority
-
-### Agent: `spec_authority_compiler_agent`
-
-**Objective**: Compile Technical Specification into deterministic authority.
-
-**Inputs**:
-- Product ID
-- Raw Technical Specification (text or file)
-
-**Process**:
-1. **Spec Ingestion**: User provides spec text.
-2. **Compilation**: Agent compiles spec into `CompiledSpecAuthority` with invariants.
-3. **Acceptance**: Authority is accepted (Status: CURRENT).
-4. **Pinning**: Spec Version ID is pinned for downstream generation.
-
-**Outputs**:
-- `SpecRegistry` entry
-- `CompiledSpecAuthority` artifact (Validation Gates)
-
----
-
-## Phase 3: Roadmap Planning
+## Phase 2: Roadmap Planning
 
 ### Agent: `product_roadmap_tool` (Product Roadmap Agent)
 
@@ -311,7 +283,7 @@ save_vision_tool(vision_input={
 
 ---
 
-## Phase 4: Database Structure Creation
+## Phase 3: Database Structure Creation
 
 ### Function: `save_roadmap_tool()`
 
@@ -416,7 +388,7 @@ CREATE TABLE features (
 
 ---
 
-## Phase 5: User Story Generation with Spec Validation
+## Phase 4: User Story Generation with Spec Validation
 
 ### Agent System: Story Pipeline (2-Agent LoopAgent)
 
@@ -757,7 +729,7 @@ UserStory(
 
 ---
 
-## Phase 6: Sprint Planning
+## Phase 5: Sprint Planning
 
 ### Tools: Sprint Planning Toolkit (Scrum Master MVP)
 
@@ -859,7 +831,7 @@ WorkflowEvent(
 
 ---
 
-## Phase 7: Sprint Execution
+## Phase 6: Sprint Execution
 
 ### Tools: Sprint Execution Toolkit
 

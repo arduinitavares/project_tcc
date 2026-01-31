@@ -39,11 +39,9 @@ def engine(test_db_url: str):  # pylint: disable=redefined-outer-name
     # We disable unused-import as these models are needed to populate
     # SQLModel.metadata before create_all() is called.
     from agile_sqlmodel import (  # pylint: disable=import-outside-toplevel, unused-import
-        CompiledSpecAuthority,
         Epic,
         Feature,
         Product,
-        SpecRegistry,
         Task,
         Team,
         TeamMember,

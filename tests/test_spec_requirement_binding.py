@@ -13,7 +13,7 @@ from orchestrator_agent.agent_tools.story_pipeline.spec_requirement_extractor im
     extract_hard_requirements,
     bind_requirements_to_story,
     check_acceptance_criteria_compliance,
-    _validate_story_against_spec,
+    validate_story_against_spec,
     RequirementStrength,
     HardRequirement,
     format_compliance_report,
@@ -325,7 +325,7 @@ class TestFullValidation:
 
     def test_full_validation_review_story(self):
         """End-to-end test for review domain story."""
-        result = _validate_story_against_spec(
+        result = validate_story_against_spec(
             story_title="Implement Primitive Review Interface",
             story_description="As a reviewer, I want to review and correct primitives so that the gold dataset is accurate.",
             acceptance_criteria=[
@@ -349,7 +349,7 @@ class TestFullValidation:
 
     def test_full_validation_no_spec(self):
         """Should be compliant when no spec is provided."""
-        result = _validate_story_against_spec(
+        result = validate_story_against_spec(
             story_title="Generic Feature",
             story_description="As a user, I want a feature.",
             acceptance_criteria=["It works"],
@@ -364,7 +364,7 @@ class TestFullValidation:
 
     def test_compliance_report_format(self):
         """Test that compliance report formats correctly."""
-        result = _validate_story_against_spec(
+        result = validate_story_against_spec(
             story_title="Review Delta Capture",
             story_description="As a reviewer, I want my changes captured as deltas.",
             acceptance_criteria=["User makes corrections", "System saves"],
@@ -391,7 +391,7 @@ class TestRealWorldScenarios:
         Problem: Ingestion/revision stories pass without requiring 
         immutable doc_revision_id keyed by PDF hash/config.
         """
-        result = _validate_story_against_spec(
+        result = validate_story_against_spec(
             story_title="Implement Document Ingestion",
             story_description="As a user, I want to upload PDF documents for processing.",
             acceptance_criteria=[
@@ -419,7 +419,7 @@ class TestRealWorldScenarios:
         Problem: Primitive review stories pass without requiring 
         checkpoint artifacts (review_actions, gold_primitives).
         """
-        result = _validate_story_against_spec(
+        result = validate_story_against_spec(
             story_title="Primitive Review Interface",
             story_description="As a reviewer, I want to review detected primitives.",
             acceptance_criteria=[
@@ -454,7 +454,7 @@ class TestRealWorldScenarios:
         Problem: Audit trail stories pass without requiring 
         event-sourced delta storage.
         """
-        result = _validate_story_against_spec(
+        result = validate_story_against_spec(
             story_title="Review Audit Trail",
             story_description="As an auditor, I want to see review history.",
             acceptance_criteria=[

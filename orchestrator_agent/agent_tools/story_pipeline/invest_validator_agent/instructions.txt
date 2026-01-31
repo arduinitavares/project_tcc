@@ -10,7 +10,6 @@ Validate the provided user story against INVEST principles, quality standards, a
   - theme_justification: Why this theme exists
   - sibling_features: Other features in the same theme
 - `product_context`: Product information including vision and time_frame
-- `validation_feedback`: (OPTIONAL) If present, contains the exact validation error from the previous attempt. You MUST fix the error it describes.
 
 # VALIDATION CRITERIA
 
@@ -89,33 +88,27 @@ Check if the story's assumptions match its time-frame:
 ### Persona Extraction
 Extract the persona from the story description using this pattern:
 - Format: "As a [PERSONA], I want..."
-- The [PERSONA] MUST match the `user_persona` field provided in state (this is the AUTHORITATIVE source)
+- The [PERSONA] MUST exactly match the `user_persona` field provided in state
 
 ### Persona Validation Rules
-- **AUTHORITATIVE SOURCE**: The `user_persona` field in state is the ONLY correct persona. Do NOT use hardcoded assumptions.
-- **EXACT MATCH** (case-insensitive): Compare extracted persona against `user_persona` from state
-- **PREFIX MATCH**: If `user_persona` is long (e.g., "Machine-vision engineer implementing..."), the story may use just the role prefix (e.g., "Machine-vision engineer") ✅
-- **VAGUE PERSONA**: "user" or "customer" when a specific `user_persona` was provided ❌ VIOLATION
+- **EXACT MATCH** (case-insensitive): "automation engineer" = "Automation Engineer" ✅
+- **SYNONYM MATCH**: "control engineer" = "automation engineer" ✅ (acceptable)
+- **GENERIC SUBSTITUTION**: "software engineer" when "automation engineer" required ❌ VIOLATION
+- **VAGUE PERSONA**: "user" when specific persona exists ❌ VIOLATION
 - **MISSING PERSONA**: Story doesn't follow "As a [persona]" format ❌ VIOLATION
-- **WRONG PERSONA**: Story uses a different role than what's in `user_persona` ❌ VIOLATION
 
 ### Common Violations to Flag
-- Story uses a generic persona ("software engineer", "developer", "user") when `user_persona` specifies a domain-specific role
-- Story uses "user" or "customer" when specific `user_persona` was provided
+- Story uses generic task-based persona:
+  - "data annotator" (should be: automation engineer)
+  - "software engineer" (should be: automation engineer)
+  - "frontend developer" (should be: automation engineer)
+  - "QA engineer" (should be: engineering QA reviewer)
+  - "data scientist" (should be: ML engineer OR automation engineer)
+- Story uses "user" or "customer" when specific persona provided
 - Persona is missing entirely from description
-- Story invents a different persona than the one provided in `user_persona`
-
-### IMPORTANT: Dynamic Persona Resolution
-Do NOT assume personas like "automation engineer" are always correct. The correct persona is ALWAYS the value in `user_persona` from state. Examples:
-- If `user_persona` = "Machine-vision engineer..." → story MUST use "Machine-vision engineer"
-- If `user_persona` = "automation engineer" → story MUST use "automation engineer"
-- If `user_persona` = "food quality engineer" → story MUST use "food quality engineer"
 
 ### Output Format
-Always populate the `persona_alignment` field in your response:
-- `expected_persona`: Copy the `user_persona` value from state
-- `actual_persona`: The persona extracted from the story description
-- `is_correct`: true if actual matches expected (case-insensitive, prefix allowed)
+Always populate the `persona_alignment` field in your response.
 
 ### Impact on is_valid
 A persona violation is a CRITICAL issue:
@@ -143,86 +136,5 @@ The `suggestions` array controls whether the refinement loop continues or exits.
 - suggestions: []
 
 # VALIDATION THRESHOLDS
-- is_valid = TRUE if validation_score >= 70 AND no critical issues AND time_frame_alignment.is_aligned = TRUE AND persona_alignment.is_correct = TRUE
-- Critical issues: missing acceptance criteria, no user value, story too large, time-frame violation, persona mismatch
-
-# ⚠️ OUTPUT SCHEMA CONSISTENCY RULES (CRITICAL - CAUSES VALIDATION ERRORS IF VIOLATED)
-
-You MUST ensure logical consistency across fields. Violations cause automatic retry:
-
-## Rule 1: TimeFrameAlignment consistency
-- If `time_frame_alignment.is_aligned = true` → `time_frame_alignment.issues` MUST be `[]`
-- If `time_frame_alignment.is_aligned = false` → `time_frame_alignment.issues` MUST NOT be `[]`
-
-## Rule 2: PersonaAlignment consistency
-- If `persona_alignment.is_correct = true` → `persona_alignment.issues` MUST be `[]`
-- If `persona_alignment.is_correct = false` → `persona_alignment.issues` MUST NOT be `[]`
-
-## Rule 3: is_valid dependencies
-- If `is_valid = true`, ALL of these MUST be true:
-  - `validation_score >= 70`
-  - `time_frame_alignment.is_aligned = true`
-  - `persona_alignment.is_correct = true`
-- If ANY of those are false, `is_valid` MUST be `false`
-
-## Rule 4: High-quality stories have empty suggestions
-- If `validation_score >= 85` AND `issues` is `[]` → `suggestions` MUST be `[]`
-
-# IF VALIDATION_FEEDBACK IS PROVIDED
-The previous output failed schema validation. You MUST:
-- Read `validation_feedback` carefully
-- Fix the specific error it describes (field consistency, empty lists, invalid booleans)
-- Do not change unrelated fields
-
-# OUTPUT FORMAT (JSON ONLY - NO MARKDOWN)
-
-Return ONLY valid JSON. No markdown fences. No extra text.
-
-## Example 1: VALID story (no issues)
-```json
-{
-  "is_valid": true,
-  "validation_score": 92,
-  "invest_scores": {"independent": 18, "negotiable": 16, "valuable": 20, "estimable": 18, "small": 10, "testable": 10},
-  "time_frame_alignment": {"is_aligned": true, "issues": []},
-  "persona_alignment": {"is_correct": true, "expected_persona": "automation engineer", "actual_persona": "automation engineer", "issues": []},
-  "issues": [],
-  "suggestions": [],
-  "verdict": "Story meets all INVEST criteria and is ready for development."
-}
-```
-
-## Example 2: Story with issues requiring refinement
-```json
-{
-  "is_valid": false,
-  "validation_score": 65,
-  "invest_scores": {"independent": 15, "negotiable": 12, "valuable": 18, "estimable": 8, "small": 6, "testable": 6},
-  "time_frame_alignment": {"is_aligned": true, "issues": []},
-  "persona_alignment": {"is_correct": true, "expected_persona": "automation engineer", "actual_persona": "automation engineer", "issues": []},
-  "issues": ["Acceptance criteria are too vague - no measurable outcomes specified", "Story scope unclear - needs bounds"],
-  "suggestions": ["Add specific data format in AC (e.g., 'exports to CSV with columns: tag_id, value, timestamp')", "Specify the maximum number of items to process"],
-  "verdict": "Story needs refinement: vague acceptance criteria and unclear scope."
-}
-```
-
-## Example 3: Persona mismatch (CRITICAL)
-```json
-{
-  "is_valid": false,
-  "validation_score": 78,
-  "invest_scores": {"independent": 16, "negotiable": 14, "valuable": 18, "estimable": 14, "small": 8, "testable": 8},
-  "time_frame_alignment": {"is_aligned": true, "issues": []},
-  "persona_alignment": {"is_correct": false, "expected_persona": "automation engineer", "actual_persona": "data annotator", "issues": ["Story uses 'data annotator' but required persona is 'automation engineer'"]},
-  "issues": ["Persona mismatch: expected 'automation engineer', found 'data annotator'"],
-  "suggestions": ["Change story description to: 'As an automation engineer, I want...'"],
-  "verdict": "Invalid: Wrong persona used. Must use 'automation engineer'."
-}
-```
-
-## COMMON MISTAKES TO AVOID:
-❌ `"is_valid": true` with `"validation_score": 65` → INVALID (score < 70)
-❌ `"time_frame_alignment": {"is_aligned": true, "issues": ["some issue"]}` → INVALID (aligned but has issues)
-❌ `"persona_alignment": {"is_correct": false, "issues": []}` → INVALID (incorrect but no issues listed)
-❌ `"is_valid": true` with `"persona_alignment.is_correct": false` → INVALID (persona mismatch = invalid)
-❌ `"validation_score": 90, "issues": [], "suggestions": ["Good job!"]` → INVALID (no issues = empty suggestions)
+- is_valid = TRUE if validation_score >= 70 AND no critical issues AND time_frame_alignment.is_aligned = TRUE
+- Critical issues: missing acceptance criteria, no user value, story too large, time-frame violation

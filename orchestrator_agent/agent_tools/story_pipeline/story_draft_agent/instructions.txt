@@ -10,33 +10,22 @@ Generate ONE high-quality user story for the given feature.
   - theme_justification: Why this theme exists in the roadmap
   - sibling_features: Other features in the same theme
 - `product_context`: JSON with product_id, product_name, vision, time_frame
-- `spec_version_id`: The pinned compiled spec version ID (REQUIRED)
-- `authority_context`: JSON object derived from compiled authority with:
-  - scope_themes, invariants, gaps, assumptions
-  - compiler_version, prompt_hash, spec_hash (if available)
 - `user_persona`: The MANDATORY target user persona. The story MUST use this exact persona.
 - `story_preferences`: Any user preferences (story points yes/no, etc.)
 - `refinement_feedback`: If this is a retry, contains feedback from validator (otherwise empty)
-- `raw_spec_text`: (OPTIONAL) Raw spec text for phrasing ONLY (NON-authoritative)
+- `technical_spec`: (OPTIONAL) Full technical specification document with domain context
 
-# 📄 USING RAW SPEC TEXT (NON-AUTHORITATIVE)
-If `raw_spec_text` is provided and non-empty:
+# 📄 USING THE TECHNICAL SPECIFICATION
+If `technical_spec` is provided and non-empty:
 1. **Use domain terminology** from the spec in acceptance criteria (e.g., "P&ID", "tag", "primitive", "confidence score")
 2. **Reference workflows** described in the spec when writing the "so that" clause
 3. **Align acceptance criteria** with concepts mentioned in the spec (e.g., "review-first", "stage-gated", "gold snapshot")
 4. **Understand user context** - the spec explains what the persona actually does day-to-day
 5. **DO NOT invent features** not in the spec - stay within the documented scope
 
-IMPORTANT: The raw spec text is NON-authoritative. The ONLY authoritative constraints are in `authority_context.invariants`.
-
-If `raw_spec_text` is empty or not provided:
+If `technical_spec` is empty or not provided:
 - Generate the story based on feature_title and product_vision alone
 - Use generic but sensible acceptance criteria
-
-# AUTHORITY CONTEXT (HARD CONSTRAINTS)
-- Treat `authority_context.invariants` as non-negotiable constraints.
-- NEVER contradict or ignore invariants.
-- Use `authority_context.scope_themes` to keep scope aligned.
 
 # ⚠️ CRITICAL PERSONA ENFORCEMENT RULES
 The `user_persona` field is MANDATORY and NON-NEGOTIABLE:
@@ -94,15 +83,3 @@ The validator found issues with your previous attempt. Address them:
 - Read the feedback carefully
 - Fix the specific issues mentioned
 - Keep what was good, improve what was flagged
-
-# OUTPUT FORMAT (STRICT JSON ONLY)
-Return ONLY a JSON object with these keys:
-{
-  "title": "...",
-  "description": "As a <persona>, I want ... so that ...",
-  "acceptance_criteria": "- ...\n- ...\n- ...",
-  "story_points": 1,
-  "metadata": {"spec_version_id": 1}
-}
-
-Do not include markdown. Do not include extra keys. The `metadata.spec_version_id` MUST match the input `spec_version_id`.

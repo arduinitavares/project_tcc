@@ -15,8 +15,6 @@ from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
 from pydantic import BaseModel, Field
 
-from utils.model_config import get_model_id, get_openrouter_extra_body
-
 
 def load_instruction(path: Path) -> str:
     """Utility function to load instruction text from a file."""
@@ -37,10 +35,9 @@ dotenv.load_dotenv()
 
 # --- Initialize Model ---
 model: LiteLlm = LiteLlm(
-    model=get_model_id("product_user_story"),
+    model="openrouter/openai/gpt-5.1",
     api_key=os.getenv("OPEN_ROUTER_API_KEY"),
     drop_params=True,
-    extra_body=get_openrouter_extra_body(),
 )
 
 

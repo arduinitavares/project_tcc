@@ -16,71 +16,14 @@ Test cases from STORY_ALIGNMENT_VALIDATION_ISSUE.md:
 
 import pytest
 
-from agile_sqlmodel import CompiledSpecAuthority
-from utils.schemes import (
-    ForbiddenCapabilityParams,
-    Invariant,
-    InvariantType,
-    RequiredFieldParams,
-    SourceMapEntry,
-    SpecAuthorityCompilationSuccess,
-    SpecAuthorityCompilerOutput,
-)
-
 from orchestrator_agent.agent_tools.story_pipeline.alignment_checker import (
     AlignmentResult,
     check_alignment_violation,
     create_rejection_response,
     detect_requirement_drift,
-    derive_forbidden_capabilities_from_invariants,
-    derive_forbidden_capabilities_from_authority,
+    extract_forbidden_capabilities,
     validate_feature_alignment,
 )
-
-
-def _make_compiled_authority_with_invariants() -> CompiledSpecAuthority:
-    invariants = [
-        Invariant(
-            id="INV-0000000000000000",
-            type=InvariantType.REQUIRED_FIELD,
-            parameters=RequiredFieldParams(field_name="user_id"),
-        ),
-        Invariant(
-            id="INV-1111111111111111",
-            type=InvariantType.FORBIDDEN_CAPABILITY,
-            parameters=ForbiddenCapabilityParams(capability="OAuth1"),
-        ),
-    ]
-    success = SpecAuthorityCompilationSuccess(
-        scope_themes=["core"],
-        invariants=invariants,
-        eligible_feature_rules=[],
-        gaps=[],
-        assumptions=[],
-        source_map=[
-            SourceMapEntry(
-                invariant_id="INV-0000000000000000",
-                excerpt="The payload must include user_id.",
-            ),
-            SourceMapEntry(
-                invariant_id="INV-1111111111111111",
-                excerpt="The system must not use OAuth1.",
-            ),
-        ],
-        compiler_version="1.0.0",
-        prompt_hash="0" * 64,
-    )
-    return CompiledSpecAuthority(
-        spec_version_id=1,
-        compiler_version="1.0.0",
-        prompt_hash="test",
-        scope_themes="[]",
-        invariants="[]",
-        eligible_feature_ids="[]",
-        rejected_features="[]",
-        spec_gaps="[]",
-        compiled_artifact_json=SpecAuthorityCompilerOutput(root=success).model_dump_json(),
-    )
 
 
 # =============================================================================
@@ -88,51 +31,65 @@ def _make_compiled_authority_with_invariants() -> CompiledSpecAuthority:
 # =============================================================================
 
 
-class TestDeriveForbiddenCapabilities:
-    """Tests for derive_forbidden_capabilities_from_invariants function."""
+class TestExtractForbiddenCapabilities:
+    """Tests for extract_forbidden_capabilities function."""
 
-    def test_derives_only_forbidden_capabilities(self):
-        """Only FORBIDDEN_CAPABILITY invariants should be used."""
-        invariants = [
-            "FORBIDDEN_CAPABILITY:web",
-            "REQUIRED_FIELD:user_id",
-            "MAX_VALUE:count<=10",
-        ]
-        forbidden = derive_forbidden_capabilities_from_invariants(invariants)
+    def test_mobile_only_vision_forbids_web(self):
+        """Mobile-only vision should forbid web/desktop capabilities."""
+        vision = "Tennis Tracker is a mobile-only app that helps record scores and stats."
+        forbidden = extract_forbidden_capabilities(vision)
+        
+        assert "web" in forbidden
+        assert "desktop" in forbidden
+        assert "browser" in forbidden
 
-        assert [item.term for item in forbidden] == ["web"]
-
-    def test_empty_invariants_return_empty_list(self):
-        """Empty invariants should return no forbidden capabilities."""
-        assert derive_forbidden_capabilities_from_invariants([]) == []
-
-
-class TestForbiddenCapabilitiesFromAuthority:
-    """Tests for compiled_artifact_json forbidden derivation."""
-
-    def test_structured_forbidden_excludes_required(self):
-        """Structured invariants should return only FORBIDDEN_CAPABILITY terms."""
-        compiled_authority = _make_compiled_authority_with_invariants()
-
-        forbidden = derive_forbidden_capabilities_from_authority(compiled_authority)
-        assert [item.term for item in forbidden] == ["oauth1"]
-
-    def test_alignment_ignores_required_fields(self):
-        """Features with user_id should not be rejected; OAuth1 should be rejected."""
-        compiled_authority = _make_compiled_authority_with_invariants()
-
-        allowed = validate_feature_alignment(
-            feature_title="Capture user_id in payload",
-            compiled_authority=compiled_authority,
+    def test_offline_first_vision_forbids_realtime(self):
+        """Offline-first vision should forbid real-time sync capabilities."""
+        vision = (
+            "Workout Logger is an offline-first mobile app that stores workouts locally. "
+            "Unlike cloud-based trackers, our product works without internet access."
         )
-        assert allowed.is_aligned
+        forbidden = extract_forbidden_capabilities(vision)
+        
+        assert "real-time" in forbidden
+        assert "cloud sync" in forbidden
+        assert "server sync" in forbidden
 
-        blocked = validate_feature_alignment(
-            feature_title="OAuth1 login flow",
-            compiled_authority=compiled_authority,
+    def test_distraction_free_vision_forbids_notifications(self):
+        """Distraction-free vision should forbid notification capabilities."""
+        vision = (
+            "Reading Journal is a simple note-taking app for tracking books. "
+            "Unlike social reading platforms, our product is private and distraction-free."
         )
-        assert not blocked.is_aligned
-        assert any("oauth1" in issue.lower() for issue in blocked.alignment_issues)
+        forbidden = extract_forbidden_capabilities(vision)
+        
+        assert "notifications" in forbidden
+        assert "alerts" in forbidden
+        assert "push" in forbidden
+        assert "reminders" in forbidden
+
+    def test_casual_home_use_vision_forbids_industrial(self):
+        """Casual home-use vision should forbid industrial capabilities."""
+        vision = (
+            "Home Garden Planner is a simple mobile app for tracking plants. "
+            "Unlike professional agriculture software, our product is designed for casual home use."
+        )
+        forbidden = extract_forbidden_capabilities(vision)
+        
+        assert "industrial" in forbidden
+        assert "plc" in forbidden
+        assert "opc ua" in forbidden
+
+    def test_empty_vision_returns_empty_list(self):
+        """Empty or None vision should return no forbidden capabilities."""
+        assert extract_forbidden_capabilities(None) == []
+        assert extract_forbidden_capabilities("") == []
+
+    def test_generic_vision_returns_empty_list(self):
+        """Vision without constraint keywords returns no forbidden capabilities."""
+        vision = "Our app helps users manage their tasks efficiently."
+        forbidden = extract_forbidden_capabilities(vision)
+        assert forbidden == []
 
 
 class TestCheckAlignmentViolation:
@@ -268,13 +225,13 @@ class TestValidateFeatureAlignment:
     """Tests for validate_feature_alignment function (end-to-end check)."""
 
     def test_dashboard_fails_for_mobile_only_vision(self):
-        """Web-based dashboard should fail for mobile-only invariants."""
+        """Web-based dashboard should fail for mobile-only vision."""
         result = validate_feature_alignment(
             feature_title="Web-based analytics dashboard",
-            _invariants=[
-                "FORBIDDEN_CAPABILITY:web",
-                "FORBIDDEN_CAPABILITY:desktop",
-            ],
+            product_vision=(
+                "Tennis Tracker is a mobile-only app that helps record scores. "
+                "Unlike complex desktop software, our product focuses on quick mobile data entry."
+            )
         )
         
         assert not result.is_aligned
@@ -282,27 +239,27 @@ class TestValidateFeatureAlignment:
         assert any("web" in issue.lower() for issue in result.alignment_issues)
 
     def test_realtime_fails_for_offline_first_vision(self):
-        """Real-time sync should fail for offline-first invariants."""
+        """Real-time sync should fail for offline-first vision."""
         result = validate_feature_alignment(
             feature_title="Real-time workout synchronization with cloud",
-            _invariants=[
-                "FORBIDDEN_CAPABILITY:real-time",
-                "FORBIDDEN_CAPABILITY:cloud sync",
-            ],
+            product_vision=(
+                "For fitness enthusiasts who train in areas with poor connectivity, "
+                "Workout Logger is an offline-first mobile app that stores workouts locally. "
+                "Unlike cloud-based trackers, our product works without internet access."
+            )
         )
         
         assert not result.is_aligned
         assert any("real-time" in issue.lower() for issue in result.alignment_issues)
 
     def test_notifications_fail_for_distraction_free_vision(self):
-        """Push notifications should fail for distraction-free invariants."""
+        """Push notifications should fail for distraction-free vision."""
         result = validate_feature_alignment(
             feature_title="Push notifications and reading reminders",
-            _invariants=[
-                "FORBIDDEN_CAPABILITY:notifications",
-                "FORBIDDEN_CAPABILITY:reminders",
-                "FORBIDDEN_CAPABILITY:push",
-            ],
+            product_vision=(
+                "Reading Journal is a simple note-taking app for tracking books and quotes. "
+                "Unlike social reading platforms, our product is private and distraction-free."
+            )
         )
         
         assert not result.is_aligned
@@ -310,14 +267,13 @@ class TestValidateFeatureAlignment:
         assert len(result.forbidden_found) >= 2
 
     def test_industrial_fails_for_consumer_vision(self):
-        """Industrial PLC integration should fail for consumer invariants."""
+        """Industrial PLC integration should fail for casual home-use vision."""
         result = validate_feature_alignment(
             feature_title="Integration with industrial PLC controllers and OPC UA sensors",
-            _invariants=[
-                "FORBIDDEN_CAPABILITY:industrial",
-                "FORBIDDEN_CAPABILITY:plc",
-                "FORBIDDEN_CAPABILITY:opc ua",
-            ],
+            product_vision=(
+                "Home Garden Planner is a simple mobile app for tracking plants and harvest dates. "
+                "Unlike professional agriculture software, our product is designed for casual home use."
+            )
         )
         
         assert not result.is_aligned
@@ -328,7 +284,10 @@ class TestValidateFeatureAlignment:
         """Feature that aligns with vision should pass."""
         result = validate_feature_alignment(
             feature_title="View match history and statistics",
-            _invariants=["FORBIDDEN_CAPABILITY:desktop"]
+            product_vision=(
+                "Tennis Tracker is a mobile-only app that helps record scores. "
+                "Unlike complex desktop software, our product focuses on quick mobile data entry."
+            )
         )
         
         assert result.is_aligned
@@ -343,7 +302,7 @@ class TestCreateRejectionResponse:
         response = create_rejection_response(
             feature_title="Web-based dashboard",
             alignment_issues=["Feature violates vision: contains 'web'"],
-            invariants=["mobile-only app", "no web"]
+            product_vision="Mobile-only app for tracking tennis scores"
         )
         
         assert response["success"] is False
@@ -354,18 +313,18 @@ class TestCreateRejectionResponse:
         assert "[REJECTED]" in response["story"]["title"]
         assert response["validation_score"] == 0
 
-    def test_includes_invariants_excerpt(self):
-        """Should include invariants excerpt for context."""
-        long_invariants = ["A" * 300]
+    def test_includes_vision_excerpt(self):
+        """Should include vision excerpt for context."""
+        long_vision = "A" * 300  # Long vision statement
         response = create_rejection_response(
             feature_title="Test feature",
             alignment_issues=["Test issue"],
-            invariants=long_invariants
+            product_vision=long_vision
         )
         
         # Should be truncated with ...
-        assert response["invariants_excerpt"].endswith("...")
-        assert len(response["invariants_excerpt"]) < len(long_invariants[0])
+        assert response["product_vision_excerpt"].endswith("...")
+        assert len(response["product_vision_excerpt"]) < len(long_vision)
 
 
 # =============================================================================
@@ -393,7 +352,7 @@ class TestAlignmentEnforcementIntegration:
         # Simulate the fail-fast path
         feature_alignment = validate_feature_alignment(
             "Web-based analytics dashboard",
-            _invariants=["FORBIDDEN_CAPABILITY:web"]
+            "Tennis Tracker is a mobile-only app"
         )
         
         assert not feature_alignment.is_aligned
@@ -402,7 +361,7 @@ class TestAlignmentEnforcementIntegration:
         rejection = create_rejection_response(
             feature_title="Web-based analytics dashboard",
             alignment_issues=feature_alignment.alignment_issues,
-            invariants=["FORBIDDEN_CAPABILITY:web"]
+            product_vision="Tennis Tracker is a mobile-only app"
         )
         
         # Verify rejection has required fields
@@ -428,16 +387,15 @@ class TestAlignmentEnforcementIntegration:
         final_desc = "As a user, I want to manually save my workout data"
         
         # Vision forbids real-time
-        forbidden = derive_forbidden_capabilities_from_invariants(
-            ["FORBIDDEN_CAPABILITY:real-time", "FORBIDDEN_CAPABILITY:cloud sync"]
+        forbidden = extract_forbidden_capabilities(
+            "Workout Logger is an offline-first app that works without internet"
         )
-        forbidden_terms = [item.term for item in forbidden]
         
         drift, message = detect_requirement_drift(
             original_feature=original,
             final_story_title=final_title,
             final_story_description=final_desc,
-            forbidden_capabilities=forbidden_terms
+            forbidden_capabilities=forbidden
         )
         
         assert drift is True
@@ -449,30 +407,28 @@ class TestAlignmentEnforcementIntegration:
         
         A vision can have multiple constraints (e.g., mobile-only AND offline-first).
         """
-        invariants = [
-            "FORBIDDEN_CAPABILITY:web",
-            "FORBIDDEN_CAPABILITY:real-time",
-            "FORBIDDEN_CAPABILITY:notifications",
-        ]
-
-        forbidden = derive_forbidden_capabilities_from_invariants(invariants)
-        forbidden_terms = [item.term for item in forbidden]
+        vision = (
+            "QuickNotes is a mobile-only, offline-first app for simple note-taking. "
+            "It's designed for distraction-free writing without internet requirements."
+        )
+        
+        forbidden = extract_forbidden_capabilities(vision)
         
         # Should have constraints from multiple patterns
-        assert "web" in forbidden_terms
-        assert "real-time" in forbidden_terms
-        assert "notifications" in forbidden_terms
+        assert "web" in forbidden  # mobile-only
+        assert "real-time" in forbidden  # offline-first
+        assert "notifications" in forbidden  # distraction-free
         
         # Test various violations
-        web_feature = validate_feature_alignment("Web browser extension", _invariants=invariants)
+        web_feature = validate_feature_alignment("Browser extension", vision)
         assert not web_feature.is_aligned
         
-        sync_feature = validate_feature_alignment("Real-time cloud backup", _invariants=invariants)
+        sync_feature = validate_feature_alignment("Real-time cloud backup", vision)
         assert not sync_feature.is_aligned
         
-        notif_feature = validate_feature_alignment("Push notifications alerts", _invariants=invariants)
+        notif_feature = validate_feature_alignment("Push notification alerts", vision)
         assert not notif_feature.is_aligned
         
         # Aligned feature should pass
-        aligned = validate_feature_alignment("Quick note entry screen", _invariants=invariants)
+        aligned = validate_feature_alignment("Quick note entry screen", vision)
         assert aligned.is_aligned

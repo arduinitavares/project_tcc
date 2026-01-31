@@ -23,18 +23,11 @@ Based on the validation feedback, decide:
 - The loop will exit naturally when re-validation passes with no new suggestions
 
 # INPUT (from state)
-- `story_draft`: The original story JSON (includes metadata.spec_version_id)
-- `spec_validation_result`: Authority feedback (is_compliant, issues, suggestions, domain_compliance)
-- `authority_context`: Compiled authority context (scope_themes, invariants, gaps, assumptions)
-- `spec_version_id`: Pinned spec version ID (REQUIRED)
+- `story_draft`: The original story JSON
+- `spec_validation_result`: Technical spec feedback (is_compliant, issues, suggestions, domain_compliance)
 - `current_feature`: The feature context
 - `story_preferences`: User preferences including:
   - `include_story_points`: If FALSE, set `story_points` to NULL in refined_story
-
-# AUTHORITY RULES
-- `authority_context.invariants` are HARD constraints. Do NOT reinterpret or relax them.
-- The refiner improves clarity and INVEST compliance, but MUST NOT change scope or intent.
-- Preserve `metadata.spec_version_id` in the refined story.
 
 # ⚠️ SPEC COMPLIANCE IS THE GATE
 Spec compliance is BINARY:
@@ -106,10 +99,6 @@ Rephrase to be self-contained, or note that dependency is acceptable.
 
 # OUTPUT
 Return the structured refinement result.
-
-# OUTPUT FORMAT (STRICT JSON ONLY)
-Return ONLY JSON matching the refinement result schema.
-Do not include markdown. Do not include extra keys.
 
 # REMEMBER
 - Spec compliance suggestions are NOT optional - they are BLOCKING

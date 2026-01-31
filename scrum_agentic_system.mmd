@@ -14,7 +14,6 @@ flowchart TD
 
   %% Sub-agents as tools
   O <-->|AgentTool| VA["Product Vision Agent"]:::tool
-  O <-->|AgentTool| SCA["Spec Authority Compiler"]:::tool
   O <-->|AgentTool| RA["Product Roadmap Agent"]:::tool
 
   %% Story pipeline agents (as tools)
@@ -34,9 +33,6 @@ flowchart TD
   %% Database mutation tools (FunctionTool)
   O <-->|FunctionTool| MT["Mutation Tools<br/>• create_or_get_product()<br/>• save_vision_tool()<br/>• save_roadmap_tool()"]:::tool
 
-  %% Spec tools (FunctionTool)
-  O <-->|FunctionTool| SpecT["Spec Tools<br/>• save_project_specification()<br/>• compile_spec_authority()<br/>• read_project_specification()"]:::tool
-
   %% Story pipeline tools (FunctionTool)
   O <-->|FunctionTool| SPT["Story Pipeline Tools<br/>• process_feature_for_stories()<br/>• process_features_batch()<br/>• save_validated_stories()"]:::tool
 
@@ -49,18 +45,16 @@ flowchart TD
   %% SQLite persistence
   QT --> DB["SQLite Database<br/>(agile_simple.db)"]:::db
   MT --> DB
-  SpecT --> DB
   SPT --> DB
   SPT2 --> DB
   SET --> DB
   SS -.->|session metadata| DB
 
   %% Database artifacts
-  DB --> DBA["Database Artifacts<br/>• products (vision, roadmap)<br/>• spec_registry & authority<br/>• themes → epics → features<br/>• user_stories (INVEST score, status, completion fields)<br/>• story_completion_log (audit trail)<br/>• sprints (velocity metrics)<br/>• tasks<br/>• teams/members<br/>• workflow_events (TCC metrics)"]:::artifact
+  DB --> DBA["Database Artifacts<br/>• products (vision, roadmap)<br/>• themes → epics → features<br/>• user_stories (INVEST score, status, completion fields)<br/>• story_completion_log (audit trail)<br/>• sprints (velocity metrics)<br/>• tasks<br/>• teams/members<br/>• workflow_events (TCC metrics)"]:::artifact
 
   %% Agent outputs
   VA -.->|JSON OutputSchema| VOut["Vision Output<br/>• product_vision_statement<br/>• is_complete<br/>• clarifying_questions"]:::artifact
-  SCA -.->|JSON OutputSchema| SCOut["Spec Authority Output<br/>• compiled_authority<br/>• validation_gates"]:::artifact
   RA -.->|JSON OutputSchema| ROut["Roadmap Output<br/>• product_roadmap<br/>• is_complete<br/>• clarifying_questions"]:::artifact
 
   %% Story pipeline outputs

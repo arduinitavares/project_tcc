@@ -35,8 +35,8 @@ class CreateStoryInput(BaseModel):
     ]
     story_points: Annotated[
         Optional[int],
-        Field(description="Story point estimate. Optional, defaults to None if not provided."),
-    ] = None
+        Field(default=None, description="Story point estimate. Optional."),
+    ]
 
 
 def create_user_story_tool(story_input: CreateStoryInput) -> Dict[str, Any]:
@@ -197,9 +197,9 @@ class FeatureForStory(BaseModel):
             min_length=1,  # Enforce non-empty after stripping
         )
     ]
-    existing_stories_count: Annotated[Optional[int], Field(description="Number of existing stories. Defaults to 0 if not provided.")] = None
-    time_frame: Annotated[Optional[str], Field(description="Roadmap time frame. Defaults to None if not provided.")] = None
-    theme_justification: Annotated[Optional[str], Field(description="Strategic theme justification. Defaults to None if not provided.")] = None
+    existing_stories_count: Annotated[int, Field(default=0, description="Number of existing stories")]
+    time_frame: Annotated[Optional[str], Field(default=None, description="Roadmap time frame")]
+    theme_justification: Annotated[Optional[str], Field(default=None, description="Strategic theme justification")]
     sibling_features: Annotated[List[str], Field(default_factory=list, description="Other features in same theme")]
     
     @field_validator('theme', 'epic')
