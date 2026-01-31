@@ -87,8 +87,8 @@ class TestToolContextWiring:
             process_story_batch,
             ProcessBatchInput,
         )
-        import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
-        story_tools.engine = engine
+        import orchestrator_agent.agent_tools.story_pipeline.batch as batch_mod
+        batch_mod.engine = engine
         
         # Create a mock tool_context with pending spec in state
         mock_context = MockToolContext(state={
@@ -126,7 +126,7 @@ class TestToolContextWiring:
         )
         
         with patch(
-            "orchestrator_agent.agent_tools.story_pipeline.tools.ensure_accepted_spec_authority",
+            "orchestrator_agent.agent_tools.story_pipeline.batch.ensure_accepted_spec_authority",
             side_effect=capture_ensure_call,
         ):
             import asyncio
@@ -159,8 +159,8 @@ class TestToolContextWiring:
             process_single_story,
             ProcessStoryInput,
         )
-        import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
-        story_tools.engine = engine
+        import orchestrator_agent.agent_tools.story_pipeline.single_story as single_story_mod
+        single_story_mod.engine = engine
         
         mock_context = MockToolContext(state={
             "pending_spec_path": "test_specs/genai_spec.md",
@@ -191,7 +191,7 @@ class TestToolContextWiring:
         )
         
         with patch(
-            "orchestrator_agent.agent_tools.story_pipeline.tools.ensure_accepted_spec_authority",
+            "orchestrator_agent.agent_tools.story_pipeline.single_story.ensure_accepted_spec_authority",
             side_effect=capture_ensure_call,
         ):
             import asyncio
@@ -467,10 +467,10 @@ class TestDualSpecSourceHandling:
         from orchestrator_agent.agent_tools.story_pipeline.tools import (
             process_story_batch,
             ProcessBatchInput,
-            FeatureForStory,
         )
-        import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
-        story_tools.engine = engine
+        from orchestrator_agent.agent_tools.product_user_story_tool.tools import FeatureForStory
+        import orchestrator_agent.agent_tools.story_pipeline.batch as batch_mod
+        batch_mod.engine = engine
 
         # Simulate the scenario: tool_context has pending_spec_content from load_specification_from_file
         mock_context = MockToolContext(state={
@@ -514,7 +514,7 @@ class TestDualSpecSourceHandling:
             raise RuntimeError("Captured - stopping here")
 
         with patch(
-            "orchestrator_agent.agent_tools.story_pipeline.tools.ensure_accepted_spec_authority",
+            "orchestrator_agent.agent_tools.story_pipeline.batch.ensure_accepted_spec_authority",
             side_effect=capture_ensure_call,
         ):
             import asyncio
@@ -545,8 +545,8 @@ class TestDualSpecSourceHandling:
             process_single_story,
             ProcessStoryInput,
         )
-        import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
-        story_tools.engine = engine
+        import orchestrator_agent.agent_tools.story_pipeline.single_story as single_story_mod
+        single_story_mod.engine = engine
 
         mock_context = MockToolContext(state={
             "pending_spec_path": "/some/path/spec.md",
@@ -584,7 +584,7 @@ class TestDualSpecSourceHandling:
             raise RuntimeError("Captured - stopping here")
 
         with patch(
-            "orchestrator_agent.agent_tools.story_pipeline.tools.ensure_accepted_spec_authority",
+            "orchestrator_agent.agent_tools.story_pipeline.single_story.ensure_accepted_spec_authority",
             side_effect=capture_ensure_call,
         ):
             import asyncio

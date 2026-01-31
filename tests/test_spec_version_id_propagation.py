@@ -29,7 +29,7 @@ from utils.schemes import (
     SpecAuthorityCompilationSuccess,
     SpecAuthorityCompilerOutput,
 )
-import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
+import orchestrator_agent.agent_tools.story_pipeline.single_story as single_story_mod
 
 
 def _make_compiled_artifact_json() -> str:
@@ -100,7 +100,7 @@ def _create_compiled_authority(session: Session, product: Product) -> int:
 @pytest.mark.asyncio
 async def test_spec_version_id_propagates_to_story_metadata(engine: Any) -> None:
     """Pipeline must override incorrect metadata spec_version_id with pinned ID."""
-    story_tools.engine = engine
+    single_story_mod.engine = engine
 
     with Session(engine) as session:
         product = Product(name="Spec Version Product", vision="Vision")
@@ -171,10 +171,10 @@ async def test_spec_version_id_propagates_to_story_metadata(engine: Any) -> None
             }
             yield {}
 
-    original_session_service = story_tools.InMemorySessionService
-    original_runner = story_tools.Runner
-    story_tools.InMemorySessionService = FakeSessionService
-    story_tools.Runner = FakeRunner
+    original_session_service = single_story_mod.InMemorySessionService
+    original_runner = single_story_mod.Runner
+    single_story_mod.InMemorySessionService = FakeSessionService
+    single_story_mod.Runner = FakeRunner
     try:
         result = await process_single_story(
             ProcessStoryInput(
@@ -197,8 +197,8 @@ async def test_spec_version_id_propagates_to_story_metadata(engine: Any) -> None
             )
         )
     finally:
-        story_tools.InMemorySessionService = original_session_service
-        story_tools.Runner = original_runner
+        single_story_mod.InMemorySessionService = original_session_service
+        single_story_mod.Runner = original_runner
 
     assert result["success"] is True
     story = result["story"]

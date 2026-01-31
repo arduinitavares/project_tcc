@@ -126,13 +126,13 @@ async def test_draft_payload_includes_authority_context(
     engine: Engine, monkeypatch: MonkeyPatch
 ) -> None:
     """Draft agent input state should include authority_context and spec_version_id."""
-    import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
+    import orchestrator_agent.agent_tools.story_pipeline.single_story as single_story_mod
     from orchestrator_agent.agent_tools.story_pipeline.tools import (
         ProcessStoryInput,
         process_single_story,
     )
 
-    story_tools.engine = engine
+    single_story_mod.engine = engine
 
     with Session(engine) as session:
         product = Product(name="Test Product", vision="Vision")
@@ -184,8 +184,8 @@ async def test_draft_payload_includes_authority_context(
             }
             yield {}
 
-    monkeypatch.setattr(story_tools, "InMemorySessionService", FakeSessionService)
-    monkeypatch.setattr(story_tools, "Runner", FakeRunner)
+    monkeypatch.setattr(single_story_mod, "InMemorySessionService", FakeSessionService)
+    monkeypatch.setattr(single_story_mod, "Runner", FakeRunner)
 
     result = await process_single_story(
         ProcessStoryInput(

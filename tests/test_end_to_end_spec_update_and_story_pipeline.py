@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 from agile_sqlmodel import CompiledSpecAuthority, Product, SpecRegistry
 import tools.spec_tools as spec_tools
 from tools.spec_tools import update_spec_and_compile_authority
-import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
+import orchestrator_agent.agent_tools.story_pipeline.batch as batch_mod
 from orchestrator_agent.agent_tools.story_pipeline.tools import ProcessBatchInput, process_story_batch
 from utils.schemes import (
     SpecAuthorityCompilationSuccess,
@@ -24,7 +24,7 @@ from utils.schemes import (
 def sample_product(session: Session, engine) -> Product:
     """Create a product for smoke tests."""
     spec_tools.engine = engine
-    story_tools.engine = engine
+    batch_mod.engine = engine
 
     product = Product(
         name="Spec Update E2E",

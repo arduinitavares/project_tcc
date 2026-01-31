@@ -68,7 +68,7 @@ def test_save_stories_input_allows_optional_stories():
 @pytest.mark.asyncio
 async def test_process_story_batch_injects_spec_version_id(monkeypatch):
     """process_story_batch should inject spec_version_id from the authority gate."""
-    import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
+    import orchestrator_agent.agent_tools.story_pipeline.batch as batch_mod
 
     captured = {}
 
@@ -79,9 +79,9 @@ async def test_process_story_batch_injects_spec_version_id(monkeypatch):
     def fake_load_compiled_authority(*_args, **_kwargs):
         return None, None, "spec text"
 
-    monkeypatch.setattr(story_tools, "process_single_story", fake_process_single_story)
-    monkeypatch.setattr(story_tools, "_load_compiled_authority", fake_load_compiled_authority)
-    monkeypatch.setattr(story_tools, "ensure_accepted_spec_authority", lambda *_args, **_kwargs: 42)
+    monkeypatch.setattr(batch_mod, "process_single_story", fake_process_single_story)
+    monkeypatch.setattr(batch_mod, "load_compiled_authority", fake_load_compiled_authority)
+    monkeypatch.setattr(batch_mod, "ensure_accepted_spec_authority", lambda *_args, **_kwargs: 42)
 
     feature = FeatureForStory(
         feature_id=1,
@@ -110,7 +110,7 @@ async def test_process_story_batch_injects_spec_version_id(monkeypatch):
 @pytest.mark.asyncio
 async def test_process_story_batch_uses_pending_spec_from_context(monkeypatch):
     """process_story_batch should pass pending spec from tool_context when needed."""
-    import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
+    import orchestrator_agent.agent_tools.story_pipeline.batch as batch_mod
 
     captured = {}
 
@@ -125,9 +125,9 @@ async def test_process_story_batch_uses_pending_spec_from_context(monkeypatch):
     async def fake_process_single_story(story_input, output_callback=None, tool_context=None):
         return {"success": True, "story": None}
 
-    monkeypatch.setattr(story_tools, "ensure_accepted_spec_authority", fake_ensure_accepted_spec_authority)
-    monkeypatch.setattr(story_tools, "_load_compiled_authority", fake_load_compiled_authority)
-    monkeypatch.setattr(story_tools, "process_single_story", fake_process_single_story)
+    monkeypatch.setattr(batch_mod, "ensure_accepted_spec_authority", fake_ensure_accepted_spec_authority)
+    monkeypatch.setattr(batch_mod, "load_compiled_authority", fake_load_compiled_authority)
+    monkeypatch.setattr(batch_mod, "process_single_story", fake_process_single_story)
 
     feature = FeatureForStory(
         feature_id=1,
@@ -161,7 +161,7 @@ async def test_process_story_batch_uses_pending_spec_from_context(monkeypatch):
 @pytest.mark.asyncio
 async def test_process_story_batch_treats_rejected_as_failure(monkeypatch):
     """process_story_batch should not validate stories rejected by constraint checks."""
-    import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
+    import orchestrator_agent.agent_tools.story_pipeline.batch as batch_mod
 
     captured = {}
 
@@ -185,9 +185,9 @@ async def test_process_story_batch_treats_rejected_as_failure(monkeypatch):
     def fake_load_compiled_authority(*_args, **_kwargs):
         return None, None, "spec text"
 
-    monkeypatch.setattr(story_tools, "process_single_story", fake_process_single_story)
-    monkeypatch.setattr(story_tools, "_load_compiled_authority", fake_load_compiled_authority)
-    monkeypatch.setattr(story_tools, "ensure_accepted_spec_authority", lambda *_a, **_k: 1)
+    monkeypatch.setattr(batch_mod, "process_single_story", fake_process_single_story)
+    monkeypatch.setattr(batch_mod, "load_compiled_authority", fake_load_compiled_authority)
+    monkeypatch.setattr(batch_mod, "ensure_accepted_spec_authority", lambda *_a, **_k: 1)
 
     feature = FeatureForStory(
         feature_id=1,
@@ -220,8 +220,8 @@ async def test_process_story_batch_treats_rejected_as_failure(monkeypatch):
 async def test_save_validated_stories_delegates_to_validation(monkeypatch, engine):
     """save_validated_stories should delegate to validate_story_with_spec_authority."""
     spec_tools.engine = engine
-    import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
-    monkeypatch.setattr(story_tools, "engine", engine)
+    import orchestrator_agent.agent_tools.story_pipeline.save as save_mod
+    monkeypatch.setattr(save_mod, "engine", engine)
 
     called = {"count": 0}
 
@@ -231,6 +231,11 @@ async def test_save_validated_stories_delegates_to_validation(monkeypatch, engin
 
     monkeypatch.setattr(
         "tools.spec_tools.validate_story_with_spec_authority",
+        fake_validate,
+    )
+    # Also patch where it's imported in save module
+    monkeypatch.setattr(
+        "orchestrator_agent.agent_tools.story_pipeline.save.validate_story_with_spec_authority",
         fake_validate,
     )
 
@@ -281,6 +286,8 @@ async def test_save_validated_stories_delegates_to_validation(monkeypatch, engin
 @pytest.mark.asyncio
 async def test_save_validated_stories_falls_back_to_session_state(monkeypatch, engine):
     """save_validated_stories should retrieve stories from session state if not provided."""
+    import orchestrator_agent.agent_tools.story_pipeline.save as save_mod
+    monkeypatch.setattr(save_mod, "engine", engine)
     
     called = {"count": 0}
 
@@ -291,6 +298,11 @@ async def test_save_validated_stories_falls_back_to_session_state(monkeypatch, e
     # Patch at the source module where it's imported from
     monkeypatch.setattr(
         "tools.spec_tools.validate_story_with_spec_authority",
+        fake_validate,
+    )
+    # Also patch where it's imported in save module
+    monkeypatch.setattr(
+        "orchestrator_agent.agent_tools.story_pipeline.save.validate_story_with_spec_authority",
         fake_validate,
     )
 

@@ -94,8 +94,8 @@ async def test_pipeline_alignment_requires_compiled_authority(
     engine: Any,
 ) -> None:
     """Pipeline entrypoints fail if authority is not compiled."""
-    import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
-    from orchestrator_agent.agent_tools.story_pipeline.tools import (
+    import orchestrator_agent.agent_tools.story_pipeline.single_story as single_story_mod
+    from orchestrator_agent.agent_tools.story_pipeline.single_story import (
         ProcessStoryInput,
         process_single_story,
     )
@@ -103,7 +103,7 @@ async def test_pipeline_alignment_requires_compiled_authority(
     import tools.spec_tools as spec_tools
     from tools.spec_tools import register_spec_version, approve_spec_version
 
-    story_tools.engine = engine
+    single_story_mod.engine = engine
     spec_tools.engine = engine
 
     with Session(engine) as session:

@@ -19,7 +19,8 @@ from tools.spec_tools import ensure_spec_authority_accepted
 @pytest.fixture(autouse=True)
 def patch_engines(engine):
     """Patch the engines in the tools modules to use the test database."""
-    with patch("orchestrator_agent.agent_tools.story_pipeline.tools.engine", engine), \
+    with patch("orchestrator_agent.agent_tools.story_pipeline.single_story.engine", engine), \
+         patch("orchestrator_agent.agent_tools.story_pipeline.save.engine", engine), \
          patch("tools.db_tools.engine", engine), \
          patch("tools.spec_tools.engine", engine):
         yield
@@ -187,9 +188,9 @@ async def test_persona_drift_prevented(review_first_product):
     }
 
     # We mock the internal components so we don't call real LLMs
-    with patch("orchestrator_agent.agent_tools.story_pipeline.tools.Runner") as MockRunner, \
-         patch("orchestrator_agent.agent_tools.story_pipeline.tools.InMemorySessionService") as MockService, \
-         patch("orchestrator_agent.agent_tools.story_pipeline.tools.validate_feature_alignment") as mock_align:
+    with patch("orchestrator_agent.agent_tools.story_pipeline.single_story.Runner") as MockRunner, \
+         patch("orchestrator_agent.agent_tools.story_pipeline.single_story.InMemorySessionService") as MockService, \
+         patch("orchestrator_agent.agent_tools.story_pipeline.single_story.validate_feature_alignment") as mock_align:
 
         # 1. Bypass alignment check
         mock_align.return_value.is_aligned = True

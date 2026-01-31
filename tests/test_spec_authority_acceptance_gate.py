@@ -13,7 +13,7 @@ from agile_sqlmodel import (
     CompiledSpecAuthority,
     SpecAuthorityAcceptance,
 )
-from orchestrator_agent.agent_tools.story_pipeline.tools import _load_compiled_authority
+from orchestrator_agent.agent_tools.story_pipeline.common import load_compiled_authority
 from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (
     SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
     SPEC_AUTHORITY_COMPILER_VERSION,
@@ -122,7 +122,7 @@ def test_compiled_but_not_accepted_is_blocked(
     )
 
     with pytest.raises(ValueError) as exc:
-        _load_compiled_authority(
+        load_compiled_authority(
             session=session,
             product_id=sample_product.product_id,
             spec_version_id=spec_version.spec_version_id,
@@ -150,7 +150,7 @@ def test_auto_accepted_spec_can_be_loaded(
 
     assert acceptance.status == "accepted"
 
-    loaded_spec, authority, _technical_spec = _load_compiled_authority(
+    loaded_spec, authority, _technical_spec = load_compiled_authority(
         session=session,
         product_id=sample_product.product_id,
         spec_version_id=spec_version.spec_version_id,
