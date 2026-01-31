@@ -444,7 +444,7 @@ def plan_sprint_tool(
                 "sprint_goal": plan_input.sprint_goal,
                 "start_date": start.isoformat(),
                 "end_date": end.isoformat(),
-                "duration_days": plan_input.duration_days,
+                "duration_days": duration_days,
                 "validated_stories": validated_stories,
                 "invalid_stories": invalid_stories,
                 "total_story_points": total_points,
@@ -474,7 +474,7 @@ def plan_sprint_tool(
                     f"{team_notice}"
                     f"**Sprint Draft for {team.name}**\n"
                     f"Goal: {plan_input.sprint_goal}\n"
-                    f"Duration: {start.isoformat()} → {end.isoformat()} ({plan_input.duration_days} days)\n"
+                    f"Duration: {start.isoformat()} → {end.isoformat()} ({duration_days} days)\n"
                     f"Stories: {len(validated_stories)} selected"
                     f"{f' ({total_points} points)' if total_points > 0 else ''}\n"
                     f"{'⚠️ ' + str(len(invalid_stories)) + ' stories excluded.' if invalid_stories else ''}"

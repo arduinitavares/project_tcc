@@ -61,8 +61,47 @@ def test_plan_sprint_recovers_from_invalid_team_id(engine):
         assert used_team is not None
         assert used_team.name == "Team Test Product"
 
-        # Verify the warning is in the output message (optional but good)
-        # The tool currently prints to stdout/stderr, verifying print output is harder
-        # unless captured, but we can verify the behavior via the result.
-        # The prompt asked to log a warning (print) which we can't easily assert here
-        # without capsys, but the functional result is what matters most.
+
+def test_plan_sprint_defaults_duration(engine):
+    """
+    Test that plan_sprint_tool defaults to 14 days when duration_days is None,
+    and correctly reports this in the draft and message.
+    """
+    # Patch the module's engine to use the test database
+    import orchestrator_agent.agent_tools.sprint_planning.tools as sprint_tools
+    sprint_tools.engine = engine
+
+    # Setup: Create a product in the test database
+    with Session(engine) as session:
+        product = Product(name="Duration Test Product", description="Testing duration defaults")
+        session.add(product)
+        session.commit()
+        session.refresh(product)
+        product_id = product.product_id
+
+    # Action: Call plan_sprint_tool with duration_days=None
+    from orchestrator_agent.agent_tools.sprint_planning.tools import plan_sprint_tool
+
+    input_data = PlanSprintInput(
+        product_id=product_id,
+        team_id=None,  # Let it auto-create team
+        sprint_goal="Test Duration Default",
+        selected_story_ids=[],
+        duration_days=None
+    )
+
+    # Run the tool
+    result = plan_sprint_tool(input_data)
+
+    # Assertions
+    assert result["success"] is True
+    draft = result.get("draft")
+    assert draft is not None
+
+    # 1. Check draft contains resolved duration
+    assert draft["duration_days"] == 14, f"Expected 14 days in draft, got {draft.get('duration_days')}"
+
+    # 2. Check message contains resolved duration string
+    message = result.get("message", "")
+    assert "(14 days)" in message, f"Message should contain '(14 days)', got: {message}"
+    assert "(None days)" not in message
