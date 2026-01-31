@@ -300,7 +300,14 @@ def plan_sprint_tool(
             # Get or find team - track if we auto-created for disclosure
             team_id = plan_input.team_id
             team_auto_created = False
-            
+
+            # Treat team_id as a hint: verify if provided, fallback if missing/invalid
+            if team_id:
+                team = session.get(Team, team_id)
+                if not team:
+                    print(f"[Warning] Team {team_id} not found... falling back to discovery.")
+                    team_id = None  # Reset to trigger auto-discovery logic
+
             if not team_id:
                 # Try to find first team linked to product
                 from agile_sqlmodel import ProductTeam
@@ -403,7 +410,9 @@ def plan_sprint_tool(
             else:
                 start = date.today()
 
-            end = start + timedelta(days=plan_input.duration_days)
+            # Default to 14 days if not provided
+            duration_days = plan_input.duration_days if plan_input.duration_days else 14
+            end = start + timedelta(days=duration_days)
 
             # Calculate capacity utilization
             capacity_used_pct = None
