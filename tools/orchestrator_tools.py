@@ -301,6 +301,10 @@ def load_specification_from_file(
     # Log to state for transparency
     if tool_context and tool_context.state:
         state: Dict[str, Any] = cast(Dict[str, Any], tool_context.state)
+        # Primary keys for authority gate fallback (must match keys used elsewhere)
+        state["pending_spec_path"] = str(path.absolute())
+        state["pending_spec_content"] = content
+        # Backward-compatible keys
         state["last_loaded_spec_path"] = str(path.absolute())
         state["last_loaded_spec_size_kb"] = round(file_size_kb, 2)
 

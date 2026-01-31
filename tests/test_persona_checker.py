@@ -95,6 +95,31 @@ def test_auto_correct_persona_prepend():
     corrected = auto_correct_persona(story, "automation engineer")
     assert corrected["description"].startswith("As an automation engineer, I want")
 
+def test_extract_persona_with_slash():
+    """Test extraction when persona contains forward slash (ML/Data Engineer)."""
+    description = "As a ML/Data Engineer responsible for running inference pipelines, I want to ingest P&ID documents..."
+    result = extract_persona_from_story(description)
+    assert result == "ml/data engineer responsible for running inference pipelines"
+
+def test_extract_persona_with_embedded_commas():
+    """Test extraction when persona contains embedded commas."""
+    description = "As a ML/Data Engineer responsible for running inference pipelines on industrial diagrams, diagnosing extraction quality, swapping models, and ensuring outputs are reproducible and ready for downstream review and retraining, I want to ingest documents..."
+    result = extract_persona_from_story(description)
+    assert result == "ml/data engineer responsible for running inference pipelines on industrial diagrams, diagnosing extraction quality, swapping models, and ensuring outputs are reproducible and ready for downstream review and retraining"
+
+def test_extract_persona_with_hyphen():
+    """Test extraction when persona contains hyphen."""
+    description = "As a senior-level engineer, I want to configure rules..."
+    result = extract_persona_from_story(description)
+    assert result == "senior-level engineer"
+
+def test_validate_persona_with_special_chars():
+    """Test validation with persona containing special characters."""
+    description = "As a ML/Data Engineer, I want to diagnose extraction quality..."
+    result = validate_persona(description, "ML/Data Engineer")
+    assert result.is_valid == True
+    assert result.extracted_persona == "ml/data engineer"
+
 def test_persona_synonyms():
     """Test synonym matching."""
     assert are_personas_equivalent("automation engineer", "control engineer") == True

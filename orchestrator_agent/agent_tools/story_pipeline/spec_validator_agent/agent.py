@@ -25,6 +25,7 @@ from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 
 from utils.helper import load_instruction
+from utils.model_config import get_model_id, get_openrouter_extra_body
 
 # --- Load Environment ---
 dotenv.load_dotenv()
@@ -145,9 +146,10 @@ class SpecValidationResult(BaseModel):
 
 # --- Model ---
 model = LiteLlm(
-    model="openrouter/openai/gpt-4o-mini",  # Fast validation
+    model=get_model_id("spec_validator"),
     api_key=os.getenv("OPEN_ROUTER_API_KEY"),
     drop_params=True,
+    extra_body=get_openrouter_extra_body(),
 )
 
 # --- Agent Definition ---
@@ -158,4 +160,6 @@ spec_validator_agent = LlmAgent(
     description="Validates story compliance with technical specifications using Pydantic-enforced logic checks.",
     output_key="spec_validation_result",
     output_schema=SpecValidationResult,
+    disallow_transfer_to_parent=True,
+    disallow_transfer_to_peers=True,
 )

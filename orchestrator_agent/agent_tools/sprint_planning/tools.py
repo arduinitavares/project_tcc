@@ -119,8 +119,8 @@ class PlanSprintInput(BaseModel):
     product_id: Annotated[int, Field(description="The product ID for the sprint.")]
     team_id: Annotated[
         Optional[int],
-        Field(default=None, description="Optional team ID. If not provided, uses first team linked to product."),
-    ]
+        Field(description="Optional team ID. If not provided, uses first team linked to product."),
+    ] = None
     sprint_goal: Annotated[
         str,
         Field(description="The sprint goal describing what the team commits to achieve."),
@@ -131,20 +131,20 @@ class PlanSprintInput(BaseModel):
     ]
     start_date: Annotated[
         Optional[str],
-        Field(default=None, description="Sprint start date (YYYY-MM-DD). Defaults to today."),
-    ]
+        Field(description="Sprint start date (YYYY-MM-DD). Defaults to today if not provided."),
+    ] = None
     duration_days: Annotated[
-        int,
-        Field(default=14, description="Sprint duration in days. Default is 14 (2 weeks)."),
-    ]
+        Optional[int],
+        Field(description="Sprint duration in days. Defaults to 14 (2 weeks) if not provided."),
+    ] = None
     capacity_points: Annotated[
         Optional[int],
-        Field(default=None, description="Team capacity in story points for this sprint."),
-    ]
+        Field(description="Team capacity in story points for this sprint. Defaults to None if not provided."),
+    ] = None
     task_breakdown: Annotated[
         Optional[List[TaskBreakdown]],
-        Field(default=None, description="Optional task breakdown for stories."),
-    ]
+        Field(description="Optional task breakdown for stories. Defaults to None if not provided."),
+    ] = None
 
 
 class SaveSprintInput(BaseModel):
@@ -158,17 +158,17 @@ class SaveSprintInput(BaseModel):
     end_date: Annotated[str, Field(description="Sprint end date (YYYY-MM-DD).")]
     task_breakdown: Annotated[
         Optional[List[TaskBreakdown]],
-        Field(default=None, description="Optional tasks to create."),
-    ]
+        Field(description="Optional tasks to create. Defaults to None if not provided."),
+    ] = None
     # Metrics for TCC
     planning_turn_count: Annotated[
         Optional[int],
-        Field(default=None, description="Number of conversation turns during planning."),
-    ]
+        Field(description="Number of conversation turns during planning. Defaults to None if not provided."),
+    ] = None
     planning_start_time: Annotated[
         Optional[str],
-        Field(default=None, description="ISO timestamp when planning started."),
-    ]
+        Field(description="ISO timestamp when planning started. Defaults to None if not provided."),
+    ] = None
 
 
 # =============================================================================
@@ -300,7 +300,14 @@ def plan_sprint_tool(
             # Get or find team - track if we auto-created for disclosure
             team_id = plan_input.team_id
             team_auto_created = False
-            
+
+            # Treat team_id as a hint: verify if provided, fallback if missing/invalid
+            if team_id:
+                team = session.get(Team, team_id)
+                if not team:
+                    print(f"[Warning] Team {team_id} not found... falling back to discovery.")
+                    team_id = None  # Reset to trigger auto-discovery logic
+
             if not team_id:
                 # Try to find first team linked to product
                 from agile_sqlmodel import ProductTeam
@@ -403,7 +410,9 @@ def plan_sprint_tool(
             else:
                 start = date.today()
 
-            end = start + timedelta(days=plan_input.duration_days)
+            # Default to 14 days if not provided
+            duration_days = plan_input.duration_days if plan_input.duration_days else 14
+            end = start + timedelta(days=duration_days)
 
             # Calculate capacity utilization
             capacity_used_pct = None
@@ -435,7 +444,7 @@ def plan_sprint_tool(
                 "sprint_goal": plan_input.sprint_goal,
                 "start_date": start.isoformat(),
                 "end_date": end.isoformat(),
-                "duration_days": plan_input.duration_days,
+                "duration_days": duration_days,
                 "validated_stories": validated_stories,
                 "invalid_stories": invalid_stories,
                 "total_story_points": total_points,
@@ -465,7 +474,7 @@ def plan_sprint_tool(
                     f"{team_notice}"
                     f"**Sprint Draft for {team.name}**\n"
                     f"Goal: {plan_input.sprint_goal}\n"
-                    f"Duration: {start.isoformat()} → {end.isoformat()} ({plan_input.duration_days} days)\n"
+                    f"Duration: {start.isoformat()} → {end.isoformat()} ({duration_days} days)\n"
                     f"Stories: {len(validated_stories)} selected"
                     f"{f' ({total_points} points)' if total_points > 0 else ''}\n"
                     f"{'⚠️ ' + str(len(invalid_stories)) + ' stories excluded.' if invalid_stories else ''}"

@@ -12,7 +12,9 @@ This version fixes the 'utcnow' deprecation warning and the
 """
 
 import enum
+import os
 from datetime import date, datetime, timezone  # Import timezone
+from pathlib import Path
 from typing import List, Optional
 
 from sqlalchemy import event, func
@@ -20,6 +22,16 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.types import Date, Text
 from sqlmodel import Field, Relationship, SQLModel, create_engine
+
+# Load .env file if it exists
+try:
+    from dotenv import load_dotenv
+    env_path = Path(__file__).parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+except ImportError:
+    # python-dotenv not installed, skip
+    pass
 
 # --- 1. Enums for Status Fields ---
 
@@ -87,6 +99,15 @@ class TimeFrame(str, enum.Enum):
     LATER = "Later"
 
 
+class SpecAuthorityStatus(str, enum.Enum):
+    """Status of compiled spec authority for a product."""
+
+    CURRENT = "current"  # Compiled authority exists for latest approved spec
+    STALE = "stale"  # Spec changed, authority outdated
+    NOT_COMPILED = "not_compiled"  # No compiled authority exists
+    PENDING_REVIEW = "pending_review"  # Spec exists but not approved
+
+
 # --- 2. Link Models (for Many-to-Many Relationships) ---
 
 
@@ -149,6 +170,148 @@ class ProductPersona(SQLModel, table=True):
     )
 
 
+class SpecRegistry(SQLModel, table=True):
+    """Versioned technical specification registry with approval workflow.
+    
+    Tracks all versions of a product's technical specification. Once approved,
+    spec versions become immutable and eligible for compilation.
+    """
+
+    __tablename__ = "spec_registry"  # type: ignore
+    spec_version_id: Optional[int] = Field(default=None, primary_key=True)
+    product_id: int = Field(foreign_key="products.product_id", index=True)
+    spec_hash: str = Field(
+        description="SHA-256 hash of spec content for change detection"
+    )
+    content: str = Field(
+        sa_type=Text,
+        description="Full specification content (markdown or plain text)"
+    )
+    content_ref: Optional[str] = Field(
+        default=None,
+        description="Original file path or reference for provenance"
+    )
+    status: str = Field(
+        default="draft",
+        description="Lifecycle status: draft | approved | superseded"
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    approved_at: Optional[datetime] = Field(
+        default=None,
+        description="Timestamp when spec was approved"
+    )
+    approved_by: Optional[str] = Field(
+        default=None,
+        description="Identifier of approver (e.g., username, email)"
+    )
+    approval_notes: Optional[str] = Field(
+        default=None,
+        sa_type=Text,
+        description="Review notes or justification for approval"
+    )
+
+    # Relationships
+    product: "Product" = Relationship(back_populates="spec_versions")
+    compiled_authority: Optional["CompiledSpecAuthority"] = Relationship(
+        back_populates="spec_version",
+        sa_relationship_kwargs={"uselist": False}  # One-to-one
+    )
+
+
+class CompiledSpecAuthority(SQLModel, table=True):
+    """Cached compilation output for an approved spec version.
+    
+    Stores the extracted themes, invariants, and feature eligibility from
+    an approved specification. Compilation is explicit and never automatic.
+    """
+
+    __tablename__ = "compiled_spec_authority"  # type: ignore
+    authority_id: Optional[int] = Field(default=None, primary_key=True)
+    spec_version_id: int = Field(
+        foreign_key="spec_registry.spec_version_id",
+        unique=True,  # One compiled authority per spec version
+        index=True
+    )
+    compiler_version: str = Field(
+        description="Version of compilation logic (e.g., '1.0.0')"
+    )
+    prompt_hash: str = Field(
+        description="Hash of LLM prompt used for compilation (reproducibility)"
+    )
+    compiled_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    compiled_artifact_json: Optional[str] = Field(
+        default=None,
+        sa_type=Text,
+        description=(
+            "Normalized SpecAuthorityCompilationSuccess JSON artifact (authoritative)"
+        ),
+    )
+
+    # Cached compilation outputs (stored as JSON strings)
+    scope_themes: str = Field(
+        sa_type=Text,
+        description="JSON array of extracted scope themes"
+    )
+    invariants: str = Field(
+        sa_type=Text,
+        description="JSON array of business rules and invariants"
+    )
+    eligible_feature_ids: str = Field(
+        sa_type=Text,
+        description="JSON array of feature IDs that align with spec"
+    )
+    rejected_features: Optional[str] = Field(
+        default=None,
+        sa_type=Text,
+        description="JSON array of out-of-scope features with rationale"
+    )
+    spec_gaps: Optional[str] = Field(
+        default=None,
+        sa_type=Text,
+        description="JSON array of detected spec ambiguities or gaps"
+    )
+
+    # Relationships
+    spec_version: "SpecRegistry" = Relationship(back_populates="compiled_authority")
+
+
+class SpecAuthorityAcceptance(SQLModel, table=True):
+    """Append-only acceptance decisions for compiled spec authority."""
+
+    __tablename__ = "spec_authority_acceptance"  # type: ignore
+    id: Optional[int] = Field(default=None, primary_key=True)
+    product_id: int = Field(
+        foreign_key="products.product_id",
+        index=True,
+    )
+    spec_version_id: int = Field(
+        foreign_key="spec_registry.spec_version_id",
+        index=True,
+    )
+    status: str = Field(description="Decision status: accepted | rejected")
+    policy: str = Field(description="Decision policy: auto | human")
+    decided_by: str = Field(description="Who or what made the decision")
+    decided_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    rationale: Optional[str] = Field(
+        default=None,
+        sa_type=Text,
+        description="Optional acceptance rationale",
+    )
+    compiler_version: str = Field(description="Compiler version at decision time")
+    prompt_hash: str = Field(description="Prompt hash at decision time")
+    spec_hash: str = Field(description="Spec hash at decision time")
+
+
 class Product(SQLModel, table=True):
     """A top-level product container."""
 
@@ -195,6 +358,7 @@ class Product(SQLModel, table=True):
     stories: List["UserStory"] = Relationship(back_populates="product")
     sprints: List["Sprint"] = Relationship(back_populates="product")
     personas: List["ProductPersona"] = Relationship(back_populates="product")
+    spec_versions: List["SpecRegistry"] = Relationship(back_populates="product")
 
 
 class Team(SQLModel, table=True):
@@ -411,6 +575,18 @@ class UserStory(SQLModel, table=True):
     ac_updated_at: Optional[datetime] = Field(default=None)
     ac_update_reason: Optional[str] = Field(default=None, sa_type=Text)
 
+    # NEW: Specification Authority v1 fields
+    accepted_spec_version_id: Optional[int] = Field(
+        default=None,
+        foreign_key="spec_registry.spec_version_id",
+        description="Spec version this story was validated/accepted against"
+    )
+    validation_evidence: Optional[str] = Field(
+        default=None,
+        sa_type=Text,
+        description="JSON: validation results, rules checked, invariants applied"
+    )
+
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2
@@ -529,11 +705,33 @@ class WorkflowEvent(SQLModel, table=True):
 
 # --- 4. Database Engine and Main Function ---
 
-# Define the SQLite database URL
-DB_URL = "sqlite:///./agile_simple.db"
+import os
 
-# Create the engine
-engine = create_engine(DB_URL, echo=True)
+def get_database_url() -> str:
+    """Return database URL from environment variable or default.
+    
+    Environment variables:
+        PROJECT_TCC_DB_URL: Full database URL (default: sqlite:///./agile_simple.db)
+    """
+    return os.environ.get("PROJECT_TCC_DB_URL", "sqlite:///./agile_simple.db")
+
+
+def get_database_echo() -> bool:
+    """Return whether to echo SQL statements.
+    
+    Environment variables:
+        PROJECT_TCC_DB_ECHO: Set to 'true' to enable SQL logging (default: True)
+    """
+    echo_env = os.environ.get("PROJECT_TCC_DB_ECHO", "true").lower()
+    return echo_env in ("true", "1", "yes")
+
+
+# Create the engine with environment-driven configuration
+engine = create_engine(
+    get_database_url(),
+    echo=get_database_echo(),
+    connect_args={"check_same_thread": False},
+)
 
 
 @event.listens_for(Engine, "connect")
@@ -545,10 +743,14 @@ def set_sqlite_pragma(dbapi_connection, _connection_record):
 
 
 def create_db_and_tables():
-    """Create the database and all tables."""
+    """Create the database and all tables, then run migrations."""
     print("Creating tables...")
     SQLModel.metadata.create_all(engine)
     print("Tables created successfully.")
+    
+    # Run idempotent migrations to handle schema drift
+    from db.migrations import ensure_schema_current
+    ensure_schema_current(engine)
 
 
 if __name__ == "__main__":

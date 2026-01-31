@@ -16,11 +16,20 @@ from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 
 from utils.helper import load_instruction
+from utils.model_config import get_model_id, get_openrouter_extra_body
 
 # --- Load Environment ---
 dotenv.load_dotenv()
 
 # --- Pydantic Model ---
+class StoryDraftMetadata(BaseModel):
+    """Traceability metadata for drafted stories."""
+    spec_version_id: Annotated[
+        int,
+        Field(description="Pinned compiled spec version ID used for this story."),
+    ]
+
+
 class StoryDraft(BaseModel):
     """
     Schema for a User Story draft.
@@ -37,6 +46,10 @@ class StoryDraft(BaseModel):
     story_points: Annotated[Optional[int], Field(
         description="Estimated effort (1-8 points). Null if not estimable or if story points are disabled."
     )]
+    metadata: Annotated[
+        StoryDraftMetadata,
+        Field(description="Traceability metadata (must include spec_version_id)."),
+    ]
 
     @field_validator('description', mode='after')
     @classmethod
@@ -60,9 +73,10 @@ class StoryDraft(BaseModel):
 
 # --- Model ---
 model = LiteLlm(
-    model="openrouter/openai/gpt-4.1-mini",  # Faster model for drafting
+    model=get_model_id("story_draft"),
     api_key=os.getenv("OPEN_ROUTER_API_KEY"),
     drop_params=True,
+    extra_body=get_openrouter_extra_body(),
 )
 
 # --- Agent Definition ---
@@ -73,4 +87,6 @@ story_draft_agent = LlmAgent(
     description="Generates a single user story draft from a feature.",
     output_key="story_draft",  # Stores output in state['story_draft']
     output_schema=StoryDraft,  # Pydantic schema for structured output
+    disallow_transfer_to_parent=True,
+    disallow_transfer_to_peers=True,
 )

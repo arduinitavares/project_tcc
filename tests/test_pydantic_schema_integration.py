@@ -137,6 +137,7 @@ class TestPydanticSchemaEnforcement:
             product_id=1,
             product_name="Test Product",
             product_vision="Test vision",
+            spec_version_id=1,
             features=[
                 FeatureForStory(
                     feature_id=1,
@@ -164,6 +165,7 @@ class TestPydanticSchemaEnforcement:
                 product_id=1,
                 product_name="Test Product",
                 product_vision="Test vision",
+                spec_version_id=1,
                 features=[
                     FeatureForStory(
                         feature_id=1,
@@ -174,22 +176,43 @@ class TestPydanticSchemaEnforcement:
                 ],
             )
 
-    def test_query_features_for_stories_returns_validated_output(self):
-        """Integration test: query_features_for_stories returns dict from QueryFeaturesOutput."""
-        # This test uses the real database
-        result = query_features_for_stories(
-            QueryFeaturesInput(product_id=3)  # Using the seed database product
-        )
-        
-        # Verify return type is dict (JSON-serializable for ADK)
+    def test_query_features_for_stories_returns_validated_output(self, engine):
+        """query_features_for_stories returns dict from QueryFeaturesOutput."""
+        from agile_sqlmodel import Theme, Epic, Feature, Product
+        import orchestrator_agent.agent_tools.product_user_story_tool.tools as story_tools
+
+        story_tools.engine = engine
+
+        with Session(engine) as session:
+            product = Product(name="Test Product", vision="Test")
+            session.add(product)
+            session.commit()
+            session.refresh(product)
+            product_id = product.product_id
+
+            theme = Theme(title="Theme A", product_id=product.product_id)
+            session.add(theme)
+            session.commit()
+            session.refresh(theme)
+
+            epic = Epic(title="Epic X", theme_id=theme.theme_id)
+            session.add(epic)
+            session.commit()
+            session.refresh(epic)
+
+            feature = Feature(title="Feature 1", epic_id=epic.epic_id)
+            session.add(feature)
+            session.commit()
+
+        result = query_features_for_stories(QueryFeaturesInput(product_id=product_id))
+
         assert isinstance(result, dict)
         assert result["success"] is True
-        
-        # Verify all features have valid theme/epic (validated by Pydantic internally)
+
         for feature in result["features_flat"]:
-            assert isinstance(feature, dict)  # Serialized to dict
-            assert feature["theme"]  # Not empty
-            assert feature["epic"]  # Not empty
+            assert isinstance(feature, dict)
+            assert feature["theme"]
+            assert feature["epic"]
             assert len(feature["theme"]) >= 1
             assert len(feature["epic"]) >= 1
             assert feature["theme"] != "Unknown"
@@ -206,6 +229,7 @@ class TestSchemaPreventsDictConstruction:
                 product_id=1,
                 product_name="Test Product",
                 product_vision="Test vision",
+                spec_version_id=1,
                 features=[
                     {  # Plain dict should fail type validation
                         "feature_id": 1,
@@ -272,6 +296,7 @@ class TestImmutabilityEnforcement:
         story_input = ProcessStoryInput(
             product_id=1,
             product_name="Test Product",
+            spec_version_id=1,
             feature_id=42,
             feature_title="Test Feature",
             theme="Now - Ingestion",

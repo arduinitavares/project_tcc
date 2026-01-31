@@ -28,3 +28,6 @@ agile_sqlmodel.db
 
 # Add log files
 logs/
+
+# Exported snapshots
+artifacts/exports/*.html

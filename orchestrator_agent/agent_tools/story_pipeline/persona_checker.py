@@ -25,12 +25,14 @@ PERSONA_SYNONYMS: Dict[str, str] = {
     "administrator": "it administrator",
 }
 
-# Regex to find "As a [persona]," pattern
-# Captures: "As a ", "As an ", then the persona up to comma or " I want"
+# Regex to find "As a [persona], I want" pattern
+# Captures: "As a ", "As an ", then the persona up to ", I want" or " I want"
 # Cases:
-# "As a developer," -> "developer"
-# "As an admin I want" -> "admin"
-PERSONA_PATTERN = re.compile(r"As an? ([\w\s]+?)(?:,| I want)", re.IGNORECASE)
+# "As a developer, I want..." -> "developer"
+# "As an admin I want..." -> "admin"
+# "As a ML/Data Engineer responsible for X, Y, and Z, I want..." -> "ml/data engineer responsible for x, y, and z"
+# Supports: word chars, whitespace, forward slash (/), hyphen (-), commas within persona
+PERSONA_PATTERN = re.compile(r"As an? (.+?)(?:,\s*I want| I want)", re.IGNORECASE)
 
 
 class PersonaCheckResult(BaseModel):
