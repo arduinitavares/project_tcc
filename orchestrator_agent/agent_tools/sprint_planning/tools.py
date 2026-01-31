@@ -30,7 +30,6 @@ from agile_sqlmodel import (
     StoryStatus,
     Task,
     Team,
-    Theme,
     UserStory,
     WorkflowEvent,
     WorkflowEventType,
@@ -628,22 +627,30 @@ def save_sprint_tool(
             # Create tasks if provided
             tasks_created = 0
             if save_input.task_breakdown:
+                # 1. Collect all involved story IDs to batch fetch existing tasks
+                story_ids = {b.story_id for b in save_input.task_breakdown}
+
+                # 2. Batch fetch existing tasks for these stories
+                existing_tasks = session.exec(
+                    select(Task).where(Task.story_id.in_(story_ids))
+                ).all()
+
+                # 3. Create a set of (story_id, description) for fast lookup
+                existing_task_set = {(t.story_id, t.description) for t in existing_tasks}
+
+                # 4. Iterate and create new tasks only
                 for breakdown in save_input.task_breakdown:
                     for task_desc in breakdown.tasks:
-                        # Check for existing task (idempotent)
-                        existing_task = session.exec(
-                            select(Task).where(
-                                Task.story_id == breakdown.story_id,
-                                Task.description == task_desc,
-                            )
-                        ).first()
-                        if not existing_task:
+                        if (breakdown.story_id, task_desc) not in existing_task_set:
                             task = Task(
                                 story_id=breakdown.story_id,
                                 description=task_desc,
                             )
                             session.add(task)
                             tasks_created += 1
+                            # Add to set to handle duplicates within the input itself
+                            existing_task_set.add((breakdown.story_id, task_desc))
+
                 session.commit()
 
             # Emit workflow event for metrics
