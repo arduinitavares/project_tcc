@@ -245,6 +245,8 @@ class TestProcessStoryInputWithRoadmapContext:
             feature_title="User registration",
             theme="Core Authentication",
             epic="Core Authentication",
+            theme_id=1,
+            epic_id=1,
             time_frame="Now",
             theme_justification="Essential foundation",
             sibling_features=["Login/logout", "Password reset"],
@@ -277,6 +279,8 @@ class TestSpecValidatorWithTimeFrameCheck:
             feature_title="User registration",
             theme="Core Authentication",
             epic="Core Authentication",
+            theme_id=1,
+            epic_id=1,
             time_frame="Now",  # This is a NOW feature
             theme_justification="Foundation",
             sibling_features=["Login/logout"],

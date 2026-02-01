@@ -23,6 +23,7 @@ Return ONLY one of the following JSON objects:
 SUCCESS OBJECT:
 {
   "scope_themes": ["..."],
+  "domain": "<optional primary domain>",
   "invariants": [
     {
       "id": "INV-xxxxxxxxxxxxxxxx",

@@ -193,6 +193,15 @@ def ensure_schema_current(engine: Engine) -> None:
     
     try:
         actions = migrate_spec_authority_tables(engine)
+
+        # Features table: delivery_role (new optional column)
+        if _ensure_column_exists(
+            engine,
+            "features",
+            "delivery_role",
+            "VARCHAR",
+        ):
+            actions.append("added column: features.delivery_role")
         
         if actions:
             for action in actions:

@@ -81,6 +81,8 @@ class TestPydanticSchemaEnforcement:
             feature_title="Test Feature",
             theme="Valid Theme",
             epic="Valid Epic",
+            theme_id=1,
+            epic_id=1,
         )
         
         assert feature.theme == "Valid Theme"
@@ -100,6 +102,8 @@ class TestPydanticSchemaEnforcement:
                     feature_title="Feature 1",
                     theme="Theme A",
                     epic="Epic X",
+                    theme_id=1,
+                    epic_id=1,
                 )
             ],
             structure=[],
@@ -144,12 +148,16 @@ class TestPydanticSchemaEnforcement:
                     feature_title="Feature 1",
                     theme="Theme A",
                     epic="Epic X",
+                    theme_id=1,
+                    epic_id=1,
                 ),
                 FeatureForStory(
                     feature_id=2,
                     feature_title="Feature 2",
                     theme="Theme B",
                     epic="Epic Y",
+                    theme_id=2,
+                    epic_id=2,
                 ),
             ],
         )
@@ -326,18 +334,20 @@ class TestImmutabilityEnforcement:
         assert feature.theme_id == 10
         assert feature.epic_id == 20
 
-    def test_feature_for_story_ids_optional_but_recommended(self):
-        """FeatureForStory allows None for IDs (backward compatibility)."""
-        feature = FeatureForStory(
-            feature_id=1,
-            feature_title="Test Feature",
-            theme="Now - Ingestion",
-            epic="Document Processing",
-            # No theme_id or epic_id
-        )
+    def test_feature_for_story_ids_are_mandatory(self):
+        """FeatureForStory requires theme_id and epic_id (no longer optional)."""
+        with pytest.raises(ValidationError) as exc_info:
+            FeatureForStory(
+                feature_id=1,
+                feature_title="Test Feature",
+                theme="Now - Ingestion",
+                epic="Document Processing",
+                # Missing theme_id and epic_id should fail
+            )
         
-        assert feature.theme_id is None
-        assert feature.epic_id is None
+        # Verify both fields are mentioned in error
+        assert "theme_id" in str(exc_info.value).lower()
+        assert "epic_id" in str(exc_info.value).lower()
 
 
 class TestContractEnforcerIdValidation:

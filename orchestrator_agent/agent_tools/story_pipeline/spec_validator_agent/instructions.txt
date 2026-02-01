@@ -21,17 +21,11 @@ Validate the provided `story_draft` against compiled authority using domain-awar
 # VALIDATION RULES (IN ORDER OF PRIORITY)
 
 ## 1. IDENTIFY STORY DOMAIN
-Match the story to one or more domains based on keywords in feature/theme/epic:
+Use `authority_context.domain` if present. Do NOT infer domain from keywords.
 
-| Domain | Trigger Keywords |
-|--------|-----------------|
-| ingestion | ingest, upload, import, parse, extract, pdf, document, detection, ocr, primitive |
-| revision | revision, version, immutable, snapshot, history, checkpoint, delta, rollback |
-| review | review, approve, validate, human, loop, feedback, correction, checkpoint, gate |
-| training | train, dataset, gold, label, annotation, export, coco, model |
-| provenance | provenance, lineage, trace, model, config, hash, sha |
-| audit | audit, log, event, track, record, history, action, delta |
-| workflow | workflow, pipeline, stage, checkpoint, emit, artifact, output |
+If `authority_context.domain` is missing or null:
+- Set `domain_compliance` to null
+- Skip domain-specific artifact checks
 
 ## 2. APPLY AUTHORITY INVARIANTS
 Use `authority_context.invariants` as HARD requirements that MUST be reflected in acceptance criteria.

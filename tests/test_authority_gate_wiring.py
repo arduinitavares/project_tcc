@@ -186,6 +186,8 @@ class TestToolContextWiring:
             user_persona="Test Engineer",
             theme="Test Theme",
             epic="Test Epic",
+            theme_id=1,
+            epic_id=1,
             feature_id=1,
             feature_title="Test Feature",
         )
@@ -492,6 +494,8 @@ class TestDualSpecSourceHandling:
                     feature_title="Test Feature",
                     theme="Test Theme",
                     epic="Test Epic",
+                    theme_id=1,
+                    epic_id=1,
                 )
             ],
         )
@@ -561,6 +565,8 @@ class TestDualSpecSourceHandling:
             feature_title="Test Feature",
             theme="Test Theme",
             epic="Test Epic",
+            theme_id=1,
+            epic_id=1,
             user_persona="Test Engineer",
             include_story_points=False,
             content_ref="specs/hashbrown.md",

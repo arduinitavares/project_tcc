@@ -120,4 +120,6 @@ invest_validator_agent = LlmAgent(
     description="Validates a user story against INVEST principles.",
     output_key="validation_result",  # Stores output in state['validation_result']
     output_schema=ValidationResult,  # Pydantic schema for structured output
+    disallow_transfer_to_parent=True,
+    disallow_transfer_to_peers=True,
 )

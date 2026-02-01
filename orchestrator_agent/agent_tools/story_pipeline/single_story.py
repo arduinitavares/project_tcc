@@ -31,7 +31,6 @@ from .alignment_checker import (
     validate_feature_alignment,
 )
 from .persona_checker import (
-    auto_correct_persona,
     normalize_persona,
     validate_persona,
 )
@@ -114,19 +113,17 @@ class ProcessStoryInput(BaseModel):
     feature_title: Annotated[str, Field(description="The feature title.")]
     # --- Stable ID-based references (for contract validation) ---
     theme_id: Annotated[
-        Optional[int],
+        int,
         Field(
-            default=None,
             description="Theme database ID (stable reference - eliminates duplicate name ambiguity)",
         ),
-    ] = None
+    ]
     epic_id: Annotated[
-        Optional[int],
+        int,
         Field(
-            default=None,
             description="Epic database ID (stable reference - eliminates duplicate name ambiguity)",
         ),
-    ] = None
+    ]
     # --- Title-based references ---
     theme: Annotated[str, Field(description="The theme this feature belongs to.")]
     epic: Annotated[str, Field(description="The epic this feature belongs to.")]
@@ -156,6 +153,15 @@ class ProcessStoryInput(BaseModel):
         Optional[str],
         Field(
             description="The target user persona for the story. Defaults to 'user' if not provided.",
+        ),
+    ] = None
+    delivery_role: Annotated[
+        Optional[str],
+        Field(
+            description=(
+                "Delivery responsibility role for technical implementation (e.g., 'ml engineer'). "
+                "Used for compliance policy; MUST NOT replace user_persona."
+            ),
         ),
     ] = None
     include_story_points: Annotated[
@@ -391,6 +397,20 @@ async def process_single_story(
         spec_hash=getattr(spec_version, "spec_hash", None),
     )
 
+    domain = (authority_context.get("domain") or "").lower()
+    technical_domains = {"training", "provenance", "ingestion", "audit", "revision"}
+    if domain in technical_domains and not story_input.delivery_role:
+        error_message = (
+            f"Unsatisfiable constraints: domain '{domain}' requires delivery_role, "
+            "but none was provided."
+        )
+        log(f"{RED}[Persona REJECTED]{RESET} {error_message}")
+        return {
+            "success": False,
+            "error": error_message,
+            "story": None,
+        }
+
     # --- Set up initial state (includes forbidden_capabilities for validator) ---
     initial_state: Dict[str, Any] = {
         "current_feature": json.dumps(
@@ -403,6 +423,7 @@ async def process_single_story(
                 "time_frame": story_input.time_frame,
                 "theme_justification": story_input.theme_justification,
                 "sibling_features": story_input.sibling_features or [],
+                "delivery_role": story_input.delivery_role,
             }
         ),
         "product_context": json.dumps(
@@ -757,30 +778,12 @@ async def process_single_story(
                     log(
                         f"{YELLOW}⚠️  Persona violation: {persona_check.violation_message}{RESET}"
                     )
-
-                    # Attempt auto-correction
-                    refined_story = auto_correct_persona(
-                        refined_story, story_input.user_persona
+                    fail_msg = (
+                        f"PERSONA ENFORCEMENT FAILED: Required '{story_input.user_persona}', "
+                        f"Found '{persona_check.extracted_persona}'"
                     )
-                    log(
-                        f"{GREEN}✅ Auto-corrected persona to: {story_input.user_persona}{RESET}"
-                    )
-
-                    # Re-validate
-                    recheck = validate_persona(
-                        refined_story.get("description", ""), story_input.user_persona
-                    )
-                    if not recheck.is_valid:
-                        # Fail hard if we can't correct it
-                        # Instead of raising, we treat it as an alignment failure to keep the flow
-                        fail_msg = (
-                            f"PERSONA ENFORCEMENT FAILED: Required '{story_input.user_persona}', "
-                            f"Found '{recheck.extracted_persona}'"
-                        )
-                        alignment_issues.append(fail_msg)
-                        log(f"{RED}[Fatal Persona Error]{RESET} {fail_msg}")
-                    else:
-                        log(f"{GREEN}✅ Persona validation passed after correction{RESET}")
+                    alignment_issues.append(fail_msg)
+                    log(f"{RED}[Fatal Persona Error]{RESET} {fail_msg}")
                 else:
                     log(
                         f"{GREEN}✅ Persona validation passed: {story_input.user_persona}{RESET}"
@@ -988,26 +991,12 @@ async def process_single_story(
                         log(
                             f"{YELLOW}⚠️  Persona violation: {persona_check.violation_message}{RESET}"
                         )
-
-                        refined_story = auto_correct_persona(
-                            refined_story, story_input.user_persona
+                        fail_msg = (
+                            f"PERSONA ENFORCEMENT FAILED: Required '{story_input.user_persona}', "
+                            f"Found '{persona_check.extracted_persona}'"
                         )
-                        log(
-                            f"{GREEN}✅ Auto-corrected persona to: {story_input.user_persona}{RESET}"
-                        )
-
-                        recheck = validate_persona(
-                            refined_story.get("description", ""), story_input.user_persona
-                        )
-                        if not recheck.is_valid:
-                            fail_msg = (
-                                f"PERSONA ENFORCEMENT FAILED: Required '{story_input.user_persona}', "
-                                f"Found '{recheck.extracted_persona}'"
-                            )
-                            alignment_issues.append(fail_msg)
-                            log(f"{RED}[Fatal Persona Error]{RESET} {fail_msg}")
-                        else:
-                            log(f"{GREEN}✅ Persona validation passed after correction{RESET}")
+                        alignment_issues.append(fail_msg)
+                        log(f"{RED}[Fatal Persona Error]{RESET} {fail_msg}")
                     else:
                         log(
                             f"{GREEN}✅ Persona validation passed: {story_input.user_persona}{RESET}"

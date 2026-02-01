@@ -13,9 +13,11 @@ from sqlmodel import Session
 
 from agile_sqlmodel import (
     CompiledSpecAuthority,
+    Epic,
     Product,
     SpecAuthorityAcceptance,
     SpecRegistry,
+    Theme,
 )
 from orchestrator_agent.agent_tools.story_pipeline.story_generation_context import (
     build_generation_context,
@@ -37,6 +39,7 @@ def _make_compiled_artifact_json() -> str:
     )
     success = SpecAuthorityCompilationSuccess(
         scope_themes=["API"],
+        domain="training",
         invariants=[invariant],
         eligible_feature_rules=[],
         gaps=[],
@@ -118,6 +121,7 @@ def test_build_generation_context_renders_invariants() -> None:
     assert context["spec_version_id"] == 1
     assert "REQUIRED_FIELD:user_id" in context["invariants"]
     assert context["scope_themes"] == ["API"]
+    assert context["domain"] == "training"
     assert context["spec_hash"] == "spec_hash_123"
 
 
@@ -145,6 +149,19 @@ async def test_draft_payload_includes_authority_context(
         product_id = product.product_id
         product_name = product.name
         product_vision = product.vision
+
+        # Create theme and epic for test
+        theme = Theme(title="Theme", product_id=product_id)
+        session.add(theme)
+        session.commit()
+        session.refresh(theme)
+        theme_id = theme.theme_id
+
+        epic = Epic(title="Epic", theme_id=theme_id)
+        session.add(epic)
+        session.commit()
+        session.refresh(epic)
+        epic_id = epic.epic_id
 
         spec_version_id = _create_compiled_authority(session, product)
 
@@ -194,14 +211,15 @@ async def test_draft_payload_includes_authority_context(
             product_vision=product_vision,
             feature_id=101,
             feature_title="Feature",
-            theme_id=None,
-            epic_id=None,
+            theme_id=theme_id,
+            epic_id=epic_id,
             theme="Theme",
             epic="Epic",
             time_frame=None,
             theme_justification=None,
             sibling_features=None,
             user_persona="user",
+            delivery_role="ml engineer",
             include_story_points=True,
             spec_version_id=spec_version_id,
             enable_story_refiner=False,
@@ -215,3 +233,4 @@ async def test_draft_payload_includes_authority_context(
 
     authority_context = json.loads(state["authority_context"])
     assert authority_context["spec_version_id"] == spec_version_id
+    assert authority_context["domain"] == "training"

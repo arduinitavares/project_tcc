@@ -27,6 +27,8 @@ def test_process_story_input_allows_missing_spec_version_id():
         product_name="Test Product",
         feature_id=1,
         feature_title="Test Feature",
+        theme_id=1,
+        epic_id=1,
         theme="Theme",
         epic="Epic",
         spec_version_id=None,
@@ -89,8 +91,8 @@ async def test_process_story_batch_injects_spec_version_id(monkeypatch, engine):
     feature = FeatureForStory(
         feature_id=1,
         feature_title="Feature",
-        theme_id=None,
-        epic_id=None,
+        theme_id=1,
+        epic_id=1,
         theme="Theme",
         epic="Epic",
     )
@@ -138,8 +140,8 @@ async def test_process_story_batch_uses_pending_spec_from_context(monkeypatch, e
     feature = FeatureForStory(
         feature_id=1,
         feature_title="Feature",
-        theme_id=None,
-        epic_id=None,
+        theme_id=1,
+        epic_id=1,
         theme="Theme",
         epic="Epic",
     )
@@ -201,8 +203,8 @@ async def test_process_story_batch_treats_rejected_as_failure(monkeypatch, engin
     feature = FeatureForStory(
         feature_id=1,
         feature_title="IoU feature",
-        theme_id=None,
-        epic_id=None,
+        theme_id=1,
+        epic_id=1,
         theme="Theme",
         epic="Epic",
         time_frame="Now",

@@ -395,6 +395,10 @@ class SpecAuthorityCompilationSuccess(BaseModel):
         List[str],
         Field(description="Top-level scope themes extracted from the spec."),
     ]
+    domain: Annotated[
+        Optional[str],
+        Field(default=None, description="Optional primary domain for spec (e.g., training, review)."),
+    ]
     invariants: Annotated[
         List[Invariant],
         Field(description="Structured invariants extracted from the spec."),

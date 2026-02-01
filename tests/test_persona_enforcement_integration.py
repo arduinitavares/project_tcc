@@ -153,8 +153,10 @@ def review_first_product(session):
             rationale="Auto-accepted on compile success",
         )
 
-    # Attach feature and spec for test access
+    # Attach feature, theme_id, epic_id, and spec for test access
     product._test_feature = feature
+    product._test_theme_id = theme.theme_id
+    product._test_epic_id = epic.epic_id
     product._test_spec_version_id = spec_version_id
     return product
 
@@ -170,6 +172,8 @@ async def test_persona_drift_prevented(review_first_product):
         feature_title="Interactive UI",
         theme="Core",
         epic="UI",
+        theme_id=review_first_product._test_theme_id,
+        epic_id=review_first_product._test_epic_id,
         user_persona="automation engineer",
         time_frame="Now",
     )
@@ -217,16 +221,13 @@ async def test_persona_drift_prevented(review_first_product):
         # Run the tool
         result = await process_single_story(story_input)
 
-        # Verify SUCCESS but with CORRECTED persona
+        # Verify mismatch is flagged deterministically
         assert result['success'] is True
-        final_story = result['story']
-        description = final_story['description']
-
-        print(f"Final description: {description}")
-
-        # It should have been auto-corrected
-        assert "As an automation engineer" in description
-        assert "frontend developer" not in description
+        assert result['is_valid'] is False
+        assert any(
+            "PERSONA ENFORCEMENT FAILED" in issue
+            for issue in result.get("alignment_issues", [])
+        )
 
 @pytest.mark.asyncio
 async def test_unapproved_persona_rejected(review_first_product, session):
@@ -244,6 +245,8 @@ async def test_unapproved_persona_rejected(review_first_product, session):
         feature_title="Interactive UI",
         theme="Core",
         epic="UI",
+        theme_id=review_first_product._test_theme_id,
+        epic_id=review_first_product._test_epic_id,
         user_persona="random hacker",  # NOT in registry
         time_frame="Now",
     )

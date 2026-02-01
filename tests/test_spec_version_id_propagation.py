@@ -134,6 +134,8 @@ async def test_spec_version_id_propagates_to_story_metadata(engine: Any) -> None
         product_vision = product.vision
         feature_id = feature.feature_id
         feature_title = feature.title
+        theme_id = theme.theme_id
+        epic_id = epic.epic_id
 
     captured: Dict[str, Any] = {}
 
@@ -183,8 +185,8 @@ async def test_spec_version_id_propagates_to_story_metadata(engine: Any) -> None
                 product_vision=product_vision,
                 feature_id=feature_id,
                 feature_title=feature_title,
-                theme_id=None,
-                epic_id=None,
+                theme_id=theme_id,
+                epic_id=epic_id,
                 theme="Theme",
                 epic="Epic",
                 time_frame=None,

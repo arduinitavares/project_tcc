@@ -51,6 +51,7 @@ def build_generation_context(
     assumptions: List[str] = []
     compiler_version: Optional[str] = None
     prompt_hash: Optional[str] = None
+    domain: Optional[str] = None
 
     if compiled_authority.compiled_artifact_json:
         try:
@@ -66,6 +67,7 @@ def build_generation_context(
             assumptions = list(success.assumptions)
             compiler_version = success.compiler_version
             prompt_hash = success.prompt_hash
+            domain = success.domain
 
     if not scope_themes:
         scope_themes = _safe_json_list(compiled_authority.scope_themes)
@@ -84,6 +86,7 @@ def build_generation_context(
     context: Dict[str, Any] = {
         "spec_version_id": spec_version_id,
         "scope_themes": scope_themes,
+        "domain": domain,
         "invariants": invariants,
         "gaps": gaps,
         "assumptions": assumptions,

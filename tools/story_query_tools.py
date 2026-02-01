@@ -33,18 +33,20 @@ class FeatureForStory(BaseModel):
     
     feature_id: Annotated[int, Field(description="Feature ID")]
     feature_title: Annotated[str, Field(description="Feature title")]
+    delivery_role: Annotated[
+        Optional[str],
+        Field(description="Optional delivery responsibility role (policy metadata)."),
+    ] = None
     # --- Stable ID-based references (preferred for validation) ---
     theme_id: Annotated[
-        Optional[int],
+        int,
         Field(
-            default=None,
             description="Theme database ID (stable reference - eliminates duplicate name ambiguity)",
         )
     ]
     epic_id: Annotated[
-        Optional[int],
+        int,
         Field(
-            default=None,
             description="Epic database ID (stable reference - eliminates duplicate name ambiguity)",
         )
     ]
@@ -210,6 +212,7 @@ def query_features_for_stories(
                         feature_obj = FeatureForStory(
                             feature_id=feature.feature_id,
                             feature_title=feature.title,
+                            delivery_role=getattr(feature, "delivery_role", None),
                             theme_id=theme.theme_id,  # Stable ID reference
                             epic_id=epic.epic_id,      # Stable ID reference
                             theme=theme.title,  # REQUIRED - Pydantic validates non-empty

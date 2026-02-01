@@ -7,7 +7,7 @@ from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from agile_sqlmodel import CompiledSpecAuthority, get_engine, Product
+from agile_sqlmodel import CompiledSpecAuthority, get_engine, Product, Theme, Epic
 from tools.spec_tools import ensure_accepted_spec_authority
 
 from tools.story_query_tools import FeatureForStory
@@ -204,6 +204,22 @@ async def process_story_batch(
     print(f"{CYAN}  Spec: ✓ Available ({len(technical_spec)} chars){RESET}")
     print(f"{CYAN}{'═' * 60}{RESET}")
 
+    # --- Resolve Theme/Epic IDs if missing (Robustness Fix) ---
+    theme_map: Dict[str, int] = {}
+    epic_lookup: Dict[tuple[int, str], int] = {}
+
+    with Session(get_engine()) as session:
+        # Fetch all themes for product
+        themes = session.exec(select(Theme).where(Theme.product_id == batch_input.product_id)).all()
+        theme_map = {t.title: t.theme_id for t in themes}
+        
+        # Fetch all epics for these themes
+        if themes:
+            theme_ids = [t.theme_id for t in themes]
+            epics = session.exec(select(Epic).where(Epic.theme_id.in_(theme_ids))).all()
+            # Map: (theme_id, epic_title) -> epic_id
+            epic_lookup = {(e.theme_id, e.title): e.epic_id for e in epics}
+
     validated_stories: List[Dict[str, Any]] = []
     failed_stories: List[Dict[str, Any]] = []
     total_iterations: int = 0
@@ -223,6 +239,16 @@ async def process_story_batch(
             f"\n{YELLOW}[{idx + 1}/{len(batch_input.features)}]{RESET} {BOLD}{feature.feature_title}{RESET}"
         )
 
+        # Resolve IDs if missing (Robustness against LLM dropping optional fields)
+        resolved_theme_id = feature.theme_id
+        if resolved_theme_id is None and feature.theme in theme_map:
+            resolved_theme_id = theme_map[feature.theme]
+            
+        resolved_epic_id = feature.epic_id
+        if resolved_epic_id is None and resolved_theme_id is not None:
+            if (resolved_theme_id, feature.epic) in epic_lookup:
+                resolved_epic_id = epic_lookup[(resolved_theme_id, feature.epic)]
+
         result = None
         try:
             async with semaphore:
@@ -234,8 +260,8 @@ async def process_story_batch(
                         feature_id=feature.feature_id,
                         feature_title=feature.feature_title,
                         # Stable ID references (preferred for validation)
-                        theme_id=feature.theme_id,  # Immutable from source
-                        epic_id=feature.epic_id,    # Immutable from source
+                        theme_id=resolved_theme_id,
+                        epic_id=resolved_epic_id,
                         # Title references (guaranteed non-empty by FeatureForStory)
                         theme=feature.theme,
                         epic=feature.epic,
