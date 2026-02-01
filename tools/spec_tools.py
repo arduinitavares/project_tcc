@@ -43,7 +43,7 @@ from agile_sqlmodel import (
     SpecAuthorityAcceptance,
     SpecAuthorityStatus,
     UserStory,
-    engine,
+    get_engine,
 )
 
 from utils.schemes import (
@@ -174,7 +174,7 @@ def save_project_specification(
     file_size_kb = 0.0
 
     # Verify product exists
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         product = session.get(Product, product_id)
         if not product:
             return {
@@ -342,7 +342,7 @@ def read_project_specification(
 
     # Get spec from database
     product_id = active_project.get("product_id")
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         product = session.get(Product, product_id)
         if not product or not product.technical_spec:
             project_name = active_project.get('name')
@@ -544,7 +544,7 @@ def ensure_spec_authority_accepted(
     Returns existing accepted decision if present; otherwise inserts a new one.
     Raises on missing spec/compiled artifact or invalid artifact JSON.
     """
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         spec_version = session.get(SpecRegistry, spec_version_id)
         if not spec_version:
             raise ValueError(f"Spec version {spec_version_id} not found")
@@ -703,7 +703,7 @@ def register_spec_version(
     # Compute SHA-256 hash of content
     spec_hash = hashlib.sha256(parsed.content.encode("utf-8")).hexdigest()
 
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         # Verify product exists
         product = session.get(Product, parsed.product_id)
         if not product:
@@ -767,7 +767,7 @@ def approve_spec_version(
     """
     parsed = ApproveSpecVersionInput.model_validate(params or {})
 
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         spec_version = session.get(SpecRegistry, parsed.spec_version_id)
         if not spec_version:
             return {
@@ -824,7 +824,7 @@ def compile_spec_authority(
     """
     parsed = CompileSpecAuthorityInput.model_validate(params or {})
 
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         spec_version = session.get(SpecRegistry, parsed.spec_version_id)
         if not spec_version:
             return {
@@ -923,7 +923,7 @@ def compile_spec_authority_for_version(
     """
     parsed = CompileSpecAuthorityForVersionInput.model_validate(params or {})
 
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         spec_version = session.get(SpecRegistry, parsed.spec_version_id)
         if not spec_version:
             return {
@@ -1140,7 +1140,7 @@ def update_spec_and_compile_authority(
 
     spec_hash = hashlib.sha256(spec_content.encode("utf-8")).hexdigest()
 
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         product = session.get(Product, parsed.product_id)
         if not product:
             return {
@@ -1183,7 +1183,7 @@ def update_spec_and_compile_authority(
     if not compile_result.get("success"):
         return compile_result
 
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         authority = session.exec(
             select(CompiledSpecAuthority).where(
                 CompiledSpecAuthority.spec_version_id == spec_version_id
@@ -1309,7 +1309,7 @@ def ensure_accepted_spec_authority(
     compiled_row_found = False
     compiled_artifact_success = False
     
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         # Query for the most recent accepted authority for this product
         existing_acceptance = session.exec(
             select(SpecAuthorityAcceptance)
@@ -1516,7 +1516,7 @@ def check_spec_authority_status(
     """
     parsed = CheckSpecAuthorityStatusInput.model_validate(params or {})
 
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         # Get all spec versions for product, ordered by ID (newest first)
         spec_versions = session.exec(
             select(SpecRegistry)
@@ -1626,7 +1626,7 @@ def get_compiled_authority_by_version(
     """
     parsed = GetCompiledAuthorityInput.model_validate(params or {})
 
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         # Verify spec version exists and belongs to product
         spec_version = session.get(SpecRegistry, parsed.spec_version_id)
         if not spec_version:
@@ -1765,7 +1765,7 @@ def validate_story_with_spec_authority(
     """
     parsed = ValidateStoryInput.model_validate(params or {})
 
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         story = session.get(UserStory, parsed.story_id)
         if not story:
             return {

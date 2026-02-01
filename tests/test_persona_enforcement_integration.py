@@ -16,14 +16,9 @@ from utils.schemes import (
 from tools.spec_tools import ensure_spec_authority_accepted
 
 # --- Patch engine to use test DB ---
-@pytest.fixture(autouse=True)
-def patch_engines(engine):
-    """Patch the engines in the tools modules to use the test database."""
-    with patch("orchestrator_agent.agent_tools.story_pipeline.single_story.engine", engine), \
-         patch("orchestrator_agent.agent_tools.story_pipeline.save.engine", engine), \
-         patch("tools.db_tools.engine", engine), \
-         patch("tools.spec_tools.engine", engine):
-        yield
+# Note: The autouse fixture in conftest.py patches get_engine globally
+# This fixture is kept for backward compatibility but doesn't need
+# explicit patching since conftest.py handles it now
 
 # Helper to mock async iterator
 class AsyncIterator:

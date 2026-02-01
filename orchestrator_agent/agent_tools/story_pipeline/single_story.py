@@ -21,7 +21,7 @@ from google.genai import types
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from agile_sqlmodel import ProductPersona, engine
+from agile_sqlmodel import ProductPersona, get_engine
 from .alignment_checker import (
     check_alignment_violation,
     create_rejection_response,
@@ -326,7 +326,7 @@ async def process_single_story(
         )
 
     # --- STEP 0: Fail-Fast Persona Whitelist Check ---
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         is_valid_persona, persona_error = validate_persona_against_registry(
             story_input.product_id, story_input.user_persona, session
         )
@@ -339,7 +339,7 @@ async def process_single_story(
             }
 
     # --- STEP 1: Load compiled spec authority by spec_version_id (no fallbacks) ---
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         try:
             spec_version, compiled_authority, technical_spec = load_compiled_authority(
                 session=session,

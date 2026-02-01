@@ -18,7 +18,7 @@ from agile_sqlmodel import (
     Task,
     Theme,
     UserStory,
-    engine,
+    get_engine,
     ProductPersona,
 )
 
@@ -34,7 +34,7 @@ def seed_product_personas(params: SeedProductPersonasInput) -> Dict[str, Any]:
     Agent tool: Seed default personas for the Review-First product.
     Call this after product creation.
     """
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         product = session.get(Product, params.product_id)
         if not product:
             return {
@@ -119,7 +119,7 @@ def create_or_get_product(params: CreateOrGetProductInput) -> Dict[str, Any]:
     Returns:
         Dict with product_id and status
     """
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         # Try to find existing product
         product = session.exec(
             select(Product).where(Product.name == params.product_name)
@@ -175,7 +175,7 @@ def persist_roadmap(
     Returns:
         Dict with created IDs and status
     """
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         product = session.get(Product, product_id)
         if not product:
             return {
@@ -284,7 +284,7 @@ def create_user_story(params: CreateUserStoryInput) -> Dict[str, Any]:
     Returns:
         Dict with story_id and status
     """
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         feature = session.get(Feature, params.feature_id)
         if not feature:
             return {
@@ -333,7 +333,7 @@ def create_task(params: CreateTaskInput) -> Dict[str, Any]:
     Returns:
         Dict with task_id and status
     """
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         story = session.get(UserStory, params.story_id)
         if not story:
             return {
@@ -368,7 +368,7 @@ def query_product_structure(product_id: int) -> Dict[str, Any]:
 
     Returns the entire Theme -> Epic -> Feature -> Story structure.
     """
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         product = session.get(Product, product_id)
         if not product:
             return {
@@ -498,7 +498,7 @@ def get_story_details(story_id: int) -> Dict[str, Any]:
     Returns:
         Dict with story details or error message
     """
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         story = session.get(UserStory, story_id)
         
         if not story:

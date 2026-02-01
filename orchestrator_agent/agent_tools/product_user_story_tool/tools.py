@@ -10,7 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
-from agile_sqlmodel import Epic, Feature, Product, Theme, UserStory, engine
+from agile_sqlmodel import Epic, Feature, Product, Theme, UserStory, get_engine
 
 
 # --- Schema for creating a single user story ---
@@ -51,7 +51,7 @@ def create_user_story_tool(story_input: CreateStoryInput) -> Dict[str, Any]:
     )
 
     try:
-        with Session(engine) as session:
+        with Session(get_engine()) as session:
             # Validate feature exists
             feature = session.get(Feature, story_input.feature_id)
             if not feature:
@@ -252,7 +252,7 @@ def query_features_for_stories(
     )
 
     try:
-        with Session(engine) as session:
+        with Session(get_engine()) as session:
             product = session.get(Product, query_input.product_id)
             if not product:
                 return {

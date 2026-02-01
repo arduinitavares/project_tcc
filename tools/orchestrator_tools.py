@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from agile_sqlmodel import Epic, Feature, Product, Theme, UserStory, engine
+from agile_sqlmodel import Epic, Feature, Product, Theme, UserStory, get_engine
 
 # --- Cache configuration ---
 CACHE_TTL_MINUTES: int = 5
@@ -81,7 +81,7 @@ def _build_projects_payload(
 def _refresh_projects_cache(state: Dict[str, Any]) -> Tuple[int, List[Dict[str, Any]]]:
     """Hit the DB and update the persistent cache in `state`."""
     print("   [Cache] Cache miss or expired. Querying Database...")
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         products = _query_products(session)
         count, projects = _build_projects_payload(session, products)
 
@@ -178,7 +178,7 @@ def list_projects(params: Any, tool_context: ToolContext) -> Dict[str, Any]:
 def get_project_details(product_id: int) -> Dict[str, Any]:
     """Agent tool: Get detailed breakdown of a project."""
     print(f"\n[Tool: get_project_details] Querying ID: {product_id}")
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         product = session.get(Product, product_id)
         if not product:
             print("   [DB] Product not found.")
@@ -234,7 +234,7 @@ def get_project_details(product_id: int) -> Dict[str, Any]:
 def get_project_by_name(project_name: str) -> Dict[str, Any]:
     """Agent tool: Find a project by name."""
     print(f"\n[Tool: get_project_by_name] Searching for: '{project_name}'")
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         product = session.exec(select(Product).where(Product.name == project_name)).first()
         if not product:
             print("   [DB] Not found.")
@@ -319,7 +319,7 @@ def get_real_business_state() -> Dict[str, Any]:
     Used by main.py to seed the Orchestrator's memory before the session starts.
     """
     print("[*] Hydrating Session State from Business Database...")
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         products = _query_products(session)
         count, projects = _build_projects_payload(session, products)
 

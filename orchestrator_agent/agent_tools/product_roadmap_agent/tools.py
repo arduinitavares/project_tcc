@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
-from agile_sqlmodel import Epic, Feature, Product, Theme, TimeFrame, engine
+from agile_sqlmodel import Epic, Feature, Product, Theme, TimeFrame, get_engine
 
 
 # --- Schema for structured roadmap themes ---
@@ -154,7 +154,7 @@ def save_roadmap_tool(
     )
 
     try:
-        with Session(engine) as session:
+        with Session(get_engine()) as session:
             statement = select(Product).where(
                 Product.name == roadmap_input.project_name
             )

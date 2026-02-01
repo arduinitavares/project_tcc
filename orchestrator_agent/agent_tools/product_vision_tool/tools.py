@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
-from agile_sqlmodel import Product, engine
+from agile_sqlmodel import Product, get_engine
 
 
 # --- Tool for SAVING the vision ---
@@ -35,7 +35,7 @@ def save_vision_tool(
     )
 
     try:
-        with Session(engine) as session:
+        with Session(get_engine()) as session:
             statement = select(Product).where(
                 Product.name == vision_input.project_name
             )
@@ -88,7 +88,7 @@ def read_vision_tool(vision_input: ReadVisionInput) -> str:
         f"\n[Tool: read_vision_tool] Querying '{vision_input.project_name}'..."
     )
 
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         statement = select(Product).where(
             Product.name == vision_input.project_name
         )

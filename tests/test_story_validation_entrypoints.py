@@ -66,9 +66,12 @@ def test_save_stories_input_allows_optional_stories():
 
 
 @pytest.mark.asyncio
-async def test_process_story_batch_injects_spec_version_id(monkeypatch):
+async def test_process_story_batch_injects_spec_version_id(monkeypatch, engine):
     """process_story_batch should inject spec_version_id from the authority gate."""
     import orchestrator_agent.agent_tools.story_pipeline.batch as batch_mod
+
+    # Mock get_engine to return test engine
+    monkeypatch.setattr(batch_mod, "get_engine", lambda: engine)
 
     captured = {}
 
@@ -108,9 +111,12 @@ async def test_process_story_batch_injects_spec_version_id(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_process_story_batch_uses_pending_spec_from_context(monkeypatch):
+async def test_process_story_batch_uses_pending_spec_from_context(monkeypatch, engine):
     """process_story_batch should pass pending spec from tool_context when needed."""
     import orchestrator_agent.agent_tools.story_pipeline.batch as batch_mod
+
+    # Mock get_engine to return test engine
+    monkeypatch.setattr(batch_mod, "get_engine", lambda: engine)
 
     captured = {}
 
@@ -159,9 +165,12 @@ async def test_process_story_batch_uses_pending_spec_from_context(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_process_story_batch_treats_rejected_as_failure(monkeypatch):
+async def test_process_story_batch_treats_rejected_as_failure(monkeypatch, engine):
     """process_story_batch should not validate stories rejected by constraint checks."""
     import orchestrator_agent.agent_tools.story_pipeline.batch as batch_mod
+
+    # Mock get_engine to return test engine
+    monkeypatch.setattr(batch_mod, "get_engine", lambda: engine)
 
     captured = {}
 
@@ -219,9 +228,9 @@ async def test_process_story_batch_treats_rejected_as_failure(monkeypatch):
 @pytest.mark.asyncio
 async def test_save_validated_stories_delegates_to_validation(monkeypatch, engine):
     """save_validated_stories should delegate to validate_story_with_spec_authority."""
-    spec_tools.engine = engine
     import orchestrator_agent.agent_tools.story_pipeline.save as save_mod
-    monkeypatch.setattr(save_mod, "engine", engine)
+    # Mock get_engine to return test engine
+    monkeypatch.setattr(save_mod, "get_engine", lambda: engine)
 
     called = {"count": 0}
 
@@ -287,7 +296,8 @@ async def test_save_validated_stories_delegates_to_validation(monkeypatch, engin
 async def test_save_validated_stories_falls_back_to_session_state(monkeypatch, engine):
     """save_validated_stories should retrieve stories from session state if not provided."""
     import orchestrator_agent.agent_tools.story_pipeline.save as save_mod
-    monkeypatch.setattr(save_mod, "engine", engine)
+    # Mock get_engine to return test engine
+    monkeypatch.setattr(save_mod, "get_engine", lambda: engine)
     
     called = {"count": 0}
 
@@ -341,9 +351,9 @@ async def test_save_validated_stories_falls_back_to_session_state(monkeypatch, e
     mock_context.state["pending_validated_stories"] = [
         {
             "feature_id": feature_id,
-            "title": "Story from session",
-            "description": "As a user, I want session state fallback...",
-            "acceptance_criteria": "- AC from session",
+            "title": "Valid story from state",
+            "description": "As a user, I want to test the session fallback mechanism",
+            "acceptance_criteria": "- Story is retrieved from session state\\n- Story is saved successfully",
             "story_points": 2,
         }
     ]

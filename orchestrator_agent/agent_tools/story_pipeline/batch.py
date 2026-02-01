@@ -7,7 +7,7 @@ from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from agile_sqlmodel import CompiledSpecAuthority, engine
+from agile_sqlmodel import CompiledSpecAuthority, get_engine
 from tools.spec_tools import ensure_accepted_spec_authority
 
 from ..product_user_story_tool.tools import FeatureForStory
@@ -127,7 +127,7 @@ async def process_story_batch(
 
     # Validate that provided spec_version_id actually exists
     if effective_spec_version_id:
-        with Session(engine) as check_session:
+        with Session(get_engine()) as check_session:
             exists = check_session.exec(
                 select(CompiledSpecAuthority).where(
                     CompiledSpecAuthority.spec_version_id == effective_spec_version_id
@@ -158,7 +158,7 @@ async def process_story_batch(
         )
 
     # --- Fetch technical spec by spec_version_id (no fallbacks) ---
-    with Session(engine) as db_session:
+    with Session(get_engine()) as db_session:
         try:
             _, _, technical_spec = load_compiled_authority(
                 session=db_session,

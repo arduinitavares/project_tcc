@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session
 
-from agile_sqlmodel import UserStory, engine
+from agile_sqlmodel import UserStory, get_engine
 from tools.spec_tools import validate_story_with_spec_authority
 
 from .persona_checker import extract_persona_from_story
@@ -86,7 +86,7 @@ async def save_validated_stories(
     failed_validations: List[Dict[str, Any]] = []
 
     try:
-        with Session(engine) as session:
+        with Session(get_engine()) as session:
             for story_data in stories_to_save:
                 try:
                     # Validate against test fixture data leakage

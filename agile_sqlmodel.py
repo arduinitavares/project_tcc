@@ -706,6 +706,13 @@ class WorkflowEvent(SQLModel, table=True):
 # --- 4. Database Engine and Main Function ---
 
 import os
+import sys
+
+
+def _is_pytest_running() -> bool:
+    """Detect if code is running under pytest."""
+    return "pytest" in sys.modules or "py.test" in sys.modules
+
 
 def get_database_url() -> str:
     """Return database URL from environment variable or default.
@@ -726,7 +733,57 @@ def get_database_echo() -> bool:
     return echo_env in ("true", "1", "yes")
 
 
-# Create the engine with environment-driven configuration
+# Create the production engine (lazy singleton)
+_production_engine = None
+
+
+def _create_production_engine():
+    """Create the production database engine."""
+    return create_engine(
+        get_database_url(),
+        echo=get_database_echo(),
+        connect_args={"check_same_thread": False},
+    )
+
+
+def get_engine():
+    """
+    Return the database engine with test safety guard.
+    
+    When running under pytest, this function raises an error unless:
+    - ALLOW_PROD_DB_IN_TEST=1 environment variable is set, or
+    - Tests monkey-patch the engine (recommended)
+    
+    This prevents accidental writes to production database during tests.
+    
+    For tests, use the 'engine' fixture from conftest.py which provides
+    an in-memory database, then monkey-patch this module:
+        monkeypatch.setattr(module, "engine", test_engine)
+    
+    Returns:
+        Engine: SQLAlchemy database engine
+        
+    Raises:
+        RuntimeError: If called during pytest without explicit override
+    """
+    global _production_engine
+    
+    if _is_pytest_running():
+        if not os.environ.get("ALLOW_PROD_DB_IN_TEST"):
+            raise RuntimeError(
+                "get_engine() called during pytest without ALLOW_PROD_DB_IN_TEST=1. "
+                "Tests should use the 'engine' fixture and monkey-patch the module. "
+                "Example: monkeypatch.setattr(save_mod, 'engine', test_engine)"
+            )
+    
+    if _production_engine is None:
+        _production_engine = _create_production_engine()
+    
+    return _production_engine
+
+
+# Legacy: Keep 'engine' as module-level variable for backwards compatibility
+# New code should use get_engine() for test safety
 engine = create_engine(
     get_database_url(),
     echo=get_database_echo(),
