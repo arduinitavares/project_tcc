@@ -23,6 +23,7 @@ from agile_sqlmodel import (
 from orchestrator_agent.agent_tools.sprint_planning.sprint_query_tools import (
     GetSprintDetailsInput,
     get_sprint_details,
+    list_sprints,
 )
 
 
@@ -197,6 +198,85 @@ class TestSprintQueryTools(unittest.TestCase):
             self.assertEqual(task_status_breakdown[TaskStatus.TO_DO.value], 1)
             self.assertEqual(task_status_breakdown[TaskStatus.IN_PROGRESS.value], 1)
             self.assertEqual(task_status_breakdown[TaskStatus.DONE.value], 2)
+
+    def test_list_sprints(self):
+        """Test list_sprints returns correct data with optimization."""
+        with Session(self.engine) as session:
+            # 1. Setup test data
+            product = Product(name="Test Product 2", vision="A test product")
+            session.add(product)
+            session.commit()
+            session.refresh(product)
+
+            team = Team(name="Test Team 2")
+            session.add(team)
+            session.commit()
+            session.refresh(team)
+
+            # Create 2 sprints
+            sprint1 = Sprint(
+                goal="Sprint 1",
+                start_date=date(2024, 2, 1),
+                end_date=date(2024, 2, 14),
+                status=SprintStatus.COMPLETED,
+                product_id=product.product_id,
+                team_id=team.team_id,
+            )
+            sprint2 = Sprint(
+                goal="Sprint 2",
+                start_date=date(2024, 2, 15),
+                end_date=date(2024, 2, 28),
+                status=SprintStatus.ACTIVE,
+                product_id=product.product_id,
+                team_id=team.team_id,
+            )
+            session.add(sprint1)
+            session.add(sprint2)
+            session.commit()
+            session.refresh(sprint1)
+            session.refresh(sprint2)
+
+            # Add stories to sprint 1
+            story1 = UserStory(title="S1 Story 1", product_id=product.product_id)
+            story2 = UserStory(title="S1 Story 2", product_id=product.product_id)
+            session.add(story1)
+            session.add(story2)
+            session.commit()
+
+            session.add(
+                SprintStory(sprint_id=sprint1.sprint_id, story_id=story1.story_id)
+            )
+            session.add(
+                SprintStory(sprint_id=sprint1.sprint_id, story_id=story2.story_id)
+            )
+
+            # Add stories to sprint 2
+            story3 = UserStory(title="S2 Story 1", product_id=product.product_id)
+            session.add(story3)
+            session.commit()
+
+            session.add(
+                SprintStory(sprint_id=sprint2.sprint_id, story_id=story3.story_id)
+            )
+            session.commit()
+
+            # 2. Call list_sprints
+            result = list_sprints(product.product_id)
+
+            # 3. Assertions
+            self.assertTrue(result["success"])
+            self.assertEqual(result["sprint_count"], 2)
+            sprints = result["sprints"]
+            self.assertEqual(len(sprints), 2)
+
+            # Sort by start date desc (expected default)
+            s1_result = next(s for s in sprints if s["sprint_id"] == sprint1.sprint_id)
+            s2_result = next(s for s in sprints if s["sprint_id"] == sprint2.sprint_id)
+
+            self.assertEqual(s1_result["story_count"], 2)
+            self.assertEqual(s1_result["team_name"], "Test Team 2")
+            self.assertEqual(s2_result["story_count"], 1)
+            self.assertEqual(s2_result["team_name"], "Test Team 2")
 
 
 if __name__ == "__main__":

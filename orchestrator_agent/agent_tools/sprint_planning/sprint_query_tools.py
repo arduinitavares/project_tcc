@@ -6,7 +6,7 @@ Provides read-only access to sprint information.
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 
 from agile_sqlmodel import (
     Product,
@@ -199,25 +199,19 @@ def list_sprints(product_id: int) -> Dict[str, Any]:
             if not product:
                 return {"success": False, "error": f"Product {product_id} not found"}
 
-            # Get all sprints for product
+            # Get sprints with team info and story counts in a single query
             stmt = (
-                select(Sprint)
+                select(Sprint, Team, func.count(SprintStory.story_id))
+                .outerjoin(Team, Sprint.team_id == Team.team_id)
+                .outerjoin(SprintStory, Sprint.sprint_id == SprintStory.sprint_id)
                 .where(Sprint.product_id == product_id)
+                .group_by(Sprint.sprint_id, Team.team_id)
                 .order_by(Sprint.start_date.desc())
             )
-            sprints = session.exec(stmt).all()
+            results = session.exec(stmt).all()
 
             sprint_summaries = []
-            for sprint in sprints:
-                # Get team
-                team = session.get(Team, sprint.team_id)
-
-                # Count stories
-                sprint_stories_stmt = select(SprintStory).where(
-                    SprintStory.sprint_id == sprint.sprint_id
-                )
-                story_count = len(session.exec(sprint_stories_stmt).all())
-
+            for sprint, team, story_count in results:
                 sprint_summaries.append(
                     {
                         "sprint_id": sprint.sprint_id,
