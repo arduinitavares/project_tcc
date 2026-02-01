@@ -22,6 +22,10 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.types import Date, Text
 from sqlmodel import Field, Relationship, SQLModel, create_engine
+from db.migrations import ensure_schema_current
+import os
+import sys
+
 
 # Load .env file if it exists
 try:
@@ -705,8 +709,7 @@ class WorkflowEvent(SQLModel, table=True):
 
 # --- 4. Database Engine and Main Function ---
 
-import os
-import sys
+
 
 
 def _is_pytest_running() -> bool:
@@ -806,7 +809,6 @@ def create_db_and_tables():
     print("Tables created successfully.")
     
     # Run idempotent migrations to handle schema drift
-    from db.migrations import ensure_schema_current
     ensure_schema_current(engine)
 
 
