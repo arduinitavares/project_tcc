@@ -26,7 +26,7 @@ class SaveVisionInput(BaseModel):
 
 def save_vision_tool(
     vision_input: SaveVisionInput, tool_context: ToolContext
-) -> str:
+) -> Dict[str, Any]:
     """
     COMMITS the finalized Product Vision to the Business Database.
     """
@@ -40,12 +40,14 @@ def save_vision_tool(
                 Product.name == vision_input.project_name
             )
             existing_project = session.exec(statement).first()
+            p_id = None
 
             if existing_project:
                 print(f"   [DB] Updating ID: {existing_project.product_id}")
                 existing_project.vision = vision_input.product_vision_statement
                 session.add(existing_project)
                 action = "Updated"
+                p_id = existing_project.product_id
             else:
                 print("   [DB] Creating new record.")
                 new_project = Product(
@@ -54,20 +56,29 @@ def save_vision_tool(
                     roadmap=None,
                 )
                 session.add(new_project)
+                session.commit()
+                session.refresh(new_project)
                 action = "Created"
+                p_id = new_project.product_id
 
-            session.commit()
+            if existing_project:
+                session.commit()
 
             # Using tool_context here is fine because we actually use it
             tool_context.state["current_project_name"] = (
                 vision_input.project_name
             )
 
-            return f"SUCCESS: {action} project '{vision_input.project_name}'."
+            return {
+                "success": True,
+                "product_id": p_id,
+                "message": f"SUCCESS: {action} project '{vision_input.project_name}'.",
+                "project_name": vision_input.project_name,
+            }
 
     except SQLAlchemyError as e:
         print(f"   [DB Error] {e}")
-        return f"Database Error: {str(e)}"
+        return {"success": False, "error": f"Database Error: {str(e)}"}
 
 
 # --- Tool for READING the vision ---

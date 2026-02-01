@@ -1301,7 +1301,7 @@ def ensure_accepted_spec_authority(
     # This protects Authority Gate reads from stale DB schemas.
     from db.migrations import ensure_schema_current
 
-    ensure_schema_current(engine)
+    ensure_schema_current(get_engine())
     # Step 1: Check if an accepted authority already exists for this product
     compile_reason = "no_accepted_authority"
     existing_spec_version_id: Optional[int] = None
