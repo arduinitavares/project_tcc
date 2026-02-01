@@ -1,0 +1,263 @@
+\documentclass[ppgc,espec]{iiufrgs}
+
+% Use unicode (acentuação)
+\usepackage[utf8]{inputenc}
+
+% Figuras (se precisar)
+\usepackage{graphicx}
+
+% Fonte (opcional; mantenha se seu template exigir)
+\usepackage{times}
+
+% Citações ABNT (conforme template oficial)
+\usepackage[alf,abnt-emphasize=bf]{abntex2cite}
+
+%
+% Informações gerais (preencha placeholders quando necessário)
+%
+\title{Plataforma de Gestão Ágil com Agentes Autônomos: uma abordagem cognitiva para equipes de desenvolvimento reduzidas}
+
+% \author{Sobrenome}{Prenomes}
+\author{Tavares}{Alexandre Augusto Arduini}
+
+% Orientação (obrigatório na maioria dos casos)
+\advisor[Prof.~Dr.]{Lacerda}{Guilherme}
+% \coadvisor[Prof.~Dr.]{placeholder_sobrenome_coorientador}{placeholder_nome_coorientador}
+
+% Data da defesa (mês e ano). Se não souber, mantenha placeholders.
+\date{fevereiro 2026}
+
+% Monografias de Especialização [espec]
+\espec{Curso de Especialização em Engenharia de Software para Aplicações de Ciência de Dados} % Ex.: Ciência de Dados
+\coord[Profa.~Dra.]{placeholder_nome_coordenador}{placeholder_sobrenome_coordenador}
+\dept{INA}
+
+%
+% Palavras-chave (uma por comando; iniciar em minúsculas, exceto siglas)
+%
+\keyword{scrum (inspirado)}
+\keyword{sistemas multiagentes}
+\keyword{engenharia de software}
+\keyword{spec-driven}
+\keyword{carga cognitiva}
+
+\begin{document}
+
+\maketitle
+
+%
+% Resumo (língua do documento)
+%
+\begin{abstract}
+Este trabalho investiga as dificuldades metodológicas e a sobrecarga cognitiva enfrentadas por equipes pequenas de software (1--4 membros) ao adotar práticas ágeis inspiradas no Scrum. Propõe-se o desenvolvimento de uma plataforma de gestão ágil autônoma baseada em um sistema multiagente que orquestra um fluxo de trabalho ``com formato de Scrum'' (visão, especificação, roadmap, histórias, planejamento e execução), porém com uma camada adicional de governança por especificação (\emph{Spec-Driven Architecture}). Nessa camada, uma especificação versionada é tratada como fonte primária de verdade para escopo e regras, e a aceitação de artefatos é decidida por \emph{gates} determinísticos de validação (pass/fail), mantendo a geração inicial dos artefatos como não determinística (LLM). A validação é realizada por meio de uma Prova de Conceito (PoC), com coleta de métricas de avaliação como carga cognitiva (NASA-TLX) e eficiência do fluxo (cycle time).
+\end{abstract}
+
+%
+% Abstract (outra língua): parâmetros = (título em inglês) (keywords em inglês, separadas por vírgula)
+%
+\begin{englishabstract}{Autonomous Agile Management Platform with Autonomous Agents: a cognitive approach for small software teams}{Scrum-inspired, multi-agent systems, software engineering, Spec-Driven, cognitive load}
+This work investigates the methodological difficulties and cognitive load faced by small software teams (1--4 members) when adopting Scrum-inspired practices. We propose an autonomous agile management platform based on a multi-agent system that orchestrates a Scrum-shaped workflow (vision, specification, roadmap, stories, sprint planning, and execution) while adding a specification-governed layer (Spec-Driven Architecture). In this layer, a versioned technical specification is treated as the primary source of truth for scope and constraints, and artifact acceptance is decided by deterministic validation gates (pass/fail), while artifact generation remains non-deterministic (LLM-based). The proposal is validated through a Proof of Concept (PoC), collecting evaluation metrics such as cognitive load (NASA-TLX) and workflow efficiency (cycle time).
+\end{englishabstract}
+
+%
+% Sumário
+%
+\tableofcontents
+
+%
+% Texto principal (migrado do seu artigo para capítulos)
+%
+
+\chapter{Introdução}
+% PLACEHOLDER
+
+\section{Contexto e motivação}
+% PLACEHOLDER
+
+\section{Problema de pesquisa (dor + lacuna)}
+% PLACEHOLDER
+
+\section{Objetivo geral}
+% PLACEHOLDER
+
+\section{Objetivos específicos}
+% PLACEHOLDER
+
+\section{Hipóteses / Proposições (ex.: H1, H2)}
+% PLACEHOLDER
+
+\section{Contribuições (artefato + conhecimento)}
+% PLACEHOLDER
+
+\section{Organização do trabalho}
+% PLACEHOLDER
+
+\chapter{Fundamentação teórica e trabalhos relacionados}
+% PLACEHOLDER
+
+\section{Scrum em equipes pequenas / limitações práticas}
+% PLACEHOLDER
+
+\section{Sistemas multiagentes e agentes com LLM}
+% PLACEHOLDER
+
+\section{Spec-Driven / governança por especificação}
+% PLACEHOLDER
+
+\section{Trabalhos relacionados (tabela comparativa)}
+% PLACEHOLDER
+
+\section{Lacunas e posicionamento do seu trabalho}
+% PLACEHOLDER
+
+\chapter{Método de pesquisa}
+% PLACEHOLDER
+
+\section{Classificação do estudo (DSR + ``presumivelmente melhor'')}
+% PLACEHOLDER
+
+\section{Etapas do DSR (problema → objetivos → design → desenvolvimento → demonstração → avaliação → comunicação)}
+% PLACEHOLDER
+
+\section{Desenho da avaliação (o que será comparado e como)}
+% PLACEHOLDER
+
+\section{Métricas e instrumentos}
+% PLACEHOLDER
+
+\subsection{Carga cognitiva: NASA-TLX (como aplicar, quando, com quem)}
+% PLACEHOLDER
+
+\subsection{Eficiência de fluxo: lead time / cycle time / throughput / WIP (o que você medir)}
+% PLACEHOLDER
+
+\subsection{Qualidade de artefatos (rubrica/checklist)}
+% PLACEHOLDER
+
+\section{Planejamento estatístico/analítico (mesmo simples: testes, efeito, análise descritiva)}
+% PLACEHOLDER
+
+\section{Considerações éticas (se envolver pessoas)}
+% PLACEHOLDER
+
+\section{Ameaças à validade (planejadas) e mitigação}
+% PLACEHOLDER
+
+\chapter{Desenvolvimento do artefato (a ``proposta'')}
+% PLACEHOLDER
+
+\section{Requisitos e restrições}
+% PLACEHOLDER
+
+\section{Visão geral da arquitetura}
+% PLACEHOLDER
+
+\section{Componentes (orquestrador, agentes, memória/estado, spec\_registry, compiled\_spec\_authority)}
+% PLACEHOLDER
+
+\section{Fluxo end-to-end (pipeline Scrum-shaped + gates determinísticos)}
+% PLACEHOLDER
+
+\section{Implementação (principais decisões técnicas)}
+% PLACEHOLDER
+
+\section{Cenários de uso / demonstração}
+% PLACEHOLDER
+
+\chapter{Protocolo de avaliação (replicável)}
+% PLACEHOLDER
+
+\section{Questões de pesquisa (RQ1, RQ2…)}
+% PLACEHOLDER
+
+\section{Hipóteses associadas (H1…)}
+% PLACEHOLDER
+
+\section{Baseline (definição operacional: ferramenta tradicional + processo manual)}
+% PLACEHOLDER
+
+\section{Tarefas e procedimentos (passo a passo)}
+% PLACEHOLDER
+
+\section{Participantes / perfil / amostra}
+% PLACEHOLDER
+
+\section{Coleta de dados (logs, formulários, NASA-TLX, tempos)}
+% PLACEHOLDER
+
+\section{Critérios de aceitação/validação de dados}
+% PLACEHOLDER
+
+\section{Plano de análise (como virar resultado)}
+% PLACEHOLDER
+
+\chapter{Resultados}
+% PLACEHOLDER
+
+\section{Resultados de carga cognitiva (NASA-TLX)}
+% PLACEHOLDER
+
+\section{Resultados de eficiência do fluxo (cycle time etc.)}
+% PLACEHOLDER
+
+\section{Resultados de qualidade de artefatos}
+% PLACEHOLDER
+
+\section{Síntese por hipótese (H1/H2… bateu ou não bateu)}
+% PLACEHOLDER
+
+\chapter{Discussão}
+% PLACEHOLDER
+
+\section{Interpretação: por que melhorou/piorou}
+% PLACEHOLDER
+
+\section{Trade-offs (ex.: tempo de setup, custo de governança, false positives dos gates)}
+% PLACEHOLDER
+
+\section{Implicações práticas (equipes 1–4)}
+% PLACEHOLDER
+
+\section{Confronto com literatura (onde você confirma/contraria)}
+% PLACEHOLDER
+
+\chapter{Ameaças à validade e limitações}
+% PLACEHOLDER
+
+\section{Validade interna}
+% PLACEHOLDER
+
+\section{Validade externa}
+% PLACEHOLDER
+
+\section{Validade de construção}
+% PLACEHOLDER
+
+\section{Validade de conclusão}
+% PLACEHOLDER
+
+\section{Limitações do artefato/escopo}
+% PLACEHOLDER
+
+\chapter{Conclusão e trabalhos futuros}
+% PLACEHOLDER
+
+\section{Conclusões por objetivo}
+% PLACEHOLDER
+
+\section{Contribuições}
+% PLACEHOLDER
+
+\section{Trabalhos futuros}
+% PLACEHOLDER
+
+\section*{Referências (ABNT)}
+% PLACEHOLDER
+
+\section*{Apêndices (instrumentos, questionários, rubricas, tabelas completas)}
+% PLACEHOLDER
+
+\section*{Anexos (materiais externos, prints, documentos)}
+% PLACEHOLDER
+
+\end{document}
