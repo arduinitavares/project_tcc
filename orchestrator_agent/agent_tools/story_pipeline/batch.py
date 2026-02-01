@@ -1,13 +1,13 @@
 """Batch story pipeline processing."""
 
 import asyncio
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional, cast
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from agile_sqlmodel import CompiledSpecAuthority, get_engine
+from agile_sqlmodel import CompiledSpecAuthority, get_engine, Product
 from tools.spec_tools import ensure_accepted_spec_authority
 
 from tools.story_query_tools import FeatureForStory
@@ -140,6 +140,22 @@ async def process_story_batch(
     if not effective_spec_version_id:
         spec_content = batch_input.spec_content
         content_ref = batch_input.content_ref
+        
+        # If no explicit spec content provided, try to find it from the product in DB
+        if not spec_content and not content_ref:
+            with Session(get_engine()) as session:
+                product = session.exec(
+                    select(Product).where(Product.product_id == batch_input.product_id)
+                ).first()
+                if product and product.spec_file_path:
+                    # Prefer file path reference if available
+                    print(f"{CYAN}[Batch] Auto-resolved spec from product: {product.spec_file_path}{RESET}")
+                    content_ref = product.spec_file_path
+                elif product and product.technical_spec:
+                    # Fallback to content if no file path
+                    print(f"{CYAN}[Batch] Auto-resolved spec content from product DB{RESET}")
+                    spec_content = product.technical_spec
+
         if tool_context and tool_context.state:
             spec_content = spec_content or tool_context.state.get("pending_spec_content")
             content_ref = content_ref or tool_context.state.get("pending_spec_path")
@@ -273,36 +289,40 @@ async def process_story_batch(
         # Check for dict errors returned by process_single_story
         # Correction: Explicitly check for 'rejected' flag. "is_valid" might be True (LLM)
         # but rejected by post-validation constraints (alignment, drift, etc.)
+        
+        # Ensure result is typed as Dict[str, Any] for safe access
+        story_result = cast(Dict[str, Any], result) if isinstance(result, dict) else {}
+        
         if (
             isinstance(result, dict)
-            and result.get("success")
-            and result.get("is_valid")
-            and not result.get("rejected")
+            and story_result.get("success")
+            and story_result.get("is_valid")
+            and not story_result.get("rejected")
         ):
             validated_stories.append(
                 {
                     "feature_id": feature.feature_id,
                     "feature_title": feature.feature_title,
-                    "story": result["story"],
-                    "iterations": result.get("iterations", 1),
+                    "story": story_result["story"],
+                    "iterations": story_result.get("iterations", 1),
                 }
             )
-            total_iterations += result.get("iterations", 1)
+            total_iterations += story_result.get("iterations", 1)
         else:
             # Handle rejection or partial failure
             error_msg = "Validation failed"
             partial = {}
             if isinstance(result, dict):
-                if result.get("rejected"):
-                    issues = result.get("alignment_issues", [])
+                if story_result.get("rejected"):
+                    issues = story_result.get("alignment_issues", [])
                     error_msg = (
                         f"Alignment/Constraint Rejection: {issues[0]}"
                         if issues
                         else "Rejected by constraints"
                     )
                 else:
-                    error_msg = result.get("error", "Validation failed")
-                partial = result.get("story", {})
+                    error_msg = story_result.get("error", "Validation failed")
+                partial = story_result.get("story", {})
 
             failed_stories.append(
                 {
@@ -326,16 +346,16 @@ async def process_story_batch(
     # --- Store validated stories in session state for save_validated_stories fallback ---
     if tool_context and validated_stories:
         # Prepare stories in the format expected by save_validated_stories
-        stories_for_save = [
-            {
+        stories_for_save: List[Dict[str, Any]] = []
+        for vs in validated_stories:
+            story_obj = cast(Dict[str, Any], vs.get("story", {}))
+            stories_for_save.append({
                 "feature_id": vs.get("feature_id"),
-                "title": vs.get("story", {}).get("title"),
-                "description": vs.get("story", {}).get("description"),
-                "acceptance_criteria": vs.get("story", {}).get("acceptance_criteria"),
-                "story_points": vs.get("story", {}).get("story_points"),
-            }
-            for vs in validated_stories
-        ]
+                "title": story_obj.get("title"),
+                "description": story_obj.get("description"),
+                "acceptance_criteria": story_obj.get("acceptance_criteria"),
+                "story_points": story_obj.get("story_points"),
+            })
         tool_context.state["pending_validated_stories"] = stories_for_save
         tool_context.state["pending_product_id"] = batch_input.product_id
         tool_context.state["pending_spec_version_id"] = effective_spec_version_id
