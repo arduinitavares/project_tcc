@@ -78,6 +78,8 @@ def _create_structure_from_themes(
         "features": [],
     }
 
+    # Pass 1: Create all Themes
+    theme_objs = []
     for theme_input in themes:
         # Parse time_frame to enum
         time_frame_enum = _parse_time_frame(theme_input.time_frame)
@@ -97,11 +99,16 @@ def _create_structure_from_themes(
             product_id=product_id,
         )
         session.add(theme)
-        session.commit()
-        session.refresh(theme)
-        
+        theme_objs.append((theme_input, theme))
+
+    # Flush to generate theme IDs
+    session.flush()
+
+    # Pass 2: Create all Epics (one per theme)
+    epic_objs = []
+    for theme_input, theme in theme_objs:
         if theme.theme_id is None:
-            raise ValueError(f"Failed to create theme '{theme_title}' in database")
+            raise ValueError(f"Failed to create theme '{theme.title}' in database")
 
         created["themes"].append({"id": theme.theme_id, "title": theme.title})
 
@@ -112,11 +119,16 @@ def _create_structure_from_themes(
             theme_id=theme.theme_id,
         )
         session.add(epic)
-        session.commit()
-        session.refresh(epic)
-        
+        epic_objs.append((theme_input, epic))
+
+    # Flush to generate epic IDs
+    session.flush()
+
+    # Pass 3: Create all Features
+    feature_objs = []
+    for theme_input, epic in epic_objs:
         if epic.epic_id is None:
-            raise ValueError(f"Failed to create epic '{theme_input.theme_name}' in database")
+            raise ValueError(f"Failed to create epic '{epic.title}' in database")
 
         created["epics"].append({"id": epic.epic_id, "title": epic.title})
 
@@ -128,16 +140,23 @@ def _create_structure_from_themes(
                 epic_id=epic.epic_id,
             )
             session.add(feature)
-            session.commit()
-            session.refresh(feature)
+            feature_objs.append(feature)
             
-            if feature.feature_id is None:
-                raise ValueError(f"Failed to create feature '{feature_name}' in database")
+    # Flush to generate feature IDs
+    session.flush()
 
-            created["features"].append({
-                "id": feature.feature_id,
-                "title": feature.title,
-            })
+    # Collect created features
+    for feature in feature_objs:
+        if feature.feature_id is None:
+            raise ValueError(f"Failed to create feature '{feature.title}' in database")
+
+        created["features"].append({
+            "id": feature.feature_id,
+            "title": feature.title,
+        })
+
+    # Commit once at the end
+    session.commit()
 
     return created
 
