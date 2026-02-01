@@ -1,7 +1,8 @@
 """Batch story pipeline processing."""
 
 import asyncio
-from typing import Annotated, Any, Dict, List, Optional, cast
+import logging
+from typing import Annotated, Any, Dict, List, Optional, cast, Tuple
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
@@ -9,17 +10,12 @@ from sqlmodel import Session, select
 
 from agile_sqlmodel import CompiledSpecAuthority, get_engine, Product, Theme, Epic
 from tools.spec_tools import ensure_accepted_spec_authority
-
 from tools.story_query_tools import FeatureForStory
 from .common import load_compiled_authority
 from .single_story import ProcessStoryInput, process_single_story
 
-CYAN = "\033[96m"
-GREEN = "\033[92m"
-YELLOW = "\033[93m"
-RED = "\033[91m"
-RESET = "\033[0m"
-BOLD = "\033[1m"
+# Configure logger
+logger = logging.getLogger(__name__)
 
 
 class ProcessBatchInput(BaseModel):
@@ -42,17 +38,19 @@ class ProcessBatchInput(BaseModel):
         ),
     ]
     user_persona: Annotated[
-        Optional[str],
+        str,
         Field(
             description="The target user persona for all stories. Defaults to 'user' if not provided.",
+            default="user",
         ),
-    ] = None
+    ]
     include_story_points: Annotated[
-        Optional[bool],
+        bool,
         Field(
             description="Whether to include story point estimates. Defaults to True if not provided.",
+            default=True,
         ),
-    ] = None
+    ]
     spec_version_id: Annotated[
         Optional[int],
         Field(
@@ -77,20 +75,22 @@ class ProcessBatchInput(BaseModel):
         ),
     ] = None
     recompile: Annotated[
-        Optional[bool],
+        bool,
         Field(
             description="Force recompile even if authority cache exists. Defaults to False if not provided.",
+            default=False,
         ),
-    ] = None
+    ]
     enable_story_refiner: Annotated[
-        Optional[bool],
+        bool,
         Field(
             description="Whether to run the story refiner loop (A/B testing). Defaults to True if not provided.",
+            default=True,
         ),
-    ] = None
+    ]
 
     max_concurrency: Annotated[
-        Optional[int],
+        int,
         Field(
             ge=1,
             le=10,
@@ -98,8 +98,153 @@ class ProcessBatchInput(BaseModel):
                 "Maximum number of features to process in parallel. "
                 "Defaults to 1 for deterministic, in-order logs. Increase for speed."
             ),
+            default=1,
         ),
-    ] = None
+    ]
+
+
+def _resolve_effective_spec_version_id(
+    batch_input: ProcessBatchInput, tool_context: Optional[ToolContext]
+) -> int:
+    """Resolve the effective spec version ID, performing lookups and auto-resolution if needed."""
+    effective_spec_version_id = batch_input.spec_version_id
+
+    # Validate provided spec_version_id
+    if effective_spec_version_id:
+        with Session(get_engine()) as check_session:
+            exists = check_session.exec(
+                select(CompiledSpecAuthority).where(
+                    CompiledSpecAuthority.spec_version_id == effective_spec_version_id
+                )
+            ).first()
+            if not exists:
+                logger.warning(
+                    "Provided spec_version_id=%s not found, auto-resolving...",
+                    effective_spec_version_id
+                )
+                effective_spec_version_id = None
+
+    if not effective_spec_version_id:
+        spec_content = batch_input.spec_content
+        content_ref = batch_input.content_ref
+
+        # Auto-resolve from Product if neither spec_content nor content_ref provided
+        if not spec_content and not content_ref:
+            with Session(get_engine()) as session:
+                product = session.exec(
+                    select(Product).where(Product.product_id == batch_input.product_id)
+                ).first()
+                if product:
+                    if product.spec_file_path:
+                        logger.info("Auto-resolved spec from product: %s", product.spec_file_path)
+                        content_ref = product.spec_file_path
+                    elif product.technical_spec:
+                        logger.info("Auto-resolved spec content from product DB")
+                        spec_content = product.technical_spec
+
+        # Fallback to ToolContext state
+        if tool_context and tool_context.state:
+            spec_content = spec_content or tool_context.state.get("pending_spec_content")
+            content_ref = content_ref or tool_context.state.get("pending_spec_path")
+
+        # Authority gate input rule: prefer content_ref
+        if spec_content and content_ref:
+            spec_content = None
+
+        effective_spec_version_id = ensure_accepted_spec_authority(
+            batch_input.product_id,
+            spec_content=spec_content,
+            content_ref=content_ref,
+            recompile=batch_input.recompile,
+            tool_context=tool_context,
+        )
+
+    return effective_spec_version_id
+
+
+def _load_technical_spec(product_id: int, spec_version_id: int) -> str:
+    """Load the technical spec content for the given version."""
+    with Session(get_engine()) as session:
+        _, _, technical_spec = load_compiled_authority(
+            session=session,
+            product_id=product_id,
+            spec_version_id=spec_version_id,
+        )
+    return technical_spec
+
+
+def _build_theme_epic_lookup(product_id: int) -> Tuple[Dict[str, int], Dict[Tuple[int, str], int]]:
+    """Build lookup maps for themes and epics."""
+    theme_map: Dict[str, int] = {}
+    epic_lookup: Dict[Tuple[int, str], int] = {}
+
+    with Session(get_engine()) as session:
+        themes = session.exec(select(Theme).where(Theme.product_id == product_id)).all()
+        theme_map = {t.title: t.theme_id for t in themes}
+
+        if themes:
+            theme_ids = [t.theme_id for t in themes]
+            epics = session.exec(select(Epic).where(Epic.theme_id.in_(theme_ids))).all()
+            epic_lookup = {(e.theme_id, e.title): e.epic_id for e in epics}
+
+    return theme_map, epic_lookup
+
+
+def _classify_story_result(
+    feature: FeatureForStory, result: Any
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], int]:
+    """
+    Classify the result of processing a single story.
+    Returns: (validated_entry, failed_entry, iterations)
+    """
+    iterations = 0
+    if isinstance(result, Exception):
+        return None, {
+            "feature_id": feature.feature_id,
+            "feature_title": feature.feature_title,
+            "error": str(result),
+            "error_type": type(result).__name__,
+        }, iterations
+
+    story_result = cast(Dict[str, Any], result) if isinstance(result, dict) else {}
+    iterations = story_result.get("iterations", 1)
+
+    # Check for success AND validity AND not rejected
+    if (
+        isinstance(result, dict)
+        and story_result.get("success")
+        and story_result.get("is_valid")
+        and not story_result.get("rejected")
+    ):
+        return {
+            "feature_id": feature.feature_id,
+            "feature_title": feature.feature_title,
+            "story": story_result["story"],
+            "iterations": iterations,
+        }, None, iterations
+
+    # Handle rejection or partial failure
+    error_msg = "Validation failed"
+    partial = {}
+
+    if isinstance(result, dict):
+        if story_result.get("rejected"):
+            issues = story_result.get("alignment_issues", [])
+            error_msg = (
+                f"Alignment/Constraint Rejection: {issues[0]}"
+                if issues
+                else "Rejected by constraints"
+            )
+        else:
+            error_msg = story_result.get("error", "Validation failed")
+        partial = story_result.get("story", {})
+
+    return None, {
+        "feature_id": feature.feature_id,
+        "feature_title": feature.feature_title,
+        "error": error_msg,
+        "partial_story": partial,
+    }, iterations
 
 
 async def process_story_batch(
@@ -111,135 +256,47 @@ async def process_story_batch(
 
     Each feature is processed ONE AT A TIME through the full pipeline.
     Results are returned for user review. Use `save_validated_stories` to persist.
-
-    NOTE: This function does NOT save to the database. After user confirms,
-    call `save_validated_stories` with the validated_stories from this response.
     """
-    # --- Apply defaults for optional parameters (moved from schema to runtime) ---
-    effective_persona = batch_input.user_persona if batch_input.user_persona is not None else "user"
-    effective_include_points = batch_input.include_story_points if batch_input.include_story_points is not None else True
-    effective_recompile = batch_input.recompile if batch_input.recompile is not None else False
-    effective_enable_refiner = batch_input.enable_story_refiner if batch_input.enable_story_refiner is not None else True
-    effective_max_concurrency = batch_input.max_concurrency if batch_input.max_concurrency is not None else 1
+    try:
+        effective_spec_version_id = _resolve_effective_spec_version_id(batch_input, tool_context)
+    except Exception as e:
+         return {
+            "success": False,
+            "error": str(e),
+        }
 
-    # --- Resolve spec_version_id with validation ---
-    effective_spec_version_id = batch_input.spec_version_id
-
-    # Validate that provided spec_version_id actually exists
-    if effective_spec_version_id:
-        with Session(get_engine()) as check_session:
-            exists = check_session.exec(
-                select(CompiledSpecAuthority).where(
-                    CompiledSpecAuthority.spec_version_id == effective_spec_version_id
-                )
-            ).first()
-            if not exists:
-                print(f"{YELLOW}[WARN] Provided spec_version_id={effective_spec_version_id} not found, auto-resolving...{RESET}")
-                effective_spec_version_id = None  # Fall back to auto-resolution
-
-    if not effective_spec_version_id:
-        spec_content = batch_input.spec_content
-        content_ref = batch_input.content_ref
-        
-        # If no explicit spec content provided, try to find it from the product in DB
-        if not spec_content and not content_ref:
-            with Session(get_engine()) as session:
-                product = session.exec(
-                    select(Product).where(Product.product_id == batch_input.product_id)
-                ).first()
-                if product and product.spec_file_path:
-                    # Prefer file path reference if available
-                    print(f"{CYAN}[Batch] Auto-resolved spec from product: {product.spec_file_path}{RESET}")
-                    content_ref = product.spec_file_path
-                elif product and product.technical_spec:
-                    # Fallback to content if no file path
-                    print(f"{CYAN}[Batch] Auto-resolved spec content from product DB{RESET}")
-                    spec_content = product.technical_spec
-
-        if tool_context and tool_context.state:
-            spec_content = spec_content or tool_context.state.get("pending_spec_content")
-            content_ref = content_ref or tool_context.state.get("pending_spec_path")
-
-        # Authority gate requires exactly one of spec_content or content_ref.
-        # If both are set, prefer content_ref (file path) as the canonical source.
-        if spec_content and content_ref:
-            spec_content = None
-
-        effective_spec_version_id = ensure_accepted_spec_authority(
-            batch_input.product_id,
-            spec_content=spec_content,
-            content_ref=content_ref,
-            recompile=effective_recompile,
-            tool_context=tool_context,
+    try:
+        technical_spec = _load_technical_spec(batch_input.product_id, effective_spec_version_id)
+        logger.info(
+            "Loaded technical specification (~%d tokens)", len(technical_spec) // 4
         )
+    except ValueError as exc:
+        return {
+            "success": False,
+            "error": str(exc),
+        }
 
-    # --- Fetch technical spec by spec_version_id (no fallbacks) ---
-    with Session(get_engine()) as db_session:
-        try:
-            _, _, technical_spec = load_compiled_authority(
-                session=db_session,
-                product_id=batch_input.product_id,
-                spec_version_id=effective_spec_version_id,
-            )
-        except ValueError as exc:
-            return {
-                "success": False,
-                "error": str(exc),
-            }
-        print(
-            f"{CYAN}[Spec]{RESET} Loaded technical specification "
-            f"(~{len(technical_spec) // 4} tokens)"
-        )
+    logger.info("Starting INVEST-Validated Story Pipeline for product '%s'", batch_input.product_name)
+    logger.info("Processing %d features", len(batch_input.features))
 
-    print(f"\n{CYAN}{'═' * 60}{RESET}")
-    print(f"{CYAN}{BOLD}  INVEST-VALIDATED STORY PIPELINE{RESET}")
-    print(
-        f"{CYAN}  Processing {len(batch_input.features)} features for '{batch_input.product_name}'{RESET}"
-    )
-    print(
-        f"{CYAN}  Persona: {effective_persona[:50]}...{RESET}"
-        if len(effective_persona) > 50
-        else f"{CYAN}  Persona: {effective_persona}{RESET}"
-    )
-    print(f"{CYAN}  Spec: ✓ Available ({len(technical_spec)} chars){RESET}")
-    print(f"{CYAN}{'═' * 60}{RESET}")
-
-    # --- Resolve Theme/Epic IDs if missing (Robustness Fix) ---
-    theme_map: Dict[str, int] = {}
-    epic_lookup: Dict[tuple[int, str], int] = {}
-
-    with Session(get_engine()) as session:
-        # Fetch all themes for product
-        themes = session.exec(select(Theme).where(Theme.product_id == batch_input.product_id)).all()
-        theme_map = {t.title: t.theme_id for t in themes}
-        
-        # Fetch all epics for these themes
-        if themes:
-            theme_ids = [t.theme_id for t in themes]
-            epics = session.exec(select(Epic).where(Epic.theme_id.in_(theme_ids))).all()
-            # Map: (theme_id, epic_title) -> epic_id
-            epic_lookup = {(e.theme_id, e.title): e.epic_id for e in epics}
+    theme_map, epic_lookup = _build_theme_epic_lookup(batch_input.product_id)
 
     validated_stories: List[Dict[str, Any]] = []
     failed_stories: List[Dict[str, Any]] = []
     total_iterations: int = 0
 
-    # Synchronization primitives
-    semaphore = asyncio.Semaphore(effective_max_concurrency)
-    console_lock = asyncio.Lock()
+    semaphore = asyncio.Semaphore(batch_input.max_concurrency)
 
     async def process_story_safe(idx: int, feature: FeatureForStory) -> Any:
-        logs: List[str] = []
-
         def log_capture(msg: str):
-            logs.append(msg)
+             # Just debug log the internal pipeline logs, don't bubble them to console
+             # unless configured. The prompt says "keep it reasonably quiet".
+             # We rely on the returned structure for detailed info.
+             logger.debug("[%s] %s", feature.feature_title, msg)
 
-        # Pre-buffer the header
-        log_capture(
-            f"\n{YELLOW}[{idx + 1}/{len(batch_input.features)}]{RESET} {BOLD}{feature.feature_title}{RESET}"
-        )
-
-        # Resolve IDs if missing (Robustness against LLM dropping optional fields)
+        # Resolve IDs if missing (Robustness Fix)
+        # Even though FeatureForStory types theme_id/epic_id as int (required),
+        # we check for None to handle potential runtime bypass or legacy data.
         resolved_theme_id = feature.theme_id
         if resolved_theme_id is None and feature.theme in theme_map:
             resolved_theme_id = theme_map[feature.theme]
@@ -249,45 +306,33 @@ async def process_story_batch(
             if (resolved_theme_id, feature.epic) in epic_lookup:
                 resolved_epic_id = epic_lookup[(resolved_theme_id, feature.epic)]
 
-        result = None
         try:
             async with semaphore:
-                result = await process_single_story(
+                logger.info("[%d/%d] Processing feature: %s", idx + 1, len(batch_input.features), feature.feature_title)
+                return await process_single_story(
                     ProcessStoryInput(
                         product_id=batch_input.product_id,
                         product_name=batch_input.product_name,
                         product_vision=batch_input.product_vision,
                         feature_id=feature.feature_id,
                         feature_title=feature.feature_title,
-                        # Stable ID references (preferred for validation)
                         theme_id=resolved_theme_id,
                         epic_id=resolved_epic_id,
-                        # Title references (guaranteed non-empty by FeatureForStory)
                         theme=feature.theme,
                         epic=feature.epic,
-                        user_persona=effective_persona,
-                        include_story_points=effective_include_points,
-                        # Roadmap context (optional)
+                        user_persona=batch_input.user_persona,
+                        include_story_points=batch_input.include_story_points,
                         time_frame=feature.time_frame,
                         theme_justification=feature.theme_justification,
                         sibling_features=feature.sibling_features,
-                        # Spec version required for validation
                         spec_version_id=effective_spec_version_id,
-                        enable_story_refiner=effective_enable_refiner,
+                        enable_story_refiner=batch_input.enable_story_refiner,
                     ),
                     output_callback=log_capture,
                     tool_context=tool_context,
                 )
         except Exception as e:
-            result = e
-            log_capture(f"{RED}   [Error]{RESET} {str(e)}")
-
-        # Atomically print logs
-        async with console_lock:
-            for line in logs:
-                print(line)
-
-        return result
+            return e
 
     # Execute in parallel
     results = await asyncio.gather(
@@ -300,78 +345,24 @@ async def process_story_batch(
 
     for idx, feature in enumerate(batch_input.features):
         result = results[idx]
-
-        if isinstance(result, Exception):
-            failed_stories.append(
-                {
-                    "feature_id": feature.feature_id,
-                    "feature_title": feature.feature_title,
-                    "error": str(result),
-                    "error_type": type(result).__name__,
-                }
-            )
-            continue
-
-        # Check for dict errors returned by process_single_story
-        # Correction: Explicitly check for 'rejected' flag. "is_valid" might be True (LLM)
-        # but rejected by post-validation constraints (alignment, drift, etc.)
+        validated, failed, iterations = _classify_story_result(feature, result)
         
-        # Ensure result is typed as Dict[str, Any] for safe access
-        story_result = cast(Dict[str, Any], result) if isinstance(result, dict) else {}
-        
-        if (
-            isinstance(result, dict)
-            and story_result.get("success")
-            and story_result.get("is_valid")
-            and not story_result.get("rejected")
-        ):
-            validated_stories.append(
-                {
-                    "feature_id": feature.feature_id,
-                    "feature_title": feature.feature_title,
-                    "story": story_result["story"],
-                    "iterations": story_result.get("iterations", 1),
-                }
-            )
-            total_iterations += story_result.get("iterations", 1)
+        if validated:
+            validated_stories.append(validated)
+            total_iterations += iterations
         else:
-            # Handle rejection or partial failure
-            error_msg = "Validation failed"
-            partial = {}
-            if isinstance(result, dict):
-                if story_result.get("rejected"):
-                    issues = story_result.get("alignment_issues", [])
-                    error_msg = (
-                        f"Alignment/Constraint Rejection: {issues[0]}"
-                        if issues
-                        else "Rejected by constraints"
-                    )
-                else:
-                    error_msg = story_result.get("error", "Validation failed")
-                partial = story_result.get("story", {})
+            if failed:
+                failed_stories.append(failed)
 
-            failed_stories.append(
-                {
-                    "feature_id": feature.feature_id,
-                    "feature_title": feature.feature_title,
-                    "error": error_msg,
-                    "partial_story": partial,
-                }
-            )
+    # Summary Log
+    logger.info(
+        "Pipeline Summary: Validated: %d, Failed: %d",
+        len(validated_stories),
+        len(failed_stories)
+    )
 
-    # --- Summary ---
-    print(f"\n{CYAN}{'═' * 60}{RESET}")
-    print(f"{CYAN}{BOLD}  PIPELINE SUMMARY{RESET}")
-    print(f"{GREEN}  ✅ Validated: {len(validated_stories)}{RESET}")
-    print(f"{RED}  ❌ Failed: {len(failed_stories)}{RESET}")
-    if validated_stories:
-        avg_iter = total_iterations / len(validated_stories)
-        print(f"{CYAN}  📊 Avg iterations: {avg_iter:.1f}{RESET}")
-    print(f"{CYAN}{'═' * 60}{RESET}")
-
-    # --- Store validated stories in session state for save_validated_stories fallback ---
+    # Store in session state
     if tool_context and validated_stories:
-        # Prepare stories in the format expected by save_validated_stories
         stories_for_save: List[Dict[str, Any]] = []
         for vs in validated_stories:
             story_obj = cast(Dict[str, Any], vs.get("story", {}))
@@ -385,7 +376,7 @@ async def process_story_batch(
         tool_context.state["pending_validated_stories"] = stories_for_save
         tool_context.state["pending_product_id"] = batch_input.product_id
         tool_context.state["pending_spec_version_id"] = effective_spec_version_id
-        print(f"{CYAN}[STATE] Stored {len(stories_for_save)} stories in session state for save_validated_stories{RESET}")
+        logger.info("Stored %d stories in session state", len(stories_for_save))
 
     return {
         "success": True,

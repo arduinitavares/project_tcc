@@ -89,10 +89,11 @@ async def test_story_pipeline_requires_spec_input_when_no_authority(
         spec_version_id=None,
     )
 
-    with pytest.raises(RuntimeError) as exc:
-        await process_story_batch(batch_input)
+    # Refactored pipeline returns structured error instead of raising RuntimeError
+    result = await process_story_batch(batch_input)
 
-    assert "spec" in str(exc.value).lower()
+    assert result["success"] is False
+    assert "spec" in result.get("error", "").lower()
 
 
 def test_update_spec_and_compile_returns_pinned_version_and_pipeline_accepts_it(
