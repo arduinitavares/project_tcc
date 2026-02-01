@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from sqlmodel import Session
 
 from agile_sqlmodel import engine
-from orchestrator_agent.agent_tools.product_user_story_tool.tools import (
+from tools.story_query_tools import (
     FeatureForStory,
     QueryFeaturesOutput,
     QueryFeaturesInput,
@@ -179,7 +179,7 @@ class TestPydanticSchemaEnforcement:
     def test_query_features_for_stories_returns_validated_output(self, engine):
         """query_features_for_stories returns dict from QueryFeaturesOutput."""
         from agile_sqlmodel import Theme, Epic, Feature, Product
-        import orchestrator_agent.agent_tools.product_user_story_tool.tools as story_tools
+        import tools.story_query_tools as story_tools
 
         story_tools.engine = engine
 

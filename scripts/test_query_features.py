@@ -2,7 +2,7 @@
 Quick test to verify query_features_for_stories returns validated Pydantic schema with theme/epic.
 """
 
-from orchestrator_agent.agent_tools.product_user_story_tool.tools import (
+from tools.story_query_tools import (
     query_features_for_stories,
     QueryFeaturesInput,
 )

@@ -9,14 +9,14 @@ from typing import Dict, Any
 sys.path.append(os.getcwd())
 
 from agile_sqlmodel import Product, Theme, Epic, Feature, UserStory, engine
-from orchestrator_agent.agent_tools.product_user_story_tool.tools import query_features_for_stories, QueryFeaturesInput
+from tools.story_query_tools import query_features_for_stories, QueryFeaturesInput
 
 # Setup In-Memory DB for Benchmark
 TEST_DB_URL = "sqlite:///:memory:"
 test_engine = create_engine(TEST_DB_URL)
 
 # Patch the engine used by the tool
-import orchestrator_agent.agent_tools.product_user_story_tool.tools as target_module
+import tools.story_query_tools as target_module
 import agile_sqlmodel
 agile_sqlmodel.engine = test_engine
 target_module.engine = test_engine # Just to be safe if it was already imported

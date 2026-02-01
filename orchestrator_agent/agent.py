@@ -21,16 +21,9 @@ from orchestrator_agent.agent_tools.product_vision_tool.agent import (
 from orchestrator_agent.agent_tools.product_vision_tool.tools import (
     save_vision_tool,
 )
-# Legacy user story tool (kept for backward compatibility)
-from orchestrator_agent.agent_tools.product_user_story_tool.agent import (
-    root_agent as user_story_agent,
-)
-from orchestrator_agent.agent_tools.product_user_story_tool.tools import (
-    create_user_story_tool,
-    batch_create_user_stories_tool,
-    query_features_for_stories,
-)
-# NEW: Story Pipeline with LoopAgent + SequentialAgent (INVEST validation)
+# Story query tools (extracted from legacy product_user_story_tool)
+from tools.story_query_tools import query_features_for_stories
+# Story Pipeline with LoopAgent + SequentialAgent (INVEST validation)
 from orchestrator_agent.agent_tools.story_pipeline import (
     story_validation_loop,
 )
@@ -132,13 +125,10 @@ root_agent = Agent(
         save_roadmap_tool,
         # Story query tools
         query_features_for_stories,
-        # NEW: Story Pipeline tools (INVEST-validated)
+        # Story Pipeline tools (INVEST-validated)
         process_story_batch,  # Batch processing (calls process_single_story internally)
         save_validated_stories,  # Save without re-running pipeline
-        # Legacy story tools (for backward compatibility)
-        create_user_story_tool,
-        batch_create_user_stories_tool,
-        # NEW: Sprint Planning tools (Scrum Master MVP)
+        # Sprint Planning tools (Scrum Master MVP)
         get_backlog_for_planning,
         plan_sprint_tool,
         save_sprint_tool,
@@ -155,8 +145,7 @@ root_agent = Agent(
         # Agent tools
         AgentTool(agent=vision_agent),
         AgentTool(agent=roadmap_agent),
-        AgentTool(agent=user_story_agent),
-        # NEW: Story validation pipeline
+        # Story validation pipeline (replaces legacy user_story_agent)
         AgentTool(agent=story_validation_loop),
     ],
     input_schema=InputSchema,

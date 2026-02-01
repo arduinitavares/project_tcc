@@ -1,6 +1,9 @@
-# orchestrator_agent/agent_tools/product_user_story_tool/tools.py
+# tools/story_query_tools.py
 """
-Tools for creating and persisting user stories from the orchestrator.
+Tools for querying features and story-related data.
+
+Extracted from legacy product_user_story_tool/tools.py to preserve
+query_features_for_stories functionality after legacy agent removal.
 """
 
 from typing import Annotated, Any, Dict, List, Optional
@@ -13,144 +16,7 @@ from sqlmodel import Session, select
 from agile_sqlmodel import Epic, Feature, Product, Theme, UserStory, get_engine
 
 
-# --- Schema for creating a single user story ---
-
-
-class CreateStoryInput(BaseModel):
-    """Input schema for create_user_story_tool."""
-
-    product_id: Annotated[int, Field(description="The product ID to link the story to.")]
-    feature_id: Annotated[int, Field(description="The feature ID to link the story to.")]
-    title: Annotated[str, Field(description="The user story title (e.g., 'Add ingredient to pantry').")]
-    description: Annotated[
-        str,
-        Field(description="The story description in 'As a... I want... So that...' format."),
-    ]
-    acceptance_criteria: Annotated[
-        Optional[str],
-        Field(
-            default=None,
-            description="Bullet-point acceptance criteria. Optional.",
-        ),
-    ]
-    story_points: Annotated[
-        Optional[int],
-        Field(description="Story point estimate. Optional, defaults to None if not provided."),
-    ] = None
-
-
-def create_user_story_tool(story_input: CreateStoryInput) -> Dict[str, Any]:
-    """
-    Persist a single user story to the database.
-
-    Returns:
-        Dict with success status, story_id if created, and message.
-    """
-    print(
-        f"\n[Tool: create_user_story_tool] Creating story '{story_input.title}'..."
-    )
-
-    try:
-        with Session(get_engine()) as session:
-            # Validate feature exists
-            feature = session.get(Feature, story_input.feature_id)
-            if not feature:
-                print(f"   [DB] Feature {story_input.feature_id} not found.")
-                return {
-                    "success": False,
-                    "error": f"Feature {story_input.feature_id} not found",
-                }
-
-            # Create the story
-            story = UserStory(
-                title=story_input.title,
-                story_description=story_input.description,
-                acceptance_criteria=story_input.acceptance_criteria,
-                story_points=story_input.story_points,
-                feature_id=story_input.feature_id,
-                product_id=story_input.product_id,
-            )
-            session.add(story)
-            session.commit()
-            session.refresh(story)
-
-            print(f"   [DB] Created story ID: {story.story_id}")
-            return {
-                "success": True,
-                "story_id": story.story_id,
-                "feature_id": story_input.feature_id,
-                "product_id": story_input.product_id,
-                "title": story_input.title,
-                "message": f"Created user story '{story_input.title}' with ID {story.story_id}",
-            }
-
-    except SQLAlchemyError as e:
-        print(f"   [DB Error] {e}")
-        return {"success": False, "error": f"Database error: {str(e)}"}
-
-
-# --- Schema for batch creation ---
-
-
-class BatchCreateStoriesInput(BaseModel):
-    """Input schema for batch story creation."""
-
-    product_id: Annotated[int, Field(description="The product ID.")]
-    stories: Annotated[
-        List[Dict[str, Any]],
-        Field(
-            description=(
-                "List of story dicts with keys: feature_id, title, description, "
-                "acceptance_criteria (optional), story_points (optional)."
-            )
-        ),
-    ]
-
-
-def batch_create_user_stories_tool(
-    batch_input: BatchCreateStoriesInput,
-) -> Dict[str, Any]:
-    """
-    Persist multiple user stories at once.
-
-    Returns:
-        Dict with success status, created story IDs, and any errors.
-    """
-    print(
-        f"\n[Tool: batch_create_user_stories_tool] Creating {len(batch_input.stories)} stories..."
-    )
-
-    created: List[Dict[str, Any]] = []
-    errors: List[Dict[str, Any]] = []
-
-    for story_data in batch_input.stories:
-        result = create_user_story_tool(
-            CreateStoryInput(
-                product_id=batch_input.product_id,
-                feature_id=story_data["feature_id"],
-                title=story_data["title"],
-                description=story_data["description"],
-                acceptance_criteria=story_data.get("acceptance_criteria"),
-                story_points=story_data.get("story_points"),
-            )
-        )
-
-        if result["success"]:
-            created.append(result)
-        else:
-            errors.append({"story": story_data, "error": result.get("error")})
-
-    print(f"   [DB] Created {len(created)} stories, {len(errors)} errors.")
-    return {
-        "success": len(errors) == 0,
-        "created_count": len(created),
-        "created_stories": created,
-        "errors": errors,
-        "message": f"Created {len(created)} user stories. {len(errors)} failed.",
-    }
-
-
-# --- Tool for querying features (for the agent to know what's available) ---
+# --- Schemas for querying features ---
 
 
 class FeatureForStory(BaseModel):
@@ -391,4 +257,3 @@ def query_features_for_stories(
         # Return error response (still needs to match schema for success=False case)
         # We'll need to handle this - for now, re-raise to make error visible
         raise
-

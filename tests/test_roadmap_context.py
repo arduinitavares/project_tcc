@@ -159,8 +159,8 @@ class TestQueryFeaturesWithRoadmapContext:
         monkeypatch: pytest.MonkeyPatch,
     ):
         """Features should include time_frame from their theme."""
-        from orchestrator_agent.agent_tools.product_user_story_tool import tools
-        from orchestrator_agent.agent_tools.product_user_story_tool.tools import (
+        import tools.story_query_tools as tools
+        from tools.story_query_tools import (
             query_features_for_stories,
             QueryFeaturesInput,
         )
@@ -194,8 +194,8 @@ class TestQueryFeaturesWithRoadmapContext:
         monkeypatch: pytest.MonkeyPatch,
     ):
         """Features should list sibling features in the same theme."""
-        from orchestrator_agent.agent_tools.product_user_story_tool import tools
-        from orchestrator_agent.agent_tools.product_user_story_tool.tools import (
+        import tools.story_query_tools as tools
+        from tools.story_query_tools import (
             query_features_for_stories,
             QueryFeaturesInput,
         )

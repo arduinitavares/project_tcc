@@ -16,7 +16,7 @@ from orchestrator_agent.agent_tools.story_pipeline.tools import (
     save_validated_stories,
     process_story_batch,
 )
-from orchestrator_agent.agent_tools.product_user_story_tool.tools import FeatureForStory
+from tools.story_query_tools import FeatureForStory
 from agile_sqlmodel import Product, Theme, Epic, Feature
 
 

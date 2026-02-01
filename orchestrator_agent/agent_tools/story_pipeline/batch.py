@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from agile_sqlmodel import CompiledSpecAuthority, get_engine
 from tools.spec_tools import ensure_accepted_spec_authority
 
-from ..product_user_story_tool.tools import FeatureForStory
+from tools.story_query_tools import FeatureForStory
 from .common import load_compiled_authority
 from .single_story import ProcessStoryInput, process_single_story
 

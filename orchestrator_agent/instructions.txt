@@ -376,20 +376,6 @@ Each story is validated against INVEST principles (Independent, Negotiable, Valu
 
 ---
 
-## LEGACY MODE (Backward Compatibility)
-
-The old `product_user_story_tool` is still available for bulk generation without INVEST validation.
-Use it when:
-- User explicitly asks for "quick" or "bulk" story generation
-- User says "skip validation"
-
-For LEGACY bulk mode:
-1. Call `product_user_story_tool` with full context
-2. Use `batch_create_user_stories_tool` to save
-(This is the original flow without per-story validation)
-
----
-
 ## User Story Routing
 - When user explicitly says "create stories", "user stories", "backlog":
   - Check if active project is set
@@ -397,8 +383,6 @@ For LEGACY bulk mode:
   - If yes: Enter **STATE 8** (setup mode)
 - When user says "validated stories", "INVEST stories", "quality stories":
   - Use the new pipeline (STATE 9)
-- When user says "quick stories", "bulk stories", "skip validation":
-  - Use legacy mode with `product_user_story_tool`
 - When user says "view story", "show story", "story details", "details for story [ID]", "story [ID] details":
    - Enter **STATE 20** (view story details mode)
 
@@ -409,7 +393,7 @@ For LEGACY bulk mode:
 - **State Integrity:** When calling `product_vision_tool`, you MUST pass the `prior_vision_state` argument exactly as received from the previous turn.
 - **User Intent:** Always confirm user intent before starting a workflow. Don't assume.
 - **Story Creation:** Always confirm stories with user before persisting to database.
-- **INVEST Validation:** Default to using the validated pipeline. Only use legacy mode if explicitly requested.
+- **INVEST Validation:** Always use the validated story pipeline (process_story_batch).
 
 ---
 

@@ -468,7 +468,7 @@ class TestDualSpecSourceHandling:
             process_story_batch,
             ProcessBatchInput,
         )
-        from orchestrator_agent.agent_tools.product_user_story_tool.tools import FeatureForStory
+        from tools.story_query_tools import FeatureForStory
         import orchestrator_agent.agent_tools.story_pipeline.batch as batch_mod
         batch_mod.engine = engine
 

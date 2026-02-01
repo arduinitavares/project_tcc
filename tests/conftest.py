@@ -80,7 +80,7 @@ def patch_get_engine_globally(engine, monkeypatch):
         "orchestrator_agent.agent_tools.story_pipeline.single_story",
         "orchestrator_agent.agent_tools.product_vision_tool.tools",
         "orchestrator_agent.agent_tools.product_roadmap_agent.tools",
-        "orchestrator_agent.agent_tools.product_user_story_tool.tools",
+        "tools.story_query_tools",
         "tools.orchestrator_tools",
         "tools.db_tools",
         "tools.spec_tools",
