@@ -6,7 +6,7 @@ Provides read-only access to sprint information.
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func, col
 
 from agile_sqlmodel import (
     Product,
@@ -45,7 +45,7 @@ def get_sprint_details(query_input: GetSprintDetailsInput) -> Dict[str, Any]:
     """
     # Handle dict input from ADK
     if isinstance(query_input, dict):
-        query_input = GetSprintDetailsInput(**query_input)
+        query_input = GetSprintDetailsInput.model_validate(query_input)
 
     try:
         with Session(engine) as session:
@@ -65,8 +65,8 @@ def get_sprint_details(query_input: GetSprintDetailsInput) -> Dict[str, Any]:
                 stmt = (
                     select(Sprint)
                     .where(Sprint.product_id == query_input.product_id)
-                    .where(Sprint.status.in_(["PLANNED", "ACTIVE"]))
-                    .order_by(Sprint.start_date.desc())
+                    .where(col(Sprint.status).in_(["PLANNED", "ACTIVE"]))
+                    .order_by(col(Sprint.start_date).desc())
                 )
                 sprint = session.exec(stmt).first()
 
@@ -92,12 +92,12 @@ def get_sprint_details(query_input: GetSprintDetailsInput) -> Dict[str, Any]:
             # FIX: Use a single JOIN to fetch all stories at once
             stories_stmt = (
                 select(UserStory)
-                .join(SprintStory, UserStory.story_id == SprintStory.story_id)
+                .join(SprintStory, col(UserStory.story_id) == col(SprintStory.story_id))
                 .where(SprintStory.sprint_id == sprint.sprint_id)
             )
             sprint_stories_results = session.exec(stories_stmt).all()
 
-            stories = []
+            stories: list[dict[str, Any]] = []
             total_points = 0
             completed_points = 0
             status_counts = {status: 0 for status in StoryStatus}
@@ -124,12 +124,12 @@ def get_sprint_details(query_input: GetSprintDetailsInput) -> Dict[str, Any]:
             # Get tasks in sprint
             tasks_stmt = (
                 select(Task)
-                .join(SprintStory, Task.story_id == SprintStory.story_id)
+                .join(SprintStory, col(Task.story_id) == col(SprintStory.story_id))
                 .where(SprintStory.sprint_id == sprint.sprint_id)
             )
             tasks = session.exec(tasks_stmt).all()
 
-            task_list = []
+            task_list: list[dict[str, Any]] = []
             task_status_counts = {"TO_DO": 0, "IN_PROGRESS": 0, "DONE": 0}
             for task in tasks:
                 task_list.append(
@@ -199,25 +199,19 @@ def list_sprints(product_id: int) -> Dict[str, Any]:
             if not product:
                 return {"success": False, "error": f"Product {product_id} not found"}
 
-            # Get all sprints for product
+            # Get sprints with team info and story counts in a single query
             stmt = (
-                select(Sprint)
-                .where(Sprint.product_id == product_id)
-                .order_by(Sprint.start_date.desc())
+                select(Sprint, Team, func.count(col(SprintStory.story_id)))
+                .outerjoin(Team, col(Sprint.team_id) == col(Team.team_id))
+                .outerjoin(SprintStory, col(Sprint.sprint_id) == col(SprintStory.sprint_id))
+                .where(col(Sprint.product_id) == product_id)
+                .group_by(col(Sprint.sprint_id), col(Team.team_id))
+                .order_by(col(Sprint.start_date).desc())
             )
-            sprints = session.exec(stmt).all()
+            results = session.exec(stmt).all()
 
-            sprint_summaries = []
-            for sprint in sprints:
-                # Get team
-                team = session.get(Team, sprint.team_id)
-
-                # Count stories
-                sprint_stories_stmt = select(SprintStory).where(
-                    SprintStory.sprint_id == sprint.sprint_id
-                )
-                story_count = len(session.exec(sprint_stories_stmt).all())
-
+            sprint_summaries: list[dict[str, Any]] = []
+            for sprint, team, story_count in results:
                 sprint_summaries.append(
                     {
                         "sprint_id": sprint.sprint_id,
