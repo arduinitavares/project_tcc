@@ -1,0 +1,13 @@
+models:
+  orchestrator: "openrouter/openai/gpt-5-mini"
+  spec_authority_compiler: "openrouter/openai/gpt-5-mini"
+  product_vision: "openrouter/openai/gpt-5-mini"
+  product_roadmap: "openrouter/openai/gpt-5-mini"
+  product_user_story: "openrouter/openai/gpt-5-mini"
+  story_draft: "openrouter/openai/gpt-5-mini"
+  spec_validator: "openrouter/openai/gpt-5-mini"
+  story_refiner: "openrouter/openai/gpt-5-mini"
+  invest_validator: "openrouter/openai/gpt-5-mini"
+
+story_pipeline:
+  mode: "single"

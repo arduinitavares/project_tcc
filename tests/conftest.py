@@ -2,11 +2,23 @@
 Pytest configuration and fixtures.
 """
 
+import os
+from pathlib import Path
+
 import pytest
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
+
+
+_TEST_MODEL_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "models.test.yaml"
+os.environ.setdefault("MODEL_CONFIG_PATH", str(_TEST_MODEL_CONFIG_PATH))
+os.environ.setdefault("RELAX_ZDR_FOR_TESTS", "true")
+
+from utils import model_config  # pylint: disable=wrong-import-position
+
+model_config.clear_config_cache()
 
 
 @pytest.fixture(scope="session")
