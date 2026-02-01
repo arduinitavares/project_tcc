@@ -89,9 +89,25 @@ async def save_validated_stories(
         with Session(engine) as session:
             for story_data in stories_to_save:
                 try:
+                    # Validate against test fixture data leakage
+                    title = story_data.get("title", "Untitled")
                     description = story_data.get("description", "")
+                    acceptance_criteria = story_data.get("acceptance_criteria", "")
+                    
+                    if any(
+                        test_marker in str(field)
+                        for test_marker in ["Story from session", "session state fallback", "AC from session"]
+                        for field in [title, description, acceptance_criteria]
+                    ):
+                        failed_saves.append({
+                            "title": title,
+                            "error": "Test fixture data detected - refusing to persist placeholder story",
+                        })
+                        print(f"{RED}[ERROR] Skipped test fixture data: {title}{RESET}")
+                        continue
+                    
                     user_story = UserStory(
-                        title=story_data.get("title", "Untitled"),
+                        title=title,
                         story_description=description,
                         # Auto-extract persona for denormalized field
                         persona=extract_persona_from_story(description),
