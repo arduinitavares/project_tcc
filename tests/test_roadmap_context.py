@@ -148,7 +148,7 @@ class TestQueryFeaturesWithRoadmapContext:
         )
 
         # Patch the engine to use our test engine
-        monkeypatch.setattr(product_user_story_tool.tools, "engine", engine)
+        monkeypatch.setattr(product_user_story_tool.tools, "get_engine", lambda: engine)
 
         result = query_features_for_stories(
             QueryFeaturesInput(product_id=product_with_roadmap.product_id)
@@ -178,7 +178,7 @@ class TestQueryFeaturesWithRoadmapContext:
         )
 
         # Patch the engine to use our test engine
-        monkeypatch.setattr(product_user_story_tool.tools, "engine", engine)
+        monkeypatch.setattr(product_user_story_tool.tools, "get_engine", lambda: engine)
 
         result = query_features_for_stories(
             QueryFeaturesInput(product_id=product_with_roadmap.product_id)
