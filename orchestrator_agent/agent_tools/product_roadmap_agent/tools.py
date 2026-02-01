@@ -47,7 +47,7 @@ class SaveRoadmapInput(BaseModel):
     ]
 
 
-def _parse_time_frame(time_frame_str: Optional[str]) -> Optional[TimeFrame]:
+def parse_time_frame(time_frame_str: Optional[str]) -> Optional[TimeFrame]:
     """Parse time frame string to TimeFrame enum."""
     if not time_frame_str:
         return None
@@ -61,7 +61,7 @@ def _parse_time_frame(time_frame_str: Optional[str]) -> Optional[TimeFrame]:
     return None
 
 
-def _create_structure_from_themes(
+def create_structure_from_themes(
     session: Session,
     product_id: int,
     themes: List[RoadmapThemeInput],
@@ -82,7 +82,7 @@ def _create_structure_from_themes(
     theme_objs = []
     for theme_input in themes:
         # Parse time_frame to enum
-        time_frame_enum = _parse_time_frame(theme_input.time_frame)
+        time_frame_enum = parse_time_frame(theme_input.time_frame)
         time_frame_str = theme_input.time_frame or ""
         
         # Create Theme title (keep human-readable format for display)
@@ -198,7 +198,7 @@ def save_roadmap_tool(
                 # If structured roadmap provided, create Theme/Epic/Feature records
                 if roadmap_input.roadmap_structure:
                     print("   [DB] Creating Theme/Epic/Feature structure...")
-                    created = _create_structure_from_themes(
+                    created = create_structure_from_themes(
                         session,
                         existing_project.product_id,
                         roadmap_input.roadmap_structure,

@@ -118,15 +118,15 @@ class ProcessStoryInput(BaseModel):
         Field(
             default=None,
             description="Theme database ID (stable reference - eliminates duplicate name ambiguity)",
-        )
-    ]
+        ),
+    ] = None
     epic_id: Annotated[
         Optional[int],
         Field(
             default=None,
             description="Epic database ID (stable reference - eliminates duplicate name ambiguity)",
-        )
-    ]
+        ),
+    ] = None
     # --- Title-based references ---
     theme: Annotated[str, Field(description="The theme this feature belongs to.")]
     epic: Annotated[str, Field(description="The epic this feature belongs to.")]
@@ -137,21 +137,21 @@ class ProcessStoryInput(BaseModel):
             default=None,
             description="The roadmap time frame: 'Now', 'Next', or 'Later'.",
         ),
-    ]
+    ] = None
     theme_justification: Annotated[
         Optional[str],
         Field(
             default=None,
             description="Strategic justification for why this theme exists.",
         ),
-    ]
+    ] = None
     sibling_features: Annotated[
         Optional[List[str]],
         Field(
             default=None,
             description="Other features in the same theme (for context).",
         ),
-    ]
+    ] = None
     user_persona: Annotated[
         Optional[str],
         Field(

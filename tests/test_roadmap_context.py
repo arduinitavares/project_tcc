@@ -5,6 +5,7 @@ TDD approach: Tests written first to define expected behavior.
 """
 
 import pytest
+from sqlalchemy.engine import Engine
 from sqlmodel import Session, select
 
 from agile_sqlmodel import (
@@ -32,6 +33,7 @@ class TestTimeFrameEnum:
         session.add(product)
         session.commit()
         session.refresh(product)
+        assert product.product_id is not None
 
         # Create theme with time_frame
         theme = Theme(
@@ -53,6 +55,8 @@ class TestTimeFrameEnum:
         product = Product(name="Test Product 2", vision="Test vision")
         session.add(product)
         session.commit()
+        session.refresh(product)
+        assert product.product_id is not None
 
         theme = Theme(
             title="Legacy Theme",
@@ -80,6 +84,8 @@ class TestQueryFeaturesWithRoadmapContext:
         )
         session.add(product)
         session.commit()
+        session.refresh(product)
+        assert product.product_id is not None
 
         # Theme 1: Now
         theme_now = Theme(
@@ -90,6 +96,8 @@ class TestQueryFeaturesWithRoadmapContext:
         )
         session.add(theme_now)
         session.commit()
+        session.refresh(theme_now)
+        assert theme_now.theme_id is not None
 
         epic_auth = Epic(
             title="Core Authentication",
@@ -98,6 +106,8 @@ class TestQueryFeaturesWithRoadmapContext:
         )
         session.add(epic_auth)
         session.commit()
+        session.refresh(epic_auth)
+        assert epic_auth.epic_id is not None
 
         features_now = [
             Feature(title="User registration", description="", epic_id=epic_auth.epic_id),
@@ -117,6 +127,8 @@ class TestQueryFeaturesWithRoadmapContext:
         )
         session.add(theme_next)
         session.commit()
+        session.refresh(theme_next)
+        assert theme_next.theme_id is not None
 
         epic_ai = Epic(
             title="AI Suggestions",
@@ -125,6 +137,8 @@ class TestQueryFeaturesWithRoadmapContext:
         )
         session.add(epic_ai)
         session.commit()
+        session.refresh(epic_ai)
+        assert epic_ai.epic_id is not None
 
         features_next = [
             Feature(title="Priority prediction", description="", epic_id=epic_ai.epic_id),
@@ -138,18 +152,23 @@ class TestQueryFeaturesWithRoadmapContext:
         return product
 
     def test_features_include_time_frame(
-        self, session: Session, product_with_roadmap: Product, engine, monkeypatch
+        self,
+        session: Session,
+        product_with_roadmap: Product,
+        engine: Engine,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """Features should include time_frame from their theme."""
-        from orchestrator_agent.agent_tools import product_user_story_tool
+        from orchestrator_agent.agent_tools.product_user_story_tool import tools
         from orchestrator_agent.agent_tools.product_user_story_tool.tools import (
             query_features_for_stories,
             QueryFeaturesInput,
         )
 
         # Patch the engine to use our test engine
-        monkeypatch.setattr(product_user_story_tool.tools, "get_engine", lambda: engine)
+        monkeypatch.setattr(tools, "get_engine", lambda: engine)
 
+        assert product_with_roadmap.product_id is not None
         result = query_features_for_stories(
             QueryFeaturesInput(product_id=product_with_roadmap.product_id)
         )
@@ -168,18 +187,23 @@ class TestQueryFeaturesWithRoadmapContext:
         assert priority_pred["theme_justification"] == "Differentiator; requires task data first"
 
     def test_features_include_sibling_features(
-        self, session: Session, product_with_roadmap: Product, engine, monkeypatch
+        self,
+        session: Session,
+        product_with_roadmap: Product,
+        engine: Engine,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """Features should list sibling features in the same theme."""
-        from orchestrator_agent.agent_tools import product_user_story_tool
+        from orchestrator_agent.agent_tools.product_user_story_tool import tools
         from orchestrator_agent.agent_tools.product_user_story_tool.tools import (
             query_features_for_stories,
             QueryFeaturesInput,
         )
 
         # Patch the engine to use our test engine
-        monkeypatch.setattr(product_user_story_tool.tools, "get_engine", lambda: engine)
+        monkeypatch.setattr(tools, "get_engine", lambda: engine)
 
+        assert product_with_roadmap.product_id is not None
         result = query_features_for_stories(
             QueryFeaturesInput(product_id=product_with_roadmap.product_id)
         )
@@ -271,8 +295,7 @@ class TestRoadmapToolSavesTimeFrame:
     def test_save_roadmap_creates_themes_with_time_frame(self, session: Session):
         """save_roadmap_tool should create themes with time_frame enum."""
         from orchestrator_agent.agent_tools.product_roadmap_agent.tools import (
-            _create_structure_from_themes,
-            _parse_time_frame,
+            create_structure_from_themes,
             RoadmapThemeInput,
         )
 
@@ -280,6 +303,8 @@ class TestRoadmapToolSavesTimeFrame:
         product = Product(name="Test Roadmap Product", vision="Test")
         session.add(product)
         session.commit()
+        session.refresh(product)
+        assert product.product_id is not None
 
         themes_input = [
             RoadmapThemeInput(
@@ -296,7 +321,7 @@ class TestRoadmapToolSavesTimeFrame:
             ),
         ]
 
-        result = _create_structure_from_themes(session, product.product_id, themes_input)
+        create_structure_from_themes(session, product.product_id, themes_input)
 
         # Verify themes were created with correct time_frames
         themes = session.exec(
@@ -312,16 +337,16 @@ class TestRoadmapToolSavesTimeFrame:
         assert theme_next.time_frame == TimeFrame.NEXT
 
     def test_parse_time_frame_helper(self):
-        """_parse_time_frame should convert strings to TimeFrame enum."""
+        """parse_time_frame should convert strings to TimeFrame enum."""
         from orchestrator_agent.agent_tools.product_roadmap_agent.tools import (
-            _parse_time_frame,
+            parse_time_frame,
         )
 
-        assert _parse_time_frame("Now") == TimeFrame.NOW
-        assert _parse_time_frame("now") == TimeFrame.NOW
-        assert _parse_time_frame("NOW") == TimeFrame.NOW
-        assert _parse_time_frame("Next") == TimeFrame.NEXT
-        assert _parse_time_frame("Later") == TimeFrame.LATER
-        assert _parse_time_frame(None) is None
-        assert _parse_time_frame("Invalid") is None
-        assert _parse_time_frame("") is None
+        assert parse_time_frame("Now") == TimeFrame.NOW
+        assert parse_time_frame("now") == TimeFrame.NOW
+        assert parse_time_frame("NOW") == TimeFrame.NOW
+        assert parse_time_frame("Next") == TimeFrame.NEXT
+        assert parse_time_frame("Later") == TimeFrame.LATER
+        assert parse_time_frame(None) is None
+        assert parse_time_frame("Invalid") is None
+        assert parse_time_frame("") is None
