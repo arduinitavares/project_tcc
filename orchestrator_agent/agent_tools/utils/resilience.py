@@ -1,25 +1,37 @@
 import logging
 import copy
+import asyncio
+import random
 from typing import Any, Dict, Optional, AsyncGenerator
 from pydantic import ValidationError, Field
 from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
 
+from utils.model_config import (
+    is_zdr_routing_error,
+    ZDR_MAX_RETRIES,
+    ZDR_MAX_BACKOFF_SECONDS,
+)
+
 logger = logging.getLogger(__name__)
 
 class SelfHealingAgent(BaseAgent):
     """
-    A wrapper that catches Pydantic ValidationErrors from an inner agent
-    and retries execution with error feedback injected into the state.
+    A wrapper that catches Pydantic ValidationErrors and ZDR routing failures
+    from an inner agent and retries execution with error feedback injected into the state.
+    
+    For ValidationErrors: Retries immediately with feedback in state.
+    For ZDR routing errors: Retries with random backoff (0-10s) to allow providers to become available.
     """
     agent: BaseAgent = Field(description="The inner agent to wrap.")
     max_retries: int = Field(default=3, description="Number of retries on validation failure.")
+    max_zdr_retries: int = Field(default=ZDR_MAX_RETRIES, description="Number of retries on ZDR routing failure.")
     name: str = Field(default="SelfHealingAgent", description="Name of the agent")
     description: str = Field(default="Wrapper for resilience", description="Description of the agent")
     output_key: Optional[str] = Field(default=None, description="Output key for pipeline compatibility")
     output_schema: Optional[Any] = Field(default=None, description="Output schema for pipeline compatibility")
 
-    def __init__(self, agent: BaseAgent, max_retries: int = 3):
+    def __init__(self, agent: BaseAgent, max_retries: int = 3, max_zdr_retries: int = ZDR_MAX_RETRIES):
         # Determine name and description from inner agent if possible
         name = f"SelfHealing_{agent.name}"
         sanitized_name = "".join(c if c.isalnum() or c == '_' else '_' for c in name)
@@ -30,27 +42,32 @@ class SelfHealingAgent(BaseAgent):
             sub_agents=[agent],
             agent=agent,
             max_retries=max_retries,
+            max_zdr_retries=max_zdr_retries,
             output_key=getattr(agent, "output_key", None),
             output_schema=getattr(agent, "output_schema", None)
         )
 
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Any, None]:
         """Override the ADK extension point for execution."""
-        for attempt in range(self.max_retries + 1):
+        zdr_attempts = 0
+        validation_attempts = 0
+        
+        while True:
             try:
                 async for event in self.agent.run_async(ctx):
                     yield event
                 return
 
             except ValidationError as e:
-                if attempt == self.max_retries:
+                validation_attempts += 1
+                if validation_attempts > self.max_retries:
                     logger.error(f"[{self.name}] Failed validation after {self.max_retries} retries.")
                     raise
 
-                logger.warning(f"[{self.name}] Validation error (Attempt {attempt+1}/{self.max_retries}). Retrying...")
+                logger.warning(f"[{self.name}] Validation error (Attempt {validation_attempts}/{self.max_retries}). Retrying...")
 
                 # Inject feedback into state
-                error_msg = f"Validation Error on attempt {attempt + 1}: {str(e)}"
+                error_msg = f"Validation Error on attempt {validation_attempts}: {str(e)}"
                 feedback_msg = (
                     f"\nSYSTEM_FEEDBACK: The previous output failed validation.\n"
                     f"ERROR: {error_msg}\n"
@@ -64,6 +81,26 @@ class SelfHealingAgent(BaseAgent):
                      ctx.session.state["_validation_history"] = list(history) + [error_msg]
 
                 # ADK agents re-read state from session/context on next run
+            
+            except Exception as e:
+                # Check for ZDR/privacy routing failures
+                if is_zdr_routing_error(e):
+                    zdr_attempts += 1
+                    if zdr_attempts > self.max_zdr_retries:
+                        logger.error(f"[{self.name}] ZDR routing failed after {self.max_zdr_retries} retries.")
+                        raise
+                    
+                    # Random backoff between 0 and ZDR_MAX_BACKOFF_SECONDS
+                    backoff = random.uniform(0, ZDR_MAX_BACKOFF_SECONDS)
+                    logger.warning(
+                        f"[{self.name}] ZDR routing failure (Attempt {zdr_attempts}/{self.max_zdr_retries}). "
+                        f"Retrying in {backoff:.1f}s..."
+                    )
+                    await asyncio.sleep(backoff)
+                    # Don't reset validation_attempts - ZDR is a separate concern
+                else:
+                    # Unknown error - re-raise
+                    raise
 
 class ConditionalLoopAgent(BaseAgent):
     """

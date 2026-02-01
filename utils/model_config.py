@@ -23,6 +23,25 @@ OPENROUTER_PRIVACY_ERROR_MESSAGE = (
     "No ZDR/data_collection=deny provider available for this model"
 )
 
+# ZDR retry configuration
+ZDR_MAX_RETRIES = 5
+ZDR_MAX_BACKOFF_SECONDS = 10.0
+
+
+def is_zdr_routing_error(exception: BaseException) -> bool:
+    """Check if an exception is a ZDR/privacy routing failure.
+    
+    These are transient errors when no privacy-compliant provider is available.
+    They can be retried after a short delay.
+    """
+    message = str(exception).lower()
+    return (
+        "zdr" in message
+        or "data_collection" in message
+        or ("provider" in message and "no" in message)
+        or "no providers" in message
+    )
+
 
 @lru_cache(maxsize=1)
 def _load_config() -> Dict[str, Any]:

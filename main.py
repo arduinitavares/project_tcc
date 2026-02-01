@@ -14,6 +14,7 @@ os.environ["LITELLM_SUPPRESS_INSTRUMENTATION"] = "True"
 import asyncio
 import json
 import logging
+import random
 import re
 import sqlite3
 import sys
@@ -34,7 +35,12 @@ from rich.panel import Panel
 # Import Agent
 from orchestrator_agent.agent import root_agent
 from tools.orchestrator_tools import get_real_business_state
-from utils.model_config import OPENROUTER_PRIVACY_ERROR_MESSAGE
+from utils.model_config import (
+    OPENROUTER_PRIVACY_ERROR_MESSAGE,
+    is_zdr_routing_error,
+    ZDR_MAX_RETRIES,
+    ZDR_MAX_BACKOFF_SECONDS,
+)
 
 # --- CONFIGURATION ---
 litellm.telemetry = False
@@ -345,13 +351,7 @@ async def run_agent_turn(
         else:
             app_logger.info("AGENT RESPONSE: (no text, tool-only turn)")
     except Exception as e:
-        message = str(e).lower()
-        if (
-            "zdr" in message
-            or "data_collection" in message
-            or "provider" in message
-            or "no providers" in message
-        ):
+        if is_zdr_routing_error(e):
             app_logger.error("OpenRouter privacy routing failure.")
             raise RuntimeError(OPENROUTER_PRIVACY_ERROR_MESSAGE) from e
         app_logger.error("Error during agent turn.")
@@ -447,8 +447,25 @@ async def main():
                 print_system_message("ENDING SESSION.")
                 break
 
-            # A. Run User Turn
-            await run_agent_turn(runner, user_input, is_system_trigger=False)
+            # A. Run User Turn (with ZDR retry)
+            zdr_retry_count = 0
+            while True:
+                try:
+                    await run_agent_turn(runner, user_input, is_system_trigger=False)
+                    break
+                except RuntimeError as e:
+                    if OPENROUTER_PRIVACY_ERROR_MESSAGE in str(e):
+                        zdr_retry_count += 1
+                        if zdr_retry_count > ZDR_MAX_RETRIES:
+                            app_logger.error(f"ZDR routing failed after {ZDR_MAX_RETRIES} retries at orchestrator level.")
+                            console.print(f"[bold red]ERROR:[/bold red] {e}")
+                            break
+                        backoff = random.uniform(0, ZDR_MAX_BACKOFF_SECONDS)
+                        app_logger.warning(f"ZDR retry {zdr_retry_count}/{ZDR_MAX_RETRIES} - waiting {backoff:.1f}s...")
+                        console.print(f"[dim]ZDR routing unavailable, retrying in {backoff:.1f}s... ({zdr_retry_count}/{ZDR_MAX_RETRIES})[/dim]")
+                        await asyncio.sleep(backoff)
+                    else:
+                        raise
 
             # B. Check for Automated Workflow Steps
             while True:
