@@ -500,6 +500,72 @@ async def process_single_story(
             parts=[types.Part.from_text(text=prompt_text)],
         )
 
+        # --- DEBUG DUMP START ---
+        try:
+            debug_info = {
+                "prompt_text": prompt_text,
+                "initial_state": initial_state,
+                "story_input": story_input.model_dump(),
+            }
+            
+            # Recursively extract instructions from all agents
+            def extract_agent_instructions(agent, prefix=""):
+                """Recursively extract instructions from agent hierarchy."""
+                results = {}
+                
+                # Unwrap SelfHealingAgent if needed
+                actual_agent = agent
+                if hasattr(agent, "agent"):
+                    actual_agent = agent.agent
+                
+                name = getattr(actual_agent, "name", "unknown")
+                key = f"{prefix}{name}" if prefix else name
+                
+                # Get instruction if it's an LlmAgent
+                if hasattr(actual_agent, "instruction"):
+                    instr = getattr(actual_agent, "instruction", None)
+                    if instr:
+                        results[key] = instr
+                
+                # Get model if available
+                if hasattr(actual_agent, "model"):
+                    model = getattr(actual_agent, "model", None)
+                    if model:
+                        results[f"{key}_model"] = str(model)
+                
+                # Get output_schema if available
+                if hasattr(actual_agent, "output_schema"):
+                    schema = getattr(actual_agent, "output_schema", None)
+                    if schema:
+                        results[f"{key}_output_schema"] = str(schema)
+                
+                # Recurse into sub_agents (SequentialAgent, LoopAgent, etc.)
+                if hasattr(actual_agent, "sub_agents"):
+                    for i, sub in enumerate(actual_agent.sub_agents or []):
+                        sub_results = extract_agent_instructions(sub, prefix=f"{key}.")
+                        results.update(sub_results)
+                
+                # Check for LoopAgent's sub_agent (singular)
+                if hasattr(actual_agent, "sub_agent"):
+                    sub = getattr(actual_agent, "sub_agent", None)
+                    if sub:
+                        sub_results = extract_agent_instructions(sub, prefix=f"{key}.")
+                        results.update(sub_results)
+                
+                return results
+
+            debug_info["instructions"] = extract_agent_instructions(agent_to_run)
+
+            import os
+            debug_file_path = "logs/debug_story_pipeline_input.txt"
+            os.makedirs(os.path.dirname(debug_file_path), exist_ok=True)
+            with open(debug_file_path, "w", encoding="utf-8") as f:
+                json.dump(debug_info, f, indent=2, default=str)
+            log(f"{YELLOW}[Debug]{RESET} Dumped pipeline input to {debug_file_path}")
+        except Exception as e:
+            log(f"{RED}[Debug Error]{RESET} Failed to dump debug info: {e}")
+        # --- DEBUG DUMP END ---
+
         # The pipeline runs until is_valid=True or max_iterations
         async for _ in runner.run_async(
             user_id="pipeline_user",
