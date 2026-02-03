@@ -22,6 +22,7 @@ from orchestrator_agent.agent_tools.story_pipeline.tools import (
     ProcessStoryInput,
     process_single_story,
 )
+from orchestrator_agent.agent_tools.story_pipeline.util.constants import KEY_STORY_DRAFT
 from utils.schemes import (
     Invariant,
     InvariantType,
@@ -156,27 +157,38 @@ async def test_spec_version_id_propagates_to_story_metadata(engine: Any) -> None
         async def get_session(self, app_name: str, user_id: str, session_id: str):
             return self.session
 
-    class FakeRunner:
-        def __init__(self, agent: Any, app_name: str, session_service: FakeSessionService):
-            self.session_service = session_service
+    import orchestrator_agent.agent_tools.story_pipeline.steps.setup as setup_mod
 
-        async def run_async(
-            self, user_id: str, session_id: str, new_message: Any
-        ) -> AsyncGenerator[Dict[str, Any], None]:
-            assert self.session_service.session is not None
-            self.session_service.session.state["story_draft"] = {
+    original_session_service = single_story_mod.InMemorySessionService
+    original_create_pipeline_runner = single_story_mod.create_pipeline_runner
+    original_execute_pipeline = single_story_mod.execute_pipeline
+    original_get_engine = setup_mod.get_engine
+    single_story_mod.InMemorySessionService = FakeSessionService
+
+    def fake_create_pipeline_runner(story_input: Any, session_service: Any):
+        return object(), None
+
+    async def fake_execute_pipeline(
+        runner: Any,
+        session_id: str,
+        story_input: Any,
+        logger: Any,
+        session_service: Any,
+    ) -> Dict[str, Any]:
+        return {
+            KEY_STORY_DRAFT: {
                 "title": "Title",
                 "description": "As a user, I want X so that Y.",
                 "acceptance_criteria": "- A\n- B\n- C",
                 "story_points": 3,
                 "metadata": {"spec_version_id": 123},
             }
-            yield {}
+        }
 
-    original_session_service = single_story_mod.InMemorySessionService
-    original_runner = single_story_mod.Runner
-    single_story_mod.InMemorySessionService = FakeSessionService
-    single_story_mod.Runner = FakeRunner
+    single_story_mod.create_pipeline_runner = fake_create_pipeline_runner
+    single_story_mod.execute_pipeline = fake_execute_pipeline
+    setup_mod.get_engine = lambda: engine
+
     try:
         result = await process_single_story(
             ProcessStoryInput(
@@ -200,7 +212,9 @@ async def test_spec_version_id_propagates_to_story_metadata(engine: Any) -> None
         )
     finally:
         single_story_mod.InMemorySessionService = original_session_service
-        single_story_mod.Runner = original_runner
+        single_story_mod.create_pipeline_runner = original_create_pipeline_runner
+        single_story_mod.execute_pipeline = original_execute_pipeline
+        setup_mod.get_engine = original_get_engine
 
     assert result["success"] is True
     story = result["story"]
