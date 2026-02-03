@@ -10,7 +10,7 @@
 #   invest_validator: "openrouter/openai/gpt-5-mini"
 
 models:
-  orchestrator: "openrouter/moonshotai/kimi-k2.5"
+  orchestrator: "openrouter/google/gemini-3-flash-preview"
   spec_authority_compiler: "openrouter/openai/gpt-5-mini"
   product_vision: "openrouter/openai/gpt-5-mini"
   product_roadmap: "openrouter/openai/gpt-5-mini"
