@@ -83,6 +83,7 @@ USER_ID = "local_developer"
 PERSIST_LLM_OUTPUT = os.getenv("PERSIST_LLM_OUTPUT", "0") == "1"
 SHOW_TOOL_PAYLOADS = os.getenv("SHOW_TOOL_PAYLOADS", "1") == "1"
 MAX_TOOL_PAYLOAD_CHARS = int(os.getenv("MAX_TOOL_PAYLOAD_CHARS", "4000"))
+MAX_CONSECUTIVE_SYSTEM_TRIGGERS = 5
 
 # --- FIX 1: VOLATILE SESSION (Random ID) ---
 # Every time you run this script, it generates a NEW ID.
@@ -408,6 +409,33 @@ async def run_agent_turn(
 # --- 3. MAIN LOOP ---
 
 
+async def process_automated_workflows(runner: Runner) -> None:
+    """
+    Checks for and executes automated workflow steps with a safety limit.
+    Enforces MAX_CONSECUTIVE_SYSTEM_TRIGGERS to prevent infinite loops.
+    """
+    trigger_count = 0
+    while True:
+        current_state = get_current_state(APP_NAME, USER_ID, SESSION_ID)
+        system_instruction = evaluate_workflow_triggers(current_state)
+
+        if system_instruction:
+            trigger_count += 1
+            if trigger_count > MAX_CONSECUTIVE_SYSTEM_TRIGGERS:
+                app_logger.warning(
+                    "System trigger loop limit reached (%d). Stopping to prevent infinite loop.",
+                    MAX_CONSECUTIVE_SYSTEM_TRIGGERS,
+                )
+                console.print(
+                    f"[bold red]WARNING:[/bold red] System trigger limit reached ({MAX_CONSECUTIVE_SYSTEM_TRIGGERS}). Stopping."
+                )
+                break
+
+            await run_agent_turn(runner, system_instruction, is_system_trigger=True)
+        else:
+            break
+
+
 async def main():
     """Main application loop."""
     console.clear()
@@ -474,18 +502,7 @@ async def main():
                         raise
 
             # B. Check for Automated Workflow Steps
-            while True:
-                current_state = get_current_state(
-                    APP_NAME, USER_ID, SESSION_ID
-                )
-                system_instruction = evaluate_workflow_triggers(current_state)
-
-                if system_instruction:
-                    await run_agent_turn(
-                        runner, system_instruction, is_system_trigger=True
-                    )
-                else:
-                    break
+            await process_automated_workflows(runner)
 
             console.rule(style="dim")
 
