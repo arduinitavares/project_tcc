@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from orchestrator_agent.agent_tools.story_pipeline.single_story import (
     process_single_story,
 )
-from orchestrator_agent.agent_tools.story_pipeline.models import ProcessStoryInput
+from orchestrator_agent.agent_tools.story_pipeline.tools import ProcessStoryInput
 
 @pytest.fixture
 def mock_pipeline_components(monkeypatch):
@@ -76,8 +76,9 @@ def mock_pipeline_components(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_debug_dump_not_created_by_default(mock_pipeline_components):
+async def test_debug_dump_not_created_by_default(mock_pipeline_components, monkeypatch):
     """Test that the debug dump file is NOT created by default."""
+    monkeypatch.delenv("STORY_PIPELINE_DEBUG_DUMP", raising=False)
     debug_file = "logs/debug_story_pipeline_input.txt"
     if os.path.exists(debug_file):
         os.remove(debug_file)

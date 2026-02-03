@@ -1,0 +1,73 @@
+sequenceDiagram
+  %% ==========================================================
+  %% A) Typical user-input turn
+  %% ==========================================================
+  autonumber
+  actor User
+  participant Main as main.py
+  participant Turn as run_agent_turn()
+  participant StateDB as SQLite sessions.state
+  participant Runner as Runner.run_async
+  participant Agent as root_agent
+  participant Tools as Tools/AgentTools
+
+  User->>Main: user_input
+  Main->>Main: exit check
+  alt not exit
+    loop ZDR retry (max ZDR_MAX_RETRIES)
+      Main->>Turn: run_agent_turn(user_input)
+      Turn->>StateDB: get_current_state()
+      Turn->>Turn: build prompt (prior_vision_state + user text)
+      Turn->>Runner: run_async(new_message)
+      Runner->>Agent: execute
+      Agent->>Tools: tool call(s) (optional)
+      Tools-->>Agent: tool response(s) (optional)
+      Agent-->>Runner: text/tool events
+      Runner-->>Turn: events stream
+      Turn->>Turn: capture tool calls/responses
+      Turn->>Turn: extract data_to_save (tool response or JSON from text)
+      alt PERSIST_LLM_OUTPUT enabled AND data_to_save has known keys
+        Turn->>StateDB: update_state_in_db(partial_update)
+      else persistence disabled or no recognized keys
+        Turn->>Turn: skip state update
+      end
+      Turn-->>Main: turn complete
+    end
+  end
+
+  %% ==========================================================
+  %% ZDR backoff retry path (inside user turn)
+  %% ==========================================================
+  Note over Main,Turn: If OpenRouter privacy routing error is raised
+  Main->>Main: backoff sleep (random up to ZDR_MAX_BACKOFF_SECONDS)
+  Main->>Main: retry run_agent_turn
+
+  %% ==========================================================
+  %% B) System-trigger turn
+  %% ==========================================================
+  Note over Main: After user turn, main checks workflow triggers
+  loop evaluate_workflow_triggers
+    Main->>StateDB: get_current_state()
+    Main->>Main: evaluate_workflow_triggers(state)
+    alt system_instruction returned
+      Main->>Turn: run_agent_turn(system_instruction, is_system_trigger=True)
+      Turn->>StateDB: get_current_state()
+      Turn->>Turn: build prompt (prior_vision_state + system instruction)
+      Turn->>Runner: run_async(new_message)
+      Runner->>Agent: execute
+      Agent->>Tools: tool call(s) (optional)
+      Tools-->>Agent: tool response(s) (optional)
+      Agent-->>Runner: text/tool events
+      Runner-->>Turn: events stream
+      Turn->>Turn: capture tool calls/responses
+      Turn->>Turn: extract data_to_save (tool response or JSON from text)
+      alt PERSIST_LLM_OUTPUT enabled AND data_to_save has known keys
+        Turn->>StateDB: update_state_in_db(partial_update)
+      else persistence disabled or no recognized keys
+        Turn->>Turn: skip state update
+      end
+      Turn-->>Main: turn complete
+    else no trigger
+      Main-->>Main: exit trigger loop
+    end
+  end

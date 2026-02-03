@@ -16,7 +16,9 @@ from pydantic import ValidationError
 from google.adk.sessions import InMemorySessionService
 from google.adk.tools import ToolContext
 
-from orchestrator_agent.agent_tools.story_pipeline.util.models import ProcessStoryInput
+from orchestrator_agent.agent_tools.story_pipeline.util.models import (
+    ProcessStoryInput,
+)
 from orchestrator_agent.agent_tools.story_pipeline.util.logging import PipelineLogger
 from orchestrator_agent.agent_tools.story_pipeline.util.constants import (
     KEY_AUTHORITY_CONTEXT,
@@ -183,3 +185,4 @@ async def process_single_story(
     return process_pipeline_result(
         final_state, story_input, forbidden_capabilities or [], logger
     )
+

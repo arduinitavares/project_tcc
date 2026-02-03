@@ -71,7 +71,9 @@ class TestFetchFeatureContext:
 
     def test_fetch_feature_context_returns_full_hierarchy(self, seeded_product_with_hierarchy, engine):
         """Given a feature_id, should return complete context from DB."""
-        from orchestrator_agent.agent_tools.story_pipeline.context_fetcher import fetch_feature_context
+        from orchestrator_agent.agent_tools.story_pipeline.util.context_fetcher import (
+            fetch_feature_context,
+        )
 
         feature_id = seeded_product_with_hierarchy["feature_id"]
 
@@ -96,7 +98,9 @@ class TestFetchFeatureContext:
 
     def test_fetch_feature_context_nonexistent_feature(self, engine):
         """Given a nonexistent feature_id, should return None."""
-        from orchestrator_agent.agent_tools.story_pipeline.context_fetcher import fetch_feature_context
+        from orchestrator_agent.agent_tools.story_pipeline.util.context_fetcher import (
+            fetch_feature_context,
+        )
 
         context = fetch_feature_context(99999, engine=engine)
 
@@ -104,7 +108,9 @@ class TestFetchFeatureContext:
 
     def test_fetch_feature_context_derives_time_frame_from_title(self, engine):
         """When theme.time_frame is NULL, should derive from title."""
-        from orchestrator_agent.agent_tools.story_pipeline.context_fetcher import fetch_feature_context
+        from orchestrator_agent.agent_tools.story_pipeline.util.context_fetcher import (
+            fetch_feature_context,
+        )
 
         with Session(engine) as session:
             product = Product(name="Fallback Product", vision="Test")
@@ -142,7 +148,9 @@ class TestFetchFeatureContext:
 
     def test_fetch_feature_context_includes_sibling_features(self, engine):
         """Should include other features in the same theme as siblings."""
-        from orchestrator_agent.agent_tools.story_pipeline.context_fetcher import fetch_feature_context
+        from orchestrator_agent.agent_tools.story_pipeline.util.context_fetcher import (
+            fetch_feature_context,
+        )
 
         with Session(engine) as session:
             product = Product(name="Sibling Test", vision="Test")
@@ -181,78 +189,3 @@ class TestFetchFeatureContext:
         assert "Feature A" not in context["sibling_features"]  # Exclude self
 
 
-class TestSimplifiedProcessStoryInput:
-    """Test that ProcessStoryInput can work with minimal required fields."""
-
-    def test_minimal_input_only_requires_feature_id(self):
-        """ProcessStoryInput should only require feature_id for basic construction."""
-        from orchestrator_agent.agent_tools.story_pipeline.models import ProcessStoryInputMinimal
-
-        # This should NOT raise - only feature_id is required
-        input_data = ProcessStoryInputMinimal(feature_id=123)
-
-        assert input_data.feature_id == 123
-        # Defaults
-        assert input_data.user_persona is None
-        assert input_data.spec_version_id is None
-        assert input_data.include_story_points is True
-
-    def test_minimal_input_accepts_optional_overrides(self):
-        """ProcessStoryInput should accept optional overrides for persona/spec."""
-        from orchestrator_agent.agent_tools.story_pipeline.models import ProcessStoryInputMinimal
-
-        input_data = ProcessStoryInputMinimal(
-            feature_id=123,
-            user_persona="admin",
-            spec_version_id=456,
-            include_story_points=False,
-        )
-
-        assert input_data.feature_id == 123
-        assert input_data.user_persona == "admin"
-        assert input_data.spec_version_id == 456
-        assert input_data.include_story_points is False
-
-
-class TestConvertMinimalToFullInput:
-    """Test the conversion from minimal input to full ProcessStoryInput."""
-    
-    def test_converts_context_to_full_input(self):
-        """Should merge context and minimal input into full ProcessStoryInput."""
-        from orchestrator_agent.agent_tools.story_pipeline.single_story import _convert_minimal_to_full_input
-        from orchestrator_agent.agent_tools.story_pipeline.models import ProcessStoryInputMinimal
-        
-        minimal = ProcessStoryInputMinimal(
-            feature_id=42,
-            user_persona="admin",
-            include_story_points=False,
-        )
-        
-        context = {
-            "product_id": 1,
-            "product_name": "Test Product",
-            "product_vision": "Build great things",
-            "theme_id": 10,
-            "theme_name": "Core Infrastructure",
-            "time_frame": "Now",
-            "theme_justification": "Foundation work",
-            "epic_id": 20,
-            "epic_name": "Authentication",
-            "feature_id": 42,
-            "feature_title": "Login Flow",
-            "sibling_features": ["Logout", "SSO"],
-        }
-        
-        full_input = _convert_minimal_to_full_input(minimal, context)
-        
-        # From context
-        assert full_input.product_id == 1
-        assert full_input.product_name == "Test Product"
-        assert full_input.theme == "Core Infrastructure"
-        assert full_input.time_frame == "Now"
-        assert full_input.feature_title == "Login Flow"
-        assert full_input.sibling_features == ["Logout", "SSO"]
-        
-        # From minimal input (overrides)
-        assert full_input.user_persona == "admin"
-        assert full_input.include_story_points is False

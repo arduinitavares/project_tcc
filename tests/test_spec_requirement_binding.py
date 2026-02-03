@@ -9,7 +9,7 @@ These tests validate the deterministic requirement extractor that:
 """
 
 import pytest
-from orchestrator_agent.agent_tools.story_pipeline.spec_requirement_extractor import (
+from orchestrator_agent.agent_tools.story_pipeline.util.spec_requirement_extractor import (
     extract_hard_requirements,
     bind_requirements_to_story,
     check_acceptance_criteria_compliance,

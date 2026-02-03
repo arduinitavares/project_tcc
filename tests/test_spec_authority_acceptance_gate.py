@@ -13,7 +13,7 @@ from agile_sqlmodel import (
     CompiledSpecAuthority,
     SpecAuthorityAcceptance,
 )
-from orchestrator_agent.agent_tools.story_pipeline.common import load_compiled_authority
+from orchestrator_agent.agent_tools.story_pipeline.util.common import load_compiled_authority
 from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (
     SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
     SPEC_AUTHORITY_COMPILER_VERSION,

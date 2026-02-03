@@ -1,0 +1,42 @@
+---
+config:
+  theme: redux
+---
+flowchart TD
+  %% High-Level Lifecycle (macro phases derived from main.py + instructions.txt)
+
+  Start([Start]) --> Init[Session Init & State Load]
+  Init --> MainLoop[Main Loop: User Input]
+  MainLoop --> ExitCheck{User types exit/quit?}
+  ExitCheck -->|Yes| End([End])
+  ExitCheck -->|No| UserTurn["User Turn: run_agent_turn()"]
+
+  %% Macro phase routing (instruction-driven)
+  UserTurn --> Routing[Project Routing & Selection]
+  Routing -->|New/modify vision| Vision[Vision Capture → Review → Save]
+  Routing -->|Create/modify roadmap| Roadmap[Roadmap Capture → Review → Save]
+  Routing -->|Create stories| Stories[Story Pipeline Setup → Generate/Validate → Save]
+  Routing -->|Sprint planning| Sprint[Sprint Planning → Save → Sprint Ops]
+  Routing -->|Spec compile/update| SpecAuthority[Spec Authority Compile/Update]
+  Routing -->|View story details| StoryDetails[Story Details View]
+
+  %% Optional/conditional branches inside macro phases (kept high-level)
+  Vision --> Routing
+  Roadmap --> Routing
+  Stories --> Routing
+  Sprint --> Routing
+  SpecAuthority --> Routing
+  StoryDetails --> Routing
+
+  %% Ambiguous instruction state (duplicate STATE 20)
+  Ambig{{Ambiguous STATE 20 in instructions}}
+  Ambig -.-> StoryDetails
+  Ambig -.-> SpecAuthority
+  Routing -.-> Ambig
+
+  %% System-trigger loop after user turn
+  UserTurn --> TriggerLoop[System Trigger Loop]
+  TriggerLoop --> TriggerDecision{Workflow trigger?}
+  TriggerDecision -->|Yes| SystemTurn["System-trigger Turn: run_agent_turn(is_system_trigger=True)"]
+  SystemTurn --> TriggerLoop
+  TriggerDecision -->|No| MainLoop

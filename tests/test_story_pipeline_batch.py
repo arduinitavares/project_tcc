@@ -1,5 +1,8 @@
-"""Batch processing removed. This test module intentionally fails on import."""
+"""Batch processing removed. This test module is skipped."""
 
-raise RuntimeError(
-	"process_story_batch has been removed. Remove this test or migrate to process_single_story."
+import pytest
+
+pytest.skip(
+	"process_story_batch has been removed. Skipping obsolete test module.",
+	allow_module_level=True,
 )

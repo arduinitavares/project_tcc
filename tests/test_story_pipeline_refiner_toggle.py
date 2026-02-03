@@ -130,10 +130,13 @@ async def test_refiner_disabled_skips_loop(
                 "story_points": 3,
                 "metadata": {"spec_version_id": spec_version_id},
             }
-            yield {}
+            yield type("Event", (), {"content": None, "author": None})()
 
     monkeypatch.setattr(single_story_mod, "InMemorySessionService", FakeSessionService)
-    monkeypatch.setattr(single_story_mod, "Runner", FakeRunner)
+    monkeypatch.setattr(
+        "orchestrator_agent.agent_tools.story_pipeline.steps.execution.Runner",
+        FakeRunner,
+    )
 
     result = await process_single_story(
         ProcessStoryInput(
@@ -228,10 +231,13 @@ async def test_refiner_enabled_invokes_loop(
                 "refinement_applied": False,
                 "refinement_notes": "No changes needed.",
             }
-            yield {}
+            yield type("Event", (), {"content": None, "author": None})()
 
     monkeypatch.setattr(single_story_mod, "InMemorySessionService", FakeSessionService)
-    monkeypatch.setattr(single_story_mod, "Runner", FakeRunner)
+    monkeypatch.setattr(
+        "orchestrator_agent.agent_tools.story_pipeline.steps.execution.Runner",
+        FakeRunner,
+    )
 
     result = await process_single_story(
         ProcessStoryInput(

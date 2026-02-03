@@ -26,6 +26,8 @@ from pydantic import ValidationError
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+from rich.console import Console
+from rich.panel import Panel
 
 from utils.schemes import (
     SpecAuthorityCompilerOutput,
@@ -42,6 +44,9 @@ from orchestrator_agent.agent_tools.negation_checker_agent.agent import (
 )
 
 from agile_sqlmodel import CompiledSpecAuthority
+
+
+_RICH_CONSOLE = Console()
 
 
 @dataclass
@@ -147,14 +152,42 @@ def _invoke_negation_checker(text: str, forbidden_term: str, context_label: str)
         forbidden_term=forbidden_term,
         context_label=context_label,
     )
+    _RICH_CONSOLE.print(
+        Panel(
+            f"[bold]Input[/bold]\n{text}\n\n"
+            f"[bold]Forbidden Term[/bold]\n{forbidden_term}\n\n"
+            f"[bold]Context[/bold]\n{context_label}",
+            title="[NEGATION CHECK] Request",
+            border_style="magenta",
+            expand=False,
+        )
+    )
     try:
         result = _run_async_task(_invoke_negation_checker_async(payload))
-    except Exception:
+    except Exception as exc:
+        _RICH_CONSOLE.print(
+            Panel(
+                f"[bold]Error[/bold]\n{exc}",
+                title="[NEGATION CHECK] Error",
+                border_style="red",
+                expand=False,
+            )
+        )
         return False
 
+    is_negated = False
     if isinstance(result, NegationCheckOutput):
-        return bool(result.is_negated)
-    return False
+        is_negated = bool(result.is_negated)
+
+    _RICH_CONSOLE.print(
+        Panel(
+            f"[bold]is_negated[/bold]\n{is_negated}",
+            title="[NEGATION CHECK] Response",
+            border_style="cyan",
+            expand=False,
+        )
+    )
+    return is_negated
 
 
 # --- Vision Keyword Patterns ---

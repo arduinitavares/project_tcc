@@ -19,7 +19,7 @@ from agile_sqlmodel import (
     SpecRegistry,
     Theme,
 )
-from orchestrator_agent.agent_tools.story_pipeline.story_generation_context import (
+from orchestrator_agent.agent_tools.story_pipeline.util.story_generation_context import (
     build_generation_context,
 )
 from utils.schemes import (
@@ -285,7 +285,7 @@ class FakeRunner:
             "story_points": 3,
             "metadata": {"spec_version_id": self.spec_version_id},
         }
-        yield {}
+        yield type("Event", (), {"content": None, "author": None})()
 
 
 # =============================================================================
@@ -375,12 +375,12 @@ class TestProcessSingleStoryAuthorityContext:
         Returns the FakeSessionService so tests can inspect captured state.
         """
         import orchestrator_agent.agent_tools.story_pipeline.single_story as single_story_mod
-        import orchestrator_agent.agent_tools.story_pipeline.pipeline_setup as pipeline_setup_mod
-        import orchestrator_agent.agent_tools.story_pipeline.pipeline_execution as pipeline_exec
+        import orchestrator_agent.agent_tools.story_pipeline.steps.setup as setup_mod
+        import orchestrator_agent.agent_tools.story_pipeline.steps.execution as exec_mod
 
         # Patch engine references
         single_story_mod.engine = engine
-        monkeypatch.setattr(pipeline_setup_mod, "get_engine", lambda: engine)
+        monkeypatch.setattr(setup_mod, "get_engine", lambda: engine)
 
         # Patch session service
         monkeypatch.setattr(
@@ -393,7 +393,7 @@ class TestProcessSingleStoryAuthorityContext:
         def make_fake_runner(agent: Any, app_name: str, session_service: Any) -> FakeRunner:
             return FakeRunner(agent, app_name, session_service, spec_version_id)
 
-        monkeypatch.setattr(pipeline_exec, "Runner", make_fake_runner)
+        monkeypatch.setattr(exec_mod, "Runner", make_fake_runner)
 
         return fake_session_service
 
@@ -446,6 +446,8 @@ class TestProcessSingleStoryAuthorityContext:
         assert "authority_context" in captured_state, "State missing authority_context"
         assert "spec_version_id" in captured_state, "State missing spec_version_id"
 
-        authority_context = json.loads(captured_state["authority_context"])
+        authority_context = captured_state["authority_context"]
+        if isinstance(authority_context, str):
+            authority_context = json.loads(authority_context)
         assert authority_context["spec_version_id"] == expected_spec_version_id
         assert authority_context["domain"] == DEFAULT_DOMAIN

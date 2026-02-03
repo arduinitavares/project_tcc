@@ -57,7 +57,7 @@ def test_alignment_checker_uses_pinned_authority_invariants(
         )
 
     monkeypatch.setattr(
-        "orchestrator_agent.agent_tools.story_pipeline.alignment_checker."
+        "orchestrator_agent.agent_tools.story_pipeline.steps.alignment_checker."
         "derive_forbidden_capabilities_from_authority",
         spy_derive,
     )
@@ -78,7 +78,7 @@ def test_alignment_checker_does_not_use_vision(
         raise AssertionError("Vision-based extraction should not be used")
 
     monkeypatch.setattr(
-        "orchestrator_agent.agent_tools.story_pipeline.alignment_checker."
+        "orchestrator_agent.agent_tools.story_pipeline.steps.alignment_checker."
         "_extract_forbidden_capabilities_from_vision",
         fail_if_called,
     )

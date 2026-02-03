@@ -4,8 +4,7 @@ Test Pydantic Schema Integration for Theme/Epic Enforcement.
 This test verifies that:
 1. query_features_for_stories returns QueryFeaturesOutput with validated FeatureForStory objects
 2. FeatureForStory enforces theme/epic min_length=1 (no empty strings)
-3. ProcessBatchInput accepts List[FeatureForStory] (type-safe)
-4. Orchestrator cannot bypass validation by constructing dicts manually
+3. Orchestrator cannot bypass validation by constructing dicts manually
 """
 
 import pytest
@@ -19,7 +18,6 @@ from tools.story_query_tools import (
     QueryFeaturesInput,
     query_features_for_stories,
 )
-from orchestrator_agent.agent_tools.story_pipeline.tools import ProcessBatchInput
 
 
 class TestPydanticSchemaEnforcement:
@@ -135,54 +133,6 @@ class TestPydanticSchemaEnforcement:
                 message="Success",
             )
 
-    def test_process_batch_input_accepts_feature_for_story_list(self):
-        """ProcessBatchInput accepts List[FeatureForStory]."""
-        batch_input = ProcessBatchInput(
-            product_id=1,
-            product_name="Test Product",
-            product_vision="Test vision",
-            spec_version_id=1,
-            features=[
-                FeatureForStory(
-                    feature_id=1,
-                    feature_title="Feature 1",
-                    theme="Theme A",
-                    epic="Epic X",
-                    theme_id=1,
-                    epic_id=1,
-                ),
-                FeatureForStory(
-                    feature_id=2,
-                    feature_title="Feature 2",
-                    theme="Theme B",
-                    epic="Epic Y",
-                    theme_id=2,
-                    epic_id=2,
-                ),
-            ],
-        )
-        
-        assert len(batch_input.features) == 2
-        assert batch_input.features[0].theme == "Theme A"
-        assert batch_input.features[1].epic == "Epic Y"
-
-    def test_process_batch_input_rejects_invalid_features(self):
-        """ProcessBatchInput rejects features with invalid theme/epic."""
-        with pytest.raises(ValidationError):
-            ProcessBatchInput(
-                product_id=1,
-                product_name="Test Product",
-                product_vision="Test vision",
-                spec_version_id=1,
-                features=[
-                    FeatureForStory(
-                        feature_id=1,
-                        feature_title="Feature 1",
-                        theme="Valid Theme",
-                        epic="",  # Empty epic should fail
-                    )
-                ],
-            )
 
     def test_query_features_for_stories_returns_validated_output(self, engine):
         """query_features_for_stories returns dict from QueryFeaturesOutput."""
@@ -229,28 +179,6 @@ class TestPydanticSchemaEnforcement:
 
 class TestSchemaPreventsDictConstruction:
     """Verify Pydantic prevents manual dict construction bypassing validation."""
-
-    def test_cannot_pass_plain_dict_to_batch_input(self):
-        """ProcessBatchInput rejects plain dicts (requires FeatureForStory objects)."""
-        with pytest.raises(ValidationError) as exc_info:
-            ProcessBatchInput(
-                product_id=1,
-                product_name="Test Product",
-                product_vision="Test vision",
-                spec_version_id=1,
-                features=[
-                    {  # Plain dict should fail type validation
-                        "feature_id": 1,
-                        "feature_title": "Feature 1",
-                        "theme": "",  # Even with empty theme
-                        "epic": "Epic X",
-                    }
-                ],
-            )
-        
-        # Pydantic should complain about type mismatch
-        error_str = str(exc_info.value).lower()
-        assert "features" in error_str or "validation" in error_str
 
     def test_cannot_construct_feature_with_whitespace_theme(self):
         """FeatureForStory rejects whitespace-only theme."""
@@ -355,7 +283,7 @@ class TestContractEnforcerIdValidation:
 
     def test_id_mismatch_detected(self):
         """Contract enforcer catches theme_id/epic_id mismatch."""
-        from orchestrator_agent.agent_tools.story_pipeline.story_contract_enforcer import (
+        from orchestrator_agent.agent_tools.story_pipeline.util.story_contract_enforcer import (
             enforce_theme_epic_contract,
         )
         
@@ -381,7 +309,7 @@ class TestContractEnforcerIdValidation:
 
     def test_id_validation_skipped_when_not_provided(self):
         """Contract enforcer skips ID validation when IDs not in story."""
-        from orchestrator_agent.agent_tools.story_pipeline.story_contract_enforcer import (
+        from orchestrator_agent.agent_tools.story_pipeline.util.story_contract_enforcer import (
             enforce_theme_epic_contract,
         )
         
@@ -404,7 +332,7 @@ class TestContractEnforcerIdValidation:
 
     def test_title_mismatch_still_caught_even_with_ids(self):
         """Title mismatch is caught even when IDs match."""
-        from orchestrator_agent.agent_tools.story_pipeline.story_contract_enforcer import (
+        from orchestrator_agent.agent_tools.story_pipeline.util.story_contract_enforcer import (
             enforce_theme_epic_contract,
         )
         
