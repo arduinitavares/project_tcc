@@ -115,8 +115,8 @@ def get_current_state(
         state: Dict[str, Any] = json.loads(row[0]) if row else {}
         app_logger.debug("Retrieved state (redacted).")
         return state
-    except sqlite3.Error as e:
-        app_logger.error("Error fetching state from DB.")
+    except (sqlite3.Error, json.JSONDecodeError) as e:
+        app_logger.error("Error fetching state from DB: %s", e)
         return {}
 
 
@@ -319,6 +319,7 @@ async def run_agent_turn(
     # 3. RUN AGENT
     full_response_text = ""
     latest_tool_data = {}  # Capture the raw data here
+    current_text_chunk = ""  # Accumulate text between tool calls for logging
 
     try:
         async for event in runner.run_async(
@@ -331,6 +332,10 @@ async def run_agent_turn(
 
                     # A. Tool Call
                     if part.function_call:
+                        # Log any accumulated text BEFORE the tool call
+                        if current_text_chunk.strip():
+                            app_logger.info("AGENT OUTPUT (before tool call):\n%s", current_text_chunk.strip())
+                            current_text_chunk = ""
                         _display_tool_call(part)
 
                     # B. Tool Response (The Fix for Amnesia between turns)
@@ -341,14 +346,15 @@ async def run_agent_turn(
                     # C. Text
                     if part.text:
                         full_response_text += part.text
+                        current_text_chunk += part.text
                         console.print(part.text, end="", style="white")
 
         console.print("\n")
         
-        # Log the complete response text
-        if full_response_text:
-            app_logger.info("AGENT RESPONSE TEXT:\n%s", full_response_text)
-        else:
+        # Log any remaining text after all tool calls completed
+        if current_text_chunk.strip():
+            app_logger.info("AGENT FINAL OUTPUT:\n%s", current_text_chunk.strip())
+        elif not full_response_text:
             app_logger.info("AGENT RESPONSE: (no text, tool-only turn)")
     except Exception as e:
         if is_zdr_routing_error(e):

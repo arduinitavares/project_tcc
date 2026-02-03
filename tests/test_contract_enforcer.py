@@ -2,11 +2,10 @@
 Tests for story_contract_enforcer.py - deterministic final validation stage.
 """
 
-import pytest
-from orchestrator_agent.agent_tools.story_pipeline.story_contract_enforcer import (
+
+from orchestrator_agent.agent_tools.story_pipeline.util.story_contract_enforcer import (
     enforce_story_contracts,
     enforce_story_points_contract,
-    enforce_persona_contract,
     enforce_scope_contract,
     enforce_feature_id_consistency,
     enforce_validator_state_consistency,
@@ -51,65 +50,6 @@ class TestStoryPointsContract:
         assert violation is not None
         assert violation.rule == "STORY_POINTS_OUT_OF_RANGE"
         assert violation.actual == 10
-
-
-class TestPersonaContract:
-    """Test Rule 2: Persona contract."""
-
-    def test_persona_matches(self):
-        """Story uses exact persona -> OK."""
-        story = {
-            "description": "As an automation engineer, I want to upload PDFs so that I can process them."
-        }
-        violation = enforce_persona_contract(story, expected_persona="automation engineer")
-
-        assert violation is None
-
-    def test_persona_matches_plural_vs_singular(self):
-        """Story uses singular, expected is plural (or vice versa) -> OK after normalization."""
-        story = {
-            "description": "As a QA reviewer, I want to review documents so that quality is maintained."
-        }
-        violation = enforce_persona_contract(story, expected_persona="QA reviewers")
-
-        assert violation is None  # Should pass after normalization
-
-    def test_persona_matches_case_insensitive(self):
-        """Story uses different case -> OK after normalization."""
-        story = {
-            "description": "As an Automation Engineer, I want to upload PDFs so that I can process them."
-        }
-        violation = enforce_persona_contract(story, expected_persona="automation engineer")
-
-        assert violation is None
-
-    def test_persona_mismatch(self):
-        """Story uses wrong persona -> violation."""
-        story = {
-            "description": "As a software engineer, I want to upload PDFs so that I can process them."
-        }
-        violation = enforce_persona_contract(story, expected_persona="automation engineer")
-
-        assert violation is not None
-        assert violation.rule == "PERSONA_MISMATCH"
-        assert violation.expected == "automation engineer"
-        assert "software engineer" in violation.actual
-
-    def test_persona_format_invalid_no_as_a(self):
-        """Story doesn't start with 'As a' -> violation."""
-        story = {"description": "I want to upload PDFs"}
-        violation = enforce_persona_contract(story, expected_persona="automation engineer")
-
-        assert violation is not None
-        assert violation.rule == "PERSONA_FORMAT_INVALID"
-
-    def test_persona_format_invalid_no_i_want(self):
-        """Story doesn't contain ', I want' -> violation."""
-        story = {"description": "As an automation engineer"}
-        violation = enforce_persona_contract(story, expected_persona="automation engineer")
-
-        assert violation is not None
-        assert violation.rule == "PERSONA_FORMAT_INVALID"
 
 
 class TestFeatureIdConsistency:
@@ -270,7 +210,6 @@ class TestFullContractEnforcement:
         result = enforce_story_contracts(
             story=story,
             include_story_points=False,
-            expected_persona="automation engineer",
             feature_time_frame="Now",
             allowed_scope="Now",
             validation_result={"validation_score": 95},
@@ -300,7 +239,6 @@ class TestFullContractEnforcement:
         result = enforce_story_contracts(
             story=story,
             include_story_points=False,
-            expected_persona="automation engineer",
             feature_time_frame=None,
             allowed_scope=None,
             validation_result={"validation_score": 95},
@@ -329,7 +267,6 @@ class TestFullContractEnforcement:
         result = enforce_story_contracts(
             story=story,
             include_story_points=False,  # Points forbidden
-            expected_persona="automation engineer",  # Wrong persona
             feature_time_frame="Next",  # Wrong scope
             allowed_scope="Now",
             validation_result={"validation_score": 95},
@@ -341,12 +278,11 @@ class TestFullContractEnforcement:
         )
 
         assert not result.is_valid
-        assert len(result.violations) >= 6  # Now includes theme and epic violations
+        assert len(result.violations) >= 5  # Now includes theme and epic violations
         
         # Check specific violations
         rules = [v.rule for v in result.violations]
         assert "STORY_POINTS_FORBIDDEN" in rules
-        assert "PERSONA_MISMATCH" in rules
         assert "SCOPE_MISMATCH" in rules
         assert "SOURCE_THEME_INVALID" in rules  # Updated: source validation
         assert "SOURCE_EPIC_INVALID" in rules   # Updated: source validation
@@ -366,7 +302,6 @@ class TestFullContractEnforcement:
         result = enforce_story_contracts(
             story=story,
             include_story_points=False,
-            expected_persona="automation engineer",
             feature_time_frame=None,
             allowed_scope=None,
             validation_result={"validation_score": 85},
@@ -592,7 +527,6 @@ class TestIntegrationWithThemeEpic:
         result = enforce_story_contracts(
             story=story,
             include_story_points=True,
-            expected_persona="automation engineer",
             feature_time_frame="Now",
             allowed_scope=None,
             validation_result={"validation_score": 95},
@@ -621,7 +555,6 @@ class TestIntegrationWithThemeEpic:
         result = enforce_story_contracts(
             story=story,
             include_story_points=True,
-            expected_persona="automation engineer",
             feature_time_frame="Now",
             allowed_scope=None,
             validation_result={"validation_score": 95},
@@ -650,7 +583,6 @@ class TestIntegrationWithThemeEpic:
         result = enforce_story_contracts(
             story=story,
             include_story_points=True,
-            expected_persona="automation engineer",
             feature_time_frame="Now",
             allowed_scope=None,
             validation_result={"validation_score": 95},
@@ -679,7 +611,6 @@ class TestIntegrationWithThemeEpic:
         result = enforce_story_contracts(
             story=story,
             include_story_points=True,
-            expected_persona="automation engineer",
             feature_time_frame="Now",
             allowed_scope=None,
             validation_result={"validation_score": 95},
@@ -748,7 +679,6 @@ class TestRegressionThemeEpicLoss:
         result = enforce_story_contracts(
             story=refined_story_from_llm,
             include_story_points=False,
-            expected_persona="automation engineer",
             feature_time_frame="Now",
             allowed_scope=None,
             validation_result={"validation_score": 95},
@@ -783,7 +713,6 @@ class TestRegressionThemeEpicLoss:
         result = enforce_story_contracts(
             story=story_with_unknown,
             include_story_points=False,
-            expected_persona="automation engineer",
             feature_time_frame="Now",
             allowed_scope=None,
             validation_result={"validation_score": 95},
@@ -818,7 +747,6 @@ class TestRegressionThemeEpicLoss:
         result = enforce_story_contracts(
             story=story,
             include_story_points=False,
-            expected_persona="automation engineer",
             feature_time_frame="Now",
             allowed_scope=None,
             validation_result={"validation_score": 95},
@@ -854,7 +782,6 @@ class TestRegressionThemeEpicLoss:
         result = enforce_story_contracts(
             story=story_with_wrong_metadata,
             include_story_points=False,
-            expected_persona="automation engineer",
             feature_time_frame="Now",
             allowed_scope=None,
             validation_result={"validation_score": 95},
@@ -892,7 +819,6 @@ class TestRegressionThemeEpicLoss:
         result = enforce_story_contracts(
             story=story_with_empty,
             include_story_points=False,
-            expected_persona="automation engineer",
             feature_time_frame="Now",
             allowed_scope=None,
             validation_result={"validation_score": 95},
@@ -926,7 +852,6 @@ class TestRegressionThemeEpicLoss:
         result = enforce_story_contracts(
             story=story_with_metadata,
             include_story_points=False,
-            expected_persona="automation engineer",
             feature_time_frame="Now",
             allowed_scope=None,
             validation_result={"validation_score": 95},
@@ -963,7 +888,6 @@ class TestInvestValidationExpected:
         result = enforce_story_contracts(
             story=story,
             include_story_points=False,
-            expected_persona="automation engineer",
             feature_time_frame=None,
             allowed_scope=None,
             validation_result=None,  # Missing!
@@ -995,7 +919,6 @@ class TestInvestValidationExpected:
         result = enforce_story_contracts(
             story=story,
             include_story_points=False,
-            expected_persona="automation engineer",
             feature_time_frame=None,
             allowed_scope=None,
             validation_result=None,  # Missing, but expected to be missing
@@ -1016,9 +939,9 @@ class TestInvestValidationExpected:
         """Even when validation is disabled, other contract violations should still fail."""
         story = {
             "title": "Test story",
-            "description": "As a software engineer, I want to test so that quality improves.",  # Wrong persona!
+            "description": "As a software engineer, I want to test so that quality improves.",
             "acceptance_criteria": "- Test passes",
-            "story_points": None,
+            "story_points": 3,  # Forbidden when include_story_points=False
             "feature_id": 42,
             "theme": "Core",
             "epic": "Testing",
@@ -1027,7 +950,6 @@ class TestInvestValidationExpected:
         result = enforce_story_contracts(
             story=story,
             include_story_points=False,
-            expected_persona="automation engineer",  # Expected persona
             feature_time_frame=None,
             allowed_scope=None,
             validation_result=None,
@@ -1039,13 +961,13 @@ class TestInvestValidationExpected:
             invest_validation_expected=False,  # Validation disabled
         )
         
-        # Should fail due to persona mismatch, even though validation was disabled
+        # Should fail due to story points violation, even though validation was disabled
         assert result.is_valid is False
         # validation_skipped is True because INVEST validation was indeed skipped,
         # but is_valid is False because of other violations
         assert result.validation_skipped is True
         rules = [v.rule for v in result.violations]
-        assert "PERSONA_MISMATCH" in rules
+        assert "STORY_POINTS_FORBIDDEN" in rules
         # INVEST_RESULT_MISSING should NOT be present (validation was disabled)
         assert "INVEST_RESULT_MISSING" not in rules
 
@@ -1064,7 +986,6 @@ class TestInvestValidationExpected:
         result = enforce_story_contracts(
             story=story,
             include_story_points=False,
-            expected_persona="automation engineer",
             feature_time_frame=None,
             allowed_scope=None,
             validation_result={"validation_score": 95},  # Present even though not expected

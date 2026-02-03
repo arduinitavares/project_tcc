@@ -8,6 +8,8 @@ query_features_for_stories functionality after legacy agent removal.
 
 from typing import Annotated, Any, Dict, List, Optional
 
+import re
+
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
@@ -33,10 +35,6 @@ class FeatureForStory(BaseModel):
     
     feature_id: Annotated[int, Field(description="Feature ID")]
     feature_title: Annotated[str, Field(description="Feature title")]
-    delivery_role: Annotated[
-        Optional[str],
-        Field(description="Optional delivery responsibility role (policy metadata)."),
-    ] = None
     # --- Stable ID-based references (preferred for validation) ---
     theme_id: Annotated[
         int,
@@ -181,11 +179,23 @@ def query_features_for_stories(
             features_list: List[Dict[str, Any]] = []
             structure: List[Dict[str, Any]] = []
 
+            def _derive_time_frame_from_title(title: str) -> Optional[str]:
+                if not title:
+                    return None
+                match = re.search(r"\b(now|next|later)\b", title, re.IGNORECASE)
+                if not match:
+                    return None
+                value = match.group(1).lower()
+                return value.capitalize()
+
             for theme in themes:
+                time_frame_value = theme.time_frame.value if theme.time_frame else None
+                if time_frame_value is None:
+                    time_frame_value = _derive_time_frame_from_title(theme.title)
                 theme_data: Dict[str, Any] = {
                     "theme_id": theme.theme_id,
                     "theme_title": theme.title,
-                    "time_frame": theme.time_frame.value if theme.time_frame else None,
+                    "time_frame": time_frame_value,
                     "justification": theme.description,
                     "epics": [],
                 }
@@ -212,13 +222,12 @@ def query_features_for_stories(
                         feature_obj = FeatureForStory(
                             feature_id=feature.feature_id,
                             feature_title=feature.title,
-                            delivery_role=getattr(feature, "delivery_role", None),
                             theme_id=theme.theme_id,  # Stable ID reference
                             epic_id=epic.epic_id,      # Stable ID reference
                             theme=theme.title,  # REQUIRED - Pydantic validates non-empty
                             epic=epic.title,    # REQUIRED - Pydantic validates non-empty
                             existing_stories_count=count,
-                            time_frame=theme.time_frame.value if theme.time_frame else None,
+                            time_frame=time_frame_value,
                             theme_justification=theme.description,
                             sibling_features=sibling_features,
                         )
@@ -231,7 +240,7 @@ def query_features_for_stories(
                             "feature_id": feature.feature_id,
                             "feature_title": feature.title,
                             "existing_stories_count": count,
-                            "time_frame": theme.time_frame.value if theme.time_frame else None,
+                            "time_frame": time_frame_value,
                             "theme_justification": theme.description,
                             "sibling_features": sibling_features,
                         }

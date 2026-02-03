@@ -22,7 +22,12 @@ Based on the validation feedback, decide:
 - This forces the refined story to be re-validated by the Spec validator
 - The loop will exit naturally when re-validation passes with no new suggestions
 
-# INPUT (from state)
+# INPUT (JSON string)
+Input is a JSON string matching the StoryRefinerInput schema.
+Example:
+{"story_draft":{"title":"Capture user_id","description":"As a automation engineer, I want ... so that ...","acceptance_criteria":"- Example","story_points":3,"metadata":{"spec_version_id":1}},"spec_validation_result":{"is_compliant":false,"suggestions":["Add AC for user_id"],"domain_compliance":{"critical_gaps":[]}},"authority_context":{"scope_themes":["payload validation"],"invariants":["REQUIRED_FIELD:user_id"]},"spec_version_id":1,"current_feature":{"feature_id":1,"feature_title":"Capture user_id","theme":"Core","epic":"User Data","time_frame":null,"theme_justification":null,"sibling_features":[]},"story_preferences":{"include_story_points":true},"raw_spec_text":null}
+
+Fields:
 - `story_draft`: The original story JSON (includes metadata.spec_version_id)
 - `spec_validation_result`: Authority feedback (is_compliant, issues, suggestions, domain_compliance)
 - `authority_context`: Compiled authority context (scope_themes, invariants, gaps, assumptions)
@@ -30,6 +35,7 @@ Based on the validation feedback, decide:
 - `current_feature`: The feature context
 - `story_preferences`: User preferences including:
   - `include_story_points`: If FALSE, set `story_points` to NULL in refined_story
+- `raw_spec_text`: (OPTIONAL) Raw spec text for phrasing ONLY (NON-authoritative)
 
 # AUTHORITY RULES
 - `authority_context.invariants` are HARD constraints. Do NOT reinterpret or relax them.

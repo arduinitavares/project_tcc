@@ -261,20 +261,26 @@ Each story is validated against INVEST principles (Independent, Negotiable, Valu
    
 2. **Output Lead-in:** *"Starting INVEST-validated story pipeline..."*
 
-3. **For BATCH Processing:** Use `process_story_batch` with:
-   ```json
-   {
-     "product_id": <from active project>,
-     "product_name": "<from active project>",
-     "product_vision": "<from active project>",
-     "features": [<USE features_flat FROM query_features_for_stories>],
-     "user_persona": "<user's specified persona>",
-     "include_story_points": true/false,
-     "max_concurrency": 1,
-     "spec_content": <from tool_context.state["pending_spec_content"]> | null,
-     "content_ref": <from tool_context.state["pending_spec_path"]> | null
-   }
-   ```
+3. **For EACH Feature:** Use `process_single_story` with:
+      ```json
+      {
+         "product_id": <int>,
+         "product_name": "<string>",
+         "feature_id": <int>,
+         "feature_title": "<string>",
+         "theme_id": <int>,
+         "epic_id": <int>,
+         "theme": "<string FROM query result>",
+         "epic": "<string FROM query result>",
+         "time_frame": "Now|Next|Later",
+         "theme_justification": "<string>",
+         "sibling_features": ["<string>", "<string>"] ,
+         "user_persona": "<string>",
+         "include_story_points": true/false,
+         "spec_content": <from state["pending_spec_content"]> | null,
+         "content_ref": <from state["pending_spec_path"]> | null
+      }
+      ```
    
    **SPEC AUTHORITY GATE (Automatic):**
    - If `spec_version_id` is omitted, the pipeline runs the **Authority Gate** internally.
@@ -284,29 +290,17 @@ Each story is validated against INVEST principles (Independent, Negotiable, Valu
      (set in STATE 1 or STATE 1B) or `state["pending_spec_path"]` (file path from STATE 1).
    - If no accepted authority exists AND no spec_content/content_ref provided, the gate raises an error.
    
-   **CRITICAL:** The `features` array MUST come from `query_features_for_stories()["features_flat"]`.
-   Each feature dict already contains:
+   **CRITICAL:** The `features_flat` array MUST come from `query_features_for_stories()["features_flat"]`.
+   Each feature already contains:
    - `feature_id`, `feature_title`
+   - `theme_id`, `epic_id` (REQUIRED database IDs - DO NOT OMIT)
    - `theme`, `epic` (REQUIRED - these fields must NEVER be "Unknown")
    - `time_frame`, `theme_justification`, `sibling_features`
    
    **DO NOT** manually construct feature objects - always use the query result.
+   **COPY THE FEATURES EXACTLY** - including theme_id and epic_id fields.
 
-4. **For SINGLE Feature:** Use `process_single_story` with:
-   ```json
-   {
-     "product_id": <int>,
-     "product_name": "<string>",
-     "feature_id": <int>,
-     "feature_title": "<string>",
-     "theme": "<string FROM query result>",
-     "epic": "<string FROM query result>",
-     "user_persona": "<string>",
-     "include_story_points": true/false,
-     "spec_content": <from state["pending_spec_content"]> | null,
-     "content_ref": <from state["pending_spec_path"]> | null
-   }
-   ```
+4. **Loop over all selected features** and call `process_single_story` for each.
 
 5. **Display Results:** Show each story with:
    - **Theme and Epic** (to verify metadata propagated correctly)
@@ -342,7 +336,7 @@ Each story is validated against INVEST principles (Independent, Negotiable, Valu
    ```
    
    The `stories` field is **optional** - if omitted, the tool automatically retrieves them from session state 
-   (set by `process_story_batch`). You can also provide stories explicitly if needed:
+   (set by the story generation tool). You can also provide stories explicitly if needed:
    ```json
    {
      "save_input": {
@@ -368,7 +362,7 @@ Each story is validated against INVEST principles (Independent, Negotiable, Valu
    - Ask: *"Stories saved. Would you like to create more stories, or proceed to sprint planning?"*
 4. **STOP.**
 
-**Why use `save_validated_stories` instead of re-running `process_story_batch`?**
+**Why use `save_validated_stories` instead of re-running story generation?**
 - Saves API calls (no re-generation)
 - Ensures the EXACT stories shown to the user are saved
 - Faster response time
@@ -393,7 +387,7 @@ Each story is validated against INVEST principles (Independent, Negotiable, Valu
 - **State Integrity:** When calling `product_vision_tool`, you MUST pass the `prior_vision_state` argument exactly as received from the previous turn.
 - **User Intent:** Always confirm user intent before starting a workflow. Don't assume.
 - **Story Creation:** Always confirm stories with user before persisting to database.
-- **INVEST Validation:** Always use the validated story pipeline (process_story_batch).
+- **INVEST Validation:** Always use the validated story pipeline (process_single_story per feature).
 
 ---
 

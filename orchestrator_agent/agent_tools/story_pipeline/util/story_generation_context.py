@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, cast
 
 from agile_sqlmodel import CompiledSpecAuthority
 from utils.schemes import SpecAuthorityCompilerOutput, SpecAuthorityCompilationFailure
-from orchestrator_agent.agent_tools.story_pipeline.alignment_checker import (
+from orchestrator_agent.agent_tools.story_pipeline.steps.alignment_checker import (
     extract_invariants_from_authority,
 )
 

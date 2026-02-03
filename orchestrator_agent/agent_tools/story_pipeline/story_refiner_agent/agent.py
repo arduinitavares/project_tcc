@@ -12,19 +12,19 @@ Also sets `is_valid` in state to control the loop exit condition.
 
 import os
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import dotenv
-from pydantic import BaseModel, Field, model_validator, ValidationInfo
+from pydantic import BaseModel, Field, model_validator
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.tools.tool_context import ToolContext
 
 from utils.helper import load_instruction
 from utils.model_config import get_model_id, get_openrouter_extra_body
 
 # Import StoryDraft schema
 from orchestrator_agent.agent_tools.story_pipeline.story_draft_agent.agent import StoryDraft
+from utils.schemes import StoryRefinerInput
 
 # --- Load Environment ---
 dotenv.load_dotenv()
@@ -63,14 +63,25 @@ model = LiteLlm(
     extra_body=get_openrouter_extra_body(),
 )
 
+
+def create_story_refiner_agent() -> LlmAgent:
+    """Create a new StoryRefinerAgent instance.
+
+    Returns:
+        LlmAgent: Fresh StoryRefinerAgent instance.
+    """
+    return LlmAgent(
+        name="StoryRefinerAgent",
+        model=model,
+        instruction=load_instruction(Path(__file__).parent / "instructions.txt"),
+        description="Refines a user story based on validation feedback.",
+        input_schema=StoryRefinerInput,
+        output_key="refinement_result",  # Stores output in state['refinement_result']
+        output_schema=RefinementResult,
+        disallow_transfer_to_parent=True,
+        disallow_transfer_to_peers=True,
+    )
+
+
 # --- Agent Definition ---
-story_refiner_agent = LlmAgent(
-    name="StoryRefinerAgent",
-    model=model,
-    instruction=load_instruction(Path(__file__).parent / "instructions.txt"),
-    description="Refines a user story based on validation feedback.",
-    output_key="refinement_result",  # Stores output in state['refinement_result']
-    output_schema=RefinementResult,
-    disallow_transfer_to_parent=True,
-    disallow_transfer_to_peers=True,
-)
+story_refiner_agent = create_story_refiner_agent()

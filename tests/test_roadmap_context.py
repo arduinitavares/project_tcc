@@ -186,6 +186,57 @@ class TestQueryFeaturesWithRoadmapContext:
         assert priority_pred["time_frame"] == "Next"
         assert priority_pred["theme_justification"] == "Differentiator; requires task data first"
 
+    def test_features_fallback_time_frame_from_title(
+        self,
+        session: Session,
+        engine: Engine,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Fallback should derive time_frame from theme title when DB is null."""
+        import tools.story_query_tools as tools
+        from tools.story_query_tools import (
+            query_features_for_stories,
+            QueryFeaturesInput,
+        )
+
+        product = Product(name="Fallback Product", vision="Vision")
+        session.add(product)
+        session.commit()
+        session.refresh(product)
+
+        theme = Theme(
+            title="Now (Months 1-3) - Infrastructure",
+            description="Theme without explicit time_frame",
+            time_frame=None,
+            product_id=product.product_id,
+        )
+        session.add(theme)
+        session.commit()
+        session.refresh(theme)
+
+        epic = Epic(
+            title="Infrastructure",
+            summary="Infra",
+            theme_id=theme.theme_id,
+        )
+        session.add(epic)
+        session.commit()
+        session.refresh(epic)
+
+        feature = Feature(title="Foundation", description="", epic_id=epic.epic_id)
+        session.add(feature)
+        session.commit()
+
+        monkeypatch.setattr(tools, "get_engine", lambda: engine)
+
+        result = query_features_for_stories(
+            QueryFeaturesInput(product_id=product.product_id)
+        )
+
+        features_flat = result["features_flat"]
+        foundation = next(f for f in features_flat if f["feature_title"] == "Foundation")
+        assert foundation["time_frame"] == "Now"
+
     def test_features_include_sibling_features(
         self,
         session: Session,

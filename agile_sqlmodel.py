@@ -492,11 +492,6 @@ class Feature(SQLModel, table=True):
     feature_id: Optional[int] = Field(default=None, primary_key=True)
     title: str
     description: Optional[str] = Field(default=None, sa_type=Text)
-    delivery_role: Optional[str] = Field(
-        default=None,
-        max_length=100,
-        description="Optional delivery responsibility role (e.g., 'ml engineer').",
-    )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2

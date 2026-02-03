@@ -64,7 +64,11 @@ class SelfHealingAgent(BaseAgent):
                     logger.error(f"[{self.name}] Failed validation after {self.max_retries} retries.")
                     raise
 
-                logger.warning(f"[{self.name}] Validation error (Attempt {validation_attempts}/{self.max_retries}). Retrying...")
+                # Log the actual error (truncate to 800 chars to avoid log flooding)
+                error_str = str(e)[:800]
+                logger.warning(
+                    f"[{self.name}] Validation error (Attempt {validation_attempts}/{self.max_retries}): {error_str}"
+                )
 
                 # Inject feedback into state
                 error_msg = f"Validation Error on attempt {validation_attempts}: {str(e)}"

@@ -33,9 +33,6 @@ from orchestrator_agent.agent_tools.story_pipeline.story_draft_agent.agent impor
 from orchestrator_agent.agent_tools.story_pipeline.spec_validator_agent.agent import (
     spec_validator_agent,
 )
-from orchestrator_agent.agent_tools.story_pipeline.invest_validator_agent.agent import (
-    invest_validator_agent,
-)
 from orchestrator_agent.agent_tools.story_pipeline.story_refiner_agent.agent import (
     story_refiner_agent,
 )
@@ -43,19 +40,17 @@ from orchestrator_agent.agent_tools.utils.resilience import SelfHealingAgent, Co
 
 
 # --- Sequential Pipeline ---
-# Runs: Draft → INVEST Validate → SPEC Validate → Refine in strict order
-# INVEST validator produces validation_result with quality scores.
+# Runs: Draft → SPEC Validate → Refine in strict order
 # SPEC validator ensures domain-specific artifact compliance.
 # Each agent is wrapped in SelfHealingAgent to automatically retry on Pydantic validation errors.
 story_sequential_pipeline = SequentialAgent(
     name="StorySequentialPipeline",
     sub_agents=[
         SelfHealingAgent(agent=story_draft_agent, max_retries=3),
-        SelfHealingAgent(agent=invest_validator_agent, max_retries=3),
         SelfHealingAgent(agent=spec_validator_agent, max_retries=3),
         SelfHealingAgent(agent=story_refiner_agent, max_retries=3),
     ],
-    description="Drafts a story, validates INVEST + spec, and refines if needed.",
+    description="Drafts a story, validates spec, and refines if needed.",
 )
 
 

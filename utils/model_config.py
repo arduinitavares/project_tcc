@@ -136,3 +136,16 @@ def get_story_pipeline_mode() -> str:
     if mode not in {"batch", "single"}:
         raise ValueError("story_pipeline.mode must be 'batch' or 'single'")
     return mode
+
+
+def get_story_pipeline_negation_tolerance() -> bool:
+    """Return whether LLM negation tolerance is enabled for alignment checks."""
+    data = _load_config()
+    pipeline = data.get("story_pipeline", {})
+    if pipeline is None:
+        pipeline = {}
+    if not isinstance(pipeline, dict):
+        raise ValueError("story_pipeline must be a mapping in models.yaml")
+
+    enabled = pipeline.get("negation_tolerance_llm", False)
+    return bool(enabled)

@@ -1,5 +1,9 @@
 """End-to-end smoke tests for implicit spec update and story pipeline pinning."""
 
+raise RuntimeError(
+    "process_story_batch has been removed. Remove or migrate this test to process_single_story."
+)
+
 import asyncio
 
 import pytest

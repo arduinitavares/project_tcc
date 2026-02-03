@@ -1,35 +1,33 @@
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlmodel import Session, select
+from sqlmodel import Session
 from google.adk.tools import ToolContext
 
-from agile_sqlmodel import ProductPersona, get_engine
+from agile_sqlmodel import get_engine
 from tools.spec_tools import ensure_accepted_spec_authority
 
-from orchestrator_agent.agent_tools.story_pipeline.models import ProcessStoryInput
-from orchestrator_agent.agent_tools.story_pipeline.pipeline_constants import (
+from orchestrator_agent.agent_tools.story_pipeline.util.models import ProcessStoryInput
+from orchestrator_agent.agent_tools.story_pipeline.util.constants import (
     KEY_CURRENT_FEATURE, KEY_PRODUCT_CONTEXT, KEY_SPEC_VERSION_ID,
     KEY_AUTHORITY_CONTEXT, KEY_RAW_SPEC_TEXT, KEY_FORBIDDEN_CAPABILITIES,
     KEY_USER_PERSONA, KEY_STORY_PREFERENCES, KEY_REFINEMENT_FEEDBACK,
-    KEY_ITERATION_COUNT
+    KEY_ITERATION_COUNT, KEY_ORIGINAL_FEATURE_TITLE
 )
-from orchestrator_agent.agent_tools.story_pipeline.common import load_compiled_authority
-from orchestrator_agent.agent_tools.story_pipeline.persona_checker import normalize_persona
-from orchestrator_agent.agent_tools.story_pipeline.alignment_checker import (
+from orchestrator_agent.agent_tools.story_pipeline.util.common import load_compiled_authority
+from orchestrator_agent.agent_tools.story_pipeline.steps.alignment_checker import (
     validate_feature_alignment,
     create_rejection_response,
     extract_invariants_from_authority,
     derive_forbidden_capabilities_from_authority,
 )
-from orchestrator_agent.agent_tools.story_pipeline.story_generation_context import build_generation_context
+from orchestrator_agent.agent_tools.story_pipeline.util.story_generation_context import build_generation_context
 
 
 def normalize_story_input_defaults(story_input: ProcessStoryInput) -> ProcessStoryInput:
     """Apply defaults for optional parameters."""
     return story_input.model_copy(
         update={
-            "user_persona": story_input.user_persona or "user",
             "include_story_points": story_input.include_story_points if story_input.include_story_points is not None else True,
             "recompile": story_input.recompile if story_input.recompile is not None else False,
             "enable_story_refiner": story_input.enable_story_refiner if story_input.enable_story_refiner is not None else True,
@@ -40,9 +38,16 @@ def normalize_story_input_defaults(story_input: ProcessStoryInput) -> ProcessSto
 
 def resolve_spec_version_id(
     story_input: ProcessStoryInput,
-    tool_context: Optional[ToolContext]
+    tool_context: Optional[ToolContext] = None,
 ) -> Tuple[ProcessStoryInput, Optional[str]]:
-    """Resolves the spec version ID, compiling if necessary. Returns updated input and error string."""
+    """Resolves the spec version ID, compiling if necessary. Returns updated input and error string.
+    
+    Fallback Logic:
+    - If spec_content/content_ref are not in story_input, checks tool_context.state for:
+      - 'pending_spec_content' (set by load_specification_from_file)
+      - 'pending_spec_path' (set by load_specification_from_file)
+    - This fallback handles cases where LLM forgets to pass spec content explicitly.
+    """
 
     if story_input.spec_version_id is not None and story_input.spec_version_id <= 0:
         return story_input, f"Invalid spec_version_id: {story_input.spec_version_id}. Must be a positive integer or None."
@@ -51,12 +56,14 @@ def resolve_spec_version_id(
     if not effective_spec_version_id:
         spec_content = story_input.spec_content
         content_ref = story_input.content_ref
-        if tool_context and tool_context.state:
-            spec_content = spec_content or tool_context.state.get("pending_spec_content")
-            content_ref = content_ref or tool_context.state.get("pending_spec_path")
-
-        if spec_content and content_ref:
-            spec_content = None
+        
+        # FALLBACK: If not in input, check tool_context.state (set by load_specification_from_file)
+        if not spec_content and not content_ref and tool_context and tool_context.state:
+            state = tool_context.state
+            if "pending_spec_content" in state:
+                spec_content = state["pending_spec_content"]
+            if "pending_spec_path" in state:
+                content_ref = state["pending_spec_path"]
 
         try:
             effective_spec_version_id = ensure_accepted_spec_authority(
@@ -75,31 +82,13 @@ def resolve_spec_version_id(
 
     return story_input, None
 
-def validate_persona_against_registry(
-    product_id: int, requested_persona: str, db_session: Session
-) -> tuple[bool, Optional[str]]:
-    """Check if persona is approved for this product."""
-    approved = db_session.exec(
-        select(ProductPersona.persona_name).where(
-            ProductPersona.product_id == product_id
-        )
-    ).all()
-
-    if not approved:
-        return True, None
-
-    requested_norm = normalize_persona(requested_persona)
-    approved_norm = [normalize_persona(p) for p in approved]
-
-    if requested_norm in approved_norm:
-        return True, None
-
-    return False, (
-        f"Persona '{requested_persona}' not in approved list for this product. "
-        f"Approved personas: {list(approved)}"
-    )
-
-def setup_authority_and_alignment(story_input: ProcessStoryInput):
+def setup_authority_and_alignment(story_input: ProcessStoryInput) -> Tuple[
+    Optional[Dict[str, Any]],
+    Optional[str],
+    Optional[List[str]],
+    Optional[List[str]],
+    Optional[Dict[str, Any]]
+]:
     """Loads authority, extracts invariants, and checks feature alignment."""
     with Session(get_engine()) as session:
         try:
@@ -138,15 +127,6 @@ def setup_authority_and_alignment(story_input: ProcessStoryInput):
         spec_hash=getattr(spec_version, "spec_hash", None),
     )
 
-    # Check domain constraint
-    domain = (authority_context.get("domain") or "").lower()
-    technical_domains = {"training", "provenance", "ingestion", "audit", "revision"}
-    if domain in technical_domains and not story_input.delivery_role:
-        error_message = (
-            f"Unsatisfiable constraints: domain '{domain}' requires delivery_role, "
-            "but none was provided."
-        )
-        return None, None, None, None, {"success": False, "error": error_message, "story": None}
 
     return authority_context, technical_spec, forbidden_capabilities, invariants, None
 
@@ -159,37 +139,30 @@ def build_initial_state(
 ) -> Dict[str, Any]:
     """Constructs the initial session state for the runner."""
     state = {
-        KEY_CURRENT_FEATURE: json.dumps(
-            {
-                "feature_id": story_input.feature_id,
-                "feature_title": story_input.feature_title,
-                "theme": story_input.theme,
-                "epic": story_input.epic,
-                "time_frame": story_input.time_frame,
-                "theme_justification": story_input.theme_justification,
-                "sibling_features": story_input.sibling_features or [],
-                "delivery_role": story_input.delivery_role,
-            }
-        ),
-        KEY_PRODUCT_CONTEXT: json.dumps(
-            {
-                "product_id": story_input.product_id,
-                "product_name": story_input.product_name,
-                "vision": story_input.product_vision or "",
-                "forbidden_capabilities": forbidden_capabilities,
-                "time_frame": story_input.time_frame,
-            }
-        ),
+        KEY_CURRENT_FEATURE: {
+            "feature_id": story_input.feature_id,
+            "feature_title": story_input.feature_title,
+            "theme": story_input.theme,
+            "epic": story_input.epic,
+            "time_frame": story_input.time_frame,
+            "theme_justification": story_input.theme_justification,
+            "sibling_features": story_input.sibling_features or [],
+        },
+        KEY_PRODUCT_CONTEXT: {
+            "product_id": story_input.product_id,
+            "product_name": story_input.product_name,
+            "vision": story_input.product_vision or "",
+            "forbidden_capabilities": forbidden_capabilities,
+            "time_frame": story_input.time_frame,
+        },
         KEY_SPEC_VERSION_ID: story_input.spec_version_id,
-        KEY_AUTHORITY_CONTEXT: json.dumps(authority_context),
-        "original_feature_title": story_input.feature_title,
-        KEY_FORBIDDEN_CAPABILITIES: json.dumps(forbidden_capabilities),
+        KEY_AUTHORITY_CONTEXT: authority_context,
+        KEY_ORIGINAL_FEATURE_TITLE: story_input.feature_title,
+        KEY_FORBIDDEN_CAPABILITIES: forbidden_capabilities,
         KEY_USER_PERSONA: story_input.user_persona,
-        KEY_STORY_PREFERENCES: json.dumps(
-            {
-                "include_story_points": story_input.include_story_points,
-            }
-        ),
+        KEY_STORY_PREFERENCES: {
+            "include_story_points": story_input.include_story_points,
+        },
         KEY_REFINEMENT_FEEDBACK: "",
         KEY_ITERATION_COUNT: 0,
     }

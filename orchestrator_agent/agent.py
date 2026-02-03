@@ -28,7 +28,7 @@ from orchestrator_agent.agent_tools.story_pipeline import (
     story_validation_loop,
 )
 from orchestrator_agent.agent_tools.story_pipeline.tools import (
-    process_story_batch,  # Main batch tool (process_single_story is internal)
+    process_single_story,
     save_validated_stories,
 )
 # NEW: Sprint Planning tools (Scrum Master MVP)
@@ -85,7 +85,7 @@ instruction_text += (
     "\n\n[CONFIG] Story pipeline mode: "
     f"{story_pipeline_mode}. "
     "If mode is 'single', call process_single_story once per feature. "
-    "If mode is 'batch', call process_story_batch."
+    "If mode is 'batch', still call process_single_story per feature (no batch tool)."
 )
 
 
@@ -123,10 +123,8 @@ root_agent = Agent(
         save_vision_tool,
         # Roadmap tools
         save_roadmap_tool,
-        # Story query tools
-        query_features_for_stories,
         # Story Pipeline tools (INVEST-validated)
-        process_story_batch,  # Batch processing (calls process_single_story internally)
+        process_single_story,
         save_validated_stories,  # Save without re-running pipeline
         # Sprint Planning tools (Scrum Master MVP)
         get_backlog_for_planning,

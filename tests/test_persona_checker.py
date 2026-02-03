@@ -1,5 +1,5 @@
 import pytest
-from orchestrator_agent.agent_tools.story_pipeline.persona_checker import (
+from orchestrator_agent.agent_tools.story_pipeline.steps.persona_checker import (
     extract_persona_from_story,
     validate_persona,
     auto_correct_persona,

@@ -46,10 +46,12 @@ from orchestrator_agent.agent_tools.story_pipeline.tools import (
     ProcessStoryInput,
     process_single_story,
 )
-from orchestrator_agent.agent_tools.story_pipeline.story_generation_context import (
+from google.adk.sessions import InMemorySessionService
+import orchestrator_agent.agent_tools.story_pipeline.single_story as single_story_module
+from orchestrator_agent.agent_tools.story_pipeline.util.story_generation_context import (
     build_generation_context,
 )
-from orchestrator_agent.agent_tools.story_pipeline.alignment_checker import (
+from orchestrator_agent.agent_tools.story_pipeline.steps.alignment_checker import (
     check_alignment_violation,
     derive_forbidden_capabilities_from_authority,
 )
@@ -78,9 +80,26 @@ def _make_engine() -> Any:
 
 
 def _patch_engines(engine: Any) -> None:
+    # Patch main module engine
     agile_sqlmodel.engine = engine
+    
+    # Patch production engine to ensure get_engine() returns our test engine
+    # even if get_engine() is imported directly by other modules.
+    if hasattr(agile_sqlmodel, "_production_engine"):
+        agile_sqlmodel._production_engine = engine
+
+    # Patch get_engine globally
+    agile_sqlmodel.get_engine = lambda: engine
+    
     spec_tools.engine = engine
+    if hasattr(spec_tools, "get_engine"):
+        spec_tools.get_engine = lambda: engine
+
     story_tools.engine = engine
+    
+    # Patch single_story_module get_engine as it imports it from agile_sqlmodel
+    if hasattr(single_story_module, "get_engine"):
+        single_story_module.get_engine = lambda: engine
 
 
 def _seed_product_graph(
@@ -135,6 +154,8 @@ def _seed_product_graph(
             "feature_title": feature.title,
             "theme": theme.title,
             "epic": epic.title,
+            "theme_id": theme_id,
+            "epic_id": epic_id,
         }
 
 
@@ -395,6 +416,20 @@ def _empty_metrics() -> Dict[str, Any]:
     }
 
 
+def _finalize_stage(metrics: Dict[str, Any], pipeline_called: bool) -> str:
+    if pipeline_called:
+        if metrics.get("alignment_rejected"):
+            return "alignment_rejected"
+        if metrics.get("acceptance_blocked"):
+            return "acceptance_blocked"
+        return "pipeline_ran"
+    if metrics.get("acceptance_blocked"):
+        return "acceptance_blocked"
+    if metrics.get("alignment_rejected"):
+        return "alignment_rejected"
+    return "pipeline_not_run"
+
+
 def _refiner_ran(*, enable_refiner: bool, refiner_output: Any) -> bool:
     if not enable_refiner:
         return False
@@ -510,8 +545,8 @@ async def _run_scenario(
                         product_vision=seed["product_vision"],
                         feature_id=seed["feature_id"],
                         feature_title=feature_title,
-                        theme_id=None,
-                        epic_id=None,
+                        theme_id=seed["theme_id"],
+                        epic_id=seed["epic_id"],
                         theme=seed["theme"],
                         epic=seed["epic"],
                         time_frame=None,
@@ -616,7 +651,7 @@ async def _run_scenario(
 
         debug_state_holder: Dict[str, Any] = {}
 
-        class DebugSessionService(story_tools.InMemorySessionService):
+        class DebugSessionService(InMemorySessionService):
             async def create_session(self, *args: Any, **kwargs: Any):
                 session = await super().create_session(*args, **kwargs)
                 if session and getattr(session, "state", None) is not None:
@@ -629,8 +664,8 @@ async def _run_scenario(
                     debug_state_holder["state"] = session.state
                 return session
 
-        original_session_service = story_tools.InMemorySessionService
-        story_tools.InMemorySessionService = DebugSessionService
+        original_session_service = single_story_module.InMemorySessionService
+        single_story_module.InMemorySessionService = DebugSessionService
         try:
             pipeline_start = time.perf_counter()
             pipeline_called = True
@@ -641,8 +676,8 @@ async def _run_scenario(
                     product_vision=seed["product_vision"],
                     feature_id=seed["feature_id"],
                     feature_title=feature_title,
-                    theme_id=None,
-                    epic_id=None,
+                    theme_id=seed["theme_id"],
+                    epic_id=seed["epic_id"],
                     theme=seed["theme"],
                     epic=seed["epic"],
                     time_frame=None,
@@ -658,7 +693,7 @@ async def _run_scenario(
             )
             pipeline_ms = (time.perf_counter() - pipeline_start) * 1000
         finally:
-            story_tools.InMemorySessionService = original_session_service
+            single_story_module.InMemorySessionService = original_session_service
 
         if isinstance(pipeline_result, dict):
             trace["ALIGNMENT_REJECTED"] = pipeline_result.get("rejected")
@@ -748,6 +783,11 @@ async def _run_scenario(
         raise
 
     total_ms = (time.perf_counter() - total_start) * 1000
+    
+    # Ensure pipeline_ms is None if alignment rejected (schema requirement)
+    if trace.get("ALIGNMENT_REJECTED"):
+        pipeline_ms = None
+
     trace["TIMING_MS"] = {
         "total_ms": total_ms,
         "compile_ms": compile_ms,
@@ -817,15 +857,10 @@ async def _run_scenario(
                 metrics["contract_passed"] = True
             else:
                 metrics["contract_passed"] = False
-        metrics["stage"] = "pipeline_ran"
     else:
         metrics["contract_passed"] = None
-        if metrics["acceptance_blocked"]:
-            metrics["stage"] = "acceptance_blocked"
-        elif metrics["alignment_rejected"]:
-            metrics["stage"] = "alignment_rejected"
-        else:
-            metrics["stage"] = "pipeline_not_run"
+
+    metrics["stage"] = _finalize_stage(metrics, pipeline_called)
 
     trace["METRICS"] = metrics
 

@@ -1,4 +1,6 @@
 import pytest
+
+pytest.skip("Persona enforcement removed", allow_module_level=True)
 import asyncio
 import json
 from unittest.mock import MagicMock, patch, AsyncMock

@@ -24,6 +24,7 @@ Vision → Specification Authority → Roadmap → Features → User Stories →
 | **Spec Authority Compiler** | Architect | Compiles technical specifications into deterministic authority artifacts |
 | **Roadmap Agent** | Product Owner | Converts vision & spec into prioritized themes with Now/Next/Later timeframes |
 | **Story Pipeline** | Developer Support | Generates INVEST-ready user stories with spec validation & authority pinning |
+| **Negation Checker** | Compliance Assistant | Detects prohibited-capability mentions that are explicitly negated (optional LLM gate) |
 | **Sprint Planning** | Scrum Master | Plans sprints with capacity modeling and team auto-creation |
 | **Sprint Execution** | Scrum Master | Tracks progress, status updates, and velocity metrics |
 
@@ -166,6 +167,7 @@ project_tcc/
 │       ├── product_vision_tool/     # Vision gathering agent
 │       ├── spec_authority_compiler_agent/ # Spec Compiler
 │       ├── product_roadmap_agent/   # Roadmap planning agent
+│       ├── negation_checker_agent/  # Optional negation tolerance for forbidden terms
 │       ├── story_pipeline/          # Spec validation pipeline
 │       └── sprint_planning/         # Sprint planning & execution
 │
@@ -243,6 +245,19 @@ pytest tests/
 
 # Run with coverage (Minimum 80%)
 pytest tests/ --cov=. --cov-report=html
+```
+
+### Negation Tolerance (Optional)
+
+The story pipeline can optionally allow **negated** mentions of forbidden capabilities
+(e.g., “must not use OAuth1”) using an LLM-based classifier. This is disabled by default
+and should be enabled only when human review is in the loop.
+
+Enable via config:
+
+```
+story_pipeline:
+    negation_tolerance_llm: true
 ```
 
 ---

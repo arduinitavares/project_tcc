@@ -15,23 +15,6 @@ from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
 
 
-def normalize_persona_for_comparison(persona: str) -> str:
-    """
-    Normalize persona for comparison (handles singular/plural, case).
-    
-    Matches the logic from persona_checker.py to ensure consistency.
-    """
-    if not persona:
-        return ""
-    normalized = persona.lower().strip()
-    
-    # Handle plural 's' at end (e.g., "reviewers" -> "reviewer")
-    if normalized.endswith("s") and not normalized.endswith("ss"):
-        normalized = normalized[:-1]
-    
-    return normalized
-
-
 @dataclass
 class ContractViolation:
     """Represents a single contract violation."""
@@ -94,64 +77,6 @@ def enforce_story_points_contract(
                 expected="1-8 or NULL",
                 actual=story_points,
             )
-
-    return None
-
-
-def enforce_persona_contract(
-    story: Dict[str, Any], expected_persona: str
-) -> Optional[ContractViolation]:
-    """
-    Rule 2: Story must use exactly the expected persona.
-
-    Args:
-        story: The refined story dict
-        expected_persona: The required persona (e.g., "automation engineer")
-
-    Returns:
-        ContractViolation if persona is wrong or missing
-    """
-    description = story.get("description", "").lower()
-
-    # Extract persona from "As a <persona>, I want..." or "As an <persona>, I want..."
-    if not (description.startswith("as a ") or description.startswith("as an ")):
-        return ContractViolation(
-            rule="PERSONA_FORMAT_INVALID",
-            message="Story description must start with 'As a <persona>, I want...' or 'As an <persona>, I want...'",
-            field="description",
-            expected="As a <persona>, I want...",
-            actual=description[:50] + "...",
-        )
-
-    # Extract the persona portion
-    persona_end = description.find(", i want")
-    if persona_end == -1:
-        return ContractViolation(
-            rule="PERSONA_FORMAT_INVALID",
-            message="Story description must contain ', I want'",
-            field="description",
-            expected="As a <persona>, I want...",
-            actual=description[:50] + "...",
-        )
-
-    # Skip "as a " or "as an "
-    if description.startswith("as a "):
-        extracted_persona = description[5:persona_end].strip()
-    else:  # "as an "
-        extracted_persona = description[6:persona_end].strip()
-
-    # Normalize for comparison (lowercase, no extra spaces)
-    expected_norm = normalize_persona_for_comparison(expected_persona)
-    extracted_norm = normalize_persona_for_comparison(extracted_persona)
-
-    if extracted_norm != expected_norm:
-        return ContractViolation(
-            rule="PERSONA_MISMATCH",
-            message=f"Story must use persona '{expected_persona}', but found '{extracted_persona}'",
-            field="description",
-            expected=expected_persona,
-            actual=extracted_persona,
-        )
 
     return None
 
@@ -541,7 +466,6 @@ def enforce_validator_state_consistency(
 def enforce_story_contracts(
     story: Dict[str, Any],
     include_story_points: bool,
-    expected_persona: str,
     feature_time_frame: Optional[str],
     allowed_scope: Optional[str],
     validation_result: Optional[Dict[str, Any]],
@@ -568,7 +492,6 @@ def enforce_story_contracts(
     Args:
         story: The refined story dict
         include_story_points: User preference for story points
-        expected_persona: Required persona (e.g., "automation engineer")
         feature_time_frame: Feature's time frame ("Now", "Next", "Later")
         allowed_scope: Allowed scope filter (e.g., "Now" only)
         validation_result: INVEST validation state
@@ -593,18 +516,13 @@ def enforce_story_contracts(
     if story_points_violation:
         violations.append(story_points_violation)
 
-    # Rule 2: Persona contract
-    persona_violation = enforce_persona_contract(story, expected_persona)
-    if persona_violation:
-        violations.append(persona_violation)
-
-    # Rule 3: Feature ID consistency (data integrity)
+    # Rule 2: Feature ID consistency (data integrity)
     if expected_feature_id is not None:
         feature_id_violation = enforce_feature_id_consistency(story, expected_feature_id)
         if feature_id_violation:
             violations.append(feature_id_violation)
 
-    # Rule 4: Theme and Epic metadata presence AND matching (data integrity)
+    # Rule 3: Theme and Epic metadata presence AND matching (data integrity)
     # Validates: (1) expected values are valid, (2) story has theme/epic attached,
     # (3) story values match expected, (4) IDs match if provided (eliminates duplicate name ambiguity)
     theme_epic_violations = enforce_theme_epic_contract(
@@ -612,12 +530,12 @@ def enforce_story_contracts(
     )
     violations.extend(theme_epic_violations)
 
-    # Rule 5: Scope contract
+    # Rule 4: Scope contract
     scope_violation = enforce_scope_contract(feature_time_frame, allowed_scope)
     if scope_violation:
         violations.append(scope_violation)
 
-    # Rule 6: Validator state consistency and completeness
+    # Rule 5: Validator state consistency and completeness
     # NOTE: When invest_validation_expected=False, we skip INVEST presence check
     # but still check other consistency rules
     state_violations = enforce_validator_state_consistency(

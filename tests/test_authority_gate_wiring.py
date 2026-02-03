@@ -73,6 +73,7 @@ def spec_file(tmp_path):
 class TestToolContextWiring:
     """Tests that tool_context is passed through to ensure_accepted_spec_authority."""
 
+    @pytest.mark.skip(reason="process_story_batch has been removed. Test kept for reference.")
     def test_process_story_batch_passes_tool_context_to_authority_gate(
         self, engine, sample_product: Product, session: Session
     ):
@@ -114,7 +115,9 @@ class TestToolContextWiring:
                 "tool_context": tool_context,
             })
             # Return a fake spec_version_id to let the function proceed
-            raise RuntimeError("Captured - stopping here")
+            raise RuntimeError(
+                "process_story_batch has been removed. Remove or migrate this test to process_single_story."
+            )
         
         batch_input = ProcessBatchInput(
             product_id=sample_product.product_id,
@@ -159,8 +162,8 @@ class TestToolContextWiring:
             process_single_story,
             ProcessStoryInput,
         )
-        import orchestrator_agent.agent_tools.story_pipeline.single_story as single_story_mod
-        single_story_mod.engine = engine
+        import orchestrator_agent.agent_tools.story_pipeline.steps.setup as setup_mod
+        setup_mod.engine = engine
         
         mock_context = MockToolContext(state={
             "pending_spec_path": "test_specs/genai_spec.md",
@@ -193,7 +196,7 @@ class TestToolContextWiring:
         )
         
         with patch(
-            "orchestrator_agent.agent_tools.story_pipeline.single_story.ensure_accepted_spec_authority",
+            "orchestrator_agent.agent_tools.story_pipeline.steps.setup.ensure_accepted_spec_authority",
             side_effect=capture_ensure_call,
         ):
             import asyncio
@@ -456,6 +459,7 @@ class TestDevEscapeHatch:
 class TestDualSpecSourceHandling:
     """Tests for handling when both spec_content and content_ref are available."""
 
+    @pytest.mark.skip(reason="process_story_batch has been removed. Test kept for reference.")
     def test_process_story_batch_prefers_content_ref_over_spec_content(
         self, engine, sample_product: Product, session: Session
     ):
@@ -549,8 +553,8 @@ class TestDualSpecSourceHandling:
             process_single_story,
             ProcessStoryInput,
         )
-        import orchestrator_agent.agent_tools.story_pipeline.single_story as single_story_mod
-        single_story_mod.engine = engine
+        import orchestrator_agent.agent_tools.story_pipeline.steps.setup as setup_mod
+        setup_mod.engine = engine
 
         mock_context = MockToolContext(state={
             "pending_spec_path": "/some/path/spec.md",
@@ -590,7 +594,7 @@ class TestDualSpecSourceHandling:
             raise RuntimeError("Captured - stopping here")
 
         with patch(
-            "orchestrator_agent.agent_tools.story_pipeline.single_story.ensure_accepted_spec_authority",
+            "orchestrator_agent.agent_tools.story_pipeline.steps.setup.ensure_accepted_spec_authority",
             side_effect=capture_ensure_call,
         ):
             import asyncio

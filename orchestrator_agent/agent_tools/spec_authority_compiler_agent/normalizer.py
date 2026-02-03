@@ -51,6 +51,18 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
         invariant/source_map IDs are rewritten deterministically.
     """
     print("[spec_authority_compiler] normalize_compiler_output: parsing raw JSON")
+    
+    # Strip markdown code blocks if present
+    raw_json = raw_json.strip()
+    if raw_json.startswith("```"):
+        lines = raw_json.split("\n")
+        # Remove first line (fence)
+        lines = lines[1:]
+        # Remove last line if it is a fence
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        raw_json = "\n".join(lines).strip()
+
     try:
         parsed = SpecAuthorityCompilerOutput.model_validate_json(raw_json)
         print("[spec_authority_compiler] Parsed as SpecAuthorityCompilerOutput")
@@ -106,12 +118,25 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
     original_invariants = list(success.invariants)
     original_id_to_type: Dict[str, Any] = {inv.id: inv.type for inv in original_invariants}
 
+    # Check if all invariants have duplicate/placeholder IDs (common LLM behavior)
+    original_ids = [inv.id for inv in original_invariants]
+    has_duplicate_ids = len(set(original_ids)) < len(original_ids)
+    
+    # When IDs are duplicated and lengths match, prefer positional matching
+    use_positional_matching = (
+        has_duplicate_ids
+        and len(success.source_map) == len(success.invariants)
+    )
+
     id_to_excerpt: Dict[str, str] = {}
     for entry in success.source_map:
         if entry.invariant_id and entry.excerpt and entry.excerpt.strip():
             id_to_excerpt[entry.invariant_id] = entry.excerpt
 
     def choose_excerpt(invariant_index: int, invariant_id: str) -> Optional[str]:
+        # Prefer positional matching when IDs are duplicated
+        if use_positional_matching:
+            return success.source_map[invariant_index].excerpt
         if invariant_id and invariant_id in id_to_excerpt:
             return id_to_excerpt[invariant_id]
         if len(success.source_map) == len(success.invariants):
@@ -135,6 +160,7 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
         inv.id = compute_invariant_id(excerpt, inv.type)
 
     # Rewrite source_map invariant_id deterministically
+    # use_positional_matching is already computed above
     for entry_index, entry in enumerate(success.source_map):
         excerpt = (entry.excerpt or "").strip()
         if not excerpt:
@@ -144,21 +170,27 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
                 blocking_gaps=["source_map entry has empty excerpt"],
             )
 
-        inv_type = original_id_to_type.get(entry.invariant_id)
-        if inv_type is None:
-            if len(success.invariants) == 1:
-                inv_type = success.invariants[0].type
-            elif len(success.source_map) == len(original_invariants):
-                inv_type = original_invariants[entry_index].type
-            else:
-                print("[spec_authority_compiler] Cannot match source_map entry to invariant type")
-                return _failure(
-                    reason="SOURCE_MAP_INVARIANT_MISMATCH",
-                    blocking_gaps=[
-                        "Cannot match source_map entry to an invariant type",
-                        f"source_map_index={entry_index}",
-                    ],
-                )
+        inv_type = None
+        
+        # Prefer positional matching when IDs are duplicated/placeholder
+        if use_positional_matching:
+            inv_type = original_invariants[entry_index].type
+        else:
+            inv_type = original_id_to_type.get(entry.invariant_id)
+            if inv_type is None:
+                if len(success.invariants) == 1:
+                    inv_type = success.invariants[0].type
+                elif len(success.source_map) == len(original_invariants):
+                    inv_type = original_invariants[entry_index].type
+                else:
+                    print("[spec_authority_compiler] Cannot match source_map entry to invariant type")
+                    return _failure(
+                        reason="SOURCE_MAP_INVARIANT_MISMATCH",
+                        blocking_gaps=[
+                            "Cannot match source_map entry to an invariant type",
+                            f"source_map_index={entry_index}",
+                        ],
+                    )
 
         entry.invariant_id = compute_invariant_id(excerpt, inv_type)
 

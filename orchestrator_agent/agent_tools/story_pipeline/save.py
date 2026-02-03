@@ -10,7 +10,7 @@ from sqlmodel import Session
 from agile_sqlmodel import UserStory, get_engine
 from tools.spec_tools import validate_story_with_spec_authority
 
-from .persona_checker import extract_persona_from_story
+from .steps.persona_checker import extract_persona_from_story, normalize_persona
 
 CYAN = "\033[96m"
 GREEN = "\033[92m"
@@ -55,7 +55,7 @@ async def save_validated_stories(
     This saves API calls and ensures the exact stories shown are saved.
 
     If `stories` is not provided, the tool will attempt to retrieve them from
-    session state (`pending_validated_stories`) set by `process_story_batch`.
+    session state (`pending_validated_stories`) set by the story generation tool.
     """
     # --- Resolve stories from input or session state fallback ---
     stories_to_save = save_input.stories
@@ -70,7 +70,7 @@ async def save_validated_stories(
             "error": (
                 "No stories provided and none found in session state. "
                 "Please provide the 'stories' field with the validated story data, "
-                "or run process_story_batch first to populate session state."
+                "or run story generation first to populate session state."
             ),
             "saved_story_ids": [],
             "failed_saves": [],
@@ -106,11 +106,17 @@ async def save_validated_stories(
                         print(f"{RED}[ERROR] Skipped test fixture data: {title}{RESET}")
                         continue
                     
+                    extracted_persona = extract_persona_from_story(description)
+                    normalized_persona = (
+                        normalize_persona(extracted_persona)
+                        if extracted_persona
+                        else None
+                    )
                     user_story = UserStory(
                         title=title,
                         story_description=description,
                         # Auto-extract persona for denormalized field
-                        persona=extract_persona_from_story(description),
+                        persona=normalized_persona,
                         acceptance_criteria=story_data.get("acceptance_criteria"),
                         story_points=story_data.get("story_points"),
                         feature_id=story_data.get("feature_id"),

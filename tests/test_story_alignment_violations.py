@@ -14,6 +14,7 @@ Test cases from STORY_ALIGNMENT_VALIDATION_ISSUE.md:
 5. Aligned stories pass normally (control test)
 """
 
+
 import pytest
 
 from agile_sqlmodel import CompiledSpecAuthority
@@ -28,7 +29,6 @@ from utils.schemes import (
 )
 
 from orchestrator_agent.agent_tools.story_pipeline.alignment_checker import (
-    AlignmentResult,
     check_alignment_violation,
     create_rejection_response,
     detect_requirement_drift,
@@ -53,6 +53,7 @@ def _make_compiled_authority_with_invariants() -> CompiledSpecAuthority:
     ]
     success = SpecAuthorityCompilationSuccess(
         scope_themes=["core"],
+        domain=None,
         invariants=invariants,
         eligible_feature_rules=[],
         gaps=[],
@@ -61,10 +62,12 @@ def _make_compiled_authority_with_invariants() -> CompiledSpecAuthority:
             SourceMapEntry(
                 invariant_id="INV-0000000000000000",
                 excerpt="The payload must include user_id.",
+                location=None,
             ),
             SourceMapEntry(
                 invariant_id="INV-1111111111111111",
                 excerpt="The system must not use OAuth1.",
+                location=None,
             ),
         ],
         compiler_version="1.0.0",
@@ -208,6 +211,82 @@ class TestCheckAlignmentViolation:
         # This should NOT trigger because "web" is part of "cobweb"
         assert result.is_aligned
 
+    def test_negation_tolerance_allows_negated_mentions(self, monkeypatch: pytest.MonkeyPatch):
+        """Negated mentions should be allowed when LLM negation is enabled."""
+        from orchestrator_agent.agent_tools.story_pipeline.steps import alignment_checker
+
+        monkeypatch.setattr(
+            alignment_checker.model_config,
+            "get_story_pipeline_negation_tolerance",
+            lambda: True,
+        )
+        def _negation_checker_stub(*_args: object, **_kwargs: object) -> bool:
+            return True
+
+        monkeypatch.setattr(
+            alignment_checker, "_invoke_negation_checker", _negation_checker_stub
+        )
+
+        result = alignment_checker.check_alignment_violation(
+            text="The system must not use OAuth1 authentication.",
+            forbidden_capabilities=["oauth1 authentication"],
+            context_label="story",
+        )
+
+        assert result.is_aligned
+        assert result.alignment_issues == []
+        assert result.forbidden_found == []
+
+    def test_negation_tolerance_rejects_non_negated_mentions(self, monkeypatch: pytest.MonkeyPatch):
+        """Non-negated mentions should still be rejected when LLM says not negated."""
+        from orchestrator_agent.agent_tools.story_pipeline.steps import alignment_checker
+
+        monkeypatch.setattr(
+            alignment_checker.model_config,
+            "get_story_pipeline_negation_tolerance",
+            lambda: True,
+        )
+        def _negation_checker_stub(*_args: object, **_kwargs: object) -> bool:
+            return False
+
+        monkeypatch.setattr(
+            alignment_checker, "_invoke_negation_checker", _negation_checker_stub
+        )
+
+        result = alignment_checker.check_alignment_violation(
+            text="OAuth1 authentication must be supported.",
+            forbidden_capabilities=["oauth1 authentication"],
+            context_label="story",
+        )
+
+        assert not result.is_aligned
+        assert "oauth1 authentication" in result.forbidden_found
+
+    def test_negation_tolerance_disabled_uses_deterministic_rule(self, monkeypatch: pytest.MonkeyPatch):
+        """When LLM negation is disabled, deterministic matching should apply."""
+        from orchestrator_agent.agent_tools.story_pipeline.steps import alignment_checker
+
+        monkeypatch.setattr(
+            alignment_checker.model_config,
+            "get_story_pipeline_negation_tolerance",
+            lambda: False,
+        )
+
+        def _raise_if_called(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("Negation checker should not be called")
+
+        monkeypatch.setattr(
+            alignment_checker, "_invoke_negation_checker", _raise_if_called
+        )
+
+        result = alignment_checker.check_alignment_violation(
+            text="The system must not use OAuth1 authentication.",
+            forbidden_capabilities=["oauth1 authentication"],
+            context_label="story",
+        )
+
+        assert not result.is_aligned
+
 
 class TestDetectRequirementDrift:
     """Tests for detect_requirement_drift function."""
@@ -254,7 +333,7 @@ class TestDetectRequirementDrift:
         """Should not detect drift if forbidden terms are still in final story."""
         # This case shouldn't happen (would be caught by alignment check)
         # but tests the logic
-        drift, message = detect_requirement_drift(
+        drift, _message = detect_requirement_drift(
             original_feature="Web-based dashboard",
             final_story_title="Web analytics panel",  # Still has 'web'
             final_story_description="As a user, I want a web interface",
@@ -441,6 +520,7 @@ class TestAlignmentEnforcementIntegration:
         )
         
         assert drift is True
+        assert message is not None
         assert "drift" in message.lower()
 
     def test_combined_vision_constraints(self):

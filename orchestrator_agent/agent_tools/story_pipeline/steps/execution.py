@@ -1,60 +1,49 @@
-import copy
 import json
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional, Set, cast
 
-from google.adk.agents import BaseAgent, LlmAgent, SequentialAgent
+from google.adk.agents import SequentialAgent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from orchestrator_agent.agent_tools.story_pipeline.models import ProcessStoryInput
-from orchestrator_agent.agent_tools.story_pipeline.pipeline_constants import (
+from orchestrator_agent.agent_tools.story_pipeline.util.models import ProcessStoryInput
+from orchestrator_agent.agent_tools.story_pipeline.util.constants import (
     KEY_STORY_DRAFT, KEY_SPEC_VALIDATION_RESULT, KEY_REFINEMENT_RESULT,
-    KEY_EXIT_LOOP_DIAGNOSTIC, GREEN, RED, YELLOW, CYAN, MAGENTA, RESET
+    KEY_EXIT_LOOP_DIAGNOSTIC
 )
-from orchestrator_agent.agent_tools.story_pipeline.pipeline_logging import PipelineLogger
-from orchestrator_agent.agent_tools.story_pipeline.story_draft_agent.agent import story_draft_agent
-from orchestrator_agent.agent_tools.story_pipeline.story_refiner_agent.agent import story_refiner_agent
+from orchestrator_agent.agent_tools.story_pipeline.util.logging import PipelineLogger
+from orchestrator_agent.agent_tools.story_pipeline.story_draft_agent.agent import create_story_draft_agent
+from utils.schemes import StoryDraftInput
+from orchestrator_agent.agent_tools.story_pipeline.story_refiner_agent.agent import create_story_refiner_agent
 from orchestrator_agent.agent_tools.story_pipeline.pipeline import story_validation_loop
 from orchestrator_agent.agent_tools.utils.resilience import SelfHealingAgent
+from orchestrator_agent.agent_tools.story_pipeline.util.ui import (
+    display_subagent_output,
+    display_subagent_tool_call,
+    display_subagent_tool_response,
+    display_subagent_input
+)
+from orchestrator_agent.agent_tools.story_pipeline.util.helpers import (
+    build_story_draft_input_payload,
+    extract_agent_inputs
+)
 
 
-def _clone_agent(agent: BaseAgent) -> BaseAgent:
-    if isinstance(agent, LlmAgent):
-        return LlmAgent(
-            name=agent.name,
-            model=agent.model,
-            instruction=agent.instruction,
-            description=getattr(agent, "description", None),
-            output_key=getattr(agent, "output_key", None),
-            output_schema=getattr(agent, "output_schema", None),
-            disallow_transfer_to_parent=getattr(agent, "disallow_transfer_to_parent", False),
-            disallow_transfer_to_peers=getattr(agent, "disallow_transfer_to_peers", False),
-        )
-    cloned = copy.deepcopy(agent)
-    if hasattr(cloned, "parent"):
-        setattr(cloned, "parent", None)
-    if hasattr(cloned, "_parent"):
-        setattr(cloned, "_parent", None)
-    return cloned
+
 
 
 def create_pipeline_runner(story_input: ProcessStoryInput, session_service: InMemorySessionService):
     """Creates the ADK runner configured for the pipeline strategy."""
-    if story_input.enable_story_refiner:
-        if story_input.enable_spec_validator:
-            agent_to_run = story_validation_loop
-        else:
-            agent_to_run = SequentialAgent(
-                name="StorySequentialNoSpecValidator",
-                sub_agents=[
-                    SelfHealingAgent(agent=_clone_agent(story_draft_agent), max_retries=3),
-                    SelfHealingAgent(agent=_clone_agent(story_refiner_agent), max_retries=3),
-                ],
-                description="Drafts and refines a story (no spec validator).",
-            )
+    if story_input.enable_story_refiner and story_input.enable_spec_validator:
+        agent_to_run = story_validation_loop
+    elif story_input.enable_story_refiner:
+        agent_to_run = SequentialAgent(
+            name="StorySequentialNoSpecValidator",
+            sub_agents=[create_story_draft_agent(), create_story_refiner_agent()],
+            description="Drafts and refines a story (no spec validator).",
+        )
     else:
-        agent_to_run = story_draft_agent
+        agent_to_run = SelfHealingAgent(agent=create_story_draft_agent(), max_retries=3)
 
     return Runner(
         agent=agent_to_run,
@@ -66,17 +55,31 @@ def create_pipeline_runner(story_input: ProcessStoryInput, session_service: InMe
 async def execute_pipeline(
     runner: Runner,
     session_id: str,
-    feature_title: str,
     story_input: ProcessStoryInput,
     logger: PipelineLogger,
     session_service: InMemorySessionService
 ) -> Dict[str, Any]:
     """Runs the ADK pipeline and returns the final state."""
+    current_session = await session_service.get_session(
+        app_name="story_pipeline",
+        user_id="pipeline_user",
+        session_id=session_id,
+    )
+    state = current_session.state if current_session and current_session.state else {}
+    payload = build_story_draft_input_payload(state, story_input)
+    story_draft_input = StoryDraftInput.model_validate(payload)
+    prompt_text = story_draft_input.model_dump_json()
 
-    prompt_text = f"Generate a user story for feature: {feature_title}"
     new_message = types.Content(
         role="user",
         parts=[types.Part.from_text(text=prompt_text)],
+    )
+
+    # Log sub-agent input payloads (formatted like main.py)
+    display_subagent_input("[SUB-AGENT INPUT: Prompt]", {"text": prompt_text})
+    display_subagent_input(
+        "[SUB-AGENT INPUT: StoryDraftAgent]",
+        story_draft_input.model_dump(),
     )
 
     # State tracking
@@ -86,13 +89,57 @@ async def execute_pipeline(
     last_exit_loop_diagnostic: Optional[Any] = None
     current_iteration: int = 0
     seen_drafts: Set[int] = set()
+    last_author_input_logged: Optional[str] = None
 
     try:
-        async for _ in runner.run_async(
+        async for event in runner.run_async(
             user_id="pipeline_user",
             session_id=session_id,
             new_message=new_message,
         ):
+            # --- START REAL-TIME LOGGING WITH RICH PANELS ---
+            author = getattr(event, 'author', None) or 'unknown'
+            
+            if event.content and event.content.parts:
+                if author and author != last_author_input_logged:
+                    try:
+                        current_session = await session_service.get_session(
+                            app_name="story_pipeline",
+                            user_id="pipeline_user",
+                            session_id=session_id,
+                        )
+                        if current_session and current_session.state:
+                            inputs = extract_agent_inputs(author, current_session.state)
+                            if inputs is not None:
+                                display_subagent_input(
+                                    f"[SUB-AGENT INPUT: {author}]",
+                                    inputs,
+                                )
+                                last_author_input_logged = author
+                    except Exception:
+                        pass
+                for part in event.content.parts:
+                    if part.text:
+                        # Display agent output in Rich Panel
+                        display_subagent_output(author, part.text.strip())
+
+                    if part.function_call:
+                        # Display tool call in Rich Panel
+                        display_subagent_tool_call(
+                            author,
+                            part.function_call.name or "unknown_tool",
+                            part.function_call.args
+                        )
+
+                    if part.function_response:
+                        # Display tool response in Rich Panel
+                        display_subagent_tool_response(
+                            author,
+                            part.function_response.name or "unknown_tool",
+                            part.function_response.response
+                        )
+            # --- END REAL-TIME LOGGING ---
+
             # Live progress logging logic
             try:
                 current_session = await session_service.get_session(
@@ -110,12 +157,12 @@ async def execute_pipeline(
                         if draft_hash not in seen_drafts:
                             seen_drafts.add(draft_hash)
                             current_iteration += 1
-                            logger.log(f"\n{MAGENTA}   ╭─ Iteration {current_iteration} ─────────────────────────────────╮{RESET}")
+                            logger.log(f"\n   Iteration {current_iteration}")
 
                         last_story_draft = story_draft
-                        draft_data: Dict[str, Any] = (
-                            story_draft if isinstance(story_draft, dict) else {}
-                        )
+                        draft_data: Dict[str, Any] = {}
+                        if isinstance(story_draft, dict):
+                            draft_data = cast(Dict[str, Any], story_draft)
                         if isinstance(story_draft, str):
                             try:
                                 draft_data = json.loads(story_draft)
@@ -132,12 +179,12 @@ async def execute_pipeline(
                             # Just log details
                             title = draft_data.get("title", "")
                             desc = draft_data.get("description", "")[:100]
-                            logger.log(f"{CYAN}   │ 📝 DRAFT:{RESET}")
-                            logger.log(f"{CYAN}   │{RESET}    Title: {title}")
-                            logger.log(f"{CYAN}   │{RESET}    Story: {desc}...")
+                            logger.log("   Draft:")
+                            logger.log(f"      Title: {title}")
+                            logger.log(f"      Story: {desc}...")
                             if story_input.include_story_points:
                                 points = draft_data.get("story_points", "?")
-                                logger.log(f"{CYAN}   │{RESET}    Points: {points}")
+                                logger.log(f"      Points: {points}")
 
                     # Spec Validation detection
                     spec_validation_result = state.get(KEY_SPEC_VALIDATION_RESULT)
@@ -156,9 +203,8 @@ async def execute_pipeline(
                             spec_suggestions = spec_data.get("suggestions", [])
                             domain_compliance = spec_data.get("domain_compliance", {})
 
-                            status_icon = "✅" if is_compliant else "❌"
-                            status_color = GREEN if is_compliant else RED
-                            logger.log(f"{YELLOW}   │ 🧾 SPEC: {status_color}{status_icon} {'OK' if is_compliant else 'VIOLATION'}{RESET}")
+                            status_text = "OK" if is_compliant else "VIOLATION"
+                            logger.log(f"   Spec: {status_text}")
 
                             if domain_compliance:
                                 domain_name = domain_compliance.get("matched_domain", "general")
@@ -166,21 +212,23 @@ async def execute_pipeline(
                                 satisfied = domain_compliance.get("satisfied_count", 0)
                                 critical_gaps = domain_compliance.get("critical_gaps", [])
 
-                                logger.log(f"{YELLOW}   │{RESET}    Domain: {domain_name} ({satisfied}/{bound_count} requirements)")
+                                logger.log(
+                                    f"      Domain: {domain_name} ({satisfied}/{bound_count} requirements)"
+                                )
                                 if critical_gaps:
-                                    logger.log(f"{RED}   │{RESET}    Critical Gaps ({len(critical_gaps)}):")
+                                    logger.log(f"      Critical Gaps ({len(critical_gaps)}):")
                                     for gap in critical_gaps[:3]:
-                                        logger.log(f"{RED}   │{RESET}      ⚠ {gap}")
+                                        logger.log(f"        - {gap}")
 
                             if (not is_compliant) and spec_issues:
-                                logger.log(f"{RED}   │{RESET}    Spec issues:")
+                                logger.log("      Spec issues:")
                                 for issue in spec_issues[:3]:
-                                    logger.log(f"{RED}   │{RESET}      • {issue}")
+                                    logger.log(f"        - {issue}")
 
                             if spec_suggestions:
-                                logger.log(f"{YELLOW}   │{RESET}    Spec fixes needed:")
+                                logger.log("      Spec fixes needed:")
                                 for sug in spec_suggestions[:3]:
-                                    logger.log(f"{YELLOW}   │{RESET}      → {sug}")
+                                    logger.log(f"        - {sug}")
 
                     # Exit Loop Diagnostic
                     exit_loop_diag = state.get(KEY_EXIT_LOOP_DIAGNOSTIC)
@@ -198,11 +246,11 @@ async def execute_pipeline(
                             blocked_by = diag_data.get("blocked_by")
                             reason = diag_data.get("reason", "")
                             if loop_exit:
-                                logger.log(f"{GREEN}   │ 🧰 LOOP EXIT: ready{RESET}")
+                                logger.log("   Loop exit: ready")
                             else:
-                                logger.log(f"{YELLOW}   │ 🧰 LOOP EXIT: blocked ({blocked_by}){RESET}")
+                                logger.log(f"   Loop exit: blocked ({blocked_by})")
                             if reason:
-                                logger.log(f"{YELLOW}   │{RESET}      → {reason}")
+                                logger.log(f"      Reason: {reason}")
 
                     # Refinement Result
                     refinement_result = state.get(KEY_REFINEMENT_RESULT)
@@ -221,28 +269,27 @@ async def execute_pipeline(
                             notes = ref_data.get("refinement_notes", "")
                             refinement_applied = ref_data.get("refinement_applied", False)
 
-                            status_color = GREEN if is_valid else YELLOW
-                            refinement_icon = "🔧" if refinement_applied else "✓"
-                            logger.log(f"{status_color}   │ ✨ REFINED: {refinement_icon} {'Changes applied' if refinement_applied else 'No changes'}{RESET}")
+                            refinement_status = "Changes applied" if refinement_applied else "No changes"
+                            logger.log(f"   Refined: {refinement_status}")
 
                             if refined:
                                 title = refined.get('title', '')
-                                logger.log(f"{status_color}   │{RESET}    Title: {title}")
+                                logger.log(f"      Title: {title}")
                                 ac_raw = refined.get('acceptance_criteria', '')
                                 if ac_raw:
                                     ac_list = [line.strip() for line in ac_raw.strip().split('\n') if line.strip().startswith('-')]
-                                    logger.log(f"{status_color}   │{RESET}    AC Count: {len(ac_list)} criteria")
+                                    logger.log(f"      AC Count: {len(ac_list)} criteria")
                                     for ac in ac_list[:2]:
                                         ac_preview = ac[:60] + "..." if len(ac) > 60 else ac
-                                        logger.log(f"{status_color}   │{RESET}      • {ac_preview}")
+                                        logger.log(f"        - {ac_preview}")
                             if notes:
-                                logger.log(f"{status_color}   │{RESET}    Notes: {notes[:100]}{'...' if len(notes) > 100 else ''}")
-                            logger.log(f"{MAGENTA}   ╰────────────────────────────────────────────────╯{RESET}")
+                                logger.log(
+                                    f"      Notes: {notes[:100]}{'...' if len(notes) > 100 else ''}"
+                                )
 
             except Exception as e:
-                # Log but continue - state inspection shouldn't crash the pipeline
-                # Use standard print if logger fails, but logger should be safe
-                pass
+                if logger.should_dump_debug():
+                    logger.log(f"State inspection error: {e}")
 
         # Fetch final state
         final_session = await session_service.get_session(
@@ -255,5 +302,5 @@ async def execute_pipeline(
         return final_state
 
     except Exception as e:
-        logger.log(f"   [Pipeline Error] {e}")
-        raise e
+        logger.log(f"Pipeline error: {e}")
+        raise

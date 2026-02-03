@@ -9,7 +9,6 @@ import orchestrator_agent.agent_tools.story_pipeline.single_story as single_stor
 
 # Mock dependencies
 single_story_mod.resolve_spec_version_id = lambda story_input, *args: (story_input, None)
-single_story_mod.validate_persona_against_registry = lambda *args: (True, None)
 single_story_mod.setup_authority_and_alignment = lambda *args: (
     {"domain": "general"}, "spec", [], [], None
 )

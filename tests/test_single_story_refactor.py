@@ -17,12 +17,6 @@ def mock_pipeline_components(monkeypatch):
         lambda story_input, *args: (story_input, None)
     )
 
-    # Mock validate_persona_against_registry in single_story
-    monkeypatch.setattr(
-        "orchestrator_agent.agent_tools.story_pipeline.single_story.validate_persona_against_registry",
-        lambda *args: (True, None)
-    )
-
     # Mock setup_authority_and_alignment in single_story
     def mock_setup(*args):
         return (

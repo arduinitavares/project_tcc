@@ -85,12 +85,8 @@ def create_structure_from_themes(
         time_frame_enum = parse_time_frame(theme_input.time_frame)
         time_frame_str = theme_input.time_frame or ""
         
-        # Create Theme title (keep human-readable format for display)
-        theme_title = (
-            f"{time_frame_str} - {theme_input.theme_name}".strip(" -")
-            if time_frame_str
-            else theme_input.theme_name
-        )
+        # Create Theme title (RAW name only - time frame stored in enum column)
+        theme_title = theme_input.theme_name
         
         theme = Theme(
             title=theme_title,

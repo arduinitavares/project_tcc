@@ -1,40 +1,47 @@
 import json
+import logging
 import os
 from typing import Any, Callable, Dict, Optional
 from google.adk.tools import ToolContext
+from rich.console import Console
 
-from orchestrator_agent.agent_tools.story_pipeline.pipeline_constants import (
-    CYAN, GREEN, YELLOW, RED, MAGENTA, RESET, BOLD, DIM
+from orchestrator_agent.agent_tools.story_pipeline.util.constants import (
+    KEY_DEBUG_DUMP_ENABLED,
 )
+
+# Module-level logger for file logging
+_pipeline_logger = logging.getLogger("story_pipeline")
+
+# Shared Rich console for formatted output (same instance as ui.py)
+_console = Console()
 
 class PipelineLogger:
     """Handles logging and debug dumping for the story pipeline."""
 
-    def __init__(self, output_callback: Optional[Callable[[str], None]] = None, tool_context: Optional[ToolContext] = None):
+    def __init__(self, output_callback: Optional[Callable[[str], None]] = None):
         self.output_callback = output_callback
-        self.tool_context = tool_context
+        # tool_context removed to ensure pure function behavior
 
     def log(self, msg: str):
-        """Log a message to the output callback or stdout."""
+        """Log a message to the output callback or Rich console, and always to file logger."""
+        # Always log to file via Python logging
+        _pipeline_logger.info(msg)
+        # Also output to console callback or Rich console
         if self.output_callback:
             self.output_callback(msg)
         else:
-            print(msg)
+            # Use Rich console with yellow style for pipeline output (matches "[93m" ANSI in smoke logs)
+            _console.print(f"[yellow]{msg}[/yellow]")
 
     def log_header(self, feature_title: str, theme: str, epic: str):
-        self.log(f"\n{CYAN}[Pipeline]{RESET} Processing feature: {BOLD}'{feature_title}'{RESET}")
-        self.log(f"{DIM}   Theme: {theme} | Epic: {epic}{RESET}")
+        self.log(f"\n[Pipeline] Processing feature: '{feature_title}'")
+        self.log(f"   Theme: {theme} | Epic: {epic}")
 
     def should_dump_debug(self) -> bool:
-        """Check if debug dumping is enabled via env var or tool context."""
+        """Check if debug dumping is enabled via env var."""
         # Env var check
         if os.environ.get("STORY_PIPELINE_DEBUG_DUMP", "").lower() in ("1", "true", "yes"):
             return True
-
-        # Tool context check
-        if self.tool_context and self.tool_context.state:
-            if self.tool_context.state.get("debug_dump_enabled"):
-                return True
 
         return False
 
@@ -47,9 +54,9 @@ class PipelineLogger:
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(debug_info, f, indent=2, default=str)
-            self.log(f"{YELLOW}[Debug]{RESET} Dumped pipeline input to {file_path}")
+            self.log(f"[Debug] Dumped pipeline input to {file_path}")
         except Exception as e:
-            self.log(f"{RED}[Debug Error]{RESET} Failed to dump debug info: {e}")
+            self.log(f"[Debug Error] Failed to dump debug info: {e}")
 
     @staticmethod
     def extract_agent_instructions(agent: Any, prefix: str = "") -> Dict[str, Any]:

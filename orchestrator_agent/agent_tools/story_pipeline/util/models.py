@@ -1,6 +1,7 @@
 from typing import Annotated, Optional, List
 from pydantic import BaseModel, Field
 
+
 class ProcessStoryInput(BaseModel):
     """Input schema for process_single_story tool.
 
@@ -8,7 +9,6 @@ class ProcessStoryInput(BaseModel):
     Source metadata (theme, epic, theme_id, epic_id) must remain unchanged from construction
     through contract enforcement to ensure data integrity.
     """
-
     model_config = {"frozen": True}  # Immutable after construction
 
     product_id: Annotated[int, Field(description="The product ID.")]
@@ -61,16 +61,7 @@ class ProcessStoryInput(BaseModel):
     user_persona: Annotated[
         Optional[str],
         Field(
-            description="The target user persona for the story. Defaults to 'user' if not provided.",
-        ),
-    ] = None
-    delivery_role: Annotated[
-        Optional[str],
-        Field(
-            description=(
-                "Delivery responsibility role for technical implementation (e.g., 'ml engineer'). "
-                "Used for compliance policy; MUST NOT replace user_persona."
-            ),
+            description="Optional persona hint for the story.",
         ),
     ] = None
     include_story_points: Annotated[

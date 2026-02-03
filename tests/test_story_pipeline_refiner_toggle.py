@@ -157,7 +157,8 @@ async def test_refiner_disabled_skips_loop(
     )
 
     assert result["success"] is True
-    assert story_draft_agent in recorded_agents
+    assert any(getattr(agent, "name", "") == "SelfHealing_StoryDraftAgent" for agent in recorded_agents)
+    assert story_draft_agent not in recorded_agents
     assert story_validation_loop not in recorded_agents
 
 
