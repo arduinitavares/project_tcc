@@ -1,3 +1,21 @@
+# Copilot Instructions (Scope: New/Changed Code Only)
+
+These instructions apply to **all newly written or modified code** (the PR diff). Do **not** refactor, reformat, or “clean up” unrelated legacy code unless explicitly requested.
+
+## Mandatory for new/changed code
+
+- Follow the project’s linting rules. Do not introduce new `pylint` warnings or errors in modified or newly added lines. Never “fix” existing lint issues outside the edited diff unless explicitly requested.
+- Avoid clever, implicit, or overly abstract patterns. Prefer explicit, readable, and easily testable functions, even if they are more verbose.
+- If a deviation from lint rules, style guidelines, or testing conventions is unavoidable, explicitly explain the reason and propose at least one alternative approach.
+
+## Change discipline
+
+- Keep diffs minimal: only touch files necessary for the requested change.
+- Do not rename symbols or restructure modules unless required for correctness.
+- When updating behavior, update/add tests first (TDD) and keep tests deterministic.
+
+---
+
 # Development Standards for project_tcc
 
 ## Development Best Practices
