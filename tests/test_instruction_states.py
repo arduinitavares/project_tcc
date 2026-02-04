@@ -1,3 +1,6 @@
+"""
+Test ensuring unique state IDs in orchestrator instructions.
+"""
 import re
 from pathlib import Path
 
@@ -15,7 +18,7 @@ def test_instruction_states_are_unique():
 
     assert instructions_path.exists(), "instructions.txt not found"
 
-    content = instructions_path.read_text()
+    content = instructions_path.read_text(encoding="utf-8")
 
     # Regex to find lines like "## STATE 20 — VIEW STORY DETAILS MODE"
     state_pattern = re.compile(r"^## STATE (\d+)\s+[—–-]\s+(.+)$", re.MULTILINE)
@@ -37,9 +40,6 @@ def test_instruction_states_are_unique():
 
     assert 22 in states, "STATE 22 not found"
     assert "SPEC COMPILE MODE" in states[22], f"STATE 22 should be 'SPEC COMPILE MODE', got '{states[22]}'"
-
-    # Ensure no other states map to these names (reverse check)
-    name_to_id = {v: k for k, v in states.items()}
 
     # Check if any other state has "SPEC COMPILE MODE" in its name
     for s_id, s_name in states.items():
