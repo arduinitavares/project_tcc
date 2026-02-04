@@ -1,4 +1,4 @@
-from typing import List, Callable, Any, Optional, Set
+from typing import List, Any, Set
 from pydantic import BaseModel, Field
 from google.adk.tools import AgentTool
 from .states import OrchestratorState, OrchestratorPhase
@@ -17,7 +17,6 @@ from tools.spec_tools import (
     read_project_specification,
     compile_spec_authority_for_version,
     update_spec_and_compile_authority,
-    ensure_accepted_spec_authority,
 )
 from tools.db_tools import get_story_details
 from tools.story_query_tools import query_features_for_stories
@@ -607,14 +606,23 @@ STATE_REGISTRY = {
         name=OrchestratorState.VISION_REVIEW,
         phase=OrchestratorPhase.VISION,
         instruction=COMMON_HEADER + VISION_REVIEW_INSTRUCTION,
-        tools=[product_vision_tool], # Allow back to interview if rejected
+        tools=[product_vision_tool, save_vision_tool], # Allow save or revision
         allowed_transitions={OrchestratorState.VISION_INTERVIEW, OrchestratorState.VISION_PERSISTENCE}
     ),
     OrchestratorState.VISION_PERSISTENCE: StateDefinition(
         name=OrchestratorState.VISION_PERSISTENCE,
         phase=OrchestratorPhase.VISION,
-        instruction=COMMON_HEADER + VISION_PERSISTENCE_INSTRUCTION,
-        tools=[save_vision_tool, save_project_specification, product_roadmap_tool],
+        instruction=COMMON_HEADER + """
+# STATE 3 — VISION COMPLETE (Post-Save)
+
+**Trigger:** Vision has been saved to database.
+
+**Behavior:**
+1. **Confirm:** "Vision saved successfully."
+2. **Prompt:** "Would you like to generate the roadmap now?"
+3. **STOP.**
+""",
+        tools=[product_roadmap_tool],
         allowed_transitions={OrchestratorState.ROADMAP_INTERVIEW, OrchestratorState.ROUTING_MODE}
     ),
     OrchestratorState.ROADMAP_INTERVIEW: StateDefinition(
@@ -628,35 +636,53 @@ STATE_REGISTRY = {
         name=OrchestratorState.ROADMAP_REVIEW,
         phase=OrchestratorPhase.ROADMAP,
         instruction=COMMON_HEADER + ROADMAP_REVIEW_INSTRUCTION,
-        tools=[product_roadmap_tool], # Allow back
+        tools=[product_roadmap_tool, save_roadmap_tool], # Allow save or revision
         allowed_transitions={OrchestratorState.ROADMAP_INTERVIEW, OrchestratorState.ROADMAP_PERSISTENCE}
     ),
     OrchestratorState.ROADMAP_PERSISTENCE: StateDefinition(
         name=OrchestratorState.ROADMAP_PERSISTENCE,
         phase=OrchestratorPhase.ROADMAP,
-        instruction=COMMON_HEADER + ROADMAP_PERSISTENCE_INSTRUCTION,
-        tools=[save_roadmap_tool, query_features_for_stories],
+        instruction=COMMON_HEADER + """
+# STATE 7 — ROADMAP COMPLETE (Post-Save)
+
+**Trigger:** Roadmap has been saved.
+
+**Behavior:**
+1. **Confirm:** "Roadmap saved. Themes and Epics created."
+2. **Prompt:** "Would you like to generate user stories for a specific theme?"
+3. **STOP.**
+""",
+        tools=[query_features_for_stories],
         allowed_transitions={OrchestratorState.STORY_SETUP, OrchestratorState.ROUTING_MODE}
     ),
     OrchestratorState.STORY_SETUP: StateDefinition(
         name=OrchestratorState.STORY_SETUP,
         phase=OrchestratorPhase.STORY,
         instruction=COMMON_HEADER + STORY_SETUP_INSTRUCTION,
-        tools=[query_features_for_stories],
+        tools=[query_features_for_stories, process_single_story], # Allow starting pipeline
         allowed_transitions={OrchestratorState.STORY_PIPELINE, OrchestratorState.ROUTING_MODE}
     ),
     OrchestratorState.STORY_PIPELINE: StateDefinition(
         name=OrchestratorState.STORY_PIPELINE,
         phase=OrchestratorPhase.STORY,
         instruction=COMMON_HEADER + STORY_PIPELINE_INSTRUCTION,
-        tools=[query_features_for_stories, process_single_story],
+        tools=[query_features_for_stories, process_single_story, save_validated_stories], # Allow saving results
         allowed_transitions={OrchestratorState.STORY_PERSISTENCE, OrchestratorState.ROUTING_MODE}
     ),
     OrchestratorState.STORY_PERSISTENCE: StateDefinition(
         name=OrchestratorState.STORY_PERSISTENCE,
         phase=OrchestratorPhase.STORY,
-        instruction=COMMON_HEADER + STORY_PERSISTENCE_INSTRUCTION,
-        tools=[save_validated_stories],
+        instruction=COMMON_HEADER + """
+# STATE 10 — STORY COMPLETE (Post-Save)
+
+**Trigger:** Stories saved to backlog.
+
+**Behavior:**
+1. **Confirm:** "Stories saved."
+2. **Prompt:** "Would you like to plan a sprint or create more stories?"
+3. **STOP.**
+""",
+        tools=[get_backlog_for_planning, query_features_for_stories],
         allowed_transitions={OrchestratorState.SPRINT_SETUP, OrchestratorState.STORY_SETUP, OrchestratorState.ROUTING_MODE}
     ),
     OrchestratorState.STORY_DETAILS: StateDefinition(
@@ -677,14 +703,23 @@ STATE_REGISTRY = {
         name=OrchestratorState.SPRINT_DRAFT,
         phase=OrchestratorPhase.SPRINT,
         instruction=COMMON_HEADER + SPRINT_DRAFT_INSTRUCTION,
-        tools=[plan_sprint_tool],
+        tools=[plan_sprint_tool, save_sprint_tool], # Allow commit
         allowed_transitions={OrchestratorState.SPRINT_PERSISTENCE, OrchestratorState.SPRINT_DRAFT}
     ),
     OrchestratorState.SPRINT_PERSISTENCE: StateDefinition(
         name=OrchestratorState.SPRINT_PERSISTENCE,
         phase=OrchestratorPhase.SPRINT,
-        instruction=COMMON_HEADER + SPRINT_PERSISTENCE_INSTRUCTION,
-        tools=[save_sprint_tool],
+        instruction=COMMON_HEADER + """
+# STATE 13 — SPRINT COMPLETE (Post-Save)
+
+**Trigger:** Sprint created.
+
+**Behavior:**
+1. **Confirm:** "Sprint #[ID] created."
+2. **Prompt:** "Would you like to view the sprint board?"
+3. **STOP.**
+""",
+        tools=[get_sprint_details],
         allowed_transitions={OrchestratorState.SPRINT_VIEW, OrchestratorState.ROUTING_MODE}
     ),
     OrchestratorState.SPRINT_VIEW: StateDefinition(

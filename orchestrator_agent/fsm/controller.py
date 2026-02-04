@@ -1,6 +1,5 @@
-from typing import Any, Dict, Optional, Tuple, List
-import json
-from .states import OrchestratorState, OrchestratorPhase
+from typing import Any, Dict, Optional
+from .states import OrchestratorState
 from .definitions import STATE_REGISTRY, StateDefinition
 
 class FSMController:
@@ -127,7 +126,7 @@ class FSMController:
 
         elif current_state == OrchestratorState.STORY_PIPELINE:
             if tool_name == "save_validated_stories":
-                next_state = OrchestratorState.ROUTING_MODE
+                next_state = OrchestratorState.STORY_PERSISTENCE
 
         elif current_state == OrchestratorState.STORY_DETAILS:
             # Usually return to routing after viewing? Or stay?
@@ -143,7 +142,7 @@ class FSMController:
 
         elif current_state == OrchestratorState.SPRINT_DRAFT:
             if tool_name == "save_sprint_tool":
-                next_state = OrchestratorState.ROUTING_MODE
+                next_state = OrchestratorState.SPRINT_PERSISTENCE
 
         # --- SPRINT MANAGEMENT HUB ---
         elif current_state == OrchestratorState.SPRINT_VIEW:

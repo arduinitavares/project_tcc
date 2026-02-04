@@ -126,9 +126,9 @@ def get_current_state(
         return {}
 
 
-def update_state_in_db(partial_update: Dict[str, Any]) -> None:
+def update_state_in_db(partial_update: Dict[str, Any], force: bool = False) -> None:
     """Updates the Volatile State (O in your diagram)."""
-    if not PERSIST_LLM_OUTPUT:
+    if not PERSIST_LLM_OUTPUT and not force:
         app_logger.info("State persistence disabled; skipping update.")
         return
     app_logger.info("Updating state (redacted).")
@@ -394,7 +394,8 @@ async def run_agent_turn(
     )
 
     if next_state != active_state:
-        update_state_in_db({"fsm_state": next_state.value})
+        # Force persist FSM state regardless of configuration flag
+        update_state_in_db({"fsm_state": next_state.value}, force=True)
         console.print(f"[bold magenta]>> Transition: {active_state.value} -> {next_state.value}[/bold magenta]")
 
     # 5. CAPTURE OUTPUT & UPDATE DB
