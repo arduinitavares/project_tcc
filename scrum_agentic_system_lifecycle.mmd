@@ -28,12 +28,6 @@ flowchart TD
   SpecAuthority --> Routing
   StoryDetails --> Routing
 
-  %% Ambiguous instruction state (duplicate STATE 20)
-  Ambig{{Ambiguous STATE 20 in instructions}}
-  Ambig -.-> StoryDetails
-  Ambig -.-> SpecAuthority
-  Routing -.-> Ambig
-
   %% System-trigger loop after user turn
   UserTurn --> TriggerLoop[System Trigger Loop]
   TriggerLoop --> TriggerDecision{Workflow trigger?}
