@@ -42,7 +42,7 @@ Vision → Specification Authority → Roadmap → Features → User Stories →
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Orchestrator Agent                        │
-│         (State Machine with 18 States + Routing)            │
+│     (Explicit FSM with 22 States, Registry & Routing)       │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
 │  │   Vision    │  │  Spec Auth  │  │   Roadmap Agent     │  │
@@ -65,6 +65,7 @@ Vision → Specification Authority → Roadmap → Features → User Stories →
 ```
 
 ### Design Patterns
+- **Explicit FSM**: Control flow logic separated from LLM reasoning; states defined in registry.
 - **Spec Authority Pattern**: Compiler pattern for deterministic invariants.
 - **Bucket Brigade Communication**: Agents pass structured state through the orchestrator.
 - **Schema-Driven Validation**: All I/O validated by Pydantic schemas.

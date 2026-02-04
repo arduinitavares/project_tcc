@@ -34,6 +34,8 @@ from rich.panel import Panel
 
 # Import Agent
 from orchestrator_agent.agent import root_agent
+from orchestrator_agent.fsm.controller import FSMController
+from orchestrator_agent.fsm.states import OrchestratorState
 from tools.orchestrator_tools import get_real_business_state
 from utils.model_config import (
     OPENROUTER_PRIVACY_ERROR_MESSAGE,
@@ -84,6 +86,9 @@ PERSIST_LLM_OUTPUT = os.getenv("PERSIST_LLM_OUTPUT", "0") == "1"
 SHOW_TOOL_PAYLOADS = os.getenv("SHOW_TOOL_PAYLOADS", "1") == "1"
 MAX_TOOL_PAYLOAD_CHARS = int(os.getenv("MAX_TOOL_PAYLOAD_CHARS", "4000"))
 MAX_CONSECUTIVE_SYSTEM_TRIGGERS = 5
+
+# --- FSM CONTROLLER ---
+fsm_controller = FSMController()
 
 # --- FIX 1: VOLATILE SESSION (Random ID) ---
 # Every time you run this script, it generates a NEW ID.
@@ -282,13 +287,26 @@ async def run_agent_turn(
     
     # 1. PREPARE STATE
     full_state = get_current_state(APP_NAME, USER_ID, SESSION_ID)
-    vision_draft = full_state.get("vision_components", "NO_HISTORY")
 
-    # Serialize only if it's a dict (meaning we have history)
-    if isinstance(vision_draft, dict):
-        prior_state_str = json.dumps(vision_draft)
-    else:
-        prior_state_str = "NO_HISTORY"
+    # --- FSM CONFIGURATION ---
+    active_state_key = full_state.get("fsm_state", OrchestratorState.ROUTING_MODE)
+    try:
+        active_state = OrchestratorState(active_state_key)
+    except ValueError:
+        active_state = OrchestratorState.ROUTING_MODE
+
+    state_def = fsm_controller.get_state_definition(active_state)
+
+    # Inject FSM Context into Agent
+    runner.agent.instruction = state_def.instruction
+    runner.agent.tools = state_def.tools
+
+    app_logger.info(f"FSM STATE: {active_state.value}")
+    console.print(f"[dim]State: {active_state.value}[/dim]", style="dim cyan")
+
+    # Construct Prompt
+    vision_draft = full_state.get("vision_components", "NO_HISTORY")
+    prior_state_str = json.dumps(vision_draft) if isinstance(vision_draft, dict) else "NO_HISTORY"
 
     prompt_with_state = f"""
     <prior_vision_state>
@@ -320,6 +338,7 @@ async def run_agent_turn(
     # 3. RUN AGENT
     full_response_text = ""
     latest_tool_data = {}  # Capture the raw data here
+    last_tool_name = None  # Capture tool name for FSM
     current_text_chunk = ""  # Accumulate text between tool calls for logging
 
     try:
@@ -342,6 +361,7 @@ async def run_agent_turn(
                     # B. Tool Response (The Fix for Amnesia between turns)
                     if part.function_response:
                         _display_tool_response(part)
+                        last_tool_name = part.function_response.name
                         latest_tool_data = part.function_response.response
 
                     # C. Text
@@ -365,7 +385,19 @@ async def run_agent_turn(
         console.print("\n[bold red]ERROR during agent turn.[/bold red]")
         raise
 
-    # 4. CAPTURE OUTPUT & UPDATE DB
+    # 4. CALCULATE NEXT STATE
+    next_state = fsm_controller.determine_next_state(
+        active_state,
+        last_tool_name,
+        latest_tool_data,
+        user_input
+    )
+
+    if next_state != active_state:
+        update_state_in_db({"fsm_state": next_state.value})
+        console.print(f"[bold magenta]>> Transition: {active_state.value} -> {next_state.value}[/bold magenta]")
+
+    # 5. CAPTURE OUTPUT & UPDATE DB
     # We prefer the intercepted data from the tool response.
     # We only assume persistence here means "Updating the Volatile State", not final DB.
     data_to_save = latest_tool_data or extract_json_from_response(
