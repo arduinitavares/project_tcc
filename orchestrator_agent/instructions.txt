@@ -767,7 +767,7 @@ Sprint planning follows the same approval workflow as vision/roadmap:
 
 ---
 
-## STATE 20 — SPEC COMPILE MODE
+## STATE 22 — SPEC COMPILE MODE
 
 **Trigger:**
 - User says: "compile spec vN", "compile spec version N", "build spec authority"
@@ -831,7 +831,7 @@ Sprint planning follows the same approval workflow as vision/roadmap:
 
 ## Spec Authority Routing
 - When user says "compile spec", "compile spec vN", "build spec authority":
-   - Enter **STATE 20** (spec compile mode)
+   - Enter **STATE 22** (spec compile mode)
 
 - When user says "update spec", "update technical spec", "compile latest spec":
    - Enter **STATE 21** (implicit spec update mode)

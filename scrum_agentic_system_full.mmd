@@ -110,13 +110,9 @@ flowchart TD
         S17["STATE 17: Modify Sprint Stories\n(modify_sprint_stories)"]:::process
         S18["STATE 18: Complete Sprint\n(complete_sprint)"]:::process
         S19["STATE 19: Complete Story w/ Notes\n(complete_story_with_notes)"]:::process
-        S20a["STATE 20: View Story Details\n(get_story_details)"]:::process
-        S20b["STATE 20: Spec Compile Mode\n(compile_spec_authority_for_version)"]:::process
+        S20["STATE 20: View Story Details\n(get_story_details)"]:::process
+        S22["STATE 22: Spec Compile Mode\n(compile_spec_authority_for_version)"]:::process
         S21["STATE 21: Spec Update Mode\n(update_spec_and_compile_authority)"]:::process
-        AmbigNote["NOTE: STATE 20 defined twice\n(ambiguous id in instructions)"]:::guardrail
-
-        S20a -.-> AmbigNote
-        S20b -.-> AmbigNote
     end
 
     RootAgent --> StateMachine
@@ -190,7 +186,7 @@ flowchart TD
     S8 --> QueryFeatures
     S9 --> ProcessSingleStory
     S10 --> SaveValidatedStories
-    S20a --> GetStoryDetails
+    S20 --> GetStoryDetails
 
     S11 --> GetBacklog
     S12 --> PlanSprint
@@ -206,7 +202,7 @@ flowchart TD
     S19 --> UpdateAC
     S19 --> CreateFollowUp
 
-    S20b --> CompileSpecVersion
+    S22 --> CompileSpecVersion
     S21 --> UpdateSpecAndCompile
 
     %% ==========================================
