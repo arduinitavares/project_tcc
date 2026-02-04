@@ -76,7 +76,7 @@ class FSMController:
             # select_project keeps us in ROUTING_MODE (context update)
             # save_vision_tool, etc should ideally not happen in ROUTING_MODE unless completing a "one-shot"
 
-            return next_state
+            pass
 
         # --- VISION PHASE ---
         if current_state == OrchestratorState.VISION_INTERVIEW:
@@ -128,6 +128,12 @@ class FSMController:
             if tool_name == "save_validated_stories":
                 next_state = OrchestratorState.STORY_PERSISTENCE
 
+        elif current_state == OrchestratorState.STORY_PERSISTENCE:
+            if tool_name == "get_backlog_for_planning":
+                next_state = OrchestratorState.SPRINT_SETUP
+            elif tool_name == "query_features_for_stories":
+                next_state = OrchestratorState.STORY_SETUP
+
         elif current_state == OrchestratorState.STORY_DETAILS:
             # Usually return to routing after viewing? Or stay?
             # Instructions say "Prompt: Return to backlog?".
@@ -143,6 +149,10 @@ class FSMController:
         elif current_state == OrchestratorState.SPRINT_DRAFT:
             if tool_name == "save_sprint_tool":
                 next_state = OrchestratorState.SPRINT_PERSISTENCE
+
+        elif current_state == OrchestratorState.SPRINT_PERSISTENCE:
+            if tool_name == "get_sprint_details":
+                next_state = OrchestratorState.SPRINT_VIEW
 
         # --- SPRINT MANAGEMENT HUB ---
         elif current_state == OrchestratorState.SPRINT_VIEW:
