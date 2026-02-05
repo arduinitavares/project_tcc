@@ -172,6 +172,21 @@ def migrate_spec_authority_tables(engine: Engine) -> List[str]:
     return actions
 
 
+def migrate_product_spec_cache(engine: Engine) -> List[str]:
+    """Ensure product spec cache columns exist on products table."""
+    actions: List[str] = []
+
+    if _ensure_column_exists(
+        engine,
+        "products",
+        "compiled_authority_json",
+        "TEXT",
+    ):
+        actions.append("added column: products.compiled_authority_json")
+
+    return actions
+
+
 # =============================================================================
 # MAIN ENTRY POINT
 # =============================================================================
@@ -193,6 +208,7 @@ def ensure_schema_current(engine: Engine) -> None:
     
     try:
         actions = migrate_spec_authority_tables(engine)
+        actions.extend(migrate_product_spec_cache(engine))
 
         if actions:
             for action in actions:

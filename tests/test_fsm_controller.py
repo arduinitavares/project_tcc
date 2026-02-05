@@ -66,15 +66,6 @@ class TestFSMController(unittest.TestCase):
         )
         self.assertEqual(next_state, OrchestratorState.VISION_PERSISTENCE)
 
-        # Persistence -> Roadmap Interview
-        next_state = self.controller.determine_next_state(
-            OrchestratorState.VISION_PERSISTENCE,
-            "product_roadmap_tool",
-            {},
-            "Yes generate roadmap"
-        )
-        self.assertEqual(next_state, OrchestratorState.ROADMAP_INTERVIEW)
-
         # Review -> Interview (Rejection)
         next_state = self.controller.determine_next_state(
             OrchestratorState.VISION_REVIEW,
@@ -84,15 +75,14 @@ class TestFSMController(unittest.TestCase):
         )
         self.assertEqual(next_state, OrchestratorState.VISION_INTERVIEW)
 
-    def test_roadmap_phase_transitions(self):
-        # Review -> Persistence
+        # Vision Review -> Backlog Review (User requests backlog)
         next_state = self.controller.determine_next_state(
-            OrchestratorState.ROADMAP_REVIEW,
-            "save_roadmap_tool",
-            {},
-            "Save"
+            OrchestratorState.VISION_REVIEW,
+            "backlog_primer_tool",
+            {"is_complete": True},
+            "create backlog"
         )
-        self.assertEqual(next_state, OrchestratorState.ROADMAP_PERSISTENCE)
+        self.assertEqual(next_state, OrchestratorState.BACKLOG_REVIEW)
 
     def test_story_pipeline_transitions(self):
         # Setup -> Pipeline
@@ -121,6 +111,61 @@ class TestFSMController(unittest.TestCase):
             "Plan sprint"
         )
         self.assertEqual(next_state, OrchestratorState.SPRINT_SETUP)
+
+    def test_roadmap_phase_transitions(self):
+        # Routing -> Roadmap Interview
+        next_state = self.controller.determine_next_state(
+            OrchestratorState.ROUTING_MODE,
+            "roadmap_builder_tool",
+            {"is_complete": False},
+            "create roadmap"
+        )
+        self.assertEqual(next_state, OrchestratorState.ROADMAP_INTERVIEW)
+
+        # Routing -> Roadmap Review
+        next_state = self.controller.determine_next_state(
+            OrchestratorState.ROUTING_MODE,
+            "roadmap_builder_tool",
+            {"is_complete": True},
+            "create roadmap"
+        )
+        self.assertEqual(next_state, OrchestratorState.ROADMAP_REVIEW)
+
+        # Interview -> Review
+        next_state = self.controller.determine_next_state(
+            OrchestratorState.ROADMAP_INTERVIEW,
+            "roadmap_builder_tool",
+            {"is_complete": True},
+            "continue"
+        )
+        self.assertEqual(next_state, OrchestratorState.ROADMAP_REVIEW)
+
+        # Review -> Interview (needs changes)
+        next_state = self.controller.determine_next_state(
+            OrchestratorState.ROADMAP_REVIEW,
+            "roadmap_builder_tool",
+            {"is_complete": False},
+            "adjust roadmap"
+        )
+        self.assertEqual(next_state, OrchestratorState.ROADMAP_INTERVIEW)
+
+        # Review -> Persistence (save)
+        next_state = self.controller.determine_next_state(
+            OrchestratorState.ROADMAP_REVIEW,
+            "save_roadmap_tool",
+            {"success": True},
+            "save"
+        )
+        self.assertEqual(next_state, OrchestratorState.ROADMAP_PERSISTENCE)
+
+        # Persistence -> Story Setup
+        next_state = self.controller.determine_next_state(
+            OrchestratorState.ROADMAP_PERSISTENCE,
+            "query_features_for_stories",
+            {},
+            "create stories"
+        )
+        self.assertEqual(next_state, OrchestratorState.STORY_SETUP)
 
     def test_sprint_phase_transitions(self):
         # Setup -> Draft

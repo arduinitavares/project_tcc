@@ -278,3 +278,27 @@ async def test_save_validated_stories_errors_without_stories_or_state():
 
     assert result["success"] is False
     assert "No stories provided" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_save_validated_stories_detects_backlog_items():
+    """save_validated_stories should detect and reject backlog items."""
+    save_input = SaveStoriesInput(
+        product_id=1,
+        spec_version_id=1,
+        stories=[
+            {
+                "priority": 1,
+                "requirement": "User authentication",
+                "value_driver": "Customer Satisfaction",
+                "justification": "Security baseline",
+                "estimated_effort": "M",
+            },
+        ],
+    )
+
+    result = await save_validated_stories(save_input, tool_context=None)
+
+    assert result["success"] is False
+    assert "backlog items" in result["error"].lower()
+    assert result.get("hint") == "backlog_items_detected"

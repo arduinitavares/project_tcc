@@ -331,6 +331,11 @@ class Product(SQLModel, table=True):
         default=None,
         sa_type=Text  # Use Text for large content (>65KB)
     )
+    compiled_authority_json: Optional[str] = Field(
+        default=None,
+        sa_type=Text,
+        description="Latest compiled spec authority JSON artifact (cached)"
+    )
     spec_file_path: Optional[str] = Field(
         default=None,
         description="Path to original spec file or generated backup file"

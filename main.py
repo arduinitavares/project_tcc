@@ -14,15 +14,13 @@ os.environ["LITELLM_SUPPRESS_INSTRUMENTATION"] = "True"
 import asyncio
 import json
 import logging
-import random
 import re
 import sqlite3
 import sys
-import traceback
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 import litellm
 from dotenv import load_dotenv
@@ -37,12 +35,8 @@ from orchestrator_agent.agent import root_agent
 from orchestrator_agent.fsm.controller import FSMController
 from orchestrator_agent.fsm.states import OrchestratorState
 from tools.orchestrator_tools import get_real_business_state
-from utils.model_config import (
-    OPENROUTER_PRIVACY_ERROR_MESSAGE,
-    is_zdr_routing_error,
-    ZDR_MAX_RETRIES,
-    ZDR_MAX_BACKOFF_SECONDS,
-)
+# NOTE: Retry configuration (ZDR, rate limit, provider errors) is now handled
+# exclusively by SelfHealingAgent in orchestrator_agent/agent_tools/utils/resilience.py
 
 # --- CONFIGURATION ---
 litellm.telemetry = False
@@ -145,7 +139,7 @@ def update_state_in_db(partial_update: Dict[str, Any], force: bool = False) -> N
         conn.commit()
         conn.close()
         app_logger.info("State updated successfully in DB")
-    except sqlite3.Error as e:
+    except sqlite3.Error:
         app_logger.error("DB WRITE ERROR.")
         console.print("[bold red]DB WRITE ERROR.[/bold red]")
 
@@ -241,6 +235,20 @@ def _display_tool_response(part: types.Part) -> None:
     console.print("[bold blue]ORCHESTRATOR > [/bold blue]", end="")
 
 
+def _dedupe_tools(tools: List[Any]) -> List[Any]:
+    """Remove tools with duplicate names to prevent provider errors."""
+    seen: set[str] = set()
+    deduped: List[Any] = []
+    for tool in tools:
+        name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
+        name = name or repr(tool)
+        if name in seen:
+            continue
+        seen.add(name)
+        deduped.append(tool)
+    return deduped
+
+
 async def get_user_input(prompt: str = "") -> str:
     """
     Async wrapper for console.input to prevent blocking the event loop.
@@ -255,21 +263,12 @@ async def get_user_input(prompt: str = "") -> str:
 
 
 def evaluate_workflow_triggers(state: Dict[str, Any]) -> Optional[str]:
-    """Evaluates workflow triggers based on the current state."""
-    has_backlog = (
-        state.get("product_backlog") and len(state["product_backlog"]) > 0
-    )
-    has_sprint_plan = state.get("sprint_plan")
+    """Evaluates workflow triggers based on the current state.
 
-    if has_backlog and not has_sprint_plan:
-        return "[SYSTEM TRIGGER]: The Product Backlog has been updated..."
-
-    plan_confirmed = state.get("sprint_plan_confirmed", False)
-    dev_tasks_active = state.get("dev_tasks_active", False)
-
-    if plan_confirmed and not dev_tasks_active:
-        return "[SYSTEM TRIGGER]: The Sprint Plan has been confirmed..."
-
+    Currently returns None — automated triggers are disabled until
+    the sprint planning agent is implemented. The Vision → Backlog → Roadmap
+    pipeline is driven entirely by user interaction.
+    """
     return None
 
 
@@ -298,11 +297,17 @@ async def run_agent_turn(
     state_def = fsm_controller.get_state_definition(active_state)
 
     # Inject FSM Context into Agent
-    runner.agent.instruction = state_def.instruction
-    runner.agent.tools = state_def.tools
+    # Since runner.agent is a SelfHealingAgent wrapper, we need to access result.agent
+    inner_agent: Any = getattr(runner.agent, "agent", None)
+    if inner_agent is None:
+        raise RuntimeError("Runner agent wrapper missing inner agent.")
+    inner_agent.instruction = state_def.instruction
+    # Hermetic tool injection: each FSM state defines its complete tool set.
+    # No BASE_TOOLS merge — prevents the LLM from seeing tools the FSM can't track.
+    inner_agent.tools = _dedupe_tools(state_def.tools)
 
     app_logger.info(f"FSM STATE: {active_state.value}")
-    console.print(f"[dim]State: {active_state.value}[/dim]", style="dim cyan")
+    # State display moved to after turn completes (shows transition if any)
 
     # Construct Prompt
     vision_draft = full_state.get("vision_components", "NO_HISTORY")
@@ -337,7 +342,7 @@ async def run_agent_turn(
 
     # 3. RUN AGENT
     full_response_text = ""
-    latest_tool_data = {}  # Capture the raw data here
+    latest_tool_data: Dict[str, Any] = {}  # Capture the raw data here
     last_tool_name = None  # Capture tool name for FSM
     current_text_chunk = ""  # Accumulate text between tool calls for logging
 
@@ -362,7 +367,7 @@ async def run_agent_turn(
                     if part.function_response:
                         _display_tool_response(part)
                         last_tool_name = part.function_response.name
-                        latest_tool_data = part.function_response.response
+                        latest_tool_data = part.function_response.response or {}
 
                     # C. Text
                     if part.text:
@@ -378,10 +383,9 @@ async def run_agent_turn(
         elif not full_response_text:
             app_logger.info("AGENT RESPONSE: (no text, tool-only turn)")
     except Exception as e:
-        if is_zdr_routing_error(e):
-            app_logger.error("OpenRouter privacy routing failure.")
-            raise RuntimeError(OPENROUTER_PRIVACY_ERROR_MESSAGE) from e
-        app_logger.error("Error during agent turn.")
+        # All transient errors (ZDR, 429, 5xx) are now handled by SelfHealingAgent.
+        # If we get here, SelfHealingAgent has exhausted retries.
+        app_logger.error("Error during agent turn: %s", e)
         console.print("\n[bold red]ERROR during agent turn.[/bold red]")
         raise
 
@@ -396,7 +400,9 @@ async def run_agent_turn(
     if next_state != active_state:
         # Force persist FSM state regardless of configuration flag
         update_state_in_db({"fsm_state": next_state.value}, force=True)
-        console.print(f"[bold magenta]>> Transition: {active_state.value} -> {next_state.value}[/bold magenta]")
+        console.print(f"[dim cyan]State: {active_state.value} → {next_state.value}[/dim cyan]")
+    else:
+        console.print(f"[dim]State: {active_state.value}[/dim]", style="dim cyan")
 
     # 5. CAPTURE OUTPUT & UPDATE DB
     # We prefer the intercepted data from the tool response.
@@ -437,6 +443,20 @@ async def run_agent_turn(
             console.print(
                 "[bold dim cyan]>> State Updated (Sprint Plan)[/bold dim cyan]"
             )
+
+
+async def run_user_turn_with_retries(runner: Runner, user_input: str) -> None:
+    """Run a user turn.
+    
+    NOTE: All transient error handling (ZDR, 429, 5xx) is now handled by
+    SelfHealingAgent at the inner agent level. This function simply runs
+    the turn and lets errors bubble up after SelfHealingAgent exhausts retries.
+    """
+    try:
+        await run_agent_turn(runner, user_input, is_system_trigger=False)
+    except Exception as e:
+        app_logger.error("Agent turn failed after SelfHealingAgent retries: %s", e)
+        console.print(f"[bold red]ERROR:[/bold red] {e}")
 
 
 # --- 3. MAIN LOOP ---
@@ -482,6 +502,7 @@ async def main():
     # Initialize DB (Volatile State Holder)
     session_service = DatabaseSessionService(f"sqlite:///{DB_PATH}")
 
+
     # We always start fresh because the UUID is new.
     # But we hydrate business state if needed (e.g. knowing about OTHER projects)
     with console.status(
@@ -514,25 +535,8 @@ async def main():
                 print_system_message("ENDING SESSION.")
                 break
 
-            # A. Run User Turn (with ZDR retry)
-            zdr_retry_count = 0
-            while True:
-                try:
-                    await run_agent_turn(runner, user_input, is_system_trigger=False)
-                    break
-                except RuntimeError as e:
-                    if OPENROUTER_PRIVACY_ERROR_MESSAGE in str(e):
-                        zdr_retry_count += 1
-                        if zdr_retry_count > ZDR_MAX_RETRIES:
-                            app_logger.error(f"ZDR routing failed after {ZDR_MAX_RETRIES} retries at orchestrator level.")
-                            console.print(f"[bold red]ERROR:[/bold red] {e}")
-                            break
-                        backoff = random.uniform(0, ZDR_MAX_BACKOFF_SECONDS)
-                        app_logger.warning(f"ZDR retry {zdr_retry_count}/{ZDR_MAX_RETRIES} - waiting {backoff:.1f}s...")
-                        console.print(f"[dim]ZDR routing unavailable, retrying in {backoff:.1f}s... ({zdr_retry_count}/{ZDR_MAX_RETRIES})[/dim]")
-                        await asyncio.sleep(backoff)
-                    else:
-                        raise
+            # A. Run User Turn (with ZDR + RateLimit retry)
+            await run_user_turn_with_retries(runner, user_input)
 
             # B. Check for Automated Workflow Steps
             await process_automated_workflows(runner)

@@ -26,6 +26,7 @@ models:
   spec_validator: "openrouter/openai/gpt-5-mini"
   story_refiner: "openrouter/openai/gpt-5-mini"
   invest_validator: "openrouter/openai/gpt-5-mini"
+  backlog_primer: "openrouter/openai/gpt-5-mini"
 
 story_pipeline:
   mode: "single"

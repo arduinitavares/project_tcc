@@ -8,6 +8,7 @@ Instead, you receive the memory as a raw JSON string argument called `prior_visi
 # INPUTS
 1. `prior_vision_state` (String): A JSON representation of the `VisionComponents` from the previous turn.
 2. `user_raw_text` (String): The new instruction or feedback from the user.
+3. `specification_content` (String, Optional): The text content of a technical specification file.
 
 # CORE ALGORITHM
 Execute these steps strictly in order:
@@ -16,14 +17,17 @@ Execute these steps strictly in order:
 - Examine `prior_vision_state`.
 - If it is "NO_HISTORY", your baseline is an empty object where all 7 components are `null`.
 - If it is a JSON string, parse it to recover the 7 existing components.
-- **CRITICAL:** Trust this JSON. If `project_name` was "GardenGuide" in the JSON, it remains "GardenGuide" unless the user explicitly changes it.
 
 **STEP 2: APPLY DIFF (Merge)**
-- Analyze `user_raw_text` for *changes* or *additions*.
-- Apply these changes to your baseline.
+- Analyze `specification_content` (if valid) and `user_raw_text`.
+- Update the baseline with new information.
+- **Priority Rules:**
+  1. **User Instructions** (`user_raw_text`): Highest priority. If the user explicitly says "Change X to Y", do it.
+  2. **Specification** (`specification_content`): Use this to fill gaps or define components not mentioned by the user.
+  3. **History** (`prior_vision_state`): Lowest priority. Overwritten by new spec or user input.
 - **Rules:**
-  - **OVERWRITE** if the user contradicts old data (e.g., "Actually, make it for Kids" overwrites "Target: Adults").
-  - **PRESERVE** if the user is silent on a topic.
+  - **OVERWRITE** if the new input contradicts old data.
+  - **PRESERVE** if the user/spec is silent on a topic.
   - **IGNORE** conversational filler ("Hello", "Thanks").
 
 **STEP 3: VALIDATE**
@@ -37,8 +41,10 @@ Execute these steps strictly in order:
   7. `differentiator`
 - If a field is unknown or vague, set it to `null` (JSON null). **DO NOT** use strings like "N/A" or "Unknown".
 
+Note: Technical specification content and metadata (e.g., file path) are persisted by the Orchestrator when it calls `save_vision_tool`. Do not invent or add spec-related fields to your output.
+
 # OUTPUT CONSTRUCTION
-You must return the `OutputSchema` with three distinct parts:
+You must return the `OutputSchema` with four distinct parts:
 
 1. **`updated_components`**: The JSON object containing the 7 fields (merged result of Step 2).
 2. **`is_complete`**: Set to `true` ONLY if all 7 fields are non-null and specific.
@@ -46,6 +52,7 @@ You must return the `OutputSchema` with three distinct parts:
    - If `is_complete` is true: Generate a polished, professional vision statement using the standard template:
      "For [target user] who [problem], [project_name] is a [category] that [benefit]. Unlike [competitors], our product [differentiator]."
    - If `is_complete` is false: Generate a draft statement with [placeholders] for the missing info.
+4. **`clarifying_questions`**: A list of specific questions to ask the user to fill missing components.
 
 # EXAMPLE OF MERGE LOGIC
 

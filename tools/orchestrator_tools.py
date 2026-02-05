@@ -7,6 +7,7 @@ small summaries in ADK's persistent session state to reduce latency.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple, cast
@@ -16,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from agile_sqlmodel import Epic, Feature, Product, Theme, UserStory, get_engine
+from agile_sqlmodel import Epic, Feature, Product, SpecRegistry, Theme, UserStory, get_engine
 
 # --- Cache configuration ---
 CACHE_TTL_MINUTES: int = 5
@@ -25,6 +26,31 @@ CACHE_TTL_MINUTES: int = 5
 def _utc_now_iso() -> str:
     """Return current UTC time in RFC3339/ISO format with 'Z' suffix."""
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _normalize_params(params: Any) -> Dict[str, Any]:
+    """Normalize tool params to a dict, handling wrapped JSON strings."""
+    if params is None:
+        return {}
+    if isinstance(params, dict):
+        params_dict: Dict[str, Any] = cast(Dict[str, Any], params)
+        wrapped = params_dict.get("params")
+        if isinstance(wrapped, dict):
+            return cast(Dict[str, Any], wrapped)
+        if isinstance(wrapped, str):
+            try:
+                parsed = json.loads(wrapped)
+                return cast(Dict[str, Any], parsed) if isinstance(parsed, dict) else {}
+            except json.JSONDecodeError:
+                return {}
+        return params_dict
+    if isinstance(params, str):
+        try:
+            parsed = json.loads(params)
+            return cast(Dict[str, Any], parsed) if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
 
 
 def _is_fresh(state: Dict[str, Any], ttl_minutes: int = CACHE_TTL_MINUTES) -> bool:
@@ -55,13 +81,13 @@ def _build_projects_payload(
 
     # 2. Fetch counts in one query
     story_counts_query = (
-        select(UserStory.product_id, func.count(UserStory.story_id))
-        .where(UserStory.product_id.in_(product_ids))
-        .group_by(UserStory.product_id)
+        select(UserStory.product_id, func.count(cast(Any, UserStory.story_id)))
+        .where(cast(Any, UserStory.product_id).in_(product_ids))
+        .group_by(cast(Any, UserStory.product_id))
     )
 
     # Map product_id -> count
-    story_counts = {
+    story_counts: Dict[int, int] = {
         pid: count for pid, count in session.exec(story_counts_query).all()
     }
 
@@ -72,7 +98,7 @@ def _build_projects_payload(
                 "name": product.name,
                 "vision": product.vision or "(No vision set)",
                 "roadmap": product.roadmap or "(No roadmap set)",
-                "user_stories_count": story_counts.get(product.product_id, 0),
+                "user_stories_count": story_counts.get(cast(int, product.product_id), 0),
             }
         )
     return len(projects), projects
@@ -117,7 +143,7 @@ class ListProjectsInput(BaseModel):
 
 def count_projects(params: Any, tool_context: ToolContext) -> Dict[str, Any]:
     """Agent tool: Count total projects. Uses a transparent persistent cache."""
-    parsed = CountProjectsInput.model_validate(params or {})
+    parsed = CountProjectsInput.model_validate(_normalize_params(params))
     should_refresh = bool(parsed.force_refresh)
 
     print(f"\n[Tool: count_projects] Refresh: {should_refresh}")
@@ -146,7 +172,7 @@ def count_projects(params: Any, tool_context: ToolContext) -> Dict[str, Any]:
 
 def list_projects(params: Any, tool_context: ToolContext) -> Dict[str, Any]:
     """Agent tool: List all projects with summary info. Uses a transparent cache."""
-    parsed = ListProjectsInput.model_validate(params or {})
+    parsed = ListProjectsInput.model_validate(_normalize_params(params))
     should_refresh = bool(parsed.force_refresh)
 
     print(f"\n[Tool: list_projects] Request received. Force Refresh: {should_refresh}")
@@ -186,27 +212,39 @@ def get_project_details(product_id: int) -> Dict[str, Any]:
 
         # Optimized count queries using aggregations
         theme_count = session.exec(
-            select(func.count(Theme.theme_id)).where(Theme.product_id == product_id)
+            select(func.count(cast(Any, Theme.theme_id))).where(
+                Theme.product_id == product_id
+            )
         ).one()
 
         epic_count = session.exec(
-            select(func.count(Epic.epic_id))
+            select(func.count(cast(Any, Epic.epic_id)))
             .join(Theme)
             .where(Theme.product_id == product_id)
         ).one()
 
         feature_count = session.exec(
-            select(func.count(Feature.feature_id))
+            select(func.count(cast(Any, Feature.feature_id)))
             .join(Epic)
             .join(Theme)
             .where(Theme.product_id == product_id)
         ).one()
 
         story_count = session.exec(
-            select(func.count(UserStory.story_id)).where(
+            select(func.count(cast(Any, UserStory.story_id))).where(
                 UserStory.product_id == product_id
             )
         ).one()
+
+        latest_spec_version_id = session.exec(
+            select(SpecRegistry.spec_version_id)
+            .where(
+                SpecRegistry.product_id == product_id,
+                SpecRegistry.status == "approved",
+            )
+            .order_by(SpecRegistry.approved_at.desc(), SpecRegistry.spec_version_id.desc())
+            .limit(1)
+        ).first()
 
         print(f"   [DB] Success. Found '{product.name}'.")
         return {
@@ -214,8 +252,14 @@ def get_project_details(product_id: int) -> Dict[str, Any]:
             "product": {
                 "id": product.product_id,
                 "name": product.name,
+                "description": product.description,
                 "vision": product.vision,
                 "roadmap": product.roadmap,
+                "technical_spec": product.technical_spec,
+                "compiled_authority_json": product.compiled_authority_json,
+                "spec_file_path": product.spec_file_path,
+                "spec_loaded_at": product.spec_loaded_at.isoformat() if product.spec_loaded_at else None,
+                "latest_spec_version_id": latest_spec_version_id,
             },
             "structure": {
                 "themes": theme_count,
@@ -351,19 +395,43 @@ def select_project(product_id: int, tool_context: ToolContext) -> Dict[str, Any]
     
     # Store in volatile memory
     state: Dict[str, Any] = cast(Dict[str, Any], tool_context.state)
+    product_details = details["product"]
     state["active_project"] = {
         "product_id": product_id,
-        "name": details["product"]["name"],
-        "vision": details["product"]["vision"],
-        "roadmap": details["product"]["roadmap"],
+        "name": product_details["name"],
+        "description": product_details.get("description"),
+        "vision": product_details.get("vision"),
+        "roadmap": product_details.get("roadmap"),
+        "technical_spec": product_details.get("technical_spec"),
+        "compiled_authority_json": product_details.get("compiled_authority_json"),
+        "spec_file_path": product_details.get("spec_file_path"),
+        "spec_loaded_at": product_details.get("spec_loaded_at"),
+        "latest_spec_version_id": product_details.get("latest_spec_version_id"),
         "structure": details["structure"],
     }
+    state["current_project_name"] = product_details["name"]
+    if product_details.get("technical_spec") is not None:
+        state["pending_spec_content"] = product_details["technical_spec"]
+    else:
+        state.pop("pending_spec_content", None)
+    if product_details.get("spec_file_path") is not None:
+        state["pending_spec_path"] = product_details["spec_file_path"]
+    else:
+        state.pop("pending_spec_path", None)
+    if product_details.get("compiled_authority_json") is not None:
+        state["compiled_authority_cached"] = product_details["compiled_authority_json"]
+    else:
+        state.pop("compiled_authority_cached", None)
+    if product_details.get("latest_spec_version_id") is not None:
+        state["latest_spec_version_id"] = product_details["latest_spec_version_id"]
+    else:
+        state.pop("latest_spec_version_id", None)
     state["current_context"] = "project_selected"
     
-    print(f"   [Context] Active project set to '{details['product']['name']}'")
+    print(f"   [Context] Active project set to '{product_details['name']}'")
     
     return {
         "success": True,
         "active_project": state["active_project"],
-        "message": f"Selected '{details['product']['name']}' as active project",
+        "message": f"Selected '{product_details['name']}' as active project",
     }

@@ -31,6 +31,26 @@ except ImportError as e:
     read_project_specification = None
 
 
+@pytest.fixture()
+def compile_stub(monkeypatch):
+    """Stub authority compilation to avoid LLM calls and track invocations."""
+    calls = {}
+
+    def _stub(params, tool_context=None):
+        calls["params"] = params
+        return {
+            "success": True,
+            "spec_version_id": 1,
+            "authority_id": 99,
+        }
+
+    monkeypatch.setattr(
+        "tools.spec_tools.update_spec_and_compile_authority",
+        _stub,
+    )
+    return calls
+
+
 # ============================================================================
 # Test Fixtures & Setup
 # ============================================================================
@@ -38,7 +58,7 @@ except ImportError as e:
 @pytest.fixture(autouse=True)
 def patch_engine(engine):
     """Patch the engine in spec_tools to use the test database engine"""
-    with patch("tools.spec_tools.engine", engine):
+    with patch("tools.spec_tools.get_engine", return_value=engine):
         yield
 
 
@@ -49,7 +69,9 @@ def patch_engine(engine):
 class TestSaveProjectSpecification:
     """Test suite for save_project_specification tool"""
 
-    def test_save_spec_from_file_path_success(self, db_session, sample_product):
+    def test_save_spec_from_file_path_success(
+        self, db_session, sample_product, compile_stub
+    ):
         """
         GIVEN: A project exists and a valid spec file path
         WHEN: save_project_specification is called with spec_source="file"
@@ -83,7 +105,11 @@ class TestSaveProjectSpecification:
         assert result["spec_path"] == str(spec_path)
         assert result["file_created"] is False
         assert result["spec_size_kb"] > 0
+        assert result["compile_success"] is True
+        assert result["authority_id"] == 99
         assert "successfully" in result["message"].lower()
+
+        assert "params" in compile_stub
 
         # Assert - Database persistence
         db_session.expire_all()  # Force fresh read
@@ -94,7 +120,9 @@ class TestSaveProjectSpecification:
         assert product.spec_loaded_at is not None
         assert isinstance(product.spec_loaded_at, datetime)
 
-    def test_save_spec_from_pasted_text_success(self, db_session, sample_product):
+    def test_save_spec_from_pasted_text_success(
+        self, db_session, sample_product, compile_stub
+    ):
         """
         GIVEN: A project exists and user provides spec as pasted text
         WHEN: save_project_specification is called with spec_source="text"
@@ -129,9 +157,13 @@ class TestSaveProjectSpecification:
         # Assert - Return value
         assert result["success"] is True
         assert result["file_created"] is True
+        assert result["compile_success"] is True
+        assert result["authority_id"] == 99
         # Check path contains specs dir (cross-platform: handles both / and \)
         assert "specs" in result["spec_path"]
         assert result["spec_path"].endswith(".md")
+
+        assert "params" in compile_stub
 
         # Check filename pattern (should contain product_id)
         assert str(sample_product.product_id) in result["spec_path"]

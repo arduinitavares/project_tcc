@@ -114,6 +114,15 @@ class TestOrchestratorTools(unittest.TestCase):
         self.assertEqual(result["count"], 0)
         self.assertEqual(len(result["projects"]), 0)
 
+    def test_list_projects_with_wrapped_params_string(self):
+        """Test listing projects when params are wrapped as a JSON string."""
+        state = {}
+        context = MockToolContext(state)
+        result = orch_tools.list_projects({"params": "{}"}, context)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["count"], 0)
+        self.assertEqual(len(result["projects"]), 0)
+
     def test_list_projects_with_data(self):
         """Test listing projects with summary data."""
         prod_result = create_or_get_product(
@@ -159,6 +168,14 @@ class TestOrchestratorTools(unittest.TestCase):
         self.assertEqual(project["name"], "Test Project")
         self.assertEqual(project["vision"], "Test vision")
         self.assertEqual(project["user_stories_count"], 1)
+
+    def test_count_projects_with_wrapped_params_string(self):
+        """Test counting projects when params are wrapped as a JSON string."""
+        state = {}
+        context = MockToolContext(state)
+        result = orch_tools.count_projects({"params": "{}"}, context)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["count"], 0)
 
     def test_get_project_details_not_found(self):
         """Test getting details for non-existent project."""

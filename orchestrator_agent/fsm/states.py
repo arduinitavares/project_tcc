@@ -3,9 +3,9 @@ from enum import Enum
 class OrchestratorPhase(str, Enum):
     VISION = "VISION"
     ROUTING = "ROUTING"
+    BACKLOG = "BACKLOG"
     ROADMAP = "ROADMAP"
-    STORY = "STORY"
-    SPRINT = "SPRINT"
+    SPRINT = "SPRINT"  # Reserved for future implementation
     SPEC = "SPEC"
 
 class OrchestratorState(str, Enum):
@@ -17,19 +17,17 @@ class OrchestratorState(str, Enum):
     VISION_REVIEW = "VISION_REVIEW"  # State 2
     VISION_PERSISTENCE = "VISION_PERSISTENCE"  # State 3
 
+    # BACKLOG PHASE
+    BACKLOG_INTERVIEW = "BACKLOG_INTERVIEW"  # State 23
+    BACKLOG_REVIEW = "BACKLOG_REVIEW"  # State 24
+    BACKLOG_PERSISTENCE = "BACKLOG_PERSISTENCE"  # State 25
+
     # ROADMAP PHASE
-    ROADMAP_INTERVIEW = "ROADMAP_INTERVIEW"  # State 5
-    ROADMAP_REVIEW = "ROADMAP_REVIEW"  # State 6
-    ROADMAP_PERSISTENCE = "ROADMAP_PERSISTENCE"  # State 7
+    ROADMAP_INTERVIEW = "ROADMAP_INTERVIEW"  # State 26
+    ROADMAP_REVIEW = "ROADMAP_REVIEW"  # State 27
+    ROADMAP_PERSISTENCE = "ROADMAP_PERSISTENCE"  # State 28
 
-    # STORY PHASE
-    STORY_SETUP = "STORY_SETUP"  # State 8
-    STORY_PIPELINE = "STORY_PIPELINE"  # State 9
-    STORY_PERSISTENCE = "STORY_PERSISTENCE"  # State 10
-    STORY_DETAILS = "STORY_DETAILS"  # State 20
-    STORY_COMPLETE_DOC = "STORY_COMPLETE_DOC"  # State 19
-
-    # SPRINT PHASE
+    # SPRINT PHASE (reserved for future implementation)
     SPRINT_SETUP = "SPRINT_SETUP"  # State 11
     SPRINT_DRAFT = "SPRINT_DRAFT"  # State 12
     SPRINT_PERSISTENCE = "SPRINT_PERSISTENCE"  # State 13

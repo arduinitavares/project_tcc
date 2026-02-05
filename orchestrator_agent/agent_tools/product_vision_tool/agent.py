@@ -14,7 +14,7 @@ from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
 
 from utils.helper import load_instruction
-from utils.schemes import InputSchema, OutputSchema
+from .schemes import InputSchema, OutputSchema
 from utils.model_config import get_model_id, get_openrouter_extra_body
 
 # --- Load Instruction ---

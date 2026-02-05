@@ -124,6 +124,10 @@ def save_project_specification(
             "spec_size_kb": float,
             "file_created": bool,     # True if backup file was created
             "message": str,
+            "compile_success": bool,
+            "spec_version_id": int,
+            "authority_id": int,
+            "compile_error": str,     # Only present if compile_success=False
             "error": str,             # Only present if success=False
         }
 
@@ -265,6 +269,31 @@ def save_project_specification(
             tool_context.state["pending_spec_path"] = spec_path
             tool_context.state["pending_spec_content"] = spec_text
 
+        compile_input = UpdateSpecAndCompileAuthorityInput(
+            product_id=product_id,
+            content_ref=spec_path,
+        )
+        compile_result = update_spec_and_compile_authority(
+            compile_input,
+            tool_context=tool_context,
+        )
+
+        if not compile_result.get("success"):
+            return {
+                "success": True,
+                "product_id": product_id,
+                "spec_saved": True,
+                "spec_path": spec_path,
+                "spec_size_kb": round(file_size_kb, 2),
+                "file_created": file_created,
+                "compile_success": False,
+                "compile_error": compile_result.get("error"),
+                "message": (
+                    f"Specification {action} successfully ({file_size_kb:.1f}KB), "
+                    "but authority compilation failed."
+                ),
+            }
+
         return {
             "success": True,
             "product_id": product_id,
@@ -272,8 +301,12 @@ def save_project_specification(
             "spec_path": spec_path,
             "spec_size_kb": round(file_size_kb, 2),
             "file_created": file_created,
+            "compile_success": True,
+            "spec_version_id": compile_result.get("spec_version_id"),
+            "authority_id": compile_result.get("authority_id"),
             "message": (
-                f"Specification {action} successfully ({file_size_kb:.1f}KB)"
+                f"Specification {action} successfully ({file_size_kb:.1f}KB) "
+                "and authority compiled."
             ),
         }
 
@@ -931,6 +964,8 @@ def compile_spec_authority_for_version(
                 "error": f"Spec version {parsed.spec_version_id} not found",
             }
 
+        product = session.get(Product, spec_version.product_id)
+
         if spec_version.status != "approved":
             return {
                 "success": False,
@@ -959,6 +994,13 @@ def compile_spec_authority_for_version(
             else:
                 scope_themes = json.loads(existing_authority.scope_themes)
                 invariants = json.loads(existing_authority.invariants)
+
+            if product:
+                product.compiled_authority_json = (
+                    existing_authority.compiled_artifact_json
+                )
+                session.add(product)
+                session.commit()
 
             return {
                 "success": True,
@@ -1054,6 +1096,11 @@ def compile_spec_authority_for_version(
             session.commit()
             session.refresh(existing_authority)
 
+            if product:
+                product.compiled_authority_json = compiled_artifact_json
+                session.add(product)
+                session.commit()
+
             authority_id = existing_authority.authority_id
             cached = False
             recompiled = True
@@ -1073,6 +1120,11 @@ def compile_spec_authority_for_version(
             session.add(authority)
             session.commit()
             session.refresh(authority)
+
+            if product:
+                product.compiled_authority_json = compiled_artifact_json
+                session.add(product)
+                session.commit()
 
             authority_id = authority.authority_id
             cached = False
@@ -1226,6 +1278,7 @@ def update_spec_and_compile_authority(
         "success": True,
         "product_id": parsed.product_id,
         "spec_version_id": spec_version_id,
+        "authority_id": authority.authority_id,
         "spec_hash": spec_hash,
         "compiled_at": authority.compiled_at.isoformat(),
         "compiler_version": authority.compiler_version,

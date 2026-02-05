@@ -137,6 +137,9 @@ def test_compile_tool_compiles_and_returns_summary(
 
     assert authority is not None
 
+    session.refresh(sample_product)
+    assert sample_product.compiled_authority_json is not None
+
 
 def test_compile_tool_returns_cached_when_already_compiled(
     session: Session,
@@ -170,6 +173,9 @@ def test_compile_tool_returns_cached_when_already_compiled(
     assert result["success"] is True
     assert result["cached"] is True
     assert result["authority_id"] == first["authority_id"]
+
+    session.refresh(sample_product)
+    assert sample_product.compiled_authority_json is not None
 
 
 def test_compile_tool_uses_content_ref_when_content_empty(
