@@ -27,6 +27,12 @@ from orchestrator_agent.agent_tools.roadmap_builder.agent import (
 from orchestrator_agent.agent_tools.roadmap_builder.tools import (
     save_roadmap_tool,
 )
+from orchestrator_agent.agent_tools.sprint_planner_tool.agent import (
+    root_agent as sprint_planner_agent,
+)
+from orchestrator_agent.agent_tools.sprint_planner_tool.tools import (
+    save_sprint_plan_tool,
+)
 from orchestrator_agent.agent_tools.user_story_writer_tool.agent import (
     root_agent as story_writer_agent,
 )
@@ -102,12 +108,15 @@ orchestrator_agent = Agent(
         save_backlog_tool,
         # Roadmap tools
         save_roadmap_tool,
+        # Sprint tools
+        save_sprint_plan_tool,
         # Story tools
         save_stories_tool,
         # Agent tools
         AgentTool(agent=vision_agent),
         AgentTool(agent=backlog_agent),
         AgentTool(agent=roadmap_agent),
+        AgentTool(agent=sprint_planner_agent),
         AgentTool(agent=story_writer_agent),
     ],
     instruction=instruction_text,

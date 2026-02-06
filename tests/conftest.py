@@ -55,12 +55,15 @@ def engine(test_db_url: str):  # pylint: disable=redefined-outer-name
         Epic,
         Feature,
         Product,
+        Sprint,
+        SprintStory,
         SpecRegistry,
         Task,
         Team,
         TeamMember,
         Theme,
         UserStory,
+        WorkflowEvent,
     )
 
     # Create all tables
@@ -93,6 +96,7 @@ def patch_get_engine_globally(engine, monkeypatch):
         "orchestrator_agent.agent_tools.story_pipeline.steps.setup",
         "orchestrator_agent.agent_tools.product_vision_tool.tools",
         "orchestrator_agent.agent_tools.product_roadmap_agent.tools",
+        "orchestrator_agent.agent_tools.sprint_planner_tool.tools",
         "tools.story_query_tools",
         "tools.orchestrator_tools",
         "tools.db_tools",

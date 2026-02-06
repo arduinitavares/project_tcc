@@ -1,4 +1,4 @@
-from typing import List, Any, Set
+from typing import Any, List, Set
 from pydantic import BaseModel, Field
 from google.adk.tools import AgentTool
 from .states import OrchestratorState, OrchestratorPhase
@@ -18,14 +18,14 @@ from tools.spec_tools import (
     compile_spec_authority_for_version,
     update_spec_and_compile_authority,
 )
-from tools.db_tools import get_story_details
-from tools.story_query_tools import query_features_for_stories
 from orchestrator_agent.agent_tools.product_vision_tool.tools import save_vision_tool
 from orchestrator_agent.agent_tools.product_vision_tool.agent import root_agent as vision_agent
 from orchestrator_agent.agent_tools.backlog_primer.agent import root_agent as backlog_agent
 from orchestrator_agent.agent_tools.backlog_primer.tools import save_backlog_tool
 from orchestrator_agent.agent_tools.roadmap_builder.agent import root_agent as roadmap_agent
 from orchestrator_agent.agent_tools.roadmap_builder.tools import save_roadmap_tool
+from orchestrator_agent.agent_tools.sprint_planner_tool.agent import root_agent as sprint_planner_agent
+from orchestrator_agent.agent_tools.sprint_planner_tool.tools import save_sprint_plan_tool
 from orchestrator_agent.agent_tools.user_story_writer_tool.agent import root_agent as story_writer_agent
 from orchestrator_agent.agent_tools.user_story_writer_tool.tools import save_stories_tool
 
@@ -33,17 +33,18 @@ from orchestrator_agent.agent_tools.user_story_writer_tool.tools import save_sto
 product_vision_tool = AgentTool(agent=vision_agent)
 backlog_primer_tool = AgentTool(agent=backlog_agent)
 roadmap_builder_tool = AgentTool(agent=roadmap_agent)
+sprint_planner_tool = AgentTool(agent=sprint_planner_agent)
 user_story_writer_tool = AgentTool(agent=story_writer_agent)
 
 class StateDefinition(BaseModel):
-    name: OrchestratorState
-    phase: OrchestratorPhase
-    instruction: str
-    tools: List[Any] = Field(default_factory=list)
-    allowed_transitions: Set[OrchestratorState] = Field(default_factory=set)
+      name: OrchestratorState
+      phase: OrchestratorPhase
+      instruction: str
+      tools: List[Any] = Field(default_factory=list)
+      allowed_transitions: Set[OrchestratorState] = Field(default_factory=lambda: set[OrchestratorState]())
 
-    class Config:
-        arbitrary_types_allowed = True
+      class Config:
+            arbitrary_types_allowed = True
 
 # --- INSTRUCTIONS ---
 
@@ -58,13 +59,14 @@ You never add information, hallucinate, or invent requirements.
   deliverable content directly in your response text.
 - ALL content creation MUST go through the designated sub-agent tool for
   the current phase: `backlog_primer_tool` for backlog work,
-  `roadmap_builder_tool` for roadmap work, `product_vision_tool` for vision work,
-  `user_story_writer_tool` for user story decomposition.
+   `roadmap_builder_tool` for roadmap work, `product_vision_tool` for vision work,
+   `user_story_writer_tool` for user story decomposition, and
+   `sprint_planner_tool` for sprint planning.
 - If the user asks for work that belongs to a DIFFERENT phase, redirect them:
   explain what phase they are in and what the next step is.
 - If the user asks for work that has NO available sub-agent (e.g.,
-  sprint planning), say explicitly: "That capability is not
-  yet available. The current workflow supports: Vision → Backlog → Roadmap → Stories."
+  spec compilation), say explicitly: "That capability is not
+  yet available."
 - Your ONLY job is to: (a) route to the correct tool, (b) display tool output,
   (c) ask the user what to do next. NEVER improvise content.
 - You MUST NOT offer to "manually draft", "outline", "begin writing", or
@@ -72,9 +74,7 @@ You never add information, hallucinate, or invent requirements.
   answer is: "That capability is not yet available."
 
 **WORKFLOW SEQUENCE (IMMUTABLE):**
-Vision → Backlog → Roadmap → Stories. These are the ONLY phases.
-"Sprint planning" and "sprint-ready stories" are
-NOT available capabilities — regardless of what the user requests.
+Vision → Backlog → Sprint Planning → Roadmap → Stories.
 """
 
 ROUTING_INSTRUCTION = """
@@ -142,6 +142,11 @@ ROUTING_INSTRUCTION = """
         - `technical_spec`: Use `tool_context.state["pending_spec_content"]` if present; otherwise empty string
         - `compiled_authority`: Use `tool_context.state["compiled_authority_cached"]` if present; otherwise empty string
      4. After the tool responds, present stories for user review before proceeding to the next requirement.
+
+9. **Sprint Planning Request (After Backlog):** User says "plan sprint", "sprint planning", or "sprint backlog"
+   - If `tool_context.state["approved_backlog"]` is missing: redirect to backlog flow first.
+   - If user has not provided candidate stories (IDs, titles, priorities), ask for them.
+   - Once the user provides candidate stories and a velocity assumption, call `sprint_planner_tool`.
 """
 
 VISION_INTERVIEW_INSTRUCTION = """
@@ -216,11 +221,10 @@ BACKLOG_REVIEW_INSTRUCTION = """
 
 **Post-Save Response (MANDATORY when save_backlog_tool returns success):**
 1. Confirm: "Backlog saved." and state the saved item count from the tool response.
-2. State: "The next step in the workflow is **roadmap creation**."
-3. If the user requested stories, decomposition, sprint planning, or any non-roadmap work
-   in their message, respond:
-   "Story decomposition is not available. The workflow is: Vision → Backlog → Roadmap."
-4. Ask: "Shall we proceed to roadmap creation, or refine the backlog further?"
+2. State: "The next step in the workflow is **sprint planning** or **roadmap creation**."
+3. If the user requested story decomposition in their message, respond:
+   "Story decomposition is not available yet. The workflow is: Vision → Backlog → Sprint Planning → Roadmap → Stories."
+4. Ask: "Shall we proceed to sprint planning, roadmap creation, or refine the backlog further?"
 5. **STOP.** Do NOT add anything else. Do NOT offer to draft, outline, or create any content.
 
 **CRITICAL:**
@@ -237,10 +241,11 @@ BACKLOG_PERSISTENCE_INSTRUCTION = """
 **Behavior:**
 1. **Confirm:** "Backlog saved and locked."
 2. **Routing Logic (CHOOSE ONE):**
-   a. **User wants roadmap** ("roadmap", "proceed", "next", "yes"): Call `roadmap_builder_tool`.
-   b. **User wants to refine/add backlog items** ("add", "change", "priority 3", "decompose"): Call `backlog_primer_tool` with the user's new requirements.
-   c. **User asks for anything else** (story decomposition, sprint planning, etc.): Reply ONLY with:
-      "That capability is not yet available. From here you can: (1) refine the backlog, or (2) generate the roadmap."
+   a. **User wants sprint planning** ("plan sprint", "sprint planning", "sprint backlog"): Route to sprint planning.
+   b. **User wants roadmap** ("roadmap", "proceed", "next", "yes"): Call `roadmap_builder_tool`.
+   c. **User wants to refine/add backlog items** ("add", "change", "priority 3", "decompose"): Call `backlog_primer_tool` with the user's new requirements.
+   d. **User asks for anything else** (story decomposition, etc.): Reply ONLY with:
+      "That capability is not yet available. From here you can: (1) plan a sprint, (2) refine the backlog, or (3) generate the roadmap."
 3. **STOP.**
 
 **FORBIDDEN:** Do NOT generate user stories, decompose priorities into stories, or produce
@@ -368,6 +373,46 @@ STORY_PERSISTENCE_INSTRUCTION = """
 3. **STOP.**
 """
 
+SPRINT_SETUP_INSTRUCTION = """
+# STATE 11 — SPRINT SETUP MODE
+
+**Behavior:**
+1. **Confirm Preconditions:** Ensure `tool_context.state["approved_backlog"]` exists.
+   - If missing, redirect to backlog creation and call `backlog_primer_tool`.
+2. **Gather Inputs:** Ask for:
+   - Candidate story list with `story_id`, `story_title`, and `priority` (plus `story_points` if available).
+   - `team_velocity_assumption` (Low/Medium/High).
+   - `sprint_duration_days` (default 14).
+   - Optional: `max_story_points`.
+   - Optional: `include_task_decomposition` (default true).
+3. **Call Tool:** `sprint_planner_tool(...)` once the user provides required inputs.
+4. **STOP.**
+"""
+
+SPRINT_DRAFT_INSTRUCTION = """
+# STATE 12 — SPRINT DRAFT MODE
+
+**Behavior:**
+1. **Display:** Present `sprint_goal`, `selected_stories` with tasks, and `capacity_analysis`.
+2. **Prompt:** Ask: "Does this sprint scope feel achievable?" and request approval to save.
+3. **On Approval:** Call `save_sprint_plan_tool` with:
+   - `product_id`: active project product_id
+   - `team_id`: user-provided team_id
+   - `sprint_start_date`: user-provided start date
+   - `sprint_duration_days`: from sprint plan or user override
+4. **On Changes:** Collect updated inputs and call `sprint_planner_tool` again.
+5. **STOP.**
+"""
+
+SPRINT_PERSISTENCE_INSTRUCTION = """
+# STATE 13 — SPRINT PERSISTENCE MODE
+
+**Behavior:**
+1. **Confirm:** "Sprint plan saved." and show the sprint_id.
+2. **Prompt:** Ask if the user wants to plan another sprint or proceed to roadmap creation.
+3. **STOP.**
+"""
+
 SPEC_UPDATE_INSTRUCTION = """
 # STATE 21 — IMPLICIT SPEC UPDATE MODE
 
@@ -425,6 +470,7 @@ STATE_REGISTRY = {
             product_vision_tool,
             backlog_primer_tool,
             roadmap_builder_tool,
+            sprint_planner_tool,
             user_story_writer_tool,
         ],
         allowed_transitions={
@@ -434,6 +480,8 @@ STATE_REGISTRY = {
             OrchestratorState.BACKLOG_REVIEW,
             OrchestratorState.ROADMAP_INTERVIEW,
             OrchestratorState.ROADMAP_REVIEW,
+            OrchestratorState.SPRINT_SETUP,
+            OrchestratorState.SPRINT_DRAFT,
             OrchestratorState.STORY_INTERVIEW,
             OrchestratorState.STORY_REVIEW,
             OrchestratorState.SPEC_COMPILE,
@@ -497,7 +545,47 @@ STATE_REGISTRY = {
       phase=OrchestratorPhase.BACKLOG,
       instruction=COMMON_HEADER + BACKLOG_PERSISTENCE_INSTRUCTION,
       tools=[roadmap_builder_tool, backlog_primer_tool],
-      allowed_transitions={OrchestratorState.ROADMAP_INTERVIEW, OrchestratorState.ROUTING_MODE, OrchestratorState.BACKLOG_INTERVIEW}
+      allowed_transitions={
+         OrchestratorState.ROADMAP_INTERVIEW,
+         OrchestratorState.SPRINT_SETUP,
+         OrchestratorState.ROUTING_MODE,
+         OrchestratorState.BACKLOG_INTERVIEW,
+      }
+   ),
+   OrchestratorState.SPRINT_SETUP: StateDefinition(
+      name=OrchestratorState.SPRINT_SETUP,
+      phase=OrchestratorPhase.SPRINT,
+      instruction=COMMON_HEADER + SPRINT_SETUP_INSTRUCTION,
+      tools=[sprint_planner_tool],
+      allowed_transitions={
+         OrchestratorState.SPRINT_SETUP,
+         OrchestratorState.SPRINT_DRAFT,
+         OrchestratorState.ROUTING_MODE,
+      }
+   ),
+   OrchestratorState.SPRINT_DRAFT: StateDefinition(
+      name=OrchestratorState.SPRINT_DRAFT,
+      phase=OrchestratorPhase.SPRINT,
+      instruction=COMMON_HEADER + SPRINT_DRAFT_INSTRUCTION,
+      tools=[sprint_planner_tool, save_sprint_plan_tool],
+      allowed_transitions={
+         OrchestratorState.SPRINT_SETUP,
+         OrchestratorState.SPRINT_DRAFT,
+         OrchestratorState.SPRINT_PERSISTENCE,
+         OrchestratorState.ROUTING_MODE,
+      }
+   ),
+   OrchestratorState.SPRINT_PERSISTENCE: StateDefinition(
+      name=OrchestratorState.SPRINT_PERSISTENCE,
+      phase=OrchestratorPhase.SPRINT,
+      instruction=COMMON_HEADER + SPRINT_PERSISTENCE_INSTRUCTION,
+      tools=[roadmap_builder_tool, sprint_planner_tool],
+      allowed_transitions={
+         OrchestratorState.SPRINT_SETUP,
+         OrchestratorState.SPRINT_DRAFT,
+         OrchestratorState.ROADMAP_INTERVIEW,
+         OrchestratorState.ROUTING_MODE,
+      }
    ),
    OrchestratorState.ROADMAP_INTERVIEW: StateDefinition(
       name=OrchestratorState.ROADMAP_INTERVIEW,

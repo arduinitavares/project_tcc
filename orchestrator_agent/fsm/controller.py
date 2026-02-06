@@ -51,11 +51,17 @@ class FSMController:
                 is_complete = tool_output.get("is_complete", False)
                 next_state = OrchestratorState.STORY_REVIEW if is_complete else OrchestratorState.STORY_INTERVIEW
 
+            elif tool_name == "sprint_planner_tool":
+                next_state = OrchestratorState.SPRINT_DRAFT
+
             elif tool_name == "compile_spec_authority_for_version":
                 next_state = OrchestratorState.SPEC_COMPILE
 
             elif tool_name == "update_spec_and_compile_authority":
                 next_state = OrchestratorState.SPEC_UPDATE
+
+            elif tool_name is None and "sprint" in user_input.lower():
+                next_state = OrchestratorState.SPRINT_SETUP
 
             # select_project keeps us in ROUTING_MODE (context update)
 
@@ -158,6 +164,21 @@ class FSMController:
                 # Proceed to next requirement decomposition
                 is_complete = tool_output.get("is_complete", False)
                 next_state = OrchestratorState.STORY_REVIEW if is_complete else OrchestratorState.STORY_INTERVIEW
+
+        # --- SPRINT PHASE ---
+        if current_state == OrchestratorState.SPRINT_SETUP:
+            if tool_name == "sprint_planner_tool":
+                next_state = OrchestratorState.SPRINT_DRAFT
+
+        elif current_state == OrchestratorState.SPRINT_DRAFT:
+            if tool_name == "save_sprint_plan_tool" and tool_output.get("success", False):
+                next_state = OrchestratorState.SPRINT_PERSISTENCE
+            elif tool_name == "sprint_planner_tool":
+                next_state = OrchestratorState.SPRINT_DRAFT
+
+        elif current_state == OrchestratorState.SPRINT_PERSISTENCE:
+            if tool_name == "sprint_planner_tool":
+                next_state = OrchestratorState.SPRINT_DRAFT
 
         # Validate transition (Security/Stability Check)
         if next_state != current_state:
