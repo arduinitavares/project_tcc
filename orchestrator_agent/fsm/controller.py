@@ -47,6 +47,10 @@ class FSMController:
                 is_complete = tool_output.get("is_complete", False)
                 next_state = OrchestratorState.ROADMAP_REVIEW if is_complete else OrchestratorState.ROADMAP_INTERVIEW
 
+            elif tool_name == "user_story_writer_tool":
+                is_complete = tool_output.get("is_complete", False)
+                next_state = OrchestratorState.STORY_REVIEW if is_complete else OrchestratorState.STORY_INTERVIEW
+
             elif tool_name == "compile_spec_authority_for_version":
                 next_state = OrchestratorState.SPEC_COMPILE
 
@@ -128,9 +132,32 @@ class FSMController:
                     next_state = OrchestratorState.ROADMAP_PERSISTENCE
 
         elif current_state == OrchestratorState.ROADMAP_PERSISTENCE:
-            # Pipeline complete. No tool triggers transitions from here.
-            # User must explicitly navigate (handled by ROUTING_MODE on next input).
-            pass
+            # After roadmap save, user can proceed to story decomposition
+            if tool_name == "user_story_writer_tool":
+                is_complete = tool_output.get("is_complete", False)
+                next_state = OrchestratorState.STORY_REVIEW if is_complete else OrchestratorState.STORY_INTERVIEW
+
+        # --- STORY PHASE ---
+        if current_state == OrchestratorState.STORY_INTERVIEW:
+            if tool_name == "user_story_writer_tool":
+                is_complete = tool_output.get("is_complete", False)
+                if is_complete:
+                    next_state = OrchestratorState.STORY_REVIEW
+
+        elif current_state == OrchestratorState.STORY_REVIEW:
+            if tool_name == "user_story_writer_tool":
+                is_complete = tool_output.get("is_complete", False)
+                if not is_complete:
+                    next_state = OrchestratorState.STORY_INTERVIEW
+            elif tool_name == "save_stories_tool":
+                if tool_output.get("success", False):
+                    next_state = OrchestratorState.STORY_PERSISTENCE
+
+        elif current_state == OrchestratorState.STORY_PERSISTENCE:
+            if tool_name == "user_story_writer_tool":
+                # Proceed to next requirement decomposition
+                is_complete = tool_output.get("is_complete", False)
+                next_state = OrchestratorState.STORY_REVIEW if is_complete else OrchestratorState.STORY_INTERVIEW
 
         # Validate transition (Security/Stability Check)
         if next_state != current_state:

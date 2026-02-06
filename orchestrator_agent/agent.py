@@ -27,6 +27,12 @@ from orchestrator_agent.agent_tools.roadmap_builder.agent import (
 from orchestrator_agent.agent_tools.roadmap_builder.tools import (
     save_roadmap_tool,
 )
+from orchestrator_agent.agent_tools.user_story_writer_tool.agent import (
+    root_agent as story_writer_agent,
+)
+from orchestrator_agent.agent_tools.user_story_writer_tool.tools import (
+    save_stories_tool,
+)
 # Story query tools (extracted from legacy product_user_story_tool)
 from tools.story_query_tools import query_features_for_stories
 from tools.orchestrator_tools import (
@@ -96,10 +102,13 @@ orchestrator_agent = Agent(
         save_backlog_tool,
         # Roadmap tools
         save_roadmap_tool,
+        # Story tools
+        save_stories_tool,
         # Agent tools
         AgentTool(agent=vision_agent),
         AgentTool(agent=backlog_agent),
         AgentTool(agent=roadmap_agent),
+        AgentTool(agent=story_writer_agent),
     ],
     instruction=instruction_text,
     output_key="orchestrator_response",

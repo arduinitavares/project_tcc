@@ -26,11 +26,14 @@ from orchestrator_agent.agent_tools.backlog_primer.agent import root_agent as ba
 from orchestrator_agent.agent_tools.backlog_primer.tools import save_backlog_tool
 from orchestrator_agent.agent_tools.roadmap_builder.agent import root_agent as roadmap_agent
 from orchestrator_agent.agent_tools.roadmap_builder.tools import save_roadmap_tool
+from orchestrator_agent.agent_tools.user_story_writer_tool.agent import root_agent as story_writer_agent
+from orchestrator_agent.agent_tools.user_story_writer_tool.tools import save_stories_tool
 
 # Wrappers for Agent Tools
 product_vision_tool = AgentTool(agent=vision_agent)
 backlog_primer_tool = AgentTool(agent=backlog_agent)
 roadmap_builder_tool = AgentTool(agent=roadmap_agent)
+user_story_writer_tool = AgentTool(agent=story_writer_agent)
 
 class StateDefinition(BaseModel):
     name: OrchestratorState
@@ -55,12 +58,13 @@ You never add information, hallucinate, or invent requirements.
   deliverable content directly in your response text.
 - ALL content creation MUST go through the designated sub-agent tool for
   the current phase: `backlog_primer_tool` for backlog work,
-  `roadmap_builder_tool` for roadmap work, `product_vision_tool` for vision work.
+  `roadmap_builder_tool` for roadmap work, `product_vision_tool` for vision work,
+  `user_story_writer_tool` for user story decomposition.
 - If the user asks for work that belongs to a DIFFERENT phase, redirect them:
   explain what phase they are in and what the next step is.
-- If the user asks for work that has NO available sub-agent (e.g., story
-  decomposition, sprint planning), say explicitly: "That capability is not
-  yet available. The current workflow supports: Vision → Backlog → Roadmap."
+- If the user asks for work that has NO available sub-agent (e.g.,
+  sprint planning), say explicitly: "That capability is not
+  yet available. The current workflow supports: Vision → Backlog → Roadmap → Stories."
 - Your ONLY job is to: (a) route to the correct tool, (b) display tool output,
   (c) ask the user what to do next. NEVER improvise content.
 - You MUST NOT offer to "manually draft", "outline", "begin writing", or
@@ -68,8 +72,8 @@ You never add information, hallucinate, or invent requirements.
   answer is: "That capability is not yet available."
 
 **WORKFLOW SEQUENCE (IMMUTABLE):**
-Vision → Backlog → Roadmap. These are the ONLY phases. "User stories",
-"story decomposition", "sprint planning", and "sprint-ready stories" are
+Vision → Backlog → Roadmap → Stories. These are the ONLY phases.
+"Sprint planning" and "sprint-ready stories" are
 NOT available capabilities — regardless of what the user requests.
 """
 
@@ -124,6 +128,20 @@ ROUTING_INSTRUCTION = """
    - If `active_project` or its vision is missing: return to Vision flow (call `product_vision_tool`).
    - If `tool_context.state["approved_backlog"]` is missing: route to `backlog_primer_tool` first.
    - Otherwise: call `roadmap_builder_tool`.
+
+8. **Story Decomposition Request (After Roadmap):** User says "stories", "user stories", "decompose", "story decomposition", "create stories"
+   - **IMPORTANT:** Use `user_story_writer_tool` — do NOT call `query_features_for_stories` or `get_story_details`.
+     `query_features_for_stories` is a legacy query tool. Story creation goes through `user_story_writer_tool`.
+   - If the active project has NO saved roadmap: redirect to roadmap flow first.
+   - If the active project HAS a saved roadmap (check `state["active_project"]["roadmap"]` or Product.roadmap in DB):
+     1. Load the saved roadmap JSON (parse `roadmap_releases`).
+     2. Pick the **first requirement** from the first release's `items` list.
+     3. Call `user_story_writer_tool` with:
+        - `parent_requirement`: The requirement name
+        - `requirement_context`: The release `reasoning` + `theme` + `focus_area`
+        - `technical_spec`: Use `tool_context.state["pending_spec_content"]` if present; otherwise empty string
+        - `compiled_authority`: Use `tool_context.state["compiled_authority_cached"]` if present; otherwise empty string
+     4. After the tool responds, present stories for user review before proceeding to the next requirement.
 """
 
 VISION_INTERVIEW_INSTRUCTION = """
@@ -281,8 +299,72 @@ ROADMAP_PERSISTENCE_INSTRUCTION = """
 **Trigger:** Roadmap saved.
 
 **Behavior:**
-1. **Confirm:** "Roadmap saved. The Vision → Backlog → Roadmap pipeline is complete for this project."
-2. **Prompt:** "You can now: (1) start a new project, (2) refine this project's vision or backlog, or (3) exit."
+1. **Confirm:** "Roadmap saved."
+2. **Prompt:** "The next step is **user story decomposition**. Shall we decompose the roadmap requirements into user stories, or would you prefer to: (1) start a new project, (2) refine this project's vision or backlog?"
+3. **STOP.**
+
+**On User Approval (user says "yes", "stories", "decompose", "proceed", "next"):**
+1. Load the saved roadmap from `tool_context.state` or database.
+2. Pick the first requirement from the first roadmap release.
+3. Call `user_story_writer_tool` with:
+   - `parent_requirement`: Requirement name
+   - `requirement_context`: Release theme + reasoning + focus_area
+   - `technical_spec`: Use `tool_context.state["pending_spec_content"]` if present; otherwise empty string
+   - `compiled_authority`: Use `tool_context.state["compiled_authority_cached"]` if present; otherwise empty string
+4. **STOP.**
+"""
+
+# --- STORY PHASE INSTRUCTIONS ---
+
+STORY_INTERVIEW_INSTRUCTION = """
+# STATE 30 — STORY INTERVIEW MODE
+
+**Behavior:**
+1. **Output Lead-in:** *"Working with the User Story Writer..."*
+2. **Construct Arguments:**
+   - `parent_requirement`: The roadmap requirement being decomposed
+   - `requirement_context`: Release theme, reasoning, and focus_area from the saved roadmap
+   - `technical_spec`: Use `tool_context.state["pending_spec_content"]` if present; otherwise empty string
+   - `compiled_authority`: Use `tool_context.state["compiled_authority_cached"]` if present; otherwise empty string
+3. **Execute Call:** `user_story_writer_tool(...)`
+4. **Display:** Show generated `user_stories` clearly, with INVEST scores
+5. **STOP.**
+"""
+
+STORY_REVIEW_INSTRUCTION = """
+# STATE 31 — STORY REVIEW MODE
+
+**Behavior:**
+1. **Display:** Present each user story with:
+   - Title
+   - Statement ("As a... I want... so that...")
+   - Acceptance Criteria
+   - INVEST Score
+   - Any decomposition warnings
+2. **Prompt:** Ask: *"These stories are ready. Would you like to save them, make changes, or decompose the next requirement?"*
+3. **STOP.**
+
+**On User Approval ("save", "yes", "confirm"):**
+1. Call `save_stories_tool` with:
+   - `product_id`: The active project's product_id
+   - `parent_requirement`: The requirement that was decomposed
+   - `stories`: The approved story list from `user_story_writer_tool` output
+2. Transition to STORY_PERSISTENCE.
+
+**On User Feedback (changes requested):**
+- Return to STORY_INTERVIEW and re-call `user_story_writer_tool` with updated input.
+"""
+
+STORY_PERSISTENCE_INSTRUCTION = """
+# STATE 32 — STORY PERSISTENCE (Post-Save)
+
+**Trigger:** Stories saved to database.
+
+**Behavior:**
+1. **Confirm:** "Stories saved for [parent_requirement]. [N] stories created."
+2. **Check:** Are there more roadmap requirements to decompose?
+   - If yes: Ask *"Shall we decompose the next requirement: [requirement_name]?"*
+   - If no: Confirm *"All roadmap requirements have been decomposed into stories. The Vision → Backlog → Roadmap → Stories pipeline is complete."*
 3. **STOP.**
 """
 
@@ -343,8 +425,7 @@ STATE_REGISTRY = {
             product_vision_tool,
             backlog_primer_tool,
             roadmap_builder_tool,
-            query_features_for_stories,
-            get_story_details,
+            user_story_writer_tool,
         ],
         allowed_transitions={
             OrchestratorState.VISION_INTERVIEW,
@@ -353,6 +434,8 @@ STATE_REGISTRY = {
             OrchestratorState.BACKLOG_REVIEW,
             OrchestratorState.ROADMAP_INTERVIEW,
             OrchestratorState.ROADMAP_REVIEW,
+            OrchestratorState.STORY_INTERVIEW,
+            OrchestratorState.STORY_REVIEW,
             OrchestratorState.SPEC_COMPILE,
             OrchestratorState.SPEC_UPDATE,
         }
@@ -437,8 +520,40 @@ STATE_REGISTRY = {
       name=OrchestratorState.ROADMAP_PERSISTENCE,
       phase=OrchestratorPhase.ROADMAP,
       instruction=COMMON_HEADER + ROADMAP_PERSISTENCE_INSTRUCTION,
-      tools=[],
-      allowed_transitions={OrchestratorState.ROUTING_MODE}
+      tools=[user_story_writer_tool],
+      allowed_transitions={
+         OrchestratorState.ROUTING_MODE,
+         OrchestratorState.STORY_INTERVIEW,
+         OrchestratorState.STORY_REVIEW,
+      }
+   ),
+   OrchestratorState.STORY_INTERVIEW: StateDefinition(
+      name=OrchestratorState.STORY_INTERVIEW,
+      phase=OrchestratorPhase.STORY,
+      instruction=COMMON_HEADER + STORY_INTERVIEW_INSTRUCTION,
+      tools=[user_story_writer_tool],
+      allowed_transitions={OrchestratorState.STORY_INTERVIEW, OrchestratorState.STORY_REVIEW}
+   ),
+   OrchestratorState.STORY_REVIEW: StateDefinition(
+      name=OrchestratorState.STORY_REVIEW,
+      phase=OrchestratorPhase.STORY,
+      instruction=COMMON_HEADER + STORY_REVIEW_INSTRUCTION,
+      tools=[user_story_writer_tool, save_stories_tool],
+      allowed_transitions={
+         OrchestratorState.STORY_INTERVIEW,
+         OrchestratorState.STORY_PERSISTENCE,
+      }
+   ),
+   OrchestratorState.STORY_PERSISTENCE: StateDefinition(
+      name=OrchestratorState.STORY_PERSISTENCE,
+      phase=OrchestratorPhase.STORY,
+      instruction=COMMON_HEADER + STORY_PERSISTENCE_INSTRUCTION,
+      tools=[user_story_writer_tool],
+      allowed_transitions={
+         OrchestratorState.STORY_INTERVIEW,
+         OrchestratorState.STORY_REVIEW,
+         OrchestratorState.ROUTING_MODE,
+      }
    ),
     OrchestratorState.SPEC_UPDATE: StateDefinition(
         name=OrchestratorState.SPEC_UPDATE,

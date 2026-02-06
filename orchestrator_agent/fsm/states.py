@@ -5,6 +5,7 @@ class OrchestratorPhase(str, Enum):
     ROUTING = "ROUTING"
     BACKLOG = "BACKLOG"
     ROADMAP = "ROADMAP"
+    STORY = "STORY"
     SPRINT = "SPRINT"  # Reserved for future implementation
     SPEC = "SPEC"
 
@@ -26,6 +27,11 @@ class OrchestratorState(str, Enum):
     ROADMAP_INTERVIEW = "ROADMAP_INTERVIEW"  # State 26
     ROADMAP_REVIEW = "ROADMAP_REVIEW"  # State 27
     ROADMAP_PERSISTENCE = "ROADMAP_PERSISTENCE"  # State 28
+
+    # STORY PHASE
+    STORY_INTERVIEW = "STORY_INTERVIEW"  # State 30
+    STORY_REVIEW = "STORY_REVIEW"  # State 31
+    STORY_PERSISTENCE = "STORY_PERSISTENCE"  # State 32
 
     # SPRINT PHASE (reserved for future implementation)
     SPRINT_SETUP = "SPRINT_SETUP"  # State 11
