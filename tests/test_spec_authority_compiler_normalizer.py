@@ -186,3 +186,82 @@ def test_normalizer_handles_duplicate_placeholder_invariant_ids() -> None:
     assert source_map_ids == invariant_ids, (
         f"Source map IDs {source_map_ids} must match invariant IDs {invariant_ids}"
     )
+
+
+def test_normalizer_handles_duplicate_ids_different_types_length_mismatch() -> None:
+    """Normalizer must succeed when LLM returns duplicate IDs with different types
+    AND the number of source_map entries doesn't match the number of invariants.
+
+    Regression: original_id_to_type dict loses type information for duplicate IDs
+    because dict construction keeps only the last value per key.  When
+    use_positional_matching is False (length mismatch), source_map entries all
+    resolve to the last-wins type, producing an ID that covers only one invariant
+    while leaving the other as SOURCE_MAP_INVARIANT_MISMATCH.
+    """
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+        normalize_compiler_output,
+    )
+
+    excerpt1 = "The payload must include user_id."
+    excerpt2 = "The system must not use OAuth1 authentication."
+    # Extra source_map entry for the same invariant (different excerpt location)
+    excerpt3 = "user_id is mandatory in all API payloads."
+
+    raw: Dict[str, Any] = {
+        "scope_themes": ["payload validation", "authentication security"],
+        "domain": None,
+        "invariants": [
+            {
+                "id": "INV-0000000000000000",
+                "type": "REQUIRED_FIELD",
+                "parameters": {"field_name": "user_id"},
+            },
+            {
+                "id": "INV-0000000000000000",
+                "type": "FORBIDDEN_CAPABILITY",
+                "parameters": {"capability": "OAuth1"},
+            },
+        ],
+        "eligible_feature_rules": [],
+        "gaps": [],
+        "assumptions": [],
+        "source_map": [
+            {
+                "invariant_id": "INV-0000000000000000",
+                "excerpt": excerpt1,
+                "location": "spec:section:1",
+            },
+            {
+                "invariant_id": "INV-0000000000000000",
+                "excerpt": excerpt2,
+                "location": "spec:section:2",
+            },
+            {
+                "invariant_id": "INV-0000000000000000",
+                "excerpt": excerpt3,
+                "location": "spec:section:1:para:2",
+            },
+        ],
+        "compiler_version": "1.0.0",
+        "prompt_hash": "0" * 64,
+    }
+
+    normalized = normalize_compiler_output(json.dumps(raw))
+
+    # Must succeed — not fail with SOURCE_MAP_INVARIANT_MISMATCH
+    assert isinstance(normalized.root, SpecAuthorityCompilationSuccess), (
+        f"Expected success but got failure: {normalized.root}"
+    )
+
+    # Two distinct invariants with deterministic IDs
+    assert len(normalized.root.invariants) == 2
+    inv_ids = [inv.id for inv in normalized.root.invariants]
+    assert len(set(inv_ids)) == 2, "Invariant IDs must be unique after normalization"
+
+    # Every invariant must have at least one source_map entry
+    source_map_ids = {entry.invariant_id for entry in normalized.root.source_map}
+    invariant_ids = {inv.id for inv in normalized.root.invariants}
+    assert invariant_ids.issubset(source_map_ids), (
+        f"Every invariant ID must be covered by source_map. "
+        f"Missing: {sorted(invariant_ids - source_map_ids)}"
+    )

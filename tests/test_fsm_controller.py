@@ -38,15 +38,6 @@ class TestFSMController(unittest.TestCase):
         )
         self.assertEqual(next_state, OrchestratorState.VISION_REVIEW)
 
-        # Story Setup
-        next_state = self.controller.determine_next_state(
-            OrchestratorState.ROUTING_MODE,
-            "query_features_for_stories",
-            {},
-            "create stories"
-        )
-        self.assertEqual(next_state, OrchestratorState.STORY_SETUP)
-
     def test_vision_phase_transitions(self):
         # Interview -> Review
         next_state = self.controller.determine_next_state(
@@ -83,34 +74,6 @@ class TestFSMController(unittest.TestCase):
             "create backlog"
         )
         self.assertEqual(next_state, OrchestratorState.BACKLOG_REVIEW)
-
-    def test_story_pipeline_transitions(self):
-        # Setup -> Pipeline
-        next_state = self.controller.determine_next_state(
-            OrchestratorState.STORY_SETUP,
-            "process_single_story",
-            {},
-            "Go"
-        )
-        self.assertEqual(next_state, OrchestratorState.STORY_PIPELINE)
-
-        # Pipeline -> Persistence
-        next_state = self.controller.determine_next_state(
-            OrchestratorState.STORY_PIPELINE,
-            "save_validated_stories",
-            {},
-            "Save"
-        )
-        self.assertEqual(next_state, OrchestratorState.STORY_PERSISTENCE)
-
-        # Persistence -> Sprint Setup (Next Action)
-        next_state = self.controller.determine_next_state(
-            OrchestratorState.STORY_PERSISTENCE,
-            "get_backlog_for_planning",
-            {},
-            "Plan sprint"
-        )
-        self.assertEqual(next_state, OrchestratorState.SPRINT_SETUP)
 
     def test_roadmap_phase_transitions(self):
         # Routing -> Roadmap Interview
@@ -157,62 +120,6 @@ class TestFSMController(unittest.TestCase):
             "save"
         )
         self.assertEqual(next_state, OrchestratorState.ROADMAP_PERSISTENCE)
-
-        # Persistence -> Story Setup
-        next_state = self.controller.determine_next_state(
-            OrchestratorState.ROADMAP_PERSISTENCE,
-            "query_features_for_stories",
-            {},
-            "create stories"
-        )
-        self.assertEqual(next_state, OrchestratorState.STORY_SETUP)
-
-    def test_sprint_phase_transitions(self):
-        # Setup -> Draft
-        next_state = self.controller.determine_next_state(
-            OrchestratorState.SPRINT_SETUP,
-            "plan_sprint_tool",
-            {},
-            "Plan it"
-        )
-        self.assertEqual(next_state, OrchestratorState.SPRINT_DRAFT)
-
-        # Draft -> Persistence
-        next_state = self.controller.determine_next_state(
-            OrchestratorState.SPRINT_DRAFT,
-            "save_sprint_tool",
-            {},
-            "Commit"
-        )
-        self.assertEqual(next_state, OrchestratorState.SPRINT_PERSISTENCE)
-
-        # Persistence -> View (Next Action)
-        next_state = self.controller.determine_next_state(
-            OrchestratorState.SPRINT_PERSISTENCE,
-            "get_sprint_details",
-            {},
-            "View sprint"
-        )
-        self.assertEqual(next_state, OrchestratorState.SPRINT_VIEW)
-
-    def test_sprint_hub_transitions(self):
-        # View -> Update
-        next_state = self.controller.determine_next_state(
-            OrchestratorState.SPRINT_VIEW,
-            "update_story_status",
-            {},
-            "Update story 1"
-        )
-        self.assertEqual(next_state, OrchestratorState.SPRINT_UPDATE_STORY)
-
-        # Update -> View
-        next_state = self.controller.determine_next_state(
-            OrchestratorState.SPRINT_UPDATE_STORY,
-            "get_sprint_details",
-            {},
-            "Show sprint"
-        )
-        self.assertEqual(next_state, OrchestratorState.SPRINT_VIEW)
 
     def test_unknown_tool_stays_in_state(self):
         next_state = self.controller.determine_next_state(

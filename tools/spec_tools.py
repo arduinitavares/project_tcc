@@ -265,15 +265,19 @@ def save_project_specification(
         session.add(product)
         session.commit()
 
-        action = "updated" if is_update else "saved"
-        print(
-            f"[save_project_specification] Spec {action} "
-            f"for '{product.name}' ({file_size_kb:.1f}KB)"
-        )
+        # action = "updated" if is_update else "saved"
+        # print(
+        #     f"[save_project_specification] Spec {action} "
+        #     f"for '{product.name}' ({file_size_kb:.1f}KB)"
+        # )
 
         if tool_context and tool_context.state is not None:
-            tool_context.state["pending_spec_path"] = spec_path
-            tool_context.state["pending_spec_content"] = spec_text
+            # Mark spec as persisted to prevent re-saving on subsequent
+            # FSM turns (spec is immutable once saved).  Keep
+            # pending_spec_path / pending_spec_content intact because
+            # downstream phases (BACKLOG, ROADMAP, STORY) read
+            # pending_spec_content as the technical_spec source.
+            tool_context.state["spec_persisted"] = True
 
         compile_input = UpdateSpecAndCompileAuthorityInput(
             product_id=product_id,
@@ -315,6 +319,145 @@ def save_project_specification(
                 "and authority compiled."
             ),
         }
+
+
+class LinkSpecToProductInput(BaseModel):
+    """Input schema for link_spec_to_product tool."""
+
+    product_id: int = Field(description="ID of the project to link the specification to")
+    spec_path: str = Field(
+        description="Path to on-disk specification file (.md, .txt)"
+    )
+
+
+def link_spec_to_product(
+    params: Dict[str, Any],
+    tool_context: Optional[ToolContext] = None,
+) -> Dict[str, Any]:
+    """
+    Link an on-disk specification file to a product without duplicating content.
+
+    This is the preferred replacement for save_project_specification when the
+    spec already exists as a file.  It does NOT re-read the file into
+    product.technical_spec (the file + SpecRegistry are the sources of truth).
+
+    It:
+      1. Validates the file exists and is under the 100 KB limit.
+      2. Sets product.spec_file_path and product.spec_loaded_at in the DB.
+      3. Delegates to update_spec_and_compile_authority to create a
+         SpecRegistry row and compile the authority artifact.
+
+    Args:
+        params: {
+            "product_id": int,   # Required – product to attach the spec to
+            "spec_path":  str,   # Required – on-disk file path
+        }
+        tool_context: Optional ADK context
+
+    Returns:
+        {
+            "success": bool,
+            "product_id": int,
+            "spec_path": str,
+            "file_created": False,        # Never creates backup files
+            "spec_size_kb": float,
+            "compile_success": bool,
+            "spec_version_id": int | None,
+            "authority_id": int | None,
+            "compile_error": str | None,  # Only present when compile fails
+            "message": str,
+            "error": str | None,          # Only present when success=False
+        }
+    """
+    # --- Validate inputs ---
+    try:
+        parsed = LinkSpecToProductInput.model_validate(params or {})
+    except ValueError as exc:
+        return {"success": False, "error": f"Invalid parameters: {exc}"}
+
+    path = Path(parsed.spec_path)
+
+    if not path.exists():
+        return {
+            "success": False,
+            "error": f"Specification file not found: {parsed.spec_path}",
+        }
+
+    file_size_kb = path.stat().st_size / 1024
+    if file_size_kb > 100:
+        return {
+            "success": False,
+            "error": f"File too large ({file_size_kb:.1f}KB). Maximum: 100KB",
+        }
+
+    # --- Persist the link (path + timestamp only) ---
+    with Session(get_engine()) as session:
+        product = session.get(Product, parsed.product_id)
+        if not product:
+            return {
+                "success": False,
+                "error": f"Product {parsed.product_id} not found",
+            }
+
+        is_update = product.spec_file_path is not None
+        product.spec_file_path = parsed.spec_path
+        product.spec_loaded_at = datetime.now(timezone.utc)
+        # NOTE: product.technical_spec is intentionally NOT written.
+        # The file on disk + SpecRegistry are the sources of truth.
+
+        session.add(product)
+        session.commit()
+
+        product_name = product.name
+
+    action = "updated" if is_update else "linked"
+    print(
+        f"[link_spec_to_product] Spec {action} "
+        f"for '{product_name}' → {parsed.spec_path} ({file_size_kb:.1f}KB)"
+    )
+
+    if tool_context and tool_context.state is not None:
+        tool_context.state["spec_persisted"] = True
+
+    # --- Compile authority ---
+    compile_input = UpdateSpecAndCompileAuthorityInput(
+        product_id=parsed.product_id,
+        content_ref=parsed.spec_path,
+    )
+    compile_result = update_spec_and_compile_authority(
+        compile_input,
+        tool_context=tool_context,
+    )
+
+    if not compile_result.get("success"):
+        return {
+            "success": True,
+            "product_id": parsed.product_id,
+            "spec_path": parsed.spec_path,
+            "file_created": False,
+            "spec_size_kb": round(file_size_kb, 2),
+            "compile_success": False,
+            "compile_error": compile_result.get("error"),
+            "message": (
+                f"Specification {action} ({file_size_kb:.1f}KB) "
+                "but authority compilation failed."
+            ),
+        }
+
+    return {
+        "success": True,
+        "product_id": parsed.product_id,
+        "spec_path": parsed.spec_path,
+        "file_created": False,
+        "spec_size_kb": round(file_size_kb, 2),
+        "compile_success": True,
+        "spec_version_id": compile_result.get("spec_version_id"),
+        "authority_id": compile_result.get("authority_id"),
+        "message": (
+            f"Specification {action} ({file_size_kb:.1f}KB) "
+            "and authority compiled."
+        ),
+    }
 
 
 def read_project_specification(
@@ -383,7 +526,32 @@ def read_project_specification(
     product_id = active_project.get("product_id")
     with Session(get_engine()) as session:
         product = session.get(Product, product_id)
-        if not product or not product.technical_spec:
+        if not product:
+            project_name = active_project.get('name')
+            return {
+                "success": False,
+                "error": f"Project '{project_name}' has no specification saved",
+                "spec_content": None,
+                "hint": (
+                    "Spec may have been created without a specification file. "
+                    "Ask user to provide one."
+                ),
+            }
+
+        # Resolve spec content: prefer file on disk, fall back to DB blob
+        spec_content: Optional[str] = None
+        if product.spec_file_path:
+            spec_path_obj = Path(product.spec_file_path)
+            if spec_path_obj.exists():
+                try:
+                    spec_content = spec_path_obj.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    spec_content = None
+
+        if spec_content is None:
+            spec_content = product.technical_spec
+
+        if not spec_content:
             project_name = active_project.get('name')
             return {
                 "success": False,
@@ -396,10 +564,10 @@ def read_project_specification(
             }
 
         # Extract section headings for navigation (markdown ## headings)
-        sections = _extract_markdown_sections(product.technical_spec)
+        sections = _extract_markdown_sections(spec_content)
 
         # Estimate tokens (rough: 1 token approx 4 characters)
-        token_estimate = len(product.technical_spec) // 4
+        token_estimate = len(spec_content) // 4
 
         print(
             f"[read_project_specification] Loaded spec for "
@@ -408,11 +576,11 @@ def read_project_specification(
 
         if tool_context and tool_context.state is not None:
             tool_context.state["pending_spec_path"] = product.spec_file_path
-            tool_context.state["pending_spec_content"] = product.technical_spec
+            tool_context.state["pending_spec_content"] = spec_content
 
         return {
             "success": True,
-            "spec_content": product.technical_spec,
+            "spec_content": spec_content,
             "spec_path": product.spec_file_path,
             "token_estimate": token_estimate,
             "sections": sections,
@@ -443,7 +611,6 @@ def preview_spec_authority(
     except ValidationError as e:
         return {"success": False, "error": f"Invalid input: {e}"}
 
-    print(f"[preview_spec_authority] Compiling {len(parsed.content)} chars...")
     
     try:
         # Invoke compiler directly (stateless)
@@ -534,8 +701,6 @@ async def _invoke_spec_authority_compiler_async(
     input_payload: SpecAuthorityCompilerInput,
 ) -> str:
     """Invoke the spec authority compiler agent and return raw JSON text."""
-    print("[spec_authority_compiler] Input payload:")
-    print(input_payload.model_dump_json())
     session_service = InMemorySessionService()
     runner = Runner(
         agent=spec_authority_compiler_agent,
@@ -564,8 +729,6 @@ async def _invoke_spec_authority_compiler_async(
     response_text = _extract_compiler_response_text(events)
     if not response_text:
         raise ValueError("Compiler agent returned no text response")
-    print("[spec_authority_compiler] Raw response text:")
-    print(response_text)
     return response_text
 
 
@@ -816,10 +979,10 @@ def register_spec_version(
         session.commit()
         session.refresh(spec_version)
 
-        print(
-            f"[register_spec_version] Created spec v{spec_version.spec_version_id} "
-            f"for product '{product.name}' (hash: {spec_hash[:8]}...)"
-        )
+        # print(
+        #     f"[register_spec_version] Created spec v{spec_version.spec_version_id} "
+        #     f"for product '{product.name}' (hash: {spec_hash[:8]}...)"
+        # )
 
         return {
             "success": True,
@@ -875,10 +1038,10 @@ def approve_spec_version(
         session.add(spec_version)
         session.commit()
 
-        print(
-            f"[approve_spec_version] Approved spec v{parsed.spec_version_id} "
-            f"by {parsed.approved_by}"
-        )
+        # print(
+        #     f"[approve_spec_version] Approved spec v{parsed.spec_version_id} "
+        #     f"by {parsed.approved_by}"
+        # )
 
         return {
             "success": True,
@@ -974,11 +1137,11 @@ def compile_spec_authority(
         session.commit()
         session.refresh(authority)
 
-        print(
-            f"[compile_spec_authority] Compiled spec v{parsed.spec_version_id} "
-            f"-> authority {authority.authority_id} "
-            f"(compiler: {SPEC_COMPILER_VERSION})"
-        )
+        # print(
+        #     f"[compile_spec_authority] Compiled spec v{parsed.spec_version_id} "
+        #     f"-> authority {authority.authority_id} "
+        #     f"(compiler: {SPEC_COMPILER_VERSION})"
+        # )
 
         return {
             "success": True,
@@ -1119,8 +1282,8 @@ def compile_spec_authority_for_version(
                 "reason": str(exc),
             }
 
-        print("[spec_authority_compiler] Normalizing output...")
-        print(f"[spec_authority_compiler] Raw JSON length: {len(raw_json)}")
+        # print("[spec_authority_compiler] Normalizing output...")
+        # print(f"[spec_authority_compiler] Raw JSON length: {len(raw_json)}")
 
         normalized = normalize_compiler_output(raw_json)
         if isinstance(normalized.root, SpecAuthorityCompilationFailure):
@@ -1791,10 +1954,10 @@ def get_compiled_authority_by_version(
             else []
         )
 
-        print(
-            f"[get_compiled_authority_by_version] Retrieved authority "
-            f"{authority.authority_id} for spec v{parsed.spec_version_id}"
-        )
+        # print(
+        #     f"[get_compiled_authority_by_version] Retrieved authority "
+        #     f"{authority.authority_id} for spec v{parsed.spec_version_id}"
+        # )
 
         return {
             "success": True,

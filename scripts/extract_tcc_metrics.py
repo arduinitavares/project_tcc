@@ -60,6 +60,12 @@ class ProductMetrics:
     # Workflow timing (from WorkflowEvent)
     total_sprint_planning_duration_sec: float = 0.0
     avg_sprint_planning_duration_sec: float = 0.0
+
+    # Flow Efficiency & Execution (Dev Support Agent)
+    avg_story_cycle_time_hours: float = 0.0
+    stories_with_evidence_links: int = 0
+    total_tasks: int = 0
+    completed_tasks: int = 0
     
     # Spec Authority metrics
     spec_versions_count: int = 0
@@ -235,6 +241,39 @@ def extract_product_metrics(cursor: sqlite3.Cursor) -> list[ProductMetrics]:
             metrics.total_sprint_planning_duration_sec = round(result[0], 2)
             metrics.avg_sprint_planning_duration_sec = round(result[1], 2)
         
+        # Flow Efficiency (Cycle Time)
+        if 'completed_at' in columns:
+            cursor.execute("""
+                SELECT AVG((julianday(completed_at) - julianday(created_at)) * 24)
+                FROM user_stories
+                WHERE product_id = ? AND completed_at IS NOT NULL AND created_at IS NOT NULL
+            """, (product_id,))
+            cycle_time = cursor.fetchone()[0]
+            if cycle_time:
+                metrics.avg_story_cycle_time_hours = round(cycle_time, 2)
+        
+        # Execution Evidence (DoD)
+        if 'evidence_links' in columns:
+            cursor.execute("""
+                SELECT COUNT(*) FROM user_stories
+                WHERE product_id = ? AND evidence_links IS NOT NULL AND evidence_links != '[]'
+            """, (product_id,))
+            metrics.stories_with_evidence_links = cursor.fetchone()[0]
+            
+        # Task Execution metrics (Dev Support Agent)
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
+        if cursor.fetchone():
+            cursor.execute("""
+                SELECT COUNT(*), SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END)
+                FROM tasks t
+                JOIN user_stories us ON t.story_id = us.story_id
+                WHERE us.product_id = ?
+            """, (product_id,))
+            task_res = cursor.fetchone()
+            if task_res:
+                metrics.total_tasks = task_res[0] or 0
+                metrics.completed_tasks = task_res[1] or 0
+
         # Spec Authority metrics (if tables exist)
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='spec_registry'")
         if cursor.fetchone():
@@ -532,6 +571,17 @@ def print_markdown_summary(result: ExtractionResult):
     print(f"- Total stories: {total_stories}")
     print(f"- Stories with valid `accepted_spec_version_id`: {total_with_spec} ({pct:.1f}%)")
     print(f"- Stories without spec version: {total_stories - total_with_spec}")
+    print()
+
+    # Flow Efficiency & Execution Metrics (Added for Proposal alignment)
+    print("## Flow Efficiency & Execution Metrics")
+    print()
+    print("| Product | Avg Story Cycle Time (h) | Stories w/ Evidence | Tasks (Done/Total) |")
+    print("|---------|--------------------------|---------------------|--------------------|")
+    for p in result.products:
+        name_short = p.product_name[:20] 
+        task_info = f"{p.completed_tasks}/{p.total_tasks}"
+        print(f"| {name_short} | {p.avg_story_cycle_time_hours} | {p.stories_with_evidence_links} | {task_info} |")
     print()
     
     # Smoke runs (if available)

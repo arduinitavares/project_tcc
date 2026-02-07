@@ -1,3 +1,2 @@
-# Spec
-
-Test content
+# Initial Spec
+## Version 1

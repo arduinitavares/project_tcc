@@ -412,6 +412,18 @@ def select_project(product_id: int, tool_context: ToolContext) -> Dict[str, Any]
     state["current_project_name"] = product_details["name"]
     if product_details.get("technical_spec") is not None:
         state["pending_spec_content"] = product_details["technical_spec"]
+    elif product_details.get("spec_file_path"):
+        # File-linked spec: read content from disk (no DB blob)
+        _spec_path = Path(product_details["spec_file_path"])
+        if _spec_path.exists():
+            try:
+                state["pending_spec_content"] = _spec_path.read_text(
+                    encoding="utf-8"
+                )
+            except (OSError, UnicodeDecodeError):
+                state.pop("pending_spec_content", None)
+        else:
+            state.pop("pending_spec_content", None)
     else:
         state.pop("pending_spec_content", None)
     if product_details.get("spec_file_path") is not None:

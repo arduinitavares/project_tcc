@@ -530,8 +530,9 @@ class TestSpecWorkflowIntegration:
 
         # Step 2: Save pasted spec
 
-    def test_save_project_specification_sets_pending_state(self, db_session, tmp_path):
-        """save_project_specification should persist pending spec state for downstream tools."""
+    def test_save_project_specification_sets_spec_persisted_flag(self, db_session, tmp_path):
+        """save_project_specification sets spec_persisted=True and preserves
+        pending_spec_content for downstream phases (BACKLOG, ROADMAP, STORY)."""
         product = Product(name="Spec Pending Project", vision="Pending spec")
         db_session.add(product)
         db_session.commit()
@@ -540,7 +541,10 @@ class TestSpecWorkflowIntegration:
         spec_path = tmp_path / "pending_spec.md"
         spec_path.write_text("# Pending Spec\n\nContent", encoding="utf-8")
 
-        context = MockToolContext(state={})
+        context = MockToolContext(state={
+            "pending_spec_path": str(spec_path),
+            "pending_spec_content": "# Pending Spec\n\nContent",
+        })
 
         result = save_project_specification(
             {
@@ -552,8 +556,12 @@ class TestSpecWorkflowIntegration:
         )
 
         assert result["success"] is True
-        assert context.state["pending_spec_path"] == str(spec_path)
-        assert "Pending Spec" in context.state["pending_spec_content"]
+        # spec_persisted flag MUST be set to prevent re-saves
+        assert context.state["spec_persisted"] is True
+        # pending_spec_content MUST be preserved for downstream phase agents
+        assert "pending_spec_content" in context.state
+        # pending_spec_path MUST be preserved for downstream phase agents
+        assert "pending_spec_path" in context.state
         pasted_text = """# Pasted Specification
 ## Section 1: Overview
 This is a test specification pasted by the user.

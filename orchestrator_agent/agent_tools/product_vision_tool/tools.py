@@ -4,6 +4,8 @@ product_tools.py
 """
 
 from typing import Annotated, Any, Dict, Optional
+from datetime import datetime, timezone
+from pathlib import Path
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
@@ -11,6 +13,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
 from agile_sqlmodel import Product, get_engine
+from tools.spec_tools import (
+    UpdateSpecAndCompileAuthorityInput,
+    update_spec_and_compile_authority,
+)
 
 
 # --- Tool for SAVING the vision ---
@@ -116,6 +122,9 @@ def save_vision_tool(
                 },
             }
 
+            # --- Link spec & compile authority (Pre-Phase completion) ---
+            _link_spec_if_pending(p_id, tool_context)
+
             return {
                 "success": True,
                 "product_id": p_id,
@@ -127,3 +136,70 @@ def save_vision_tool(
         print(f"   [DB Error] {e}")
         return {"success": False, "error": f"Database Error: {str(e)}"}
 
+
+def _link_spec_if_pending(
+    product_id: Optional[int],
+    tool_context: ToolContext,
+) -> None:
+    """Link the spec file to the product and compile authority.
+
+    Called by save_vision_tool after the product is created/updated.
+    Only acts when ``pending_spec_path`` is present in state and
+    ``spec_persisted`` is not yet True.
+    """
+    if product_id is None:
+        return
+
+    state = tool_context.state
+    if state.get("spec_persisted"):
+        return
+
+    spec_path = state.get("pending_spec_path")
+    if not spec_path:
+        return
+
+    # Validate the file still exists
+    if not Path(spec_path).exists():
+        print(
+            f"   [save_vision_tool] pending_spec_path '{spec_path}' "
+            "not found on disk — skipping spec link."
+        )
+        return
+
+    # Persist the link (path + timestamp only, no blob)
+    with Session(get_engine()) as session:
+        product = session.get(Product, product_id)
+        if not product:
+            return
+        product.spec_file_path = spec_path
+        product.spec_loaded_at = datetime.now(timezone.utc)
+        session.add(product)
+        session.commit()
+        print(
+            f"   [save_vision_tool] Spec linked → {spec_path}"
+        )
+
+    state["spec_persisted"] = True
+
+    # Compile authority (creates SpecRegistry + CompiledSpecAuthority)
+    try:
+        compile_input = UpdateSpecAndCompileAuthorityInput(
+            product_id=product_id,
+            content_ref=spec_path,
+        )
+        compile_result = update_spec_and_compile_authority(
+            compile_input,
+            tool_context=tool_context,
+        )
+        if compile_result.get("success"):
+            print(
+                f"   [save_vision_tool] Authority compiled "
+                f"(version={compile_result.get('spec_version_id')})"
+            )
+        else:
+            print(
+                f"   [save_vision_tool] Authority compile failed: "
+                f"{compile_result.get('error')}"
+            )
+    except Exception as exc:  # pylint: disable=broad-except
+        print(f"   [save_vision_tool] Authority compile error: {exc}")

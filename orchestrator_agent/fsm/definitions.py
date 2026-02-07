@@ -13,7 +13,6 @@ from tools.orchestrator_tools import (
     load_specification_from_file,
 )
 from tools.spec_tools import (
-    save_project_specification,
     read_project_specification,
     compile_spec_authority_for_version,
     update_spec_and_compile_authority,
@@ -105,12 +104,9 @@ ROUTING_INSTRUCTION = """
    - **Compile Authority (Preview):** Call `preview_spec_authority(content=spec_content)`
      - Store output `compiled_authority` JSON string in `tool_context.state["compiled_authority_cached"]`
    - **Pass to vision agent:** Call `product_vision_tool(user_raw_text="Analyze this specification.", specification_content=spec_content, compiled_authority=<cached_authority>, prior_vision_state="NO_HISTORY")`
-   - When vision is approved and saved:
-     a. Call `save_vision_tool(...)` → creates product, returns product_id
-     b. Immediately call `save_project_specification(product_id=<new_id>, spec_source="file", content=<file_path>)`
-        - This will automatically trigger the FINAL persisting compilation.
-     c. Confirm: "Project and specification saved successfully. Authority compiled."
-   - **STOP** and ask what to do next
+   - **STOP immediately after `product_vision_tool` returns.** Do NOT call any save tools.
+     The FSM will transition to VISION_REVIEW where the user can approve or request changes.
+     Saving happens in later states (VISION_REVIEW → VISION_PERSISTENCE).
 
 4. **New Project with Pasted Content:** `"start"`, `"new"`, `"create"`, `"vision"` with no file path mentioned
    - User provides pasted specification text directly in message
@@ -118,11 +114,9 @@ ROUTING_INSTRUCTION = """
    - **Compile Authority (Preview):** Call `preview_spec_authority(content=<pasted_text>)`
      - Store output `compiled_authority` JSON string in `tool_context.state["compiled_authority_cached"]`
    - Call: `product_vision_tool(user_raw_text=<pasted_text>, specification_content=<pasted_text>, compiled_authority=<cached_authority>, prior_vision_state="NO_HISTORY")`
-   - When vision is approved:
-     a. Call `save_vision_tool(...)`
-     b. Call `save_project_specification(product_id=<new_id>, spec_source="text", content=<pasted_text>)`
-     c. System will create backup file in specs/ folder
-     d. Confirm: "Project saved. Spec Authority compiled."
+   - **STOP immediately after `product_vision_tool` returns.** Do NOT call any save tools.
+     The FSM will transition to VISION_REVIEW where the user can approve or request changes.
+     Saving happens in later states (VISION_REVIEW → VISION_PERSISTENCE).
 
 5. **Status/DB:** `"count"`, `"status"`, `"list"`
    - Call: `count_projects` or `list_projects`.
@@ -190,6 +184,7 @@ VISION_PERSISTENCE_INSTRUCTION = """
 
 **Behavior:**
 1. **Display:** Confirm the save result from `save_vision_tool` (success, project name, product_id).
+   - The specification and authority were already linked and compiled by `save_vision_tool`.
 2. **Prompt:** Ask: *"Project saved. Shall we generate the initial backlog?"*
 3. **STOP.**
 """
@@ -472,7 +467,6 @@ STATE_REGISTRY = {
             load_specification_from_file,
             preview_spec_authority,
             save_vision_tool,
-            save_project_specification,
             read_project_specification,
             compile_spec_authority_for_version,
             update_spec_and_compile_authority,
@@ -522,10 +516,12 @@ STATE_REGISTRY = {
         instruction=COMMON_HEADER + """
 # STATE 3 — VISION COMPLETE (Post-Save)
 
-**Trigger:** Vision has been saved to database.
+**Trigger:** Vision has been saved to database via `save_vision_tool`.
 
 **Behavior:**
-1. **Confirm:** "Vision saved successfully."
+1. **Confirm:** "Vision and specification saved successfully. Authority compiled."
+   - `save_vision_tool` already linked the spec file and compiled the authority.
+   - Do NOT call any spec or authority tools.
 2. **Prompt:** "Would you like to generate the backlog now?"
 3. **STOP.**
 """,

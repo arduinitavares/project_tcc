@@ -10,6 +10,7 @@ from tools.db_tools import (
 )
 
 from tools.spec_tools import (
+    link_spec_to_product,
     save_project_specification,
     read_project_specification,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "create_user_story",
     "create_task",
     "query_product_structure",
+    "link_spec_to_product",
     "save_project_specification",
     "read_project_specification",
 ]

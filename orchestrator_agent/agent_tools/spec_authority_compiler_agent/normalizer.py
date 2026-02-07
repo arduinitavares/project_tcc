@@ -116,16 +116,25 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
 
     # Snapshot original invariant IDs/types before rewriting
     original_invariants = list(success.invariants)
-    original_id_to_type: Dict[str, Any] = {inv.id: inv.type for inv in original_invariants}
+    # Multi-map: an original ID may appear on several invariants with
+    # different types (common LLM behaviour).  A plain dict loses all
+    # but the last type; we keep them all so source_map rewriting can
+    # try each candidate.
+    original_id_to_types: Dict[str, List[Any]] = {}
+    for _inv in original_invariants:
+        original_id_to_types.setdefault(_inv.id, []).append(_inv.type)
 
     # Check if all invariants have duplicate/placeholder IDs (common LLM behavior)
     original_ids = [inv.id for inv in original_invariants]
     has_duplicate_ids = len(set(original_ids)) < len(original_ids)
     
-    # When IDs are duplicated and lengths match, prefer positional matching
+    # When IDs are duplicated, prefer positional matching.
+    # This is safe when source_map has at least as many entries as invariants
+    # (the first N source_map entries align with the N invariants; extras are
+    # additional evidence for the same invariants).
     use_positional_matching = (
         has_duplicate_ids
-        and len(success.source_map) == len(success.invariants)
+        and len(success.source_map) >= len(success.invariants)
     )
 
     id_to_excerpt: Dict[str, str] = {}
@@ -159,6 +168,10 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
             )
         inv.id = compute_invariant_id(excerpt, inv.type)
 
+    # Build the set of already-rewritten invariant IDs so that the
+    # source_map loop can disambiguate duplicate-ID / different-type cases.
+    normalized_inv_ids = {inv.id for inv in success.invariants}
+
     # Rewrite source_map invariant_id deterministically
     # use_positional_matching is already computed above
     for entry_index, entry in enumerate(success.source_map):
@@ -173,11 +186,38 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
         inv_type = None
         
         # Prefer positional matching when IDs are duplicated/placeholder
-        if use_positional_matching:
+        if use_positional_matching and entry_index < len(original_invariants):
             inv_type = original_invariants[entry_index].type
+        elif use_positional_matching:
+            # Extra source_map entry beyond invariant count.
+            # Try each candidate type and pick the one whose computed ID
+            # matches a known (already-rewritten) invariant.
+            candidate_types = original_id_to_types.get(entry.invariant_id, [])
+            for ctype in candidate_types:
+                if compute_invariant_id(excerpt, ctype) in normalized_inv_ids:
+                    inv_type = ctype
+                    break
+            if inv_type is None and candidate_types:
+                inv_type = candidate_types[0]
+            elif inv_type is None:
+                inv_type = original_invariants[0].type
         else:
-            inv_type = original_id_to_type.get(entry.invariant_id)
-            if inv_type is None:
+            candidate_types = original_id_to_types.get(entry.invariant_id, [])
+            if len(candidate_types) == 1:
+                inv_type = candidate_types[0]
+            elif len(candidate_types) > 1:
+                # Multiple invariants share this LLM-generated ID with
+                # different types.  Try each type and pick the one whose
+                # computed ID matches a known (already-rewritten) invariant.
+                for ctype in candidate_types:
+                    if compute_invariant_id(excerpt, ctype) in normalized_inv_ids:
+                        inv_type = ctype
+                        break
+                if inv_type is None:
+                    # Fallback: use the first candidate type
+                    inv_type = candidate_types[0]
+            else:
+                # No matching invariant for this source_map entry
                 if len(success.invariants) == 1:
                     inv_type = success.invariants[0].type
                 elif len(success.source_map) == len(original_invariants):

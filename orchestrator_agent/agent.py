@@ -50,7 +50,6 @@ from tools.orchestrator_tools import (
     load_specification_from_file,
 )
 from tools.spec_tools import (
-    save_project_specification,
     read_project_specification,
     compile_spec_authority_for_version,
     update_spec_and_compile_authority,
@@ -95,7 +94,6 @@ orchestrator_agent = Agent(
         select_project,
         load_specification_from_file,
         # Specification tools
-        save_project_specification,
         read_project_specification,
         compile_spec_authority_for_version,
         update_spec_and_compile_authority,
