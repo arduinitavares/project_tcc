@@ -90,10 +90,6 @@ def patch_get_engine_globally(engine, monkeypatch):
     # Also patch in all modules that import get_engine
     # These need explicit patching because they import at module load time
     modules_to_patch = [
-        "orchestrator_agent.agent_tools.story_pipeline.save",
-        "orchestrator_agent.agent_tools.story_pipeline.batch",
-        "orchestrator_agent.agent_tools.story_pipeline.single_story",
-        "orchestrator_agent.agent_tools.story_pipeline.steps.setup",
         "orchestrator_agent.agent_tools.product_vision_tool.tools",
         "orchestrator_agent.agent_tools.product_roadmap_agent.tools",
         "orchestrator_agent.agent_tools.sprint_planner_tool.tools",

@@ -399,14 +399,18 @@ SPRINT_SETUP_INSTRUCTION = """
 **Behavior:**
 1. **Confirm Preconditions:** Ensure `tool_context.state["approved_backlog"]` exists.
    - If missing, redirect to backlog creation and call `backlog_primer_tool`.
-2. **Gather Inputs:** Ask for:
+2. **Story Lookup:** If the user asks to see stories, list stories, or asks "what are the stories?",
+   call `get_project_details(product_id=<active_project_id>)` to retrieve the project structure.
+   Display the story/feature/epic/theme counts and any relevant details. Do NOT hallucinate
+   tool names — use ONLY `get_project_details` for querying project data.
+3. **Gather Inputs:** Ask for:
    - Candidate story list with `story_id`, `story_title`, and `priority` (plus `story_points` if available).
    - `team_velocity_assumption` (Low/Medium/High).
    - `sprint_duration_days` (default 14).
    - Optional: `max_story_points`.
    - Optional: `include_task_decomposition` (default true).
-3. **Call Tool:** `sprint_planner_tool(...)` once the user provides required inputs.
-4. **STOP.**
+4. **Call Tool:** `sprint_planner_tool(...)` once the user provides required inputs.
+5. **STOP.**
 """
 
 SPRINT_DRAFT_INSTRUCTION = """
@@ -579,7 +583,7 @@ STATE_REGISTRY = {
       name=OrchestratorState.SPRINT_SETUP,
       phase=OrchestratorPhase.SPRINT,
       instruction=COMMON_HEADER + SPRINT_SETUP_INSTRUCTION,
-      tools=[sprint_planner_tool],
+      tools=[sprint_planner_tool, get_project_details],
       allowed_transitions={
          OrchestratorState.SPRINT_SETUP,
          OrchestratorState.SPRINT_DRAFT,
