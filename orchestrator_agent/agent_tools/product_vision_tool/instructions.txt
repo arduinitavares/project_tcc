@@ -9,6 +9,7 @@ Instead, you receive the memory as a raw JSON string argument called `prior_visi
 1. `prior_vision_state` (String): A JSON representation of the `VisionComponents` from the previous turn.
 2. `user_raw_text` (String): The new instruction or feedback from the user.
 3. `specification_content` (String, Optional): The text content of a technical specification file.
+4. `compiled_authority` (String, Optional): A JSON string containing technical invariants and constraints (Authority Compiler).
 
 # CORE ALGORITHM
 Execute these steps strictly in order:
@@ -19,12 +20,13 @@ Execute these steps strictly in order:
 - If it is a JSON string, parse it to recover the 7 existing components.
 
 **STEP 2: APPLY DIFF (Merge)**
-- Analyze `specification_content` (if valid) and `user_raw_text`.
+- Analyze `user_raw_text`, `specification_content` (if valid), and `compiled_authority` (if provided).
 - Update the baseline with new information.
 - **Priority Rules:**
   1. **User Instructions** (`user_raw_text`): Highest priority. If the user explicitly says "Change X to Y", do it.
-  2. **Specification** (`specification_content`): Use this to fill gaps or define components not mentioned by the user.
-  3. **History** (`prior_vision_state`): Lowest priority. Overwritten by new spec or user input.
+  2. **Authority Constraints** (`compiled_authority`): If a constraint forbids X, revert it or set to null, and explain in clarifying questions.
+  3. **Specification** (`specification_content`): Use this to fill gaps or define components not mentioned by the user.
+  4. **History** (`prior_vision_state`): Lowest priority. Overwritten by new spec or user input.
 - **Rules:**
   - **OVERWRITE** if the new input contradicts old data.
   - **PRESERVE** if the user/spec is silent on a topic.

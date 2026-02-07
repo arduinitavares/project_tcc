@@ -95,6 +95,15 @@ class InputSchema(BaseModel):
             ),
         ),
     ]
+    compiled_authority: Annotated[
+        str,
+        Field(
+            description=(
+                "Compiled authority JSON (invariants/constraints) from the orchestrator. "
+                "If no authority is available yet, pass an empty string."
+            ),
+        ),
+    ]
 
 class OutputSchema(BaseModel):
     """

@@ -14,25 +14,24 @@ This project is part of a **TCC (Trabalho de Conclusão de Curso)** research ini
 
 ### 🎯 Complete Agile Workflow Pipeline
 ```
-Vision → Specification Authority → Roadmap → Features → User Stories → Sprint Planning → Execution
+Vision → Specification Authority → Initial Backlog → Roadmap → User Stories → Sprint Planning → Execution
 ```
 
 ### 🧠 Intelligent Agents
 | Agent | Role | Capabilities |
 |-------|------|--------------|
-| **Product Vision Agent** | Product Owner | Guides users through 7-component vision creation via multi-turn conversation |
-| **Spec Authority Compiler** | Architect | Compiles technical specifications into deterministic authority artifacts |
-| **Roadmap Agent** | Product Owner | Converts vision & spec into prioritized themes with Now/Next/Later timeframes |
-| **Story Pipeline** | Developer Support | Generates INVEST-ready user stories with spec validation & authority pinning |
-| **Negation Checker** | Compliance Assistant | Detects prohibited-capability mentions that are explicitly negated (optional LLM gate) |
-| **Sprint Planning** | Scrum Master | Plans sprints with capacity modeling and team auto-creation |
-| **Sprint Execution** | Scrum Master | Tracks progress, status updates, and velocity metrics |
+| **Product Vision Tool** | Product Owner | **Strategic Initiation:** Constructs a 7-component "True North" vision statement using the "Bucket Brigade" stateless pattern. |
+| **Spec Authority Compiler** | Architect | **Feasibility Filter:** A non-conversational compiler that extracts deterministic "Definition of Done" constraints from technical specs. |
+| **Backlog Primer** | Product Owner | **Pre-Planning:** Converts Vision into a prioritized list of Gross Requirements (not User Stories) using T-Shirt sizing. |
+| **Roadmap Builder** | Product Owner | **Strategic Planning:** Maps requirements to time-based milestones, respecting technical dependencies and themes. |
+| **User Story Writer** | PO Assistant | **Requirement Refinement:** Decomposes requirements into INVEST-ready "Vertical Slices" using the "Three Cs" protocol. |
+| **Sprint Planner** | Scrum Master | **Tactical Planning:** Facilitates scope selection via a "Pull System" and auto-decomposes stories into technical tasks. |
 
 ### 🛠️ Key Capabilities
-- **Spec-Driven Development**: Single source of truth via `SpecRegistry` and deterministic validation gates.
-- **Draft → Review → Commit Pattern**: All artifacts go through validation before persistence.
-- **Authority Pinning**: Story acceptance depends on compiled authority, preventing scope creep.
-- **Stateless Agents**: Predictable behavior with state injection via JSON.
+- **Spec-Driven Architecture**: Single source of truth via `SpecRegistry`. All downstream artifacts (stories, roadmap) are validated against compiled authority.
+- **Bucket Brigade Architecture**: Agents are stateless processors that receive state, apply a "diff," and pass it forward. This ensures predictable behavior.
+- **Strict Scrum Compliance**: All agents leverage *Scrum For Dummies, 2nd Edition* as the authoritative source for their logic (e.g., INVEST, Vertical Slicing, Pull Systems).
+- **Draft → Review → Commit Pattern**: Artifacts are generated in a draft state and require explicit user confirmation before persistence.
 - **WorkflowEvent Metrics**: Built-in tracking for TCC evaluation (NASA-TLX, cycle time).
 
 ---
@@ -40,28 +39,28 @@ Vision → Specification Authority → Roadmap → Features → User Stories →
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Orchestrator Agent                        │
-│     (Explicit FSM with 22 States, Registry & Routing)       │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │   Vision    │  │  Spec Auth  │  │   Roadmap Agent     │  │
-│  │   Agent     │  │  Compiler   │  │   (Context-Aware)   │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
-│                          │                                  │
-│                   ┌──────▼──────┐                           │
-│                   │ Spec Registry│                           │
-│                   │ & Authority │                           │
-│                   └──────┬──────┘                           │
-│                          │                                  │
-│  ┌───────────────────────▼─────────────────────────────────┐│
-│  │              Story Pipeline & Sprint Planning            ││
-│  │  (Spec-Validated Story Generation -> Backlog -> Sprint) ││
-│  └─────────────────────────────────────────────────────────┘│
-├─────────────────────────────────────────────────────────────┤
-│                    SQLite Database                           │
-│  (Products, Specs, CompiledAuthority, Epics, Stories)       │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                          Orchestrator Agent                              │
+│           (Explicit FSM, Registry & Bucket Brigade Routing)              │
+├──────────────────────────────────────────────────────────────────────────┤
+│  ┌──────────────┐   ┌──────────────┐   ┌──────────────┐  ┌────────────┐  │
+│  │ Product      │   │ Spec Auth    │   │ Backlog      │  │ Roadmap    │  │
+│  │ Vision Tool  │   │ Compiler     │   │ Primer       │  │ Builder    │  │
+│  └──────────────┘   └──────────────┘   └──────────────┘  └────────────┘  │
+│                               │                                          │
+│                        ┌──────▼──────┐                                   │
+│                        │ Spec Registry│                                  │
+│                        │ & Authority  │                                  │
+│                        └──────┬───────┘                                  │
+│                               │                                          │
+│  ┌────────────────────────────▼─────────────────────────────────────────┐│
+│  │              Tactical & Execution Tools                              ││
+│  │  (User Story Writer -> Sprint Planner -> Execution)                  ││
+│  └──────────────────────────────────────────────────────────────────────┘│
+├──────────────────────────────────────────────────────────────────────────┤
+│                          SQLite Database                                 │
+│  (Products, Specs, CompiledAuthority, Epics, Stories)                    │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Design Patterns
@@ -127,17 +126,18 @@ You: Let's call it MealMuse...
 Agent: Great! Vision saved. Now, do you want to define the Technical Specification?
 ```
 
-### 2. Define Specification & Plan Sprint
+### 2. Define Specification & Plan
 
 ```
 You: Here is the technical spec for MealMuse... [Pastes Spec]
 
 Agent: Spec compiled and Authority accepted. 
-Ready to generate Roadmap and User Stories based on this spec.
+I will now generate the Initial Product Backlog (Gross Requirements) before we build the Roadmap.
 
-You: Plan a sprint for MealMuse
+You: Proceed.
 
-Agent: Based on the Spec and Roadmap, here's your backlog...
+Agent: Backlog prioritized. Now building the Roadmap...
+[Generates Milestones with Themes]
 ```
 
 ### 3. Execute Sprint Work
@@ -165,12 +165,12 @@ project_tcc/
 │   ├── agent.py                     # Root agent with all tools
 │   ├── instructions.txt             # State machine routing
 │   └── agent_tools/
-│       ├── product_vision_tool/     # Vision gathering agent
-│       ├── spec_authority_compiler_agent/ # Spec Compiler
-│       ├── product_roadmap_agent/   # Roadmap planning agent
-│       ├── negation_checker_agent/  # Optional negation tolerance for forbidden terms
-│       ├── story_pipeline/          # Spec validation pipeline
-│       └── sprint_planning/         # Sprint planning & execution
+│       ├── product_vision_tool/           # Vision gathering (Stage 1)
+│       ├── spec_authority_compiler_agent/ # Spec Compiler (Feasibility)
+│       ├── backlog_primer/                # Gross Requirements (Pre-Planning)
+│       ├── roadmap_builder/               # Roadmap (Stage 2)
+│       ├── user_story_writer_tool/        # Story Refinement ("Three Cs")
+│       └── sprint_planner_tool/           # Sprint Planning (Scope & Tasks)
 │
 ├── tools/
 │   ├── orchestrator_tools.py        # Read-only query tools
@@ -248,29 +248,17 @@ pytest tests/
 pytest tests/ --cov=. --cov-report=html
 ```
 
-### Negation Tolerance (Optional)
-
-The story pipeline can optionally allow **negated** mentions of forbidden capabilities
-(e.g., “must not use OAuth1”) using an LLM-based classifier. This is disabled by default
-and should be enabled only when human review is in the loop.
-
-Enable via config:
-
-```
-story_pipeline:
-    negation_tolerance_llm: true
-```
-
 ---
 
 ## 🛣️ Roadmap
 
 ### ✅ Completed (v1.1)
-- [x] Product Vision Agent (7-component gathering)
+- [x] Product Vision Tool (7-component gathering)
 - [x] Specification Authority System (Compiler & Validation Gates)
-- [x] Roadmap Agent (Now/Next/Later prioritization)
-- [x] Story Pipeline with Spec Authority Pinning
-- [x] Sprint Planning & Execution tools
+- [x] Backlog Primer (Gross Requirements Generation)
+- [x] Roadmap Builder (Now/Next/Later prioritization)
+- [x] User Story Writer ("Three Cs" & INVEST validation)
+- [x] Sprint Planner (Scope "Pull" & Task Decomposition)
 - [x] WorkflowEvent metrics capture
 
 ### 🔜 Planned (v1.2)

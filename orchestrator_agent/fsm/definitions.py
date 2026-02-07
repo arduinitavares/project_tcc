@@ -17,6 +17,7 @@ from tools.spec_tools import (
     read_project_specification,
     compile_spec_authority_for_version,
     update_spec_and_compile_authority,
+    preview_spec_authority,
 )
 from orchestrator_agent.agent_tools.product_vision_tool.tools import save_vision_tool
 from orchestrator_agent.agent_tools.product_vision_tool.agent import root_agent as vision_agent
@@ -101,22 +102,27 @@ ROUTING_INSTRUCTION = """
    - **Extract file path** from user message (look for patterns: `*.md`, `*.txt`, `docs/...`, `C:\\...`)
    - **Load content:** Call `load_specification_from_file(file_path=<extracted_path>)` → spec_content
    - **Store in state:** Save to `tool_context.state["pending_spec_content"]` and `state["pending_spec_path"]`
-   - **Pass to vision agent:** Call `product_vision_tool(user_raw_text="Analyze this specification.", specification_content=spec_content, prior_vision_state="NO_HISTORY")`
+   - **Compile Authority (Preview):** Call `preview_spec_authority(content=spec_content)`
+     - Store output `compiled_authority` JSON string in `tool_context.state["compiled_authority_cached"]`
+   - **Pass to vision agent:** Call `product_vision_tool(user_raw_text="Analyze this specification.", specification_content=spec_content, compiled_authority=<cached_authority>, prior_vision_state="NO_HISTORY")`
    - When vision is approved and saved:
      a. Call `save_vision_tool(...)` → creates product, returns product_id
      b. Immediately call `save_project_specification(product_id=<new_id>, spec_source="file", content=<file_path>)`
-     c. Confirm: "Project and specification saved successfully. Specification loaded from <the file path>."
+        - This will automatically trigger the FINAL persisting compilation.
+     c. Confirm: "Project and specification saved successfully. Authority compiled."
    - **STOP** and ask what to do next
 
 4. **New Project with Pasted Content:** `"start"`, `"new"`, `"create"`, `"vision"` with no file path mentioned
    - User provides pasted specification text directly in message
-   - Call: `product_vision_tool(user_raw_text=<pasted_text>, prior_vision_state="NO_HISTORY")`
    - **Store pasted content:** Save to `tool_context.state["pending_spec_content"] = <pasted_text>`
+   - **Compile Authority (Preview):** Call `preview_spec_authority(content=<pasted_text>)`
+     - Store output `compiled_authority` JSON string in `tool_context.state["compiled_authority_cached"]`
+   - Call: `product_vision_tool(user_raw_text=<pasted_text>, specification_content=<pasted_text>, compiled_authority=<cached_authority>, prior_vision_state="NO_HISTORY")`
    - When vision is approved:
      a. Call `save_vision_tool(...)`
      b. Call `save_project_specification(product_id=<new_id>, spec_source="text", content=<pasted_text>)`
-     c. System will create backup file in specs/ folder with pattern: <project_name>_<id>_spec.md
-     d. Confirm: "Project saved. Specification backed up to specs/ folder."
+     c. System will create backup file in specs/ folder
+     d. Confirm: "Project saved. Spec Authority compiled."
 
 5. **Status/DB:** `"count"`, `"status"`, `"list"`
    - Call: `count_projects` or `list_projects`.
@@ -157,8 +163,9 @@ VISION_INTERVIEW_INSTRUCTION = """
 2. **Construct Arguments:**
    - `user_raw_text`: The EXACT new string from the user.
    - `specification_content`: Use `tool_context.state["pending_spec_content"]` if present; otherwise empty string.
+   - `compiled_authority`: Use `tool_context.state["compiled_authority_cached"]` if present; otherwise empty string.
    - `prior_vision_state`: **COPY** the entire JSON string from the *previous* `product_vision_tool` output found in the chat history.
-3. **Execute Call:** `product_vision_tool(user_raw_text=..., specification_content=..., prior_vision_state=...)`
+3. **Execute Call:** `product_vision_tool(user_raw_text=..., specification_content=..., compiled_authority=..., prior_vision_state=...)`
 4. **STOP.**
 """
 
@@ -282,6 +289,7 @@ ROADMAP_INTERVIEW_INSTRUCTION = """
 2. Confirm the save and state the pipeline is complete.
 3. **STOP.**
 """
+
 
 ROADMAP_REVIEW_INSTRUCTION = """
 # STATE 27 — ROADMAP REVIEW MODE
@@ -462,6 +470,7 @@ STATE_REGISTRY = {
             get_project_details,
             get_project_by_name,
             load_specification_from_file,
+            preview_spec_authority,
             save_vision_tool,
             save_project_specification,
             read_project_specification,

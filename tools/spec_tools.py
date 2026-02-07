@@ -97,6 +97,12 @@ class ReadProjectSpecificationInput(BaseModel):
     """
 
 
+class PreviewSpecAuthorityInput(BaseModel):
+    """Input schema for preview_spec_authority tool."""
+    
+    content: str = Field(description="The raw specification text to compile.")
+
+
 # pylint: disable=too-many-locals,too-many-return-statements
 # Justification: Tool validation requires multiple early returns for error handling.
 # Local variables are needed to handle both file and text spec sources.
@@ -415,6 +421,58 @@ def read_project_specification(
                 f"{len(sections)} sections)"
             ),
         }
+
+
+def preview_spec_authority(
+    params: PreviewSpecAuthorityInput,
+    tool_context: Optional[ToolContext] = None,  # pylint: disable=unused-argument
+) -> Dict[str, Any]:
+    """
+    Stateless 'Dry Run' of the Authority Compiler.
+    Used during project initiation (before product_id exists) to make 
+    constraints available to the Product Vision Agent.
+    
+    Args:
+        params: {"content": "raw spec text"}
+    
+    Returns:
+        JSON dict with "compiled_authority" (str) or "error"
+    """
+    try:
+        parsed = PreviewSpecAuthorityInput.model_validate(params or {})
+    except ValidationError as e:
+        return {"success": False, "error": f"Invalid input: {e}"}
+
+    print(f"[preview_spec_authority] Compiling {len(parsed.content)} chars...")
+    
+    try:
+        # Invoke compiler directly (stateless)
+        raw_json = _invoke_spec_authority_compiler(
+            spec_content=parsed.content,
+            content_ref=None,
+            product_id=None,
+            spec_version_id=None
+        )
+        
+        # Normalize to ensure valid schema
+        normalized = normalize_compiler_output(raw_json)
+        
+        if isinstance(normalized.root, SpecAuthorityCompilationFailure):
+            return {
+                "success": False,
+                "error": "Compilation failed",
+                "details": normalized.root.model_dump()
+            }
+            
+        success_artifact = normalized.root
+        return {
+            "success": True,
+            "compiled_authority": success_artifact.model_dump_json()
+        }
+        
+    except Exception as e:
+        logger.exception("preview_spec_authority failed")
+        return {"success": False, "error": str(e)}
 
 
 def _extract_markdown_sections(spec_text: str) -> List[str]:
