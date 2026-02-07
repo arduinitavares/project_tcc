@@ -593,7 +593,7 @@ def read_project_specification(
 
 def preview_spec_authority(
     params: PreviewSpecAuthorityInput,
-    tool_context: Optional[ToolContext] = None,  # pylint: disable=unused-argument
+    tool_context: Optional[ToolContext] = None,
 ) -> Dict[str, Any]:
     """
     Stateless 'Dry Run' of the Authority Compiler.
@@ -632,9 +632,15 @@ def preview_spec_authority(
             }
             
         success_artifact = normalized.root
+        compiled_json = success_artifact.model_dump_json()
+
+        # Cache in session state so downstream phases have immediate access
+        if tool_context and tool_context.state is not None:
+            tool_context.state["compiled_authority_cached"] = compiled_json
+
         return {
             "success": True,
-            "compiled_authority": success_artifact.model_dump_json()
+            "compiled_authority": compiled_json
         }
         
     except Exception as e:
@@ -1223,6 +1229,12 @@ def compile_spec_authority_for_version(
                 session.add(product)
                 session.commit()
 
+            # Keep session state in sync so downstream phases see the authority
+            if tool_context and tool_context.state is not None:
+                tool_context.state["compiled_authority_cached"] = (
+                    existing_authority.compiled_artifact_json
+                )
+
             return {
                 "success": True,
                 "cached": True,
@@ -1350,6 +1362,10 @@ def compile_spec_authority_for_version(
             authority_id = authority.authority_id
             cached = False
             recompiled = False
+
+        # Keep session state in sync so downstream phases see the authority
+        if tool_context and tool_context.state is not None:
+            tool_context.state["compiled_authority_cached"] = compiled_artifact_json
 
         return {
             "success": True,

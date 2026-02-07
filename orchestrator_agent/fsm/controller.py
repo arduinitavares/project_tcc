@@ -117,6 +117,8 @@ class FSMController:
                 next_state = OrchestratorState.ROADMAP_INTERVIEW
             elif tool_name == "backlog_primer_tool":
                 next_state = OrchestratorState.BACKLOG_INTERVIEW
+            elif tool_name == "sprint_planner_tool":
+                next_state = OrchestratorState.SPRINT_DRAFT
 
         # --- ROADMAP PHASE ---
         if current_state == OrchestratorState.ROADMAP_INTERVIEW:
@@ -138,10 +140,12 @@ class FSMController:
                     next_state = OrchestratorState.ROADMAP_PERSISTENCE
 
         elif current_state == OrchestratorState.ROADMAP_PERSISTENCE:
-            # After roadmap save, user can proceed to story decomposition
+            # After roadmap save, user can proceed to story decomposition or sprint planning
             if tool_name == "user_story_writer_tool":
                 is_complete = tool_output.get("is_complete", False)
                 next_state = OrchestratorState.STORY_REVIEW if is_complete else OrchestratorState.STORY_INTERVIEW
+            elif tool_name == "sprint_planner_tool":
+                next_state = OrchestratorState.SPRINT_DRAFT
 
         # --- STORY PHASE ---
         if current_state == OrchestratorState.STORY_INTERVIEW:

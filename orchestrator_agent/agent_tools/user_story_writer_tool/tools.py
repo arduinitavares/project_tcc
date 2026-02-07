@@ -88,9 +88,11 @@ def save_stories_tool(
                 item = UserStoryItem.model_validate(story_dict)
                 validated.append(item)
             except ValidationError as e:
-                errors = [
-                    f"{err['loc'][0]}: {err['msg']}" for err in e.errors()
-                ]
+                errors = []
+                for err in e.errors():
+                    loc = err.get("loc", ())
+                    prefix = str(loc[0]) if loc else "(model)"
+                    errors.append(f"{prefix}: {err['msg']}")
                 validation_errors.append(f"Story {idx + 1}: {'; '.join(errors)}")
 
         if validation_errors:

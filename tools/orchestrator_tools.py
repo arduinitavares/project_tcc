@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from agile_sqlmodel import Epic, Feature, Product, SpecRegistry, Theme, UserStory, get_engine
+from agile_sqlmodel import CompiledSpecAuthority, Epic, Feature, Product, SpecRegistry, Theme, UserStory, get_engine
 
 # --- Cache configuration ---
 CACHE_TTL_MINUTES: int = 5
@@ -348,9 +348,6 @@ def load_specification_from_file(
         # Primary keys for authority gate fallback (must match keys used elsewhere)
         state["pending_spec_path"] = str(path.absolute())
         state["pending_spec_content"] = content
-        # Backward-compatible keys
-        state["last_loaded_spec_path"] = str(path.absolute())
-        state["last_loaded_spec_size_kb"] = round(file_size_kb, 2)
 
     print(f"[Tool: load_specification_from_file] Loaded {file_size_kb:.1f}KB from {path.name}")
 
@@ -374,8 +371,6 @@ def get_real_business_state() -> Dict[str, Any]:
         "projects_last_refreshed_utc": _utc_now_iso(),
         "current_context": "idle",
         "active_project": None,  # Tracks currently selected project
-        "vision_artifacts": [],
-        "last_tool_output": None,
     }
 
 
@@ -383,19 +378,33 @@ def select_project(product_id: int, tool_context: ToolContext) -> Dict[str, Any]
     """
     Agent tool: Select a project as the active context and load its full details
     into volatile memory. This sets the working context for subsequent operations.
+
+    Hydrates all FSM-relevant state keys so that downstream phases
+    (vision, backlog, sprint, roadmap, stories) can proceed without
+    missing context:
+        - active_project          (product dict + structure counts)
+        - current_project_name
+        - pending_spec_content    (spec text from DB column or disk)
+        - pending_spec_path       (original file path if file-linked)
+        - compiled_authority_cached
+        - latest_spec_version_id
+        - spec_persisted          (True when a spec is already linked)
+        - current_context         ("project_selected")
     """
     print(f"\n[Tool: select_project] Setting project ID {product_id} as active...")
-    
+
     # Get full project details
     details = get_project_details(product_id)
-    
+
     if not details["success"]:
         print("   [Context] Failed to set active project.")
         return details
-    
-    # Store in volatile memory
+
+    # --- Populate session state ---
     state: Dict[str, Any] = cast(Dict[str, Any], tool_context.state)
     product_details = details["product"]
+
+    # Core active-project snapshot
     state["active_project"] = {
         "product_id": product_id,
         "name": product_details["name"],
@@ -410,40 +419,126 @@ def select_project(product_id: int, tool_context: ToolContext) -> Dict[str, Any]
         "structure": details["structure"],
     }
     state["current_project_name"] = product_details["name"]
-    if product_details.get("technical_spec") is not None:
-        state["pending_spec_content"] = product_details["technical_spec"]
-    elif product_details.get("spec_file_path"):
-        # File-linked spec: read content from disk (no DB blob)
-        _spec_path = Path(product_details["spec_file_path"])
-        if _spec_path.exists():
-            try:
-                state["pending_spec_content"] = _spec_path.read_text(
-                    encoding="utf-8"
-                )
-            except (OSError, UnicodeDecodeError):
-                state.pop("pending_spec_content", None)
-        else:
-            state.pop("pending_spec_content", None)
-    else:
-        state.pop("pending_spec_content", None)
-    if product_details.get("spec_file_path") is not None:
-        state["pending_spec_path"] = product_details["spec_file_path"]
-    else:
-        state.pop("pending_spec_path", None)
-    if product_details.get("compiled_authority_json") is not None:
-        state["compiled_authority_cached"] = product_details["compiled_authority_json"]
-    else:
-        state.pop("compiled_authority_cached", None)
-    if product_details.get("latest_spec_version_id") is not None:
-        state["latest_spec_version_id"] = product_details["latest_spec_version_id"]
-    else:
-        state.pop("latest_spec_version_id", None)
+
+    # --- Specification hydration ---
+    _hydrate_spec_state(state, product_details)
+
+    # --- Compiled authority ---
+    authority_json = product_details.get("compiled_authority_json")
+    # Fallback: if Product column is null but a compiled authority exists in the
+    # dedicated table, load it from there and backfill the Product column.
+    if authority_json is None and product_details.get("latest_spec_version_id"):
+        authority_json = _load_authority_fallback(
+            product_id, product_details["latest_spec_version_id"]
+        )
+        if authority_json:
+            # Update the snapshot so the return value is also correct
+            state["active_project"]["compiled_authority_json"] = authority_json
+    _set_or_clear(state, "compiled_authority_cached", authority_json)
+
+    # --- Spec version ---
+    _set_or_clear(state, "latest_spec_version_id", product_details.get("latest_spec_version_id"))
+
+    # --- Guard: mark spec as already linked when applicable ---
+    if product_details.get("spec_file_path") or product_details.get("technical_spec"):
+        state["spec_persisted"] = True
+
     state["current_context"] = "project_selected"
-    
+
     print(f"   [Context] Active project set to '{product_details['name']}'")
-    
+
     return {
         "success": True,
         "active_project": state["active_project"],
         "message": f"Selected '{product_details['name']}' as active project",
     }
+
+
+# ------------------------------------------------------------------
+# Internal helpers for select_project state hydration
+# ------------------------------------------------------------------
+
+def _set_or_clear(state: Dict[str, Any], key: str, value: Any) -> None:
+    """Set *key* in state when *value* is not None, otherwise delete it."""
+    if value is not None:
+        state[key] = value
+    elif key in state:
+        del state[key]
+
+
+def _hydrate_spec_state(state: Dict[str, Any], product_details: Dict[str, Any]) -> None:
+    """Populate pending_spec_content and pending_spec_path from DB or disk."""
+    # 1. Inline blob takes precedence
+    if product_details.get("technical_spec") is not None:
+        state["pending_spec_content"] = product_details["technical_spec"]
+        _set_or_clear(state, "pending_spec_path", product_details.get("spec_file_path"))
+        return
+
+    # 2. File-linked spec: read from disk
+    spec_file = product_details.get("spec_file_path")
+    if spec_file:
+        _spec_path = Path(spec_file)
+        state["pending_spec_path"] = spec_file
+        if _spec_path.exists():
+            try:
+                state["pending_spec_content"] = _spec_path.read_text(encoding="utf-8")
+                return
+            except (OSError, UnicodeDecodeError):
+                pass  # fall through to clear
+        # File missing or unreadable
+        if "pending_spec_content" in state:
+            del state["pending_spec_content"]
+        return
+
+    # 3. No spec at all — clean up
+    if "pending_spec_content" in state:
+        del state["pending_spec_content"]
+    if "pending_spec_path" in state:
+        del state["pending_spec_path"]
+
+
+def _load_authority_fallback(product_id: int, spec_version_id: int) -> Optional[str]:
+    """
+    Query CompiledSpecAuthority for the given spec version.  If none exists
+    but the spec version is approved, trigger an on-demand compilation.
+    Backfills Product.compiled_authority_json so future loads are instant.
+    Returns the compiled-authority JSON string, or None.
+    """
+    with Session(get_engine()) as session:
+        # 1. Try loading an existing compiled authority
+        authority = session.exec(
+            select(CompiledSpecAuthority)
+            .where(CompiledSpecAuthority.spec_version_id == spec_version_id)
+            .limit(1)
+        ).first()
+        if authority and authority.compiled_artifact_json:
+            # Backfill the Product column
+            product = session.get(Product, product_id)
+            if product:
+                product.compiled_authority_json = authority.compiled_artifact_json
+                session.add(product)
+                session.commit()
+                print("   [Context] Backfilled compiled_authority_json from authority table")
+            return authority.compiled_artifact_json
+
+    # 2. No compiled authority exists — try to compile on demand
+    try:
+        from tools.spec_tools import compile_spec_authority_for_version, CompileSpecAuthorityForVersionInput
+        print(f"   [Context] No compiled authority found — compiling spec version {spec_version_id}...")
+        result = compile_spec_authority_for_version(
+            CompileSpecAuthorityForVersionInput(
+                spec_version_id=spec_version_id, force_recompile=False
+            ),
+            tool_context=None,
+        )
+        if result.get("success"):
+            # Re-read the Product column which compile_spec just backfilled
+            with Session(get_engine()) as session:
+                product = session.get(Product, product_id)
+                if product and product.compiled_authority_json:
+                    print("   [Context] Compiled and cached authority on demand")
+                    return product.compiled_authority_json
+    except Exception as exc:
+        print(f"   [Context] On-demand authority compilation failed: {exc}")
+
+    return None

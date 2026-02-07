@@ -72,6 +72,10 @@ You never add information, hallucinate, or invent requirements.
 - You MUST NOT offer to "manually draft", "outline", "begin writing", or
   produce ANY deliverable yourself. If no tool exists for the request, the
   answer is: "That capability is not yet available."
+- **TOOL BOUNDARY RULE:** You may ONLY call tools that are available in your
+  current state. If the user requests work that requires a tool you cannot
+  see, explain which workflow step must be completed first and guide them
+  there. NEVER attempt to call a tool that is not in your current tool set.
 
 **WORKFLOW SEQUENCE (IMMUTABLE):**
 Vision → Backlog → Sprint Planning → Roadmap → Stories.
@@ -205,6 +209,14 @@ BACKLOG_INTERVIEW_INSTRUCTION = """
 5. **STOP.**
 
 **CRITICAL:** You MUST pass the previous backlog_items as `prior_backlog_state` to maintain context across turns.
+
+**OUT-OF-PHASE REQUESTS:**
+If the user asks for sprint planning, roadmap creation, story decomposition, or any
+work that belongs to a LATER phase, DO NOT attempt to call any tool that is not
+available in this state. Instead, respond:
+"Sprint planning requires a saved backlog. Let's finish and save the backlog first,
+then we can proceed to sprint planning."
+Then continue with the backlog interview flow.
 """
 
 BACKLOG_REVIEW_INSTRUCTION = """
@@ -243,7 +255,12 @@ BACKLOG_PERSISTENCE_INSTRUCTION = """
 **Behavior:**
 1. **Confirm:** "Backlog saved and locked."
 2. **Routing Logic (CHOOSE ONE):**
-   a. **User wants sprint planning** ("plan sprint", "sprint planning", "sprint backlog"): Route to sprint planning.
+   a. **User wants sprint planning** ("plan sprint", "sprint planning", "sprint backlog"):
+      - Extract stories from `tool_context.state["approved_backlog"]["items"]`.
+      - Ask user for `team_velocity_assumption` (Low / Medium / High) and `sprint_duration_days` (default 14).
+      - Build `available_stories` list with `story_id`, `story_title`, `priority`, and optional `story_points` from each backlog item.
+      - Call `sprint_planner_tool(available_stories=..., team_velocity_assumption=..., sprint_duration_days=..., include_task_decomposition=True)`.
+      - **Do NOT pass specification content, authority data, or any non-sprint fields.**
    b. **User wants roadmap** ("roadmap", "proceed", "next", "yes"): Call `roadmap_builder_tool`.
    c. **User wants to refine/add backlog items** ("add", "change", "priority 3", "decompose"): Call `backlog_primer_tool` with the user's new requirements.
    d. **User asks for anything else** (story decomposition, etc.): Reply ONLY with:
@@ -308,7 +325,7 @@ ROADMAP_PERSISTENCE_INSTRUCTION = """
 
 **Behavior:**
 1. **Confirm:** "Roadmap saved."
-2. **Prompt:** "The next step is **user story decomposition**. Shall we decompose the roadmap requirements into user stories, or would you prefer to: (1) start a new project, (2) refine this project's vision or backlog?"
+2. **Prompt:** "From here you can: (1) **Plan a sprint** — call `sprint_planner_tool`, (2) **Decompose into user stories** — call `user_story_writer_tool`, (3) Start a new project or refine this project's backlog."
 3. **STOP.**
 
 **On User Approval (user says "yes", "stories", "decompose", "proceed", "next"):**
@@ -549,10 +566,11 @@ STATE_REGISTRY = {
       name=OrchestratorState.BACKLOG_PERSISTENCE,
       phase=OrchestratorPhase.BACKLOG,
       instruction=COMMON_HEADER + BACKLOG_PERSISTENCE_INSTRUCTION,
-      tools=[roadmap_builder_tool, backlog_primer_tool],
+      tools=[roadmap_builder_tool, backlog_primer_tool, sprint_planner_tool],
       allowed_transitions={
          OrchestratorState.ROADMAP_INTERVIEW,
          OrchestratorState.SPRINT_SETUP,
+         OrchestratorState.SPRINT_DRAFT,
          OrchestratorState.ROUTING_MODE,
          OrchestratorState.BACKLOG_INTERVIEW,
       }
@@ -613,11 +631,13 @@ STATE_REGISTRY = {
       name=OrchestratorState.ROADMAP_PERSISTENCE,
       phase=OrchestratorPhase.ROADMAP,
       instruction=COMMON_HEADER + ROADMAP_PERSISTENCE_INSTRUCTION,
-      tools=[user_story_writer_tool],
+      tools=[user_story_writer_tool, sprint_planner_tool, save_sprint_plan_tool],
       allowed_transitions={
          OrchestratorState.ROUTING_MODE,
          OrchestratorState.STORY_INTERVIEW,
          OrchestratorState.STORY_REVIEW,
+         OrchestratorState.SPRINT_SETUP,
+         OrchestratorState.SPRINT_DRAFT,
       }
    ),
    OrchestratorState.STORY_INTERVIEW: StateDefinition(

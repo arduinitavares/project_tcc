@@ -38,6 +38,22 @@ from tools.orchestrator_tools import get_real_business_state
 # NOTE: Retry configuration (ZDR, rate limit, provider errors) is now handled
 # exclusively by SelfHealingAgent in orchestrator_agent/agent_tools/utils/resilience.py
 
+# --- MONKEY-PATCH: Enhanced error for tools_dict misses ---
+import google.adk.flows.llm_flows.functions as _adk_functions
+_original_get_tool_and_context = _adk_functions._get_tool_and_context
+
+def _patched_get_tool_and_context(invocation_context, function_call, tools_dict, tool_confirmation=None):
+    if function_call.name not in tools_dict:
+        _keys = list(tools_dict.keys())
+        logging.getLogger("main").error(
+            f"TOOL MISS: '{function_call.name}' not in tools_dict. "
+            f"Available keys ({len(_keys)}): {_keys}"
+        )
+    return _original_get_tool_and_context(invocation_context, function_call, tools_dict, tool_confirmation)
+
+_adk_functions._get_tool_and_context = _patched_get_tool_and_context
+# --- END MONKEY-PATCH ---
+
 # --- CONFIGURATION ---
 litellm.telemetry = False
 litellm.suppress_debug_info = True
@@ -306,7 +322,23 @@ async def run_agent_turn(
     # No BASE_TOOLS merge — prevents the LLM from seeing tools the FSM can't track.
     inner_agent.tools = _dedupe_tools(state_def.tools)
 
-    app_logger.info(f"FSM STATE: {active_state.value}")
+    # --- DEBUG: Log injected tool names for diagnostics ---
+    _injected_names = [
+        getattr(t, "name", None) or getattr(t, "__name__", "?")
+        for t in inner_agent.tools
+    ]
+    app_logger.info(f"FSM STATE: {active_state.value} | Tools injected: {_injected_names}")
+
+    # --- DEBUG: Validate declarations (catches silent _get_declaration failures) ---
+    from google.adk.tools.base_tool import BaseTool as _BT
+    for _tool in inner_agent.tools:
+        if isinstance(_tool, _BT):
+            try:
+                _decl = _tool._get_declaration()
+                if not _decl:
+                    app_logger.warning(f"Tool {_tool.name!r} returned None declaration!")
+            except Exception as _e:
+                app_logger.error(f"Tool {_tool.name!r} declaration FAILED: {_e}")
     # State display moved to after turn completes (shows transition if any)
 
     # Construct Prompt
@@ -385,7 +417,7 @@ async def run_agent_turn(
     except Exception as e:
         # All transient errors (ZDR, 429, 5xx) are now handled by SelfHealingAgent.
         # If we get here, SelfHealingAgent has exhausted retries.
-        app_logger.error("Error during agent turn: %s", e)
+        app_logger.error("Error during agent turn: %s", e, exc_info=True)
         console.print("\n[bold red]ERROR during agent turn.[/bold red]")
         raise
 
