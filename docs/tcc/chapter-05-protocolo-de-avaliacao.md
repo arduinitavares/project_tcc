@@ -1,125 +1,161 @@
 # CAPÍTULO 5 — Protocolo de avaliação
 
-Este capítulo apresenta o protocolo de avaliação aplicado para verificar a viabilidade e eficácia do artefato desenvolvido. O protocolo foi desenhado para ser replicável em estudos futuros e para fornecer evidências empíricas exploratórias alinhadas com a classificação *Design Science Research* do tipo "Apresentação de Algo Presumivelmente Melhor".
+Este capítulo apresenta o protocolo de avaliação adotado para verificar a viabilidade e analisar, de forma exploratória, os efeitos do artefato proposto. O protocolo foi definido para ser **replicável**: descreve tarefas, instrumentos, fontes de dados, critérios de coleta e etapas de extração de métricas, com rastreabilidade para os artefatos gerados pelo próprio sistema.
 
-## 5.1 Questões de pesquisa e hipóteses
+## 5.1 Questões de pesquisa, hipóteses e variáveis observáveis
 
-A avaliação foi estruturada para responder às seguintes questões de pesquisa, derivadas do problema e dos objetivos definidos nos capítulos anteriores:
+A avaliação é orientada por questões de pesquisa (QP) derivadas do problema e dos objetivos, com hipóteses (H) definidas no Capítulo 1:
 
--   **QP1:** A utilização da plataforma multiagente está associada a menor percepção de esforço cognitivo do desenvolvedor-pesquisador durante tarefas de planejamento ágil?
--   **QP2:** Os artefatos gerados pela plataforma (histórias de usuário, planos de sprint) atendem a critérios estruturais de qualidade?
--   **QP3:** A plataforma consegue executar o ciclo de planejamento de ponta a ponta de forma operacionalmente viável (avaliação de viabilidade do pipeline, não de desempenho ótimo)?
+- **QP1 (carga de trabalho):** o uso da plataforma está associado a menor carga de trabalho percebida pelo operador durante tarefas de planejamento?
+- **QP2 (qualidade e completude):** os artefatos gerados atendem a critérios mínimos de completude e qualidade estrutural, de forma auditável?
+- **QP3 (viabilidade operacional):** o fluxo ponta a ponta é executável de forma consistente, com persistência e trilhas de evidência suficientes para auditoria?
 
-As hipóteses associadas, conforme definidas no Capítulo 1, são:
+As hipóteses avaliadas são:
 
--   **H1:** A utilização da plataforma está associada a menor carga cognitiva percebida em comparação com a execução manual das mesmas tarefas.
--   **H2:** Os artefatos gerados atendem a critérios de qualidade estrutural operacionalizados por validadores automáticos.
--   **H3:** A governança por especificação (*Authority Pinning*) indica maior rastreabilidade e menor ocorrência de inconsistências entre artefatos.
+- **H1:** a plataforma reduz a carga de trabalho percebida em relação ao baseline manual.
+- **H2:** os artefatos gerados atendem a critérios de qualidade operacionalizados por regras e validações.
+- **H3:** a governança por especificação aumenta rastreabilidade e reduz inconsistências entre especificação e artefatos derivados.
 
-## 5.2 Definição operacional do Baseline
+Para cada hipótese, são usadas variáveis observáveis extraídas de instrumentos e do banco de dados:
 
-Conforme estabelecido no Capítulo 3, o estudo adota um desenho intra-sujeito com o próprio desenvolvedor-pesquisador como participante único. O *baseline* foi operacionalizado da seguinte forma:
+- **H1:** escores NASA-TLX (instrumento) e tempos de execução (baseline manual e/ou eventos registrados).
+- **H2:** proporção de histórias com evidência de validação, proporção de histórias aceitas (quando aplicável) e motivos de falha.
+- **H3:** existência de vínculo explícito entre histórias e a versão de especificação aceita (pinagem) e existência de evidências persistidas.
 
-### 5.2.1 Cenário Baseline (sem plataforma)
-O desenvolvedor-pesquisador executou as tarefas de planejamento manualmente, utilizando:
--   Editor de texto para elaboração de visão e especificação.
--   Planilha eletrônica para organização de backlog e estimativas.
--   Cronômetro manual para registro de tempos de execução.
+## 5.2 Desenho experimental e baseline (definição operacional)
 
-Os dados do *baseline* foram registrados antes da execução assistida pela plataforma, garantindo que a familiaridade com o projeto simulado fosse equivalente em ambas as condições. Ressalta-se que o *baseline* não representa uma prática universal ou otimizada, mas sim a abordagem realista do participante sem automação.
+O desenho é **intra-sujeito** (single-participant), em que o participante é o próprio pesquisador, coerente com o caráter exploratório da Prova de Conceito. O baseline e a intervenção são definidos operacionalmente, com execução das mesmas tarefas em dois modos.
 
-### 5.2.2 Cenário Experimental (com plataforma)
-O desenvolvedor-pesquisador executou as mesmas tarefas utilizando a Plataforma de Gestão Ágil Autônoma. Os tempos de execução e eventos foram registrados automaticamente pelo sistema (*WorkflowEvents*).
+### 5.2.1 Cenário baseline (sem plataforma)
 
-## 5.3 Tarefas e procedimentos
+No baseline, o participante executa as tarefas de planejamento manualmente, utilizando ferramentas genéricas (editor de texto e planilha) e um cronômetro para registrar tempos. Os seguintes artefatos são produzidos de forma manual:
 
-O protocolo experimental consistiu na execução de um conjunto padronizado de tarefas que cobrem o ciclo de planejamento ágil implementado pelo artefato.
+- visão do produto;
+- especificação técnica;
+- lista de itens de backlog e histórias;
+- plano de sprint (seleção de escopo e, quando possível, decomposição em tarefas).
 
-### 5.3.1 Projeto simulado
-Foi utilizado um projeto de software fictício de escopo reduzido, representativo de uma aplicação típica desenvolvida por equipes pequenas. O projeto possui:
--   Uma visão de produto com público-alvo, problema e solução definidos.
--   Uma especificação técnica com regras de negócio e restrições.
--   Um conjunto de funcionalidades (*features*) derivadas da especificação.
+O baseline representa uma execução realista sem automação, não uma prática “ótima” universal.
 
-### 5.3.2 Sequência de tarefas
-As tarefas foram executadas na seguinte ordem, tanto no cenário *baseline* quanto no experimental:
+### 5.2.2 Cenário experimental (com a plataforma)
 
-1.  **T1 — Definição de Visão:** Elaborar a visão do produto estruturada (público, problema, solução, métricas de sucesso).
-2.  **T2 — Especificação Técnica:** Redigir ou fornecer a especificação técnica do projeto.
-3.  **T3 — Compilação de Autoridade:** (Apenas no cenário experimental) Acionar a compilação da *Spec Authority* e verificar o status de aceitação.
-4.  **T4 — Geração de Backlog:** Criar histórias de usuário para as funcionalidades definidas.
-5.  **T5 — Planejamento de Sprint:** Organizar as histórias em um plano de sprint considerando capacidade e prioridade.
+No cenário experimental, as mesmas tarefas são executadas por meio do fluxo orquestrado por agentes. A plataforma persiste artefatos e registra evidências no banco de dados, incluindo eventos de workflow (para atividades instrumentadas), resultados de validação e trilhas de rastreabilidade.
 
-### 5.3.3 Registro de tempos
-Para cada tarefa, foram registrados:
--   **Tempo de início:** Momento em que a tarefa foi iniciada.
--   **Tempo de conclusão:** Momento em que o artefato resultante foi considerado completo.
--   **Tempo total (*Cycle Time*):** Diferença entre conclusão e início.
+## 5.3 Objeto de estudo e ambiente
 
-No cenário experimental, esses registros foram capturados automaticamente pela tabela `WorkflowEvent` do sistema.
+### 5.3.1 Objeto de estudo
 
-## 5.4 Participante
+O objeto de estudo é a instância executável do artefato descrito no Capítulo 4, incluindo:
 
-O estudo caracteriza-se como uma avaliação intra-sujeito conduzida pelo próprio desenvolvedor-pesquisador. Essa configuração foi adotada por razões de viabilidade operacional e alinhamento com o caráter exploratório da pesquisa *Design Science Research*.
+- orquestração do fluxo por máquina de estados;
+- ferramentas/agentes para visão, backlog inicial, roadmap, histórias e planejamento de sprint;
+- governança por especificação com versionamento, compilação e aceitação explícita;
+- persistência em banco SQLite.
 
-O participante possui experiência prévia em desenvolvimento de software e familiaridade com práticas ágeis, representando o perfil-alvo da plataforma (desenvolvedor individual ou membro de equipe pequena).
+### 5.3.2 Ambiente de execução
 
-## 5.5 Coleta de dados
+O artefato é executado em ambiente Python 3.11+ e utiliza persistência em SQLite. Para fins de reprodutibilidade, os resultados reportados no Capítulo 6 são extraídos de uma base SQLite específica e acompanhados de metadados de extração (timestamp, caminho da base e hash de commit), conforme registrado no artefato de métricas.
 
-Os dados foram coletados de três fontes complementares:
+## 5.4 Tarefas e procedimentos (passo a passo)
 
-### 5.5.1 Dados automatizados (plataforma)
-O sistema registra eventos de fluxo na tabela `WorkflowEvent`, incluindo:
--   Tipo de evento (`WorkflowEventType`): ex. `sprint_plan_draft`, `sprint_plan_saved`.
--   *Timestamp* de ocorrência.
--   Identificadores de contexto (produto, sprint, história).
+As tarefas foram definidas para cobrir o fluxo “Scrum-shaped” do artefato (conforme o diagrama de fluxo do sistema), incluindo a etapa de governança por especificação.
 
-Esses dados permitem calcular métricas de eficiência (*Cycle Time*) de forma objetiva.
+### 5.4.1 Sequência de tarefas
 
-### 5.5.2 Dados de validação (artefatos)
-A qualidade estrutural dos artefatos foi avaliada pelos validadores automáticos da plataforma:
--   **Histórias de usuário:** Verificação de campos obrigatórios, presença de critérios de aceitação, formato estruturado.
--   **Planos de sprint:** Verificação de consistência entre capacidade declarada e carga alocada.
+As tarefas são executadas na ordem abaixo, no baseline e na intervenção, respeitando as particularidades do cenário:
 
-Os resultados de validação (aprovado/reprovado) foram registrados no banco de dados.
+1. **T1 — Definição de visão:** produzir a visão do produto em formato estruturado.
+2. **T2 — Especificação técnica:** produzir a especificação técnica do produto (regras e restrições).
+3. **T3 — Compilação e aceitação de autoridade (intervenção):** compilar a autoridade a partir da especificação e registrar o aceite explícito (quando aplicável).
+4. **T4 — Backlog inicial (intervenção) / lista inicial (baseline):** derivar requisitos de alto nível a partir de visão e especificação.
+5. **T5 — Roadmap (intervenção) / planejamento macro (baseline):** organizar itens em horizonte temporal e dependências.
+6. **T6 — Histórias de usuário:** decompor itens priorizados em histórias com critérios de aceitação.
+7. **T7 — Planejamento de sprint:** selecionar escopo para um sprint e, quando aplicável, decompor em tarefas.
 
-### 5.5.3 Dados de percepção (NASA-TLX)
-Ao final de cada cenário (baseline e experimental), o desenvolvedor-pesquisador preencheu o questionário NASA-TLX em formato de autoavaliação, registrando a percepção de:
--   Demanda mental.
--   Demanda temporal.
--   Esforço.
--   Frustração.
--   Desempenho percebido.
+### 5.4.2 Regras de parada e intervenção manual
 
-Os escores foram tabulados para comparação entre os dois cenários.
+Para preservar comparabilidade e rastreabilidade, são definidas regras de parada:
 
-## 5.6 Plano de análise
+- uma tarefa é considerada concluída quando o artefato correspondente é aceito pelo participante e, no cenário experimental, persistido;
+- quando ocorrer falha determinística (por exemplo, ausência de critérios de aceitação), o participante registra a intervenção necessária (refino do texto) e reexecuta a etapa correspondente.
 
-A análise dos dados segue uma abordagem mista de caráter exploratório, conforme definido no Capítulo 3.
+As intervenções manuais são tratadas como **observação qualitativa** e também impactam o tempo total (baseline e intervenção).
 
-### 5.6.1 Análise quantitativa
--   **Eficiência (H1):** Comparação descritiva dos tempos de execução (*Cycle Time*) entre o cenário baseline e o experimental para cada tarefa (T1–T5). Os escores NASA-TLX são analisados de forma descritiva, sem inferência estatística.
--   **Qualidade (H2):** Taxa de aprovação dos artefatos nos validadores automáticos.
--   **Rastreabilidade (H3):** Verificação de que todas as histórias geradas possuem vínculo explícito com uma versão de *Spec Authority*.
+## 5.5 Participante
 
-### 5.6.2 Análise qualitativa
--   Observação da coerência semântica dos artefatos gerados.
--   Identificação de pontos de fricção no fluxo conversacional (ex: necessidade de reformulação de comandos, erros de interpretação).
--   Registro de intervenções manuais necessárias para completar as tarefas.
+O participante é o próprio pesquisador, com experiência em desenvolvimento de software e familiaridade com práticas ágeis. Essa configuração viabiliza a avaliação em TCC e caracteriza os resultados como exploratórios, sem generalização estatística.
 
-### 5.6.3 Critérios de sucesso
-O artefato será considerado bem-sucedido na avaliação exploratória se:
-1.  O tempo total do cenário experimental for igual ou inferior ao do baseline para a maioria das tarefas.
-2.  A taxa de aprovação de artefatos nos validadores for superior a 80% (critério heurístico exploratório para indicar viabilidade mínima, não excelência).
-3.  Todas as histórias geradas possuírem vínculo com *Spec Authority* válida.
-4.  O escore NASA-TLX do cenário experimental for igual ou inferior ao do baseline.
+## 5.6 Coleta de dados: evidência empírica vs. observação
 
-## 5.7 Limitações do protocolo
+Em resposta à exigência de transparência metodológica, a coleta separa explicitamente:
 
-O protocolo apresenta limitações reconhecidas:
+- **evidências empíricas automatizadas** (extraídas do banco e arquivos gerados);
+- **observações qualitativas** (registro do participante durante a execução).
 
--   **Amostra unitária:** O uso de um único participante (desenvolvedor-pesquisador) limita a generalização estatística dos resultados. Esta limitação é inerente ao caráter exploratório e ao escopo de um Trabalho de Conclusão de Curso.
--   **Efeito de aprendizado:** A execução sequencial dos cenários (baseline antes do experimental) pode introduzir viés de familiaridade com o projeto simulado. Mitigou-se esse risco utilizando um projeto simples e padronizado.
--   **Subjetividade do NASA-TLX:** A autoavaliação pode ser influenciada por expectativas do pesquisador. Os resultados devem ser interpretados como indicativos, não como evidência definitiva.
+### 5.6.1 Evidências automatizadas (banco SQLite)
 
-Apesar dessas limitações, o protocolo fornece evidências suficientes para avaliar a viabilidade operacional do artefato e orientar iterações futuras de desenvolvimento e avaliação.
+As evidências automatizadas são extraídas de tabelas e campos persistidos, incluindo:
+
+- **eventos de workflow:** registros em `workflow_events` com timestamps e, quando aplicável, duração e contagem de turnos;
+- **artefatos persistidos:** produtos, histórias e sprints (incluindo timestamps disponíveis);
+- **governança por especificação:** versões de especificação, autoridade compilada, decisão de aceite e evidências de validação das histórias.
+
+Observação importante: a interpretação de "tempo" depende do que está instrumentado como evento (por exemplo, eventos associados ao planejamento de sprint) e do que é derivável de timestamps (por exemplo, quando há campos de criação e conclusão em histórias). O protocolo não assume métricas não registradas. Para a condição de intervenção, os intervalos temporais reportados são **deltas wall-clock** entre timestamps persistidos no banco (por exemplo, diferença entre `products.created_at` e `workflow_events.timestamp` do evento `SPRINT_PLAN_SAVED`); esses deltas representam o intervalo decorrido entre marcos do fluxo automatizado e **não medem esforço humano isolado**, podendo incluir latência de rede, processamento de LLM e eventuais pausas.
+
+### 5.6.2 Evidências automatizadas (scripts e artefatos de extração)
+
+Para garantir reprodutibilidade e auditoria dos números, utiliza-se um script de extração de métricas que:
+
+- identifica o esquema da base (tabelas/colunas) no momento da extração;
+- extrai métricas por produto (contagens, tempos agregados e indicadores de governança);
+- registra metadados de reprodutibilidade (timestamp, caminho da base e hash do commit, quando disponível);
+- gera saídas em JSON/CSV e resultados de consultas.
+
+Adicionalmente, quando necessário, aplica-se validação em lote (backfill) das histórias contra a versão aprovada de especificação, garantindo que evidências e pinagem estejam persistidas antes da extração.
+
+### 5.6.3 Instrumento de percepção (NASA-TLX)
+
+Ao final de cada cenário (baseline e intervenção), aplica-se o NASA-TLX em formato **RAW (não ponderado)**, com cinco dimensões: Demanda Mental, Demanda Temporal, Desempenho, Esforço e Frustração. A Demanda Física é excluída por não ser pertinente às tarefas do estudo (planejamento e produção textual). As respostas são registradas em planilha/formulário do estudo e reportadas no Capítulo 6.
+
+Para eliminar ambiguidade na dimensão **Desempenho (Performance)**, adota-se explicitamente a seguinte âncora: **0 = desempenho perfeito (sem problemas)** e **100 = desempenho muito ruim (muitos problemas/falha)**; portanto, **valores menores indicam melhor desempenho percebido**.
+
+### 5.6.4 Observações qualitativas
+
+Durante a execução, o participante registra:
+
+- pontos de fricção no fluxo (por exemplo, necessidade de reformulação de comandos);
+- casos de inconsistência e como foram resolvidos;
+- incidência de falhas determinísticas e tipo de correção aplicada;
+- percepção de clareza e utilidade dos artefatos gerados.
+
+Esses registros não são tratados como métrica automatizada, mas como suporte interpretativo para a discussão.
+
+## 5.7 Critérios de consistência dos dados e de sucesso (viabilidade)
+
+Por tratar-se de avaliação exploratória, os critérios de sucesso são formulados como **critérios de viabilidade** e **consistência de evidência**, e não como metas de desempenho “ótimo”. O artefato é considerado viável para fins desta pesquisa quando:
+
+1. o fluxo é executável ponta a ponta ao menos uma vez, com persistência dos artefatos principais;
+2. existe trilha de auditoria mínima: histórias possuem evidência de validação persistida e, quando aprovadas, vínculo com a versão de especificação aceita;
+3. as métricas extraídas são reproduzíveis a partir do banco e do script (saídas JSON/CSV com metadados);
+4. os resultados de NASA-TLX e tempos permitem comparação descritiva entre baseline e intervenção (sem inferência estatística).
+
+## 5.8 Plano de análise
+
+A análise segue abordagem mista e descritiva:
+
+### 5.8.1 Quantitativo (descritivo)
+
+- **NASA-TLX (H1):** comparação descritiva entre baseline e intervenção para cada dimensão, e sumarização por escore global RAW quando aplicável.
+- **Eficiência (H1):** tempos medidos no baseline (cronômetro) e tempos agregados no cenário experimental conforme eventos instrumentados e/ou timestamps disponíveis.
+- **Qualidade e completude (H2):** proporção de histórias com evidência de validação, proporção de histórias aceitas e distribuição de falhas por regra.
+- **Rastreabilidade (H3):** proporção de histórias pinadas a uma versão de especificação aceita e completude de evidências persistidas.
+
+### 5.8.2 Qualitativo (triangulação)
+
+As observações registradas pelo participante são usadas para:
+
+- explicar causas prováveis de falhas determinísticas (por exemplo, ausência de critérios de aceitação);
+- identificar trade-offs e custos de governança (refino necessário, tempo adicional de validação);
+- contextualizar inconsistências do modelo de linguagem e mitigação por regras.
+
+Os resultados são reportados no Capítulo 6 (evidências) e interpretados no Capítulo 7 (discussão), mantendo separação explícita entre evidência automatizada e observação qualitativa.

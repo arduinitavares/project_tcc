@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-from agile_sqlmodel import UserStory, SpecRegistry, get_engine
+from agile_sqlmodel import Product, UserStory, SpecRegistry, get_engine
 from tools.spec_tools import validate_story_with_spec_authority
 
 engine = get_engine()
@@ -54,4 +54,32 @@ def apply_validation(product_id: int):
     print(f"Done. Passed: {passed_count}/{len(ids)}")
 
 if __name__ == "__main__":
-    apply_validation(7)
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Apply spec-authority validation to all stories for a product."
+    )
+    parser.add_argument(
+        "product_id",
+        nargs="?",
+        type=int,
+        default=None,
+        help="Product ID to validate. Defaults to the most recently created product.",
+    )
+    args = parser.parse_args()
+
+    if args.product_id is None:
+        with Session(engine) as _s:
+            latest = _s.exec(
+                select(Product)
+                .order_by(Product.product_id.desc())
+            ).first()
+        if not latest:
+            print("No products found in DB.")
+            sys.exit(1)
+        pid = latest.product_id
+        print(f"(No product_id given — using latest: {pid} '{latest.name}')")
+    else:
+        pid = args.product_id
+
+    apply_validation(pid)

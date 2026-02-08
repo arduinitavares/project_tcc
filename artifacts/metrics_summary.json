@@ -1,9 +1,9 @@
 {
   "extraction_metadata": {
-    "timestamp": "2026-02-08T01:25:07.101670+00:00",
+    "timestamp": "2026-02-08T23:26:34.257221+00:00",
     "db_path": "C:\\Users\\mjnrc\\projects\\project_tcc\\db\\spec_authority_dev.db",
     "db_filename": "spec_authority_dev.db",
-    "commit_hash": "de6537826b33"
+    "commit_hash": "ab06268e1d06"
   },
   "schema": {
     "tables": [
@@ -77,7 +77,7 @@
             "pk": false
           }
         ],
-        "row_count": 1
+        "row_count": 2
       },
       {
         "name": "epics",
@@ -305,7 +305,7 @@
             "pk": false
           }
         ],
-        "row_count": 1
+        "row_count": 2
       },
       {
         "name": "spec_authority_acceptance",
@@ -443,7 +443,7 @@
             "pk": false
           }
         ],
-        "row_count": 1
+        "row_count": 2
       },
       {
         "name": "sprint_stories",
@@ -467,7 +467,7 @@
             "pk": false
           }
         ],
-        "row_count": 5
+        "row_count": 10
       },
       {
         "name": "sprints",
@@ -527,7 +527,7 @@
             "pk": false
           }
         ],
-        "row_count": 1
+        "row_count": 2
       },
       {
         "name": "story_completion_logs",
@@ -647,7 +647,7 @@
             "pk": false
           }
         ],
-        "row_count": 25
+        "row_count": 50
       },
       {
         "name": "team_members",
@@ -737,7 +737,7 @@
             "pk": false
           }
         ],
-        "row_count": 5
+        "row_count": 6
       },
       {
         "name": "themes",
@@ -917,7 +917,7 @@
             "pk": false
           }
         ],
-        "row_count": 38
+        "row_count": 57
       },
       {
         "name": "workflow_events",
@@ -977,7 +977,7 @@
             "pk": false
           }
         ],
-        "row_count": 1
+        "row_count": 2
       }
     ]
   },
@@ -987,8 +987,8 @@
       "product_name": "Review-First Human-in-the-Loop Extraction Pipeline",
       "created_at": "2026-02-08 00:59:40.774781",
       "total_stories": 38,
-      "stories_with_spec_version_id": 0,
-      "stories_with_validation_evidence": 0,
+      "stories_with_spec_version_id": 25,
+      "stories_with_validation_evidence": 38,
       "stories_approved_first_pass": 0,
       "stories_refined": 0,
       "sprint_count": 1,
@@ -1005,15 +1005,39 @@
       "compiled_authorities_count": 1,
       "spec_accepted_count": 1,
       "spec_rejected_count": 0
+    },
+    {
+      "product_id": 8,
+      "product_name": "HashbrownVision Phase 1",
+      "created_at": "2026-02-08 21:25:55.087916",
+      "total_stories": 19,
+      "stories_with_spec_version_id": 6,
+      "stories_with_validation_evidence": 19,
+      "stories_approved_first_pass": 0,
+      "stories_refined": 0,
+      "sprint_count": 1,
+      "sprint_plan_drafts": 0,
+      "sprint_plan_saves": 1,
+      "total_sprint_planning_duration_sec": 0.0,
+      "avg_sprint_planning_duration_sec": 0.0,
+      "avg_story_cycle_time_hours": 0.0,
+      "stories_with_evidence_links": 0,
+      "total_tasks": 25,
+      "completed_tasks": 0,
+      "spec_versions_count": 1,
+      "spec_versions_approved": 1,
+      "compiled_authorities_count": 1,
+      "spec_accepted_count": 0,
+      "spec_rejected_count": 0
     }
   ],
   "workflow_events": {
     "SPRINT_PLAN_SAVED": {
-      "count": 1,
+      "count": 2,
       "avg_duration_sec": null,
       "total_duration_sec": null,
       "first_event": "2026-02-08 01:16:53.961203",
-      "last_event": "2026-02-08 01:16:53.961203"
+      "last_event": "2026-02-08 21:44:05.706629"
     }
   },
   "smoke_runs": {

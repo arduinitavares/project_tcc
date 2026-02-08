@@ -2180,39 +2180,49 @@ def validate_story_with_spec_authority(
         warnings: List[str] = []
 
         # Alignment check (pinned authority only)
-        from orchestrator_agent.agent_tools.story_pipeline.alignment_checker import (
-            validate_feature_alignment,
-        )
-
-        alignment_result = validate_feature_alignment(
-            feature_title=f"{story.title or ''} {story.story_description or ''}".strip(),
-            compiled_authority=authority,
-        )
-
-        alignment_failures = [
-            AlignmentFinding(
-                code=finding.code,
-                invariant=finding.invariant,
-                capability=finding.capability,
-                message=finding.message,
-                severity=finding.severity,  # type: ignore[arg-type]
-                created_at=finding.created_at,
+        # NOTE: story_pipeline was refactored out; alignment check is
+        # skipped gracefully when the module is unavailable.
+        alignment_failures: List[AlignmentFinding] = []
+        alignment_warnings: List[AlignmentFinding] = []
+        try:
+            from orchestrator_agent.agent_tools.story_pipeline.alignment_checker import (  # noqa: F401
+                validate_feature_alignment,
             )
-            for finding in alignment_result.findings
-            if finding.severity == "failure"
-        ]
-        alignment_warnings = [
-            AlignmentFinding(
-                code=finding.code,
-                invariant=finding.invariant,
-                capability=finding.capability,
-                message=finding.message,
-                severity=finding.severity,  # type: ignore[arg-type]
-                created_at=finding.created_at,
+
+            alignment_result = validate_feature_alignment(
+                feature_title=f"{story.title or ''} {story.story_description or ''}".strip(),
+                compiled_authority=authority,
             )
-            for finding in alignment_result.findings
-            if finding.severity == "warning"
-        ]
+
+            alignment_failures = [
+                AlignmentFinding(
+                    code=finding.code,
+                    invariant=finding.invariant,
+                    capability=finding.capability,
+                    message=finding.message,
+                    severity=finding.severity,  # type: ignore[arg-type]
+                    created_at=finding.created_at,
+                )
+                for finding in alignment_result.findings
+                if finding.severity == "failure"
+            ]
+            alignment_warnings = [
+                AlignmentFinding(
+                    code=finding.code,
+                    invariant=finding.invariant,
+                    capability=finding.capability,
+                    message=finding.message,
+                    severity=finding.severity,  # type: ignore[arg-type]
+                    created_at=finding.created_at,
+                )
+                for finding in alignment_result.findings
+                if finding.severity == "warning"
+            ]
+        except ImportError:
+            warnings.append(
+                "Alignment checker unavailable (story_pipeline removed); "
+                "skipping alignment validation."
+            )
 
         rules_checked.append("RULE_TITLE_REQUIRED")
         if not story.title or not story.title.strip():

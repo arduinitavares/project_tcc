@@ -1,26 +1,26 @@
 # CAPÍTULO 1 — Introdução
 
-Este capítulo apresenta o contexto no qual esta pesquisa se insere, a motivação para sua realização, o problema de pesquisa investigado, os objetivos propostos, as hipóteses formuladas, as contribuições esperadas e a organização geral do trabalho.
+Este capítulo apresenta o contexto e a motivação desta pesquisa, o problema investigado, os objetivos e hipóteses, as contribuições e a organização do trabalho.
 
 ## 1.1 Contexto e motivação
 
-As metodologias ágeis consolidaram-se como paradigma dominante no desenvolvimento de software contemporâneo, representando uma alternativa às abordagens tradicionais de gestão de projetos. Entre os frameworks ágeis existentes, o Scrum estabeleceu-se como o mais amplamente adotado pela indústria, com a indicação de uso por 87% das equipes ágeis em relatório anual da indústria citado na proposta do projeto ("16th State of Agile Report", publicado pela Digital.ai em 2022) e reforçado por material institucional da Scrum.org em 2023. Os princípios do Scrum foram projetados para otimizar a comunicação, a transparência e a entrega incremental de valor, pressupondo uma organização com um número mínimo de membros para garantir o equilíbrio entre as demandas técnicas e as de negócio.
+As metodologias ágeis consolidaram-se como um paradigma relevante no desenvolvimento de software por favorecerem entrega incremental, inspeção e adaptação. Entre os frameworks mais difundidos, o Scrum estrutura o trabalho em ciclos (Sprints), define papéis, eventos e artefatos, e enfatiza transparência, inspeção e adaptação (Schwaber; Sutherland, 2020). Relatórios de indústria também sugerem ampla adoção, mas, neste trabalho, a fundamentação prioriza fontes normativas e acadêmicas.
 
 O framework Scrum estrutura o trabalho em ciclos denominados Sprints e define três papéis distintos e interdependentes: o Product Owner, responsável por maximizar o valor do produto; a Equipe de Desenvolvimento, responsável por construir os incrementos; e o Scrum Master, que atua como líder-servidor do processo. A separação deliberada desses papéis foi concebida para criar um sistema de equilíbrio saudável entre a visão de negócio, a execução técnica e a saúde do processo. Além dos papéis, o framework prescreve eventos formais com duração máxima definida, incluindo Sprint Planning, Daily Scrum, Sprint Review e Sprint Retrospective.
 
-Contudo, a aplicação do Scrum encontra barreiras significativas em um segmento crescente do mercado de software: o de profissionais autônomos e equipes pequenas, compostas por um a quatro desenvolvedores. A literatura acadêmica e relatos da indústria convergem para um consenso de que a eficácia do Scrum está atrelada ao tamanho da equipe, indicando que o excesso de cerimônias e a rigidez processual podem gerar uma sobrecarga operacional desproporcional para times muito pequenos. A falta de pessoal para preencher adequadamente os papéis distintos é reconhecida como um inibidor para a adoção bem-sucedida do framework nesse contexto.
+Contudo, a aplicação do Scrum pode impor barreiras quando o contexto de trabalho não comporta a separação de papéis e a manutenção de cerimônias com regularidade. Em equipes muito pequenas (por exemplo, 1 a 4 desenvolvedores), é comum que um único profissional acumule responsabilidades de produto, processo e desenvolvimento. Isso tende a aumentar custos de coordenação e a alternância de contexto, reduzindo o tempo efetivo dedicado à entrega. Estudos sobre times ágeis e projetos Scrum indicam que dinâmicas de equipe, comunicação e coordenação são fatores críticos e podem ser pressionados em contextos de tamanho reduzido (Moe; Dingsøyr; Dybå, 2010; Dingsøyr et al., 2012).
 
-O desafio enfrentado por equipes pequenas não se restringe a uma simples sobrecarga de tarefas de gestão, mas configura uma dificuldade metodológica fundamental. Em um time de um ou dois membros, a estrutura de equilíbrio preconizada pelo Scrum se desfaz. Um único profissional é forçado a reconciliar, simultaneamente, três mentalidades distintas e potencialmente conflitantes: deve atuar como Product Owner com foco estratégico, como membro da Equipe de Desenvolvimento com foco técnico, e como Scrum Master com foco no processo. Na prática, essa configuração torna a aplicação fiel do Scrum impraticável, resultando em sobrecarga cognitiva severa e na exclusão metodológica dessas equipes do ecossistema ágil padrão.
+O desafio, portanto, não é apenas “fazer mais com menos”, mas manter um fluxo de planejamento consistente com restrições de tempo e atenção. Quando papéis e decisões competem pela mesma pessoa, o risco é que o processo seja simplificado de forma ad hoc, perdendo rastreabilidade de decisões e coerência entre visão, requisitos, backlog e execução.
 
-A motivação central deste trabalho reside na necessidade de investigar soluções tecnológicas que possam mitigar essa incompatibilidade metodológica. A emergência de agentes autônomos baseados em Modelos de Linguagem de Grande Porte oferece uma oportunidade de explorar arquiteturas de sistemas multiagentes capazes de simular as responsabilidades dos papéis do Scrum. Ao deslocar parte da carga processual para agentes cognitivos, hipotetiza-se que seja possível tornar um fluxo de trabalho inspirado no Scrum mais viável para equipes de tamanho reduzido.
+A motivação desta pesquisa é investigar se uma solução de software baseada em agentes pode reduzir parte da carga de coordenação associada ao planejamento. Em particular, agentes baseados em modelos de linguagem podem apoiar a criação e manutenção de artefatos, desde que exista uma camada de governança que limite inconsistências e preserve rastreabilidade. A proposta desta monografia é, portanto, construir e avaliar um artefato que orquestre um fluxo inspirado no Scrum e torne verificável (auditável) a aceitação de certos artefatos por meio de regras determinísticas.
 
 ## 1.2 Problema de pesquisa
 
-O problema de pesquisa investigado neste trabalho situa-se na interseção entre gestão ágil de projetos e sistemas multiagentes baseados em inteligência artificial. A questão central pode ser formulada da seguinte forma: como reduzir a sobrecarga cognitiva e metodológica enfrentada por equipes pequenas de software ao adotarem práticas ágeis inspiradas no Scrum, utilizando uma plataforma de gestão autônoma baseada em sistema multiagente?
+O problema de pesquisa situa-se na interseção entre gestão ágil e sistemas multiagentes baseados em inteligência artificial. A questão central é: **como reduzir a sobrecarga cognitiva e metodológica de equipes pequenas ao executarem um fluxo inspirado no Scrum, utilizando uma plataforma de gestão autônoma baseada em agentes?**
 
 A dor prática identificada manifesta-se na impossibilidade de equipes de um a quatro desenvolvedores aplicarem fielmente o framework Scrum. Esses profissionais enfrentam dois problemas interconectados: primeiro, a necessidade de assumir simultaneamente múltiplos papéis com responsabilidades distintas e por vezes conflitantes; segundo, a carga administrativa associada à manutenção de cerimônias, artefatos e processos que foram concebidos para equipes maiores.
 
-A lacuna de pesquisa identificada decorre da análise do estado da arte em sistemas multiagentes para engenharia de software. As soluções existentes concentram-se predominantemente na automação do ciclo de desenvolvimento de software, buscando substituir ou aumentar equipes de tamanho convencional, ou na gestão de projetos em larga escala. Sistemas como ChatDev, MetaGPT e AgileCoder demonstraram a viabilidade de utilizar agentes colaborativos para executar tarefas de programação, porém com foco na produção de código, não na gestão do projeto em si. Trabalhos como CogniSim exploraram a simulação de equipes ágeis para contextos de frameworks escalados como o SAFe, sem abordar o problema específico de equipes reduzidas.
+Quanto à lacuna de pesquisa, parte do estado da arte em sistemas multiagentes para engenharia de software concentra-se em apoiar a produção de código ou em simulações e cenários de maior escala. Este trabalho concentra-se em um recorte distinto: apoiar o planejamento e a governança de artefatos em equipes pequenas, com ênfase na rastreabilidade entre especificação, backlog e planejamento.
 
 Não foi identificada na literatura uma solução que utilize agentes autônomos especificamente para atuar como equipe de suporte virtual para desenvolvedores individuais ou pequenas equipes, criando uma camada de abstração metodológica que absorva a carga processual do Scrum. Esta pesquisa propõe-se a preencher essa lacuna.
 
@@ -34,21 +34,21 @@ A plataforma proposta não tem como objetivo simular fielmente o Scrum no sentid
 
 Para alcançar o objetivo geral, foram definidos os seguintes objetivos específicos:
 
-- Projetar e implementar funcionalidades de Agente de Produto para interpretar requisitos em linguagem natural e gerar backlog estruturado, incluindo histórias de usuário, critérios de aceitação e priorização, avaliando a qualidade dos artefatos segundo critérios de conformidade.
+- Projetar e implementar funcionalidades de suporte ao papel de produto (Product Owner) para elicitar visão e transformar insumos em artefatos iniciais de planejamento (por exemplo, requisitos de alto nível, roadmap e histórias de usuário).
 
-- Projetar e implementar funcionalidades de Agente Scrum Master para apoiar o planejamento e monitoramento do ciclo de trabalho, avaliando a aderência a restrições temporais e a consistência dos planos gerados por meio de métricas observáveis no sistema.
+- Projetar e implementar funcionalidades de suporte ao papel de processo (Scrum Master) para planejar sprints e organizar escopo de forma consistente com capacidade e dependências.
 
-- Projetar e implementar funcionalidades de suporte ao desenvolvimento para auxiliar na execução e atualização de tarefas do ciclo de trabalho, avaliando a precisão das atualizações de status por meio de métricas observáveis no sistema.
+- Projetar e implementar apoio operacional ao papel de desenvolvimento, incluindo decomposição em tarefas e registro de evidências de execução quando aplicável.
 
-- Desenvolver e validar o protocolo de comunicação e a orquestração entre os agentes, demonstrando colaboração em um ciclo ágil de ponta a ponta e medindo a taxa de conclusão do ciclo, a latência e os custos computacionais a partir dos registros do sistema.
+- Desenvolver e validar a orquestração entre agentes com controle explícito de fluxo, garantindo previsibilidade do encadeamento de etapas e persistência dos artefatos gerados.
 
-- Definir e aplicar métricas de avaliação para a Prova de Conceito, contemplando carga cognitiva, qualidade dos artefatos e eficiência do fluxo, comparando os resultados com um baseline definido operacionalmente.
+- Definir e aplicar um protocolo de avaliação replicável, com métricas de carga de trabalho percebida, qualidade/rastreabilidade de artefatos e eficiência do fluxo, em comparação com um baseline operacional.
 
 ## 1.5 Hipóteses
 
 Com base no problema de pesquisa e nos objetivos definidos, foram formuladas as seguintes hipóteses:
 
-- H1: A utilização de uma plataforma de gestão ágil baseada em sistema multiagente reduz a carga cognitiva percebida por desenvolvedores individuais ou pequenas equipes ao executarem um fluxo de trabalho inspirado no Scrum, quando comparada à utilização de ferramentas de gestão tradicionais sem suporte automatizado.
+- H1: A utilização de uma plataforma de gestão ágil baseada em sistema multiagente reduz a carga de trabalho percebida por desenvolvedores individuais ou pequenas equipes ao executarem um fluxo de trabalho inspirado no Scrum, quando comparada à utilização de ferramentas de gestão tradicionais sem suporte automatizado.
 
 - H2: Os artefatos gerados pela plataforma multiagente, notadamente histórias de usuário e planos de sprint, atendem a critérios de qualidade definidos operacionalmente neste estudo, com níveis comparáveis ou superiores aos artefatos produzidos manualmente por desenvolvedores atuando sem suporte de agentes.
 
@@ -58,9 +58,9 @@ Com base no problema de pesquisa e nos objetivos definidos, foram formuladas as 
 
 Este trabalho apresenta contribuições em duas dimensões complementares: a construção de um artefato tecnológico e a geração de conhecimento científico.
 
-No que se refere ao artefato, a principal contribuição é a concepção, implementação e validação de uma plataforma de gestão ágil autônoma baseada em sistema multiagente. O artefato implementa um pipeline completo de gestão ágil que compreende as fases de visão, especificação, roadmap, histórias de usuário, planejamento e execução de sprints. A arquitetura incorpora uma camada de governança denominada Spec-Driven Architecture, na qual uma especificação técnica versionada é tratada como fonte primária de verdade para escopo e restrições, e a aceitação de artefatos é decidida por gates determinísticos de validação, enquanto a geração inicial dos artefatos permanece não determinística por utilizar modelos de linguagem.
+No que se refere ao artefato, a principal contribuição é a concepção e implementação de uma plataforma de gestão ágil autônoma baseada em agentes. O sistema executa um pipeline de planejamento inspirado no Scrum (visão, especificação, roadmap, histórias e planejamento de sprint). Além disso, incorpora uma camada de governança baseada em especificação: a especificação técnica é versionada e tratada como fonte de verdade, e certos artefatos só são aceitos quando atendem regras verificáveis, produzindo trilhas de evidência persistidas.
 
-No que se refere ao conhecimento, este trabalho contribui com evidências empíricas exploratórias sobre a viabilidade e os efeitos da utilização de sistemas multiagentes baseados em modelos de linguagem para apoiar equipes pequenas na adoção de práticas ágeis. A avaliação planejada, baseada em métricas de carga cognitiva, qualidade de artefatos e eficiência de fluxo, fornece dados para a comunidade científica sobre os benefícios e limitações dessa abordagem em um contexto exploratório e controlado. Adicionalmente, a documentação da arquitetura Spec-Driven e do padrão de Authority Pinning contribui para o corpo de conhecimento sobre governança em sistemas multiagentes generativos.
+No que se refere ao conhecimento, este trabalho contribui com evidências empíricas exploratórias sobre a viabilidade de empregar sistemas multiagentes baseados em modelos de linguagem como apoio ao planejamento em equipes pequenas, destacando benefícios, limitações e trade-offs. Também descreve, como contribuição conceitual, um mecanismo de governança por especificação para reduzir inconsistências e preservar rastreabilidade em pipelines generativos.
 
 ## 1.7 Organização do trabalho
 
@@ -74,7 +74,7 @@ O Capítulo 4 apresenta o desenvolvimento do artefato, descrevendo os requisitos
 
 O Capítulo 5 estabelece o protocolo de avaliação, formulando as questões de pesquisa e hipóteses associadas, definindo operacionalmente o baseline, descrevendo as tarefas e procedimentos experimentais, caracterizando os participantes, especificando os métodos de coleta de dados e apresentando o plano de análise.
 
-O Capítulo 6 apresenta os resultados obtidos na avaliação, organizados por dimensão de análise: carga cognitiva, eficiência do fluxo e qualidade dos artefatos, com síntese por hipótese.
+O Capítulo 6 apresenta os resultados obtidos na avaliação, organizados por dimensão de análise: carga de trabalho percebida, eficiência do fluxo e qualidade dos artefatos, com síntese por hipótese.
 
 O Capítulo 7 discute os resultados, interpretando os achados, analisando trade-offs identificados, apresentando implicações práticas para equipes pequenas e confrontando os resultados com a literatura existente.
 

@@ -1,104 +1,144 @@
 # CAPÍTULO 4 — Desenvolvimento do artefato
 
-Este capítulo descreve o processo de engenharia e a implementação técnica da Plataforma de Gestão Ágil Autônoma. São detalhados os requisitos funcionais e não funcionais que nortearam o desenvolvimento, a arquitetura de software adotada, os componentes principais do sistema multiagente, o esquema de persistência e as decisões de implementação que viabilizaram a governança por especificação.
+Este capítulo descreve a implementação técnica da Plataforma de Gestão Ágil Autônoma desenvolvida neste trabalho. O texto é ancorado no estado atual do repositório: o sistema é composto por um agente orquestrador, uma máquina de estados finita (FSM) que governa o fluxo, um conjunto de agentes especializados organizados em ferramentas, e uma camada de persistência relacional (SQLModel/SQLite) que registra artefatos, decisões e evidências de validação.
 
-## 4.1 Visão geral e requisitos
+## 4.1 Requisitos e restrições
 
-O artefato desenvolvido é uma plataforma de software que orquestra agentes autônomos para executar um fluxo de trabalho de gestão ágil inspirado no Scrum. O objetivo técnico central foi criar um sistema capaz de interpretar intenções humanas vagas e convertê-las em artefatos de engenharia estruturados (histórias de usuário, planos de sprint), mantendo a rastreabilidade e a consistência lógica.
+O artefato foi construído para apoiar equipes pequenas (1–4 pessoas) na execução de um fluxo de planejamento inspirado no Scrum, reduzindo a carga de coordenação e aumentando a rastreabilidade dos artefatos gerados. O foco do sistema é transformar entradas textuais (ideia do usuário e especificação técnica) em artefatos de planejamento estruturados e auditáveis.
 
 ### 4.1.1 Requisitos funcionais
 
-Os requisitos funcionais foram derivados da necessidade de simular os papéis do Scrum descritos na fundamentação teórica:
+Os requisitos funcionais foram definidos a partir do pipeline efetivamente implementado (conforme o fluxo do sistema) e das responsabilidades associadas aos papéis do Scrum, operacionalizadas via agentes especializados:
 
--   **RF01 — Definição de Visão:** O sistema foi projetado para permitir que o usuário defina a visão do produto por meio de diálogo em linguagem natural, estruturando as informações em componentes canônicos (público-alvo, problema, solução).
--   **RF02 — Governança por Especificação:** O sistema implementa um registro versionado de especificações técnicas visando impedir a criação de artefatos derivados (como histórias de usuário) que contradigam a versão vigente (*Authority Pinning*).
--   **RF03 — Geração de Backlog:** O sistema foi projetado para gerar histórias de usuário compatíveis com estruturas do critério INVEST, extraídas automaticamente da visão e da especificação técnica.
--   **RF04 — Planejamento de Sprints:** O sistema implementa mecanismos para sugerir o planejamento de ciclos de trabalho (*Sprints*) com base na capacidade da equipe e na prioridade dos itens, respeitando *timeboxes* definidos.
--   **RF05 — Execução e Monitoramento:** O sistema implementa o registro de progresso e o cálculo de métricas de fluxo (*Cycle Time*) e esforço.
+- **RF01 — Compilação de autoridade a partir de especificação:** o sistema deve permitir registrar versões de especificação técnica, compilar uma autoridade estruturada (regras e restrições) e registrar uma decisão de aceitação para uso no pipeline.
+- **RF02 — Definição de visão de produto:** o sistema deve conduzir a elicitação e síntese da visão do produto por diálogo, persistindo-a como base para as fases seguintes.
+- **RF03 — Geração de backlog inicial (alto nível):** o sistema deve produzir um backlog inicial como lista ordenada de requisitos de alto nível, incluindo priorização e estimativa relativa.
+- **RF04 — Construção de roadmap:** o sistema deve organizar o backlog em uma sequência de releases/marcos (milestones), levando em conta dependências e restrições técnicas.
+- **RF05 — Escrita de histórias de usuário:** o sistema deve decompor requisitos do roadmap em histórias de usuário estruturadas, com critérios de aceitação e validações automáticas de formato.
+- **RF06 — Planejamento de sprint:** o sistema deve selecionar histórias para um sprint, gerar uma meta do sprint e (opcionalmente) decompor trabalho em tarefas técnicas.
+- **RF07 — Validação e evidências pós-salvamento:** o sistema deve validar histórias de usuário contra a autoridade compilada e registrar evidências de validação (passa/falha) para auditoria.
 
 ### 4.1.2 Requisitos não funcionais e restrições
 
-As restrições técnicas visaram garantir a reprodutibilidade e a auditabilidade do sistema:
+Para garantir reprodutibilidade, auditabilidade e controle de escopo, foram adotadas as seguintes restrições técnicas:
 
--   **RNF01 — Determinismo na Aceitação:** Embora a geração de conteúdo utilize modelos probabilísticos (LLMs), a validação e aceitação de artefatos foram implementadas seguindo regras determinísticas baseadas em esquemas de dados estritos.
--   **RNF02 — Agentes sem Estado Persistente Próprio:** Para evitar divergência de comportamento, os agentes não mantêm memória interna oculta. Todo o estado é persistido em banco de dados e reinjetado no contexto a cada interação (*Stateless Design*).
--   **RNF03 — Rastreabilidade de Métricas:** O sistema registra eventos de fluxo (*WorkflowEvents*) de forma nativa para fornecer dados de tempos de execução e suportar a coleta de instrumentos externos de avaliação (como *inputs* para NASA-TLX).
+- **RNF01 — Aceitação determinística (passa/falha):** embora a geração de conteúdo utilize modelos probabilísticos, a aceitação de artefatos críticos (por exemplo, histórias) deve ser decidida por validações determinísticas registradas como evidência.
+- **RNF02 — Especialistas sem estado interno persistente:** os agentes especializados não mantêm memória oculta. O estado necessário é passado explicitamente como estruturas serializadas (JSON) e persistido no banco.
+- **RNF03 — Fronteiras explícitas de ferramentas (tool boundaries):** cada estado da FSM expõe apenas as ferramentas necessárias à fase corrente, reduzindo ações fora de contexto e tornando o fluxo mais previsível.
+- **RNF04 — Persistência local e replicável:** a persistência deve operar em ambiente local, sem dependência de infraestrutura externa, para facilitar replicação em estudos futuros.
 
-## 4.2 Arquitetura do sistema
+## 4.2 Visão geral da arquitetura
 
-A arquitetura descrita a seguir corresponde à implementação efetiva do artefato analisado neste estudo. A arquitetura adotada segue o padrão de **Orquestração Centralizada** (*Hub-and-Spoke*), onde um Agente Orquestrador atua como controlador de fluxo e roteador, acionando tarefas complexas para Agentes Especializados.
+A arquitetura segue o padrão de orquestração centralizada (*hub-and-spoke*): um agente orquestrador conduz a interação com o usuário e delega a geração de artefatos para agentes especializados. O controle do fluxo é realizado por uma máquina de estados finita (FSM) que explicita fases, transições permitidas e o conjunto de ferramentas habilitadas em cada etapa.
 
-### 4.2.1 Visão lógica
+Como referência do fluxo ponta a ponta, o repositório contém o diagrama em `system_flowchart.mmd`, utilizado neste trabalho como fonte de verdade arquitetural.
 
-O sistema é composto por três camadas principais:
+### 4.2.1 Camadas e responsabilidades
 
-1.  **Camada de Orquestração:** Responsável pela interação com o usuário, interpretação de intenções e gerenciamento da máquina de estados do fluxo de trabalho.
-2.  **Camada de Especialistas (Agents & Tools):** Conjunto de módulos encapsulados que executam tarefas específicas (ex: compilador de autoridade, gerador de histórias). Cada especialista possui seu próprio conjunto de instruções e ferramentas.
-3.  **Camada de Persistência e Memória:** Infraestrutura de dados que armazena o estado do projeto, as especificações e os registros de eventos.
+O sistema é composto por três camadas:
+
+1. **Camada de orquestração (conversa + FSM):** coordena fases do pipeline, aplica instruções por estado e realiza roteamento para ferramentas e subagentes.
+2. **Camada de especialistas (agentes/ferramentas):** implementa responsabilidades específicas (visão, backlog, roadmap, histórias, sprint, compilação e validação de autoridade).
+3. **Camada de persistência (estado + auditoria):** armazena projetos, especificações versionadas, autoridade compilada, histórias, sprints, tarefas e eventos/evidências.
 
 ### 4.2.2 Pilha tecnológica
 
-A implementação utilizou as seguintes tecnologias, selecionadas conforme a matriz de decisão da metodologia:
+Na implementação analisada nesta monografia, foram utilizadas as seguintes tecnologias:
 
--   **Linguagem:** Python 3.12+, escolhido pela robustez do ecossistema de IA e tipe de dados.
--   **Framework de Agentes:** Google ADK (*Agent Development Kit*), utilizado para estruturar os agentes e ferramentas. A escolha deve-se à sua capacidade de integrar chamadas de funções (*Function Calling*) com controle de fluxo tipado.
--   **Integração LLM:** LiteLLM v1.78+, atuando como camada de abstração para conexão com provedores de inferência compatíveis com a API OpenAI (via OpenRouter).
--   **Persistência:** SQLModel (sobre SQLAlchemy) e banco de dados SQLite, oferecendo validação de esquema em tempo de execução e integridade referencial.
+- **Linguagem:** Python 3.11+ (compatível com o ambiente de refatoração e execução utilizado durante o desenvolvimento).
+- **Framework de agentes:** Google ADK (Agent Development Kit), empregado para estruturar agentes, ferramentas e sessão de execução.
+- **Integração com LLM:** LiteLLM, como camada de abstração para provedores compatíveis com a API OpenAI (via OpenRouter).
+- **Persistência:** SQLModel (sobre SQLAlchemy) e SQLite.
 
-## 4.3 Componentes principais
+Observa-se que o repositório também inclui um arquivo `pyproject.toml` com restrição de versão de Python mais recente, o que reflete uma escolha de configuração do projeto. Contudo, a execução utilizada para a avaliação relatada neste trabalho foi mantida em Python 3.11+ por restrições externas de ferramenta.
 
-A seguir, detalham-se os componentes de software que materializam a arquitetura proposta.
+## 4.3 Componentes do sistema
 
-### 4.3.1 O Orquestrador (Orchestrator Agent)
+Esta seção descreve os principais componentes que materializam a arquitetura.
 
-O `orchestrator_agent` é o ponto de entrada do sistema. Ele opera como uma máquina de estados implícita, guiada por um arquivo de instruções mestre (`instructions.txt`). Sua responsabilidade primária é manter o contexto da conversa e decidir qual ferramenta ou subagente acionar.
+### 4.3.1 Agente orquestrador e máquina de estados finita (FSM)
 
-Diferente de abordagens puramente reativas, o orquestrador possui acesso a ferramentas de leitura de estado (`get_project_details`, `list_sprints`), permitindo que ele tome decisões informadas sobre o progresso do projeto antes de responder ao usuário.
+O `orchestrator_agent` é o ponto de entrada do sistema. Seu papel é rotear intenções do usuário para ferramentas específicas e manter o progresso do pipeline. Diferentemente de um agente “gerador” genérico, o orquestrador é explicitamente configurado como **roteador**: ele delega a criação de conteúdo (visão, backlog, roadmap, histórias e sprint) para subagentes especializados.
 
-### 4.3.2 Registro de Especificações e Authority Pinning
+O fluxo é governado por uma FSM definida no módulo de orquestração. No estado atual do repositório, a FSM organiza o trabalho em **sete fases** (`VISION`, `BACKLOG`, `ROADMAP`, `STORY`, `SPRINT`, `SPEC` e `ROUTING`) e explicita **estados** que seguem, para cada artefato, um padrão de entrevista → revisão → persistência. Esse padrão reduz ambiguidade sobre “quando” um artefato é considerado completo e “quando” a persistência em banco deve ocorrer.
 
-Um dos diferenciais técnicos do artefato é o módulo `SpecRegistry`. Implementado em `tools/spec_tools.py`, este componente resolve o problema da alucinação e deriva de escopo em sistemas generativos.
+Uma característica essencial desse desenho é a **restrição de ferramentas por estado**. Por exemplo, na etapa de visão, apenas ferramentas relacionadas à visão e à persistência desse artefato são habilitadas. Essa medida atua como um mecanismo de segurança e previsibilidade: o agente não consegue, por exemplo, “pular” diretamente para planejamento de sprint sem antes ter produzido e persistido artefatos pré-requisitos.
 
-O mecanismo de **Authority Pinning** funciona da seguinte forma:
-1.  O usuário fornece uma especificação técnica (texto ou arquivo).
-2.  O sistema gera um *hash* único do conteúdo e cria uma versão imutável no banco de dados.
-3.  Um agente compilador (`Spec Authority Compiler`) processa o texto e extrai invariantes lógicas (regras de negócio, restrições técnicas).
-4.  Este artefato compilado (`CompiledSpecAuthority`) recebe um identificador de versão.
-5.  Qualquer operação subsequente de geração de histórias (`UserStory`) exige a vinculação explícita a esse ID de versão. Se a especificação mudar, o ID muda, invalidando artefatos obsoletos até que sejam reconciliados.
+### 4.3.2 Especificação versionada, autoridade compilada e aceitação
 
-Essa implementação garante que a "verdade" do projeto seja um artefato versionado e auditável, e não a memória efêmera do modelo de linguagem.
+A governança por especificação é operacionalizada por três entidades principais no banco:
 
-### 4.3.3 Pipeline de Histórias (INVEST Validation Loop)
+- `SpecRegistry`: registra versões da especificação técnica, incluindo conteúdo e *hash*.
+- `CompiledSpecAuthority`: armazena o resultado da compilação (artefato estruturado com invariantes/regras), incluindo metadados como versão do compilador e *hash* do prompt.
+- `SpecAuthorityAcceptance`: registra uma decisão explícita (aceita/rejeita) que habilita o uso daquela versão no pipeline.
 
-O componente `Story Pipeline` implementa a geração de backlogs com garantia de qualidade estrutural. Em vez de uma única chamada ao LLM ("gere histórias"), o sistema executa um laço de retroalimentação:
+Esse desenho separa três momentos: (i) registrar uma especificação, (ii) compilar uma autoridade a partir dela, e (iii) aceitar formalmente a autoridade para uso. Essa separação é relevante porque a compilação, por ser conduzida por um modelo de linguagem, pode produzir resultados que exigem revisão antes de se tornarem “normativos” no fluxo.
 
-1.  **Geração:** O modelo propõe um conjunto de histórias baseadas na *Spec Authority*.
-2.  **Validação:** Um validador lógico verifica se cada história atende a requisitos estruturais e sintáticos derivados do critério INVEST (ex: presença de critérios de aceitação, campos de estimativa), atuando como um *proxy* automatizável para a qualidade do artefato, sem substituir a avaliação semântica humana completa.
-3.  **Refinamento:** Se a validação falha, o erro é reinjetado no contexto do agente, que é instruído a reprocessar a saída.
-4.  **Persistência:** Apenas histórias validadas são persistidas no banco de dados.
+### 4.3.3 Agentes especializados e contratos de entrada/saída
 
-### 4.3.4 Agente de Planejamento de Sprints
+Os agentes especializados residem em `orchestrator_agent/agent_tools/` e são invocados pelo orquestrador como ferramentas. Cada agente implementa uma responsabilidade específica do pipeline e opera com contratos estruturados (esquemas de entrada/saída).
 
-O planejador (`Sprint Planning`) atua como um assistente para alocação de trabalho. Ele utiliza ferramentas como `get_backlog_for_planning` para visualizar itens pendentes e `plan_sprint_tool` para sugerir uma distribuição de tarefas que caiba na capacidade do time (simulada ou informada), respeitando a precedência e a prioridade dos itens.
+Os especialistas principais são:
 
-## 4.4 Modelo de dados e persistência
+- **Ferramenta de visão (`product_vision_tool`):** sintetiza uma visão do produto em formato canônico (template de visão), produzindo um estado estruturado e perguntas de esclarecimento quando necessário.
+- **Ferramenta de backlog inicial (`backlog_primer_tool`):** gera requisitos de alto nível, com priorização e estimativa relativa, como pré-condição para o roadmap.
+- **Ferramenta de roadmap (`roadmap_builder_tool`):** agrupa e sequencia itens do backlog em marcos, considerando dependências e capacidade.
+- **Ferramenta de histórias (`user_story_writer_tool`):** decompõe requisitos do roadmap em histórias de usuário e critérios de aceitação, aplicando validações de estrutura (por exemplo, formato do enunciado e consistência de avisos).
+- **Ferramenta de planejamento de sprint (`sprint_planner_tool`):** seleciona histórias para um sprint e produz um plano com meta do sprint, análise de capacidade e decomposição em tarefas.
+- **Agente compilador de autoridade (`spec_authority_compiler_agent`):** compila a especificação em um conjunto estruturado de regras e invariantes.
 
-A robustez do sistema é garantida por um esquema relacional estrito, definido via SQLModel. As principais entidades do modelo (`agile_sqlmodel.py`) incluem:
+### 4.3.4 Validação pós-salvamento e evidências de rastreabilidade
 
--   **Project:** A raiz de agregação.
--   **SpecRegistry:** Armazena versões de especificações e seus *hashes*.
--   **UserStory:** Representa itens de trabalho, com campos para critérios de aceitação, estimativa e *links* para a autoridade de especificação.
--   **Sprint:** Representa os ciclos de tempo, contendo datas de início/fim e status.
--   **WorkflowEvent:** Tabela de *log* estruturado utilizada para armazenar métricas para a avaliação (tipo de evento, *timestamp*, duração, carga cognitiva reportada).
+Além de gerar e persistir histórias, o sistema inclui uma etapa de validação determinística por autoridade compilada. Essa validação é realizada pela ferramenta `validate_story_with_spec_authority`, que recebe um identificador de história e um identificador de versão de especificação.
 
-O uso de SQLite como motor de banco de dados simplifica a implantação local do artefato, mantendo a capacidade de consultas relacionais complexas necessárias para os relatórios de validação.
+O resultado da validação é persistido em dois campos principais do registro de história:
 
-## 4.5 Considerações de implementação
+- `validation_evidence`: um JSON com evidências do processo de validação, contendo regras aplicadas, versão do validador e o resultado (passa/falha).
+- `accepted_spec_version_id`: uma chave estrangeira que é preenchida **apenas quando a história passa** na validação. Esse vínculo materializa a pinagem da história a uma versão de autoridade aceita.
 
-Durante o desenvolvimento, algumas decisões técnicas foram críticas para atender aos objetivos da pesquisa:
+Um aspecto importante observado no estado atual do repositório é que essa validação não estava inicialmente encadeada automaticamente ao salvamento de histórias, o que causou um cenário de integração parcial: histórias eram persistidas via `save_stories_tool`, porém não recebiam automaticamente validação pós-salvamento. Essa lacuna foi tratada por meio de um procedimento de *backfill* com script dedicado (`scripts/apply_story_validation.py`), que aplicou a validação contra uma versão aprovada de especificação.
 
--   **Abstração de Modelo (LiteLLM):** A decisão de usar `LiteLLM` permitiu desacoplar a lógica do sistema do provedor de IA específico. Isso facilita a troca de modelos (ex: de GPT-4 para Claude 3 ou modelos locais) sem refatoração de código, aumentando a longevidade do artefato.
--   **Validação de Esquema (Pydantic):** Todas as entradas e saídas de ferramentas são tipadas com Pydantic. Isso impede que "alucinações" de formato (ex: JSON malformado) propaguem erros para o banco de dados, atuando como um *firewall* de integridade de dados.
--   **Cache de Ferramentas:** Para otimizar a latência e o custo, implementou-se um mecanismo de cache para ferramentas de leitura pesada (como a leitura da especificação completa), reduzindo o tempo de resposta do orquestrador em interações sequenciais.
+Essa distinção é relevante para este TCC: ela evidencia que a rastreabilidade por pinagem é uma capacidade arquitetural efetivamente implementada, mas que depende de integração correta no pipeline operacional para se manifestar nos dados.
 
-Este capítulo apresentou a materialização técnica da proposta. A arquitetura modular e o foco em governança por especificação formam a base sobre a qual os experimentos de validação e avaliação, descritos nos capítulos subsequentes, foram realizados.
+## 4.4 Fluxo end-to-end do pipeline
+
+O fluxo implementado segue a sequência descrita no diagrama `system_flowchart.mmd`:
+
+1. **Pré-fase — Compilação de autoridade:** o usuário fornece uma especificação (arquivo ou texto), o sistema registra a versão e compila um artefato estruturado de autoridade.
+2. **Fase 1 — Visão de produto:** o agente de visão elicia e sintetiza a visão; a visão é persistida.
+3. **Fase 2 (prep) — Backlog inicial:** o agente de backlog gera requisitos de alto nível priorizados e estimados.
+4. **Fase 2 — Roadmap:** o agente de roadmap organiza requisitos em releases/marcos, considerando dependências.
+5. **Fase 3 — Histórias de usuário:** o agente de histórias decompõe requisitos do roadmap em histórias com critérios de aceitação.
+6. **Fase 4 — Planejamento de sprint:** o planejador seleciona histórias, define meta do sprint, analisa capacidade e decompõe tarefas.
+
+O papel da FSM é garantir que essa sequência seja seguida, explicitando pré-requisitos e transições válidas. Assim, decisões do tipo “ainda não é possível gerar roadmap sem backlog” deixam de ser apenas uma convenção e passam a ser uma regra operacional do sistema.
+
+## 4.5 Modelo de dados e persistência
+
+A persistência do sistema é implementada em SQLite com SQLModel, com chaves estrangeiras e tabelas de apoio para rastreabilidade. No estado atual do repositório, o modelo contempla entidades para produto/projeto, especificação versionada, autoridade compilada, decisão de aceitação, hierarquia temática (themes/epics/features), histórias, sprints, tarefas e registros auxiliares.
+
+Para este trabalho, destacam-se três aspectos do modelo:
+
+1. **Cadeia de rastreabilidade por especificação:** `SpecRegistry → CompiledSpecAuthority → SpecAuthorityAcceptance → UserStory.accepted_spec_version_id`.
+2. **Evidência persistida:** `UserStory.validation_evidence` registra o resultado e os motivos (regras) da validação.
+3. **Dados para métricas:** timestamps e registros agregados permitem extrair métricas operacionais (por exemplo, contagens e taxas de aprovação).
+
+### 4.5.1 Justificativa do uso de SQLite
+
+SQLite foi adotado por ser um banco embarcado, replicável e suficiente para uma prova de conceito executada localmente. Essa escolha reduz o custo de implantação e facilita a repetição do estudo por terceiros, sem exigir infraestrutura adicional. Como limitação, o desenho não é otimizado para cenários multiusuário concorrentes; isso é tratado como oportunidade para trabalhos futuros.
+
+## 4.6 Cenário de uso e demonstração (execução do pipeline)
+
+Como demonstração do artefato, foi executado um projeto de teste (Produto ID 7) que percorre o pipeline até o planejamento de sprint. O conjunto de métricas extraído do banco e consolidado por script de extração (`scripts/extract_tcc_metrics.py`) registra os seguintes resultados do estado atual:
+
+- **Histórias e tarefas:** 38 histórias de usuário persistidas e 25 tarefas geradas.
+- **Sprint:** 1 sprint persistido, com 5 histórias associadas.
+- **Autoridade e aceitação:** 1 versão de especificação aprovada, 1 autoridade compilada e 1 decisão de aceitação.
+
+Após a execução inicial, foi aplicado o procedimento de validação pós-salvamento (backfill) com `scripts/apply_story_validation.py` contra a versão aprovada de especificação (v8). O resultado do backfill demonstrou rastreabilidade e auditabilidade:
+
+- **Evidência completa:** 38 de 38 histórias (100%) passaram a possuir `validation_evidence` persistido (passa/falha).
+- **Pinagem por aceitação:** 25 de 38 histórias (65,8%) receberam `accepted_spec_version_id` válido, indicando validação aprovada.
+- **Falhas determinísticas:** 13 histórias falharam por motivo objetivo e repetível: ausência de critérios de aceitação, detectada pela regra `RULE_ACCEPTANCE_CRITERIA_REQUIRED`.
+
+Esses resultados indicam que o mecanismo de pinagem por autoridade compilada é operacional e auditável quando a validação é executada como etapa explícita do pipeline. Ao mesmo tempo, o cenário evidencia um ponto de integração: para maximizar a rastreabilidade em uso contínuo, a validação pós-salvamento deve ser encadeada automaticamente à persistência de histórias.

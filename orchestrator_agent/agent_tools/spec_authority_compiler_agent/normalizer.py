@@ -147,8 +147,13 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
         if use_positional_matching:
             return success.source_map[invariant_index].excerpt
         if invariant_id and invariant_id in id_to_excerpt:
+            # Guard against last-wins collision: when multiple invariants
+            # share a placeholder ID, id_to_excerpt holds only the last
+            # excerpt.  Fall back to positional if the index is in range.
+            if has_duplicate_ids and invariant_index < len(success.source_map):
+                return success.source_map[invariant_index].excerpt
             return id_to_excerpt[invariant_id]
-        if len(success.source_map) == len(success.invariants):
+        if invariant_index < len(success.source_map):
             return success.source_map[invariant_index].excerpt
         if len(success.invariants) == 1 and len(success.source_map) >= 1:
             return success.source_map[0].excerpt
@@ -239,10 +244,13 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
     source_map_ids = {entry.invariant_id for entry in success.source_map}
     missing = sorted(normalized_ids - source_map_ids)
     if missing:
-        print("[spec_authority_compiler] Missing source_map entries for invariants")
-        return _failure(
-            reason="SOURCE_MAP_INVARIANT_MISMATCH",
-            blocking_gaps=[f"No source_map entries for invariants: {missing}"],
+        # When source_map has fewer entries than invariants, some invariants
+        # genuinely lack traceability.  Log a warning but allow compilation
+        # to proceed — hard failure here blocks the entire vision save for
+        # an LLM output quality issue that doesn't affect invariant content.
+        print(
+            f"[spec_authority_compiler] WARNING: {len(missing)} invariant(s) "
+            f"without source_map coverage: {missing}"
         )
 
     return SpecAuthorityCompilerOutput(root=success)

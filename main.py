@@ -343,6 +343,9 @@ async def run_agent_turn(
     last_tool_name = None  # Capture tool name for FSM
     current_text_chunk = ""  # Accumulate text between tool calls for logging
 
+    # Track tool execution times to capture durations (e.g. for Sprint Planning)
+    tool_start_times: Dict[str, datetime] = {}
+
     try:
         async for event in runner.run_async(
             user_id=USER_ID,
@@ -354,6 +357,10 @@ async def run_agent_turn(
 
                     # A. Tool Call
                     if part.function_call:
+                        # Start timer for this tool
+                        if part.function_call.name:
+                            tool_start_times[part.function_call.name] = datetime.now()
+
                         # Log any accumulated text BEFORE the tool call
                         if current_text_chunk.strip():
                             app_logger.info("AGENT OUTPUT (before tool call):\n%s", current_text_chunk.strip())
@@ -365,6 +372,13 @@ async def run_agent_turn(
                         _display_tool_response(part)
                         last_tool_name = part.function_response.name
                         latest_tool_data = part.function_response.response or {}
+
+                        # Calculate duration if we tracked the start
+                        if last_tool_name in tool_start_times:
+                            duration = (datetime.now() - tool_start_times[last_tool_name]).total_seconds()
+                            # Inject duration for sprint planner so it can be persisted
+                            if last_tool_name == "sprint_planner_tool":
+                                latest_tool_data["sprint_planning_duration"] = duration
 
                     # C. Text
                     if part.text:
@@ -436,7 +450,10 @@ async def run_agent_turn(
             )
 
         elif "sprint_plan" in data_to_save:
-            update_state_in_db({"sprint_plan": data_to_save["sprint_plan"]})
+            payload = {"sprint_plan": data_to_save["sprint_plan"]}
+            if "sprint_planning_duration" in data_to_save:
+                payload["sprint_planning_duration"] = data_to_save["sprint_planning_duration"]
+            update_state_in_db(payload)
             console.print(
                 "[bold dim cyan]>> State Updated (Sprint Plan)[/bold dim cyan]"
             )

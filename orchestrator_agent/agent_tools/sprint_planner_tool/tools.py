@@ -212,12 +212,18 @@ def save_sprint_plan_tool(
                 "capacity_analysis": validated_plan.capacity_analysis.model_dump(),
             }
         )
+        # Try to retrieve duration from context (populated by Orchestrator/Runner)
+        duration_seconds = None
+        if tool_context and tool_context.state:
+            duration_seconds = tool_context.state.get("sprint_planning_duration")
+
         session.add(
             WorkflowEvent(
                 event_type=WorkflowEventType.SPRINT_PLAN_SAVED,
                 product_id=input_data.product_id,
                 sprint_id=sprint.sprint_id,
                 event_metadata=event_metadata,
+                duration_seconds=duration_seconds,
             )
         )
 

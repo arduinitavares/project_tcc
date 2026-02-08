@@ -1,71 +1,114 @@
 # CAPÍTULO 3 — Método de pesquisa
 
-Este capítulo descreve o método de pesquisa adotado para o desenvolvimento e avaliação da Plataforma de Gestão Ágil Autônoma. A natureza do problema — a construção de um artefato tecnológico inovador para solucionar uma dor prática — orientou a escolha do *Design Science Research* (DSR) como abordagem metodológica.
+Este capítulo descreve o método de pesquisa empregado para concepção, desenvolvimento e avaliação do artefato proposto (Plataforma de Gestão Ágil Autônoma). A investigação parte de um problema prático de engenharia de software — a aplicação de práticas Scrum em equipes muito pequenas — e culmina na construção de um artefato de software com avaliação empírica baseada em evidências extraídas do próprio sistema.
 
 ## 3.1 Enquadramento metodológico
 
-A pesquisa classifica-se como *Design Science Research* (DSR), uma abordagem voltada para a criação e avaliação de artefatos de TI destinados a resolver problemas organizacionais identificados (Hevner et al., 2004). O artefato central deste trabalho é uma plataforma de software baseada em sistema multiagente que orquestra um fluxo de trabalho inspirado no Scrum.
+O estudo adota **Design Science Research (DSR)** como abordagem metodológica por ser orientada à criação e avaliação de artefatos de TI destinados a resolver problemas organizacionais relevantes (Hevner et al., 2004). O artefato desta pesquisa é uma plataforma baseada em sistema multiagente e governança por especificação, com orquestração por máquina de estados finita e persistência em banco de dados.
 
-No contexto da classificação de tipos de contribuição de DSR proposta por Gregor e Hevner (2013), este trabalho enquadra-se na categoria de **Apresentação de Algo Presumivelmente Melhor** (*Improvement*). O problema de gestão ágil em equipes pequenas é conhecido, mas a solução proposta — o uso de agentes autônomos para criar uma camada de abstração metodológica e governança por especificação — representa uma abordagem nova e presumivelmente mais eficaz para reduzir a sobrecarga cognitiva e metodológica nesse contexto específico.
+No enquadramento de contribuições em DSR, este trabalho caracteriza-se como **melhoria** (*improvement*), pois propõe uma alternativa presumivelmente superior para reduzir sobrecarga de coordenação e custos de planejamento em cenários de equipe reduzida, mantendo a rastreabilidade de decisões por meio de validações determinísticas e trilhas de auditoria (Gregor; Hevner, 2013).
 
-## 3.2 Etapas da pesquisa
+## 3.2 Processo de pesquisa (Peffers et al.)
 
-A condução da pesquisa seguiu o processo metodológico de seis etapas definido por Peffers et al. (2007), amplamente aceito na engenharia de software e sistemas de informação:
+A pesquisa segue as seis atividades de DSR conforme Peffers et al. (2007), com adaptação ao contexto de um artefato de software executável:
 
-1.  **Identificação do Problema e Motivação:** Conforme detalhado nos Capítulos 1 e 2, o problema foi definido como a inviabilidade prática da aplicação do framework Scrum em equipes de um a quatro desenvolvedores devido à sobrecarga de papéis e custos de coordenação. A motivação reside na necessidade de democratizar o acesso a práticas ágeis estruturadas para esse segmento.
+1. **Identificação do problema e motivação:** o problema é a dificuldade prática de executar Scrum “como prescrito” em equipes muito pequenas (1 a 4 desenvolvedores), especialmente devido à sobrecarga de papéis, coordenação e manutenção de artefatos.
 
-2.  **Definição dos Objetivos da Solução:** Os objetivos foram estabelecidos em termos de redução de complexidade percebida e manutenção da integridade do fluxo ágil. O artefato deve ser capaz de: (i) interpretar linguagem natural para gerar especificações; (ii) manter a consistência de artefatos através de autoridade compilada; (iii) orquestrar o planejamento de sprints sem exigir microgerenciamento humano.
+2. **Definição dos objetivos de uma solução:** (i) reduzir o esforço de coordenação e a carga de trabalho do operador; (ii) manter consistência e rastreabilidade entre especificação, backlog e planejamento; (iii) tornar o fluxo operacionalmente executável com governança por validação determinística.
 
-3.  **Design e Desenvolvimento:** Nesta etapa, foi concebida e implementada a arquitetura do sistema. O desenvolvimento utilizou a linguagem **Python 3.12+** e o framework **Google ADK** (Agent Development Kit) para a orquestração dos agentes. A escolha do Google ADK, em detrimento de outros frameworks de agentes, fundamentou-se na necessidade de controle explícito de estado (máquinas de estado finito) para garantir previsibilidade no fluxo de governança. O sistema integra **Modelos de Linguagem de Grande Porte** via interface padronizada (LiteLLM) e utiliza **SQLModel (SQLite)** para persistência estruturada de dados e estados conversacionais. Um componente crítico desenvolvido foi o *Spec Registry*, que implementa a lógica de *Authority Pinning* para validação determinística.
+3. **Design e desenvolvimento:** implementação do artefato em **Python 3.11+**, com agentes e orquestração via **Google ADK** e integração com LLM via **LiteLLM**. A persistência utiliza **SQLModel/SQLite**, viabilizando extração reprodutível de métricas (contagens, tempos e evidências de validação). Observação: o repositório do projeto pode declarar uma versão mínima distinta em configuração; neste trabalho, o requisito metodológico adotado para execução é Python 3.11+.
 
-4.  **Demonstração:** A demonstração da viabilidade do artefato foi realizada por meio de execução em ambiente controlado, simulando o ciclo de vida completo de um projeto de software, desde a definição da visão do produto até o planejamento de sprints, demonstrando a viabilidade operacional do artefato para executar o fluxo proposto de forma autônoma e colaborativa.
+4. **Demonstração:** execução ponta a ponta de um ciclo reduzido de planejamento (visão, especificação, backlog e planejamento de sprint) em ambiente controlado, com persistência dos artefatos e registros no banco de dados.
 
-5.  **Avaliação:** A avaliação empírica foi desenhada para medir a eficácia do artefato em comparação com um cenário base (*baseline*), utilizando métricas extraídas diretamente do banco de dados da plataforma e registros de execução (*logs*), complementados por instrumentos qualitativos.
+5. **Avaliação:** avaliação exploratória baseada em métricas extraídas do banco de dados e de arquivos de execução (*logs* e *smoke runs*), complementada por instrumento de carga de trabalho (NASA-TLX) aplicado ao operador.
 
-6.  **Comunicação:** A disseminação do conhecimento gerado ocorre por meio da documentação técnica do artefato (repositório de código e documentação de arquitetura) e da redação desta monografia.
+6. **Comunicação:** produção desta monografia e documentação de apoio no repositório (scripts de extração e artefatos exportados), permitindo reexecução do protocolo.
 
 ## 3.3 Desenho da avaliação
 
-Para responder às questões de pesquisa e validar as hipóteses, foi definido um protocolo de avaliação baseado em comparação entre o uso do artefato proposto (intervenção) e um cenário de referência (*baseline*).
+A avaliação foi delineada para responder às questões de pesquisa e examinar as hipóteses de forma **exploratória**, com foco em viabilidade e consistência interna das evidências geradas pelo artefato.
 
-### 3.3.1 Definição do Baseline e do Cenário Experimental
-O *baseline* foi definido como a execução das tarefas de gestão e planejamento ágil realizadas manualmente, sem o suporte de agentes autônomos. Para fins de operacionalização e viabilidade, o protocolo experimental adota um desenho intra-sujeito, no qual o registro de tempo e esforço da execução manual pelo desenvolvedor pesquisador serve como linha de base para comparação com a execução assistida pela plataforma.
+### 3.3.1 Desenho experimental e baseline
 
-O cenário experimental consiste na simulação de um projeto de software de escopo reduzido, típico de uma equipe pequena. As tarefas objeto de avaliação com viabilidade operacional compreendem:
--   **Definição de Visão:** Elaboração da visão do produto e objetivos.
--   **Especificação Técnica:** Definição de requisitos técnicos e regras de negócio.
--   **Geração de Backlog:** Criação de *User Stories* com critérios de aceitação.
--   **Planejamento:** Organização de itens em um *Sprint Backlog* considerando capacidade.
+Adota-se um desenho **intra-sujeito** (single-participant), no qual o próprio pesquisador executa as tarefas em dois modos:
 
-### 3.3.2 Coleta de Dados
-A coleta de dados é realizada de forma automatizada pela própria plataforma, que registra eventos de fluxo de trabalho (*WorkflowEvents*). Esses registros capturam tempos de execução, transições de estado e resultados de validação de artefatos, garantindo objetividade na mensuração.
+- **Baseline (manual):** execução das tarefas de planejamento com suporte mínimo de automação (produção manual de visão, especificação e backlog, e organização manual de itens para o sprint), registrando tempo e esforço de forma controlada.
+- **Intervenção (com a plataforma):** execução do mesmo conjunto de tarefas com suporte do fluxo orquestrado por agentes, registrando evidências diretamente na base de dados.
+
+O escopo do cenário experimental é compatível com equipes pequenas: definição de visão, formalização de especificação técnica, geração/refino de histórias e planejamento de sprint. O objetivo não é inferir significância estatística, mas **verificar viabilidade**, coerência e rastreabilidade operacional do fluxo.
+
+### 3.3.2 Fontes de dados e rastreabilidade
+
+As evidências quantitativas e de rastreabilidade são extraídas principalmente de:
+
+- **Banco de dados SQLite**: registra produtos, histórias, sprints, versões de especificação, aceites e eventos de fluxo.
+- **Evidências de validação por autoridade de especificação**: cada história pode armazenar (i) a versão de especificação aceita à qual foi “pinada” e (ii) um JSON de evidências de validação (pass/fail e regras aplicadas).
+- **Eventos de workflow**: a plataforma persiste eventos para medição de esforço/tempo em atividades de planejamento (por exemplo, eventos associados ao rascunho/revisão/salvamento do plano de sprint e marcações operacionais relevantes ao protocolo de avaliação).
+- **Registros de execução (*smoke runs*)**, quando disponíveis, para sumarização de desempenho e consistência do pipeline.
+
+Para assegurar reprodutibilidade, a extração de métricas utiliza script dedicado que gera saídas auditáveis (CSV/JSON) e também sumarização em formato compatível com inserção no Capítulo 6.
 
 ## 3.4 Métricas e instrumentos
 
-A eficácia da solução é avaliada com base em três dimensões principais, operacionalizadas pelas seguintes métricas e instrumentos:
+A avaliação é organizada em três dimensões: carga de trabalho percebida, qualidade/rastreabilidade dos artefatos e eficiência do fluxo.
 
-### 3.4.1 Carga Cognitiva (NASA-TLX)
-Para avaliar a hipótese de redução da sobrecarga cognitiva (H1), utiliza-se o instrumento **NASA-TLX** (*Task Load Index*) em formato de autoavaliação aplicada ao operador do sistema (desenvolvedor pesquisador) ao final das tarefas no cenário experimental. O protocolo mede dimensões como demanda mental, demanda temporal e esforço percebido. No contexto da plataforma, a redução da necessidade de alternância de contexto e de gerenciamento manual de artefatos é o principal indicador de sucesso esperado.
+### 3.4.1 Carga de trabalho percebida (NASA-TLX)
 
-### 3.4.2 Qualidade dos Artefatos (Conformidade e INVEST)
-Para avaliar a qualidade dos artefatos gerados (H2), o estudo adota critérios objetivos de conformidade. No caso das Histórias de Usuário, utiliza-se o critério **INVEST** (Independent, Negotiable, Valuable, Estimable, Small, Testable) operacionalizado por *proxies* automáticos de validação. A plataforma implementa validadores que verificam a presença de campos obrigatórios e estruturas sintáticas exigidas, não substituindo o julgamento humano de valor, mas garantindo a aderência estrutural dos artefatos aos padrões de qualidade definidos. A *Specification Authority* atua como instrumento de verificação, garantindo que os artefatos estejam alinhados às restrições técnicas (pinagem de autoridade).
+Para avaliar a hipótese de redução de sobrecarga (H1), utiliza-se o **NASA-TLX (Task Load Index)** aplicado ao operador ao final das execuções (baseline e intervenção), com foco em carga de trabalho percebida.
 
-### 3.4.3 Eficiência do Fluxo (Cycle Time)
-Para avaliar a eficiência operacional (referente a H1 e H2), mensura-se o **Cycle Time** (tempo de ciclo) das tarefas de gestão. O sistema registra o tempo decorrido entre o início de uma solicitação (ex: "gerar histórias para esta *feature*") e a entrega do artefato validado e persistido. Essa métrica permite comparar a velocidade de produção de artefatos de planejamento assistida por agentes *versus* a produção manual.
+Neste estudo, adota-se o NASA-TLX em formato **RAW (não ponderado)** e com **cinco dimensões**: Demanda Mental, Demanda Temporal, Desempenho, Esforço e Frustração. A dimensão **Demanda Física** é excluída por não ser pertinente ao tipo de tarefa (planejamento e produção de artefatos textuais), cujo custo é majoritariamente cognitivo. As respostas são coletadas fora do banco de dados (instrumento de pesquisa) e utilizadas para análise descritiva.
 
-## 3.5 Planejamento de análise
+### 3.4.2 Qualidade e conformidade dos artefatos (proxies de INVEST + regras)
 
-A análise dos dados adota uma abordagem mista de caráter exploratório:
--   **Análise Quantitativa:** Comparação direta das métricas de tempo (eficiência) e pontuação de validação (qualidade) entre o artefato e os dados de referência do cenário *baseline* definido neste estudo.
--   **Análise Qualitativa:** Observação da coerência semântica dos artefatos gerados e da fluidez do fluxo conversacional, identificando pontos de fricção ou alucinação do modelo de linguagem que exijam intervenção.
+Para examinar a hipótese de melhoria de qualidade (H2), a avaliação considera dois níveis complementares:
 
-## 3.6 Aspectos éticos
+1. **Conformidade estrutural e completude mínima**: regras determinísticas verificam a presença e consistência de elementos essenciais (por exemplo, título e critérios de aceitação em histórias), produzindo evidências persistidas como JSON. Essas regras reduzem ambiguidade e tornam auditável a aderência mínima a padrões.
 
-A pesquisa foi conduzida em ambiente simulado e não envolveu o uso de dados pessoais sensíveis ou experimentação com usuários externos em larga escala que exigisse aprovação de comitê de ética em pesquisa com seres humanos na fase de construção do artefato. Os dados processados referem-se estritamente a especificações técnicas de software hipotético. O estudo caracteriza-se como uma avaliação intra-sujeito conduzida pelo próprio desenvolvedor-pesquisador, sem envolvimento de participantes externos.
+2. **Proxies de INVEST**: parte dos critérios INVEST pode ser operacionalizada por verificações automatizadas (especialmente o “Testable”, associado à presença de critérios de aceitação verificáveis). Reconhece-se que aspectos como “Valuable” permanecem dependentes de julgamento humano, motivo pelo qual a análise combina indicadores objetivos com interpretação qualitativa.
 
-## 3.7 Ameaças à validade
+### 3.4.3 Eficiência do fluxo (tempos e eventos)
 
-Reconhecem-se as seguintes ameaças à validade da pesquisa:
--   **Validade de Construção:** A métrica de "qualidade" de artefatos textuais gerados por IA possui um componente subjetivo. Mitigou-se esse risco utilizando validadores determinísticos (*Spec Authority*) e estruturas padronizadas (esquemas JSON).
--   **Validade Externa:** A generalização dos resultados pode ser limitada pelo escopo reduzido do projeto simulado. A eficácia demonstrada em um projeto pequeno pode não se manter linearmente em projetos de maior complexidade ou ambiguidade.
--   **Confiabilidade da IA:** A natureza não determinística dos modelos de linguagem pode introduzir variabilidade nos resultados. A arquitetura *Spec-Driven* foi desenhada especificamente para controlar essa ameaça através de camadas de validação determinística.
+Para avaliar eficiência operacional, são utilizadas métricas extraídas do banco de dados:
+
+- **Duração de atividades de planejamento**, quando registrada em eventos de workflow (por exemplo, duração associada ao salvamento de planos de sprint).
+- **Métricas derivadas de timestamps** em histórias (por exemplo, tempo médio até conclusão quando há registro de criação e conclusão).
+
+Essas medidas permitem comparar, de forma descritiva, a execução assistida pela plataforma versus o baseline manual (quando medido), além de caracterizar o comportamento do artefato ao longo das execuções.
+
+## 3.5 Protocolo de replicação
+
+Para permitir reexecução do estudo e auditoria dos números apresentados nos resultados, o protocolo mínimo de replicação é:
+
+1. Executar o fluxo do artefato para um produto (criação/atualização de especificação, compilação/aceite quando aplicável, geração de histórias e planejamento de sprint), garantindo persistência no banco.
+2. Quando necessário, executar o procedimento de validação das histórias contra a autoridade de especificação aceita (backfill) para garantir que evidências e pinagem estejam registradas.
+3. Extrair métricas do banco com o script de extração, gerando os artefatos em `artifacts/`.
+
+Exemplo de extração de métricas:
+
+```bash
+python scripts/extract_tcc_metrics.py <caminho_para_db.sqlite>
+```
+
+O script gera, no mínimo, os arquivos `artifacts/metrics_summary.json` e `artifacts/metrics_summary.csv`, além de resultados de consultas em `artifacts/query_results/`.
+
+## 3.6 Planejamento de análise
+
+Os dados são analisados de forma **descritiva e triangulada**:
+
+- **Quantitativo (descritivo):** contagens, proporções e médias extraídas do banco e dos arquivos de execução (por exemplo, total de histórias, proporção com evidência de validação, duração média de atividades instrumentadas).
+- **Qualitativo (observacional):** inspeção da coerência dos artefatos gerados (clareza de histórias, adequação de critérios de aceitação e consistência com a especificação) e análise de casos de falha, quando regras determinísticas bloqueiam aceitação.
+
+Como se trata de avaliação exploratória com único participante, não se realizam inferências estatísticas; os resultados são interpretados como evidência de viabilidade, consistência interna e rastreabilidade do fluxo.
+
+## 3.7 Aspectos éticos
+
+A avaliação é conduzida em ambiente controlado e não envolve coleta de dados pessoais sensíveis de terceiros. O operador é o próprio pesquisador, e os dados persistidos referem-se a artefatos de engenharia de software (especificações, histórias, sprints) e evidências de validação. Instrumentos subjetivos (NASA-TLX) são tratados como dados de pesquisa e não como dados operacionais do sistema.
+
+## 3.8 Ameaças à validade
+
+Reconhecem-se as seguintes ameaças e limitações:
+
+- **Validade de construção:** parte dos conceitos (qualidade textual, valor de histórias) não é plenamente capturável por regras automáticas. Mitiga-se com combinação de proxies objetivos (evidências determinísticas) e análise qualitativa.
+- **Validade interna (instrumentação):** o que pode ser medido depende do que o artefato registra (eventos, timestamps e evidências). Mitiga-se com extração padronizada via script e inspeção do esquema do banco no momento da extração.
+- **Validade externa:** resultados são limitados ao escopo do cenário e ao perfil do operador (single-participant), não permitindo generalização para contextos organizacionais distintos.
+- **Confiabilidade de LLM:** modelos de linguagem podem produzir variação. A arquitetura de governança por especificação visa reduzir efeitos nocivos por meio de validações determinísticas, aceites explícitos e trilhas de evidência persistidas.

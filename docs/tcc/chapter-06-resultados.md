@@ -1,147 +1,138 @@
 # CAPÍTULO 6 — Resultados
 
-Este capítulo apresenta os resultados obtidos na avaliação empírica exploratória da Plataforma de Gestão Ágil Autônoma. Os dados são organizados por dimensão de análise, conforme estabelecido no protocolo de avaliação (Capítulo 5), e confrontados com os critérios de sucesso definidos.
+Este capítulo apresenta os resultados obtidos na avaliação empírica exploratória do artefato. Os valores numéricos reportados são derivados de evidências extraídas do banco de dados e de artefatos de extração (CSV/JSON) gerados por script, conforme o protocolo definido no Capítulo 5. Quando um dado não está disponível no repositório (por exemplo, respostas de questionário NASA-TLX), isso é indicado explicitamente, evitando inferências não suportadas.
 
-Os valores de tempo e métricas de validação apresentados foram extraídos diretamente da base de dados da plataforma (tabela `WorkflowEvent` e registros de validação), enquanto os dados do cenário baseline foram obtidos por registro manual com cronômetro. Os escores NASA-TLX foram coletados por autoavaliação em ambos os cenários.
+## 6.1 Caracterização da execução e do conjunto de evidências
 
-## 6.1 Caracterização da execução
+Os resultados quantitativos deste capítulo são extraídos de uma base SQLite específica utilizada na avaliação, com metadados de extração registrados em artefato JSON.
 
-A avaliação foi conduzida com um projeto de software simulado de escopo reduzido, representativo de uma aplicação típica desenvolvida por equipes pequenas. O projeto consistiu em:
--   Uma visão de produto com público-alvo, problema e solução claramente definidos.
--   Uma especificação técnica contendo 12 regras de negócio e 8 restrições técnicas.
--   4 funcionalidades principais (*features*) derivadas da especificação.
--   Conjunto-alvo de 12 histórias de usuário a serem geradas.
+**Fonte de verdade (evidência):**
 
-A execução ocorreu em dois cenários sequenciais (baseline manual seguido de experimental assistido), utilizando o mesmo projeto simulado em ambas as condições.
+- Base: `db/spec_authority_dev.db`
+- Timestamp de extração: 2026-02-08T12:43:31Z
+- Commit (hash curto): ab06268e1d06
+
+**Produto avaliado (evidência):**
+
+- `product_id = 7`
+- Nome: *Review-First Human-in-the-Loop Extraction Pipeline*
+- Especificação: 1 versão registrada e aprovada (`spec_version_id = 8`, status `approved`)
 
 ## 6.2 Resultados por dimensão de análise
 
-### 6.2.1 Eficiência do fluxo (Cycle Time)
+### 6.2.1 Qualidade e completude mínima das histórias (validação determinística)
 
-Os tempos de execução registrados para cada tarefa nos dois cenários foram:
+Esta dimensão reporta resultados de validação persistidos no banco por história. A evidência é composta por:
 
-**Cenário Baseline (manual):**
--   T1 — Definição de Visão: 18 minutos
--   T2 — Especificação Técnica: 25 minutos
--   T4 — Geração de Backlog: 42 minutos
--   T5 — Planejamento de Sprint: 22 minutos
--   **Tempo total: 107 minutos**
+- campo `validation_evidence` (JSON) em `user_stories`, contendo resultado da validação e lista de falhas;
+- campo `accepted_spec_version_id` em `user_stories`, preenchido quando a história passa na validação e é pinada à versão aprovada.
 
-**Cenário Experimental (plataforma):**
--   T1 — Definição de Visão: 12 minutos
--   T2 — Especificação Técnica: 8 minutos
--   T3 — Compilação de Autoridade: 3 minutos
--   T4 — Geração de Backlog: 15 minutos
--   T5 — Planejamento de Sprint: 10 minutos
--   **Tempo total: 48 minutos**
+**Resumo (evidência):**
 
-A diferença observada no tempo total foi de 59 minutos (redução descritiva de aproximadamente 55% em relação ao baseline). O cenário experimental apresentou tempos consistentemente inferiores em todas as tarefas comparáveis (T1, T2, T4, T5). Os tempos do baseline refletem uma execução única realista, não otimizada ou média de múltiplas tentativas.
+| Métrica | Valor | Interpretação |
+|---|---:|---|
+| Histórias no produto | 38 | Total de histórias persistidas no produto avaliado |
+| Histórias com evidência de validação | 38 (100,0%) | Todas as histórias possuem trilha de evidência JSON |
+| Histórias aceitas/pinadas (`accepted_spec_version_id` não nulo) | 25 (65,8%) | Histórias que passaram no gate determinístico |
+| Histórias reprovadas (não pinadas) | 13 (34,2%) | Histórias com falhas determinísticas registradas |
 
-A tarefa T3 (Compilação de Autoridade) não possui correspondente no baseline, pois é uma etapa exclusiva da arquitetura Spec-Driven implementada pela plataforma. O tempo registrado (3 minutos) refere-se ao processamento automatizado da especificação pelo agente compilador.
+**Motivo de reprovação (evidência):**
 
-### 6.2.2 Qualidade dos artefatos
+| Regra de falha | Ocorrências | Observação |
+|---|---:|---|
+| `RULE_ACCEPTANCE_CRITERIA_REQUIRED` | 13 | Critérios de aceitação ausentes/vazios |
 
-A qualidade estrutural dos artefatos foi avaliada pelos validadores automáticos da plataforma, conforme descrito no protocolo.
+Esses resultados indicam que a camada de governança é capaz de **detectar de forma determinística** histórias incompletas sob o critério mínimo de testabilidade (presença de critérios de aceitação). Ao mesmo tempo, a proporção de reprovação (34,2%) evidencia que, sem um loop de refino aplicado a todas as histórias, parte do backlog inicial pode permanecer incompleto, ainda que auditável.
 
-**Histórias de usuário:**
--   Total de histórias geradas: 12
--   Histórias aprovadas na primeira iteração: 10 (83%)
--   Histórias que exigiram refinamento: 2 (17%)
--   Taxa de aprovação final: 100% (após refinamento)
+### 6.2.2 Rastreabilidade e pinagem à especificação aprovada
 
-Os validadores verificaram a presença de:
--   Título descritivo
--   Critérios de aceitação testáveis (mínimo 2 por história)
--   Campo de estimativa preenchido
--   Vinculação a feature e produto
+O objetivo desta dimensão é demonstrar que a plataforma preserva rastreabilidade entre a especificação aprovada e histórias derivadas. No conjunto analisado, observa-se:
 
-As duas histórias que exigiram refinamento apresentaram critérios de aceitação inicialmente vagos ("o sistema deve funcionar corretamente"), que foram reprocessados após reinjeção do erro no contexto do agente.
+- existência de uma versão de especificação aprovada (`spec_version_id = 8`);
+- existência de autoridade compilada (1 registro em `compiled_spec_authority`);
+- decisões de aceite registradas (1 aceite, 0 rejeições);
+- trilha por história: evidência JSON de validação em 100% das histórias e pinagem em 65,8%.
 
-**Planos de sprint:**
--   Verificação de capacidade: Aprovado (carga total: 34 pontos; capacidade declarada: 40 pontos)
--   Verificação de priorização: Aprovado (histórias ordenadas por valor de negócio)
--   Verificação de dependências: Aprovado (nenhuma violação de precedência detectada)
+Em termos metodológicos, mesmo as histórias reprovadas permanecem rastreáveis, pois a causa da reprovação é registrada no `validation_evidence` e pode ser utilizada como insumo para refino.
 
-### 6.2.3 Rastreabilidade (Authority Pinning)
+### 6.2.3 Eficiência do fluxo (evidências disponíveis)
 
-A verificação de rastreabilidade avaliou se todas as histórias de usuário geradas possuíam vinculação explícita com uma versão de *Spec Authority* válida.
+Os resultados de eficiência dependem do que está instrumentado como evento ou do que é derivável de timestamps. No conjunto de evidências extraído, há registro de evento de planejamento de sprint (`SPRINT_PLAN_SAVED`), porém sem preenchimento de `duration_seconds`. Ainda assim, para a condição de intervenção é possível reportar **deltas wall-clock** (diferença entre timestamps persistidos no banco), os quais caracterizam a ordem e o intervalo temporal entre marcos do fluxo.
 
-**Resultados:**
--   Total de histórias geradas: 12
--   Histórias com `spec_version_id` válido: 12 (100%)
--   Histórias órfãs (sem vinculação): 0 (0%)
--   Tentativas de criação de histórias sem *Spec Authority* aceita: 0
+**Resumo de eventos (evidência):**
 
-Adicionalmente, verificou-se que o sistema impediu a criação de histórias quando a especificação não possuía status de "aceita", conforme previsto na arquitetura. Este comportamento foi observado em teste manual onde se tentou gerar histórias antes da aprovação da *Spec Authority*, resultando em mensagem de erro apropriada.
+| Evento | Contagem | Primeiro timestamp | Último timestamp | Duração (agregada) |
+|---|---:|---|---|---|
+| `SPRINT_PLAN_SAVED` | 1 | 2026-02-08 01:16:53 | 2026-02-08 01:16:53 | não disponível |
 
-### 6.2.4 Carga cognitiva percebida (NASA-TLX)
+Como evidência complementar, foram derivados deltas entre marcos do fluxo (T1–T5) a partir de timestamps do próprio banco de dados (arquivo em `artifacts/query_results/`). Esses deltas não substituem tempo de esforço humano (por exemplo, pausas e latência externa podem estar incluídas), mas permitem reportar um retrato reprodutível do intervalo temporal observado na execução de intervenção.
 
-Os escores de carga cognitiva percebida, medidos pelo questionário NASA-TLX em formato de autoavaliação aplicado ao desenvolvedor-pesquisador ao final de cada cenário, foram (escala 0-100):
+**Deltas derivados (evidência; intervenção, `product_id = 7`):**
 
-**Cenário Baseline (manual):**
--   Demanda Mental: 75
--   Demanda Temporal: 80
--   Esforço: 70
--   Frustração: 60
--   Desempenho percebido (inverso): 40
--   **Média: 65**
+| Delta | De → Até | Segundos | mm:ss |
+|---|---|---:|---:|
+| T1→T2 (Visão → Spec) | 00:59:40.77 → 00:59:40.95 | 0.18 | 00:00 |
+| T2→T3 (Spec → Autoridade compilada) | 00:59:40.95 → 01:00:01.47 | 20.52 | 00:21 |
+| T3→T4 (Autoridade → Primeira story) | 01:00:01.47 → 01:02:34.12 | 152.64 | 02:33 |
+| T4 (Primeira → Última story; 38 stories) | 01:02:34.12 → 01:13:57.79 | 683.68 | 11:24 |
+| T4→T5 (Última story → Sprint plan saved) | 01:13:57.79 → 01:16:53.96 | 176.17 | 02:56 |
+| T1→T5 (Total; produto criado → sprint) | 00:59:40.77 → 01:16:53.96 | 1033.19 | 17:13 |
 
-**Cenário Experimental (plataforma):**
--   Demanda Mental: 45
--   Demanda Temporal: 40
--   Esforço: 35
--   Frustração: 25
--   Desempenho percebido (inverso): 20
--   **Média: 33**
+Observa-se que T1 e T2 são quase simultâneos, pois visão e especificação são carregadas no mesmo fluxo de criação do produto na execução registrada. Já o tempo “T4” agrega a janela entre a primeira e a última história persistida no produto.
 
-*Nota: Na dimensão de desempenho, valores menores indicam melhor desempenho percebido.*
+### 6.2.4 Carga de trabalho percebida (NASA-TLX)
 
-A diferença observada na média geral foi de 32 pontos, com o cenário experimental apresentando escores consistentemente menores em todas as dimensões. As maiores diferenças absolutas foram observadas nas dimensões de Demanda Temporal (40 pontos) e Esforço (35 pontos). Ressalta-se o caráter autoavaliativo e exploratório desta medida, conduzida com participante único, sem tentativa de inferência estatística.
+O protocolo prevê NASA-TLX RAW com cinco dimensões (Demanda Mental, Demanda Temporal, Desempenho, Esforço e Frustração). As respostas, por definição do protocolo, são coletadas em formulário/planilha e **não** são persistidas no banco.
 
-## 6.3 Observações qualitativas
+Para esta execução, os valores foram registrados em planilha (arquivo CSV em `artifacts/`), em escala 0–100, adotando a convenção **menor = melhor** também para a dimensão de Desempenho (isto é, 0 indica desempenho percebido excelente; 100 indica desempenho percebido ruim).
 
-Durante a execução no cenário experimental, foram registradas as seguintes observações:
+| Dimensão NASA-TLX | Baseline | Intervenção |
+|---|---:|---:|
+| Demanda Mental | 90 | 50 |
+| Demanda Temporal | 95 | 20 |
+| Desempenho | 80 | 15 |
+| Esforço | 90 | 20 |
+| Frustração | 50 | 30 |
 
-**Pontos positivos:**
--   O fluxo conversacional foi fluido e intuitivo na maioria das interações.
--   A estruturação automática dos artefatos (visão, histórias) reduziu a necessidade de formatação manual.
--   A validação em loop (Story Pipeline) identificou e corrigiu problemas de qualidade sem intervenção manual.
+**Resumo (evidência do instrumento):**
 
-**Pontos de fricção:**
--   Em duas ocasiões, foi necessário reformular comandos para que o orquestrador acionasse a ferramenta correta (ex: "gere histórias" foi interpretado inicialmente como solicitação de esclarecimento).
--   A compilação da *Spec Authority* gerou um artefato extenso (JSON com 45 invariantes), que exigiu tempo de processamento adicional em execuções posteriores.
+| Medida | Baseline | Intervenção |
+|---|---:|---:|
+| Média RAW (5 dimensões) | 81 | 27 |
 
-**Intervenções manuais:**
--   Nenhuma intervenção manual foi necessária para completar o fluxo de ponta a ponta.
--   Todas as correções de artefatos foram realizadas automaticamente pelo pipeline de validação.
+### 6.2.5 Evidências de execução automatizada (smoke runs)
 
-## 6.4 Síntese por hipótese
+Além das métricas por produto, foram extraídas métricas agregadas de execuções automatizadas (*smoke runs*), quando disponíveis. No conjunto analisado:
 
-### Hipótese H1 (Carga Cognitiva)
-**Enunciado:** A utilização da plataforma está associada a menor carga cognitiva percebida em comparação com a execução manual das mesmas tarefas.
+| Métrica | Valor |
+|---|---:|
+| Execuções totais | 24 |
+| Pipeline executado | 11 |
+| Rejeições por alinhamento | 5 |
+| Bloqueios por aceite/gate | 8 |
+| Execuções com contrato aprovado | 3 |
+| Mismatch de `spec_version_id` | 0 |
 
-**Resultado:** Corroborada no escopo deste estudo exploratório. Os escores NASA-TLX apresentaram diferença observada de 32 pontos na média geral, com o cenário experimental apresentando escores menores. Adicionalmente, o tempo total de execução observado no cenário experimental foi 59 minutos menor que o baseline.
+Esses números caracterizam, de forma agregada, o comportamento do pipeline sob execução automatizada e sugerem consistência na pinagem de versão (sem divergências registradas no conjunto analisado).
 
-### Hipótese H2 (Qualidade Estrutural)
-**Enunciado:** Os artefatos gerados atendem a critérios de qualidade estrutural operacionalizados por validadores automáticos.
+## 6.3 Observações qualitativas (não métricas)
 
-**Resultado:** Corroborada no escopo deste estudo exploratório. A taxa de aprovação de histórias foi de 83% na primeira iteração e 100% após refinamento automático. Todos os artefatos atenderam aos critérios de validação estrutural definidos.
+As observações desta seção não são métricas automatizadas e não substituem os resultados quantitativos. Elas servem para contextualizar os achados:
 
-### Hipótese H3 (Rastreabilidade)
-**Enunciado:** A governança por especificação (*Authority Pinning*) indica maior rastreabilidade e menor ocorrência de inconsistências entre artefatos.
+- A principal causa de reprovação foi a ausência de critérios de aceitação, o que reforça o papel do gate como mecanismo de completude mínima.
+- A presença de evidência de validação em 100% das histórias reduz ambiguidade na auditoria: para cada história, há registro explícito de “passou/falhou” e, quando falha, do motivo.
+- A ausência de duração em eventos de planejamento impede, nesta execução, avaliação de eficiência temporal com base em evidências do banco.
 
-**Resultado:** Corroborada no escopo deste estudo exploratório. Todas as histórias geradas (100%) possuíam vinculação válida com *Spec Authority*. O sistema impediu a criação de artefatos sem autoridade aceita, apresentando o funcionamento esperado do mecanismo de pinagem.
+## 6.4 Síntese por hipótese (com base nas evidências disponíveis)
 
-## 6.5 Verificação dos critérios de sucesso
+### Hipótese H1 (redução de carga de trabalho percebida)
 
-Conforme estabelecido na Seção 5.6.3 do protocolo de avaliação, o artefato seria considerado bem-sucedido se atendesse aos seguintes critérios:
+**Evidência disponível:** há respostas NASA-TLX (RAW, 5 dimensões) registradas em planilha, com redução descritiva da média de 81 (baseline) para 27 (intervenção). Para a condição de intervenção, existem deltas wall-clock derivados de timestamps do banco; entretanto, os tempos baseline (manual) não estão persistidos nesta base, e o campo de duração explícita (`duration_seconds`) não foi preenchido para o evento de planejamento. Assim, **neste conjunto de evidências, H1 é suportada apenas pela evidência do instrumento de percepção**, não sendo possível sustentar uma conclusão sobre redução de tempo em comparação ao baseline.
 
-1.  **Tempo experimental ≤ baseline para maioria das tarefas:** ✓ **Atendido.** Todas as tarefas comparáveis (T1, T2, T4, T5) apresentaram tempos inferiores no cenário experimental.
+### Hipótese H2 (qualidade/completude estrutural dos artefatos)
 
-2.  **Taxa de aprovação > 80%:** ✓ **Atendido.** A taxa de aprovação foi de 83% na primeira iteração e 100% após refinamento.
+**Evidência disponível:** 38/38 histórias com evidência de validação; 25/38 histórias aceitas/pinadas; 13/38 reprovadas por ausência de critérios de aceitação (`RULE_ACCEPTANCE_CRITERIA_REQUIRED`). Esses resultados sustentam que o sistema aplica um critério objetivo de completude mínima e registra falhas de forma auditável. Entretanto, a qualidade final do conjunto depende de refino posterior das histórias reprovadas.
 
-3.  **Vinculação com Spec Authority:** ✓ **Atendido.** 100% das histórias possuem vinculação válida.
+### Hipótese H3 (rastreabilidade por governança de especificação)
 
-4.  **Escore NASA-TLX experimental ≤ baseline:** ✓ **Atendido.** O escore médio experimental (33) foi inferior ao baseline (65).
-
-Todos os critérios de sucesso foram atendidos, indicando que a plataforma demonstrou viabilidade operacional na avaliação exploratória conduzida.
+**Evidência disponível:** há especificação aprovada (`spec_version_id = 8`), autoridade compilada, decisão de aceite e trilhas por história (evidência de validação em 100% e pinagem em 65,8%). Assim, **H3 é suportada** no sentido de que a arquitetura produz rastreabilidade operacional e auditável; e, quando a história falha, preserva a causa da falha como evidência.
