@@ -73,6 +73,9 @@ class FSMController:
                 is_complete = tool_output.get("is_complete", False)
                 if is_complete:
                     next_state = OrchestratorState.VISION_REVIEW
+            elif tool_name == "save_vision_tool":
+                # Emergency Exit: User forced save from interview
+                next_state = OrchestratorState.VISION_PERSISTENCE
 
         elif current_state == OrchestratorState.VISION_REVIEW:
             if tool_name == "save_vision_tool":
@@ -102,6 +105,10 @@ class FSMController:
                 is_complete = tool_output.get("is_complete", False)
                 if is_complete:
                     next_state = OrchestratorState.BACKLOG_REVIEW
+            elif tool_name == "save_backlog_tool":
+                # Emergency Exit: User forced save from interview
+                if tool_output.get("success", False):
+                    next_state = OrchestratorState.BACKLOG_PERSISTENCE
 
         elif current_state == OrchestratorState.BACKLOG_REVIEW:
             if tool_name == "backlog_primer_tool":
@@ -117,8 +124,6 @@ class FSMController:
                 next_state = OrchestratorState.ROADMAP_INTERVIEW
             elif tool_name == "backlog_primer_tool":
                 next_state = OrchestratorState.BACKLOG_INTERVIEW
-            elif tool_name == "sprint_planner_tool":
-                next_state = OrchestratorState.SPRINT_DRAFT
 
         # --- ROADMAP PHASE ---
         if current_state == OrchestratorState.ROADMAP_INTERVIEW:
@@ -144,8 +149,6 @@ class FSMController:
             if tool_name == "user_story_writer_tool":
                 is_complete = tool_output.get("is_complete", False)
                 next_state = OrchestratorState.STORY_REVIEW if is_complete else OrchestratorState.STORY_INTERVIEW
-            elif tool_name == "sprint_planner_tool":
-                next_state = OrchestratorState.SPRINT_DRAFT
 
         # --- STORY PHASE ---
         if current_state == OrchestratorState.STORY_INTERVIEW:
@@ -168,6 +171,8 @@ class FSMController:
                 # Proceed to next requirement decomposition
                 is_complete = tool_output.get("is_complete", False)
                 next_state = OrchestratorState.STORY_REVIEW if is_complete else OrchestratorState.STORY_INTERVIEW
+            elif tool_name == "sprint_planner_tool":
+                next_state = OrchestratorState.SPRINT_DRAFT
 
         # --- SPRINT PHASE ---
         if current_state == OrchestratorState.SPRINT_SETUP:

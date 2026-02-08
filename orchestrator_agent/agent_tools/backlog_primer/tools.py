@@ -4,6 +4,10 @@ from typing import Annotated, Any, Dict, List, Optional
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field, ValidationError
+from sqlmodel import Session, select
+
+from agile_sqlmodel import UserStory, StoryStatus, get_engine
+
 
 from .schemes import BacklogItem
 
@@ -28,14 +32,13 @@ async def save_backlog_tool(
     tool_context: Optional[ToolContext] = None,
 ) -> Dict[str, Any]:
     """
-    Save approved backlog items to session state.
+    Save approved backlog items to the DATABASE as UserStory records.
 
-    This tool stores the approved backlog in session state for later use
-    in roadmap creation. It does NOT persist to database.
+    This tool persists the approved backlog items directly to the UserStory table
+    so they are available for Sprint Planning and Roadmap creation.
 
     Use this tool when:
     - User approves the backlog in BACKLOG_REVIEW state
-    - You need to save the backlog before transitioning to roadmap creation
     """
     if not tool_context:
         return {
@@ -63,21 +66,75 @@ async def save_backlog_tool(
             "invalid_count": len(validation_errors),
         }
 
-    # Store in session state (serialize to dicts for JSON compatibility)
+    # 1. Update Session State (Legacy/Fallback support)
     tool_context.state["approved_backlog"] = {
         "product_id": save_input.product_id,
         "items": [item.model_dump() for item in validated_items],
         "item_count": len(validated_items),
     }
 
-    print(f"\n\033[92m[Backlog Saved]\033[0m {len(validated_items)} items stored in session state")
+    # 2. Persist to Database (New Logic)
+    engine = get_engine()
+    created_count = 0
+    
+    with Session(engine) as session:
+        for item in validated_items:
+            # Check for duplicates to prevent double-saving on retries
+            # (Simple check: same title, same product, same status=TO_DO)
+            existing = session.exec(
+                select(UserStory)
+                .where(UserStory.product_id == save_input.product_id)
+                .where(UserStory.title == item.requirement)
+                .where(UserStory.status == StoryStatus.TO_DO)
+            ).first()
+
+            if existing:
+                continue
+
+            # Create new UserStory
+            # Mapping:
+            # requirement -> title
+            # priority -> rank (converted to string to ensure sortability? or just numeric string)
+            # estimated_effort -> story_points (approximate mapping)
+            
+            # Map 'S', 'M', 'L', 'XL' (and legacy Low/Medium/High) to points
+            points = None
+            effort_str = str(item.estimated_effort).strip().upper()
+            
+            # T-Shirt Sizing from schema
+            if effort_str == 'S': points = 1
+            elif effort_str == 'M': points = 3
+            elif effort_str == 'L': points = 5
+            elif effort_str == 'XL': points = 8
+            # Legacy/Fallback
+            elif effort_str == 'LOW': points = 1
+            elif effort_str == 'MEDIUM': points = 3
+            elif effort_str == 'HIGH': points = 5
+            elif effort_str.isdigit(): points = int(effort_str)
+
+            new_story = UserStory(
+                title=item.requirement,
+                product_id=save_input.product_id,
+                status=StoryStatus.TO_DO,
+                rank=str(item.priority), # Storing priority as rank
+                story_points=points,
+                story_description=item.justification, # Using justification as initial description context
+                acceptance_criteria=None # To be filled by UserStory Writer later
+            )
+            session.add(new_story)
+            created_count += 1
+        
+        session.commit()
+
+    print(f"\n\033[92m[Backlog Saved]\033[0m {created_count} new items persisted to DB (Total processed: {len(validated_items)})")
 
     return {
         "success": True,
         "product_id": save_input.product_id,
-        "saved_count": len(validated_items),
-        "message": f"Backlog with {len(validated_items)} items saved to session state. Ready for roadmap creation.",
-        "next_phase": "roadmap",
+        "saved_count": created_count,
+        "total_items": len(validated_items),
+        "message": f"Backlog saved. {created_count} new stories created in database.",
+        "next_phase": "roadmap", # Or "sprint_planning" if user prefers
     }
 
 

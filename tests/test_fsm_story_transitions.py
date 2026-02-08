@@ -130,6 +130,15 @@ class TestFSMStoryTransitions:
         )
         assert next_state == OrchestratorState.STORY_PERSISTENCE
 
+    def test_story_persistence_to_sprint_draft(self) -> None:
+        next_state = self.ctrl.determine_next_state(
+            current_state=OrchestratorState.STORY_PERSISTENCE,
+            tool_name="sprint_planner_tool",
+            tool_output={},
+            user_input="plan sprint",
+        )
+        assert next_state == OrchestratorState.SPRINT_DRAFT
+
 
 class TestFSMStoryStateDefinitions:
     """Validate that story states exist in the registry with correct properties."""
@@ -152,7 +161,7 @@ class TestFSMStoryStateDefinitions:
         defn = self.ctrl.get_state_definition(OrchestratorState.STORY_PERSISTENCE)
         assert defn.name == OrchestratorState.STORY_PERSISTENCE
         assert OrchestratorState.STORY_INTERVIEW in defn.allowed_transitions
-        assert OrchestratorState.ROUTING_MODE in defn.allowed_transitions
+        assert OrchestratorState.SPRINT_DRAFT in defn.allowed_transitions
 
     def test_roadmap_persistence_allows_story_interview(self) -> None:
         defn = self.ctrl.get_state_definition(OrchestratorState.ROADMAP_PERSISTENCE)

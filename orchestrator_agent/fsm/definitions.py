@@ -11,6 +11,7 @@ from tools.orchestrator_tools import (
     get_project_by_name,
     select_project,
     load_specification_from_file,
+    fetch_product_backlog,
 )
 from tools.spec_tools import (
     read_project_specification,
@@ -78,7 +79,7 @@ You never add information, hallucinate, or invent requirements.
   there. NEVER attempt to call a tool that is not in your current tool set.
 
 **WORKFLOW SEQUENCE (IMMUTABLE):**
-Vision → Backlog → Sprint Planning → Roadmap → Stories.
+Vision → Backlog → Roadmap → Stories → Sprint Planning.
 """
 
 ROUTING_INSTRUCTION = """
@@ -94,7 +95,7 @@ ROUTING_INSTRUCTION = """
      - Vision (if exists)
      - Roadmap status (if exists)
      - Story/theme/epic counts
-   - **Ask what to do:** "What would you like to do with this project? (create backlog, modify vision, view details, create stories, plan sprint)"
+   - **Ask what to do:** "What would you like to do with this project? (create backlog, build roadmap, create stories, plan sprint)"
    - **STOP and wait for user response**
 
 2. **Explicit Vision Modification:** User says "modify vision", "change vision", "update vision" for the active project
@@ -147,10 +148,10 @@ ROUTING_INSTRUCTION = """
         - `compiled_authority`: Use `tool_context.state["compiled_authority_cached"]` if present; otherwise empty string
      4. After the tool responds, present stories for user review before proceeding to the next requirement.
 
-9. **Sprint Planning Request (After Backlog):** User says "plan sprint", "sprint planning", or "sprint backlog"
-   - If `tool_context.state["approved_backlog"]` is missing: redirect to backlog flow first.
-   - If user has not provided candidate stories (IDs, titles, priorities), ask for them.
-   - Once the user provides candidate stories and a velocity assumption, call `sprint_planner_tool`.
+9. **Sprint Planning Request (After Stories):** User says "plan sprint", "sprint planning", or "sprint backlog"
+   - If roadmap is missing: route to Roadmap flow first.
+   - If user stories are missing (no saved stories for the project): route to Story Decomposition first.
+   - If stories exist, ask for candidate story selection and velocity assumptions, then call `sprint_planner_tool`.
 """
 
 VISION_INTERVIEW_INSTRUCTION = """
@@ -164,7 +165,12 @@ VISION_INTERVIEW_INSTRUCTION = """
    - `compiled_authority`: Use `tool_context.state["compiled_authority_cached"]` if present; otherwise empty string.
    - `prior_vision_state`: **COPY** the entire JSON string from the *previous* `product_vision_tool` output found in the chat history.
 3. **Execute Call:** `product_vision_tool(user_raw_text=..., specification_content=..., compiled_authority=..., prior_vision_state=...)`
-4. **STOP.**
+4. **Tool Integrity Rule:** If the tool returns `is_complete: false` or clarifying questions, you MUST relay those questions to the user.
+   - Do NOT say "The vision is complete" unless the tool explicitly returns `is_complete: true`.
+   - Do NOT hallucinate that the vision is saved.
+5. **Redirect:** If the user asks for the backlog, proceed with `product_vision_tool` to finalize the vision first. Do NOT call `backlog_primer_tool`.
+   - If the user insists on saving despite questions ("save it anyway"), call `save_vision_tool` directly.
+6. **STOP.**
 """
 
 VISION_REVIEW_INSTRUCTION = """
@@ -180,7 +186,11 @@ VISION_REVIEW_INSTRUCTION = """
      - `technical_spec`: If present, copy from `tool_context.state["pending_spec_content"]` (do not invent)
      - `spec_file_path`: If present, copy from `tool_context.state["pending_spec_path"]` (do not invent)
 4. **If the user requests changes**: return to State 1 behavior and call `product_vision_tool` again with the updated user input.
-5. **STOP.**
+5. **Premature Backlog Request:** If the user asks for the backlog (e.g. "generate backlog") BEFORE saving:
+   - **STOP** and reply: *"We must save the project vision before creating the backlog. Would you like to save it now?"*
+   - Do NOT call `backlog_primer_tool`.
+   - Do NOT call `save_vision_tool` implicitly.
+6. **STOP.**
 """
 
 VISION_PERSISTENCE_INSTRUCTION = """
@@ -205,18 +215,32 @@ BACKLOG_INTERVIEW_INSTRUCTION = """
    - `prior_backlog_state`: **COPY** the entire JSON from the *previous* `backlog_primer_tool` output in chat history. If this is the FIRST call, use "NO_HISTORY".
    - `user_input`: The EXACT new string from the user
 3. **Execute Call:** `backlog_primer_tool(product_vision_statement=..., technical_spec=..., compiled_authority=..., prior_backlog_state=..., user_input=...)`
-4. **Display Questions:** Show any `clarifying_questions` as bullet points
-5. **STOP.**
+4. **Present Results:** Display the backlog items in a clear table.
+   - If the tool returns clarifying questions, display them.
+   - Do NOT say "The backlog is saved" unless you have explicitly called `save_backlog_tool` successfully.
+5. **ALWAYS end your response with a save prompt:**
+   - *"Would you like to:*
+     *1. **Save** this backlog and proceed to Roadmap creation*
+     *2. **Refine** — address the questions above or make changes*
+     *Choose 1 or 2."*
+6. **STOP.**
 
 **CRITICAL:** You MUST pass the previous backlog_items as `prior_backlog_state` to maintain context across turns.
 
-**OUT-OF-PHASE REQUESTS:**
-If the user asks for sprint planning, roadmap creation, story decomposition, or any
-work that belongs to a LATER phase, DO NOT attempt to call any tool that is not
-available in this state. Instead, respond:
-"Sprint planning requires a saved backlog. Let's finish and save the backlog first,
-then we can proceed to sprint planning."
-Then continue with the backlog interview flow.
+**ON USER CONFIRMATION (any of: "save", "1", "proceed", "yes", "looks good", "approved", "next"):**
+1. Immediately call `save_backlog_tool` with:
+   - `product_id`: the active project's product_id
+   - `backlog_items`: ALL backlog items from the latest `backlog_primer_tool` output
+2. Do NOT call `roadmap_builder_tool`, `sprint_planner_tool`, or any other tool.
+   Those tools are NOT available in this state.
+3. After `save_backlog_tool` succeeds, confirm: "Backlog saved." and **STOP.**
+4. The system will transition you to the correct next state automatically.
+
+**ON USER REFINEMENT ("2", answers to questions, changes):**
+- Incorporate the user's input and call `backlog_primer_tool` again.
+- If the user persists after multiple rounds ("Save it anyway"):
+  - **CALL** `save_backlog_tool` directly with the current items.
+  - Do NOT keep calling `backlog_primer_tool` in a loop.
 """
 
 BACKLOG_REVIEW_INSTRUCTION = """
@@ -231,15 +255,14 @@ BACKLOG_REVIEW_INSTRUCTION = """
 1. Call `save_backlog_tool` with:
    - `product_id`: The active project's product_id
    - `backlog_items`: The approved backlog items from `backlog_primer_tool` output
-2. This stores the backlog in session state (NOT database)
+2. This persists backlog items to the database as User Stories.
 
 **Post-Save Response (MANDATORY when save_backlog_tool returns success):**
 1. Confirm: "Backlog saved." and state the saved item count from the tool response.
-2. State: "The next step in the workflow is **sprint planning** or **roadmap creation**."
-3. If the user requested story decomposition in their message, respond:
-   "Story decomposition is not available yet. The workflow is: Vision → Backlog → Sprint Planning → Roadmap → Stories."
-4. Ask: "Shall we proceed to sprint planning, roadmap creation, or refine the backlog further?"
-5. **STOP.** Do NOT add anything else. Do NOT offer to draft, outline, or create any content.
+2. State: "The next step in the workflow is **roadmap creation**."
+3. Ask: "Shall we proceed to roadmap creation, or refine the backlog further?"
+4. **STOP.** Do NOT add anything else. Do NOT call `roadmap_builder_tool` or any other tool.
+   The system will transition you to the correct state automatically.
 
 **CRITICAL:**
 - Backlog items are HIGH-LEVEL REQUIREMENTS (requirement, value_driver, estimated_effort).
@@ -250,25 +273,16 @@ BACKLOG_REVIEW_INSTRUCTION = """
 BACKLOG_PERSISTENCE_INSTRUCTION = """
 # STATE 25 — BACKLOG COMPLETE (Post-Review)
 
-**Trigger:** Backlog has been saved to session state.
+**Trigger:** Backlog has been saved to database (via save_backlog_tool).
 
 **Behavior:**
-1. **Confirm:** "Backlog saved and locked."
-2. **Routing Logic (CHOOSE ONE):**
-   a. **User wants sprint planning** ("plan sprint", "sprint planning", "sprint backlog"):
-      - Extract stories from `tool_context.state["approved_backlog"]["items"]`.
-      - Ask user for `team_velocity_assumption` (Low / Medium / High) and `sprint_duration_days` (default 14).
-      - Build `available_stories` list with `story_id`, `story_title`, `priority`, and optional `story_points` from each backlog item.
-      - Call `sprint_planner_tool(available_stories=..., team_velocity_assumption=..., sprint_duration_days=..., include_task_decomposition=True)`.
-      - **Do NOT pass specification content, authority data, or any non-sprint fields.**
-   b. **User wants roadmap** ("roadmap", "proceed", "next", "yes"): Call `roadmap_builder_tool`.
-   c. **User wants to refine/add backlog items** ("add", "change", "priority 3", "decompose"): Call `backlog_primer_tool` with the user's new requirements.
-   d. **User asks for anything else** (story decomposition, etc.): Reply ONLY with:
-      "That capability is not yet available. From here you can: (1) plan a sprint, (2) refine the backlog, or (3) generate the roadmap."
-3. **STOP.**
+1. **Confirm:** "Backlog saved and locked. X items persisted."
+2. **Next Step (MANDATORY):** Proceed to Roadmap creation.
+   - Call `roadmap_builder_tool` with the backlog items, vision, and compiled authority.
+3. **If user asks to refine backlog:** Call `backlog_primer_tool` instead.
+4. **STOP.**
 
-**FORBIDDEN:** Do NOT generate user stories, decompose priorities into stories, or produce
-any structured deliverable in your response text. ALL content work goes through a sub-agent tool.
+**FORBIDDEN:** Do NOT call `sprint_planner_tool` here.
 """
 
 ROADMAP_INTERVIEW_INSTRUCTION = """
@@ -325,18 +339,12 @@ ROADMAP_PERSISTENCE_INSTRUCTION = """
 
 **Behavior:**
 1. **Confirm:** "Roadmap saved."
-2. **Prompt:** "From here you can: (1) **Plan a sprint** — call `sprint_planner_tool`, (2) **Decompose into user stories** — call `user_story_writer_tool`, (3) Start a new project or refine this project's backlog."
-3. **STOP.**
-
-**On User Approval (user says "yes", "stories", "decompose", "proceed", "next"):**
-1. Load the saved roadmap from `tool_context.state` or database.
-2. Pick the first requirement from the first roadmap release.
-3. Call `user_story_writer_tool` with:
-   - `parent_requirement`: Requirement name
-   - `requirement_context`: Release theme + reasoning + focus_area
-   - `technical_spec`: Use `tool_context.state["pending_spec_content"]` if present; otherwise empty string
-   - `compiled_authority`: Use `tool_context.state["compiled_authority_cached"]` if present; otherwise empty string
+2. **Next Step (MANDATORY):** Decompose into user stories.
+   - Call `user_story_writer_tool` for the first requirement in the first roadmap release.
+3. **If user asks to refine roadmap:** Call `roadmap_builder_tool` instead.
 4. **STOP.**
+
+**FORBIDDEN:** Do NOT call `sprint_planner_tool` here.
 """
 
 # --- STORY PHASE INSTRUCTIONS ---
@@ -388,8 +396,11 @@ STORY_PERSISTENCE_INSTRUCTION = """
 **Behavior:**
 1. **Confirm:** "Stories saved for [parent_requirement]. [N] stories created."
 2. **Check:** Are there more roadmap requirements to decompose?
-   - If yes: Ask *"Shall we decompose the next requirement: [requirement_name]?"*
-   - If no: Confirm *"All roadmap requirements have been decomposed into stories. The Vision → Backlog → Roadmap → Stories pipeline is complete."*
+    - If yes: Ask *"Shall we decompose the next requirement: [requirement_name]?"*
+       - If user agrees, call `user_story_writer_tool` for the next requirement.
+    - If no: Confirm *"All roadmap requirements have been decomposed into stories."*
+       - Ask: *"Proceed to Sprint Planning?"*
+       - If user agrees, call `fetch_product_backlog` then call `sprint_planner_tool`.
 3. **STOP.**
 """
 
@@ -397,20 +408,18 @@ SPRINT_SETUP_INSTRUCTION = """
 # STATE 11 — SPRINT SETUP MODE
 
 **Behavior:**
-1. **Confirm Preconditions:** Ensure `tool_context.state["approved_backlog"]` exists.
-   - If missing, redirect to backlog creation and call `backlog_primer_tool`.
-2. **Story Lookup:** If the user asks to see stories, list stories, or asks "what are the stories?",
-   call `get_project_details(product_id=<active_project_id>)` to retrieve the project structure.
-   Display the story/feature/epic/theme counts and any relevant details. Do NOT hallucinate
-   tool names — use ONLY `get_project_details` for querying project data.
-3. **Gather Inputs:** Ask for:
-   - Candidate story list with `story_id`, `story_title`, and `priority` (plus `story_points` if available).
+1. **Fetch Stories:** Always call `fetch_product_backlog(product_id=<active_project_id>)` immediately to get the fresh pool of available `TO_DO` stories.
+   - You MUST identify stories by their real `story_id` from this tool. Do NOT invent IDs.
+   - If user asks to list stories, display them from this tool's output.
+2. **Gather Inputs:** Ask the user for:
    - `team_velocity_assumption` (Low/Medium/High).
    - `sprint_duration_days` (default 14).
-   - Optional: `max_story_points`.
-   - Optional: `include_task_decomposition` (default true).
-4. **Call Tool:** `sprint_planner_tool(...)` once the user provides required inputs.
-5. **STOP.**
+   - Preference for story selection (e.g. "Take top 5", "high priority only").
+3. **Call Tool:** Call `sprint_planner_tool` with:
+   - `available_stories`: The list from `fetch_product_backlog` (filtered if user requested specific ones).
+   - `team_velocity_assumption`: User choice or default Medium.
+   - `sprint_duration_days`: User choice or default 14.
+4. **STOP.**
 """
 
 SPRINT_DRAFT_INSTRUCTION = """
@@ -422,9 +431,13 @@ SPRINT_DRAFT_INSTRUCTION = """
 3. **On Approval:** Call `save_sprint_plan_tool` with:
    - `product_id`: active project product_id
    - `team_id`: user-provided team_id
+   - `team_name`: user-provided team name (if ID unknown)
    - `sprint_start_date`: user-provided start date
    - `sprint_duration_days`: from sprint plan or user override
-4. **On Changes:** Collect updated inputs and call `sprint_planner_tool` again.
+4. **On Changes:**
+   - Call `fetch_product_backlog` to ensure up-to-date stories.
+   - Collect updated inputs/constraints.
+   - Call `sprint_planner_tool` with real stories and new constraints.
 5. **STOP.**
 """
 
@@ -433,7 +446,7 @@ SPRINT_PERSISTENCE_INSTRUCTION = """
 
 **Behavior:**
 1. **Confirm:** "Sprint plan saved." and show the sprint_id.
-2. **Prompt:** Ask if the user wants to plan another sprint or proceed to roadmap creation.
+2. **Prompt:** Ask if the user wants to plan another sprint.
 3. **STOP.**
 """
 
@@ -516,8 +529,8 @@ STATE_REGISTRY = {
         name=OrchestratorState.VISION_INTERVIEW,
         phase=OrchestratorPhase.VISION,
         instruction=COMMON_HEADER + VISION_INTERVIEW_INSTRUCTION,
-        tools=[product_vision_tool],
-        allowed_transitions={OrchestratorState.VISION_INTERVIEW, OrchestratorState.VISION_REVIEW}
+        tools=[product_vision_tool, save_vision_tool],
+        allowed_transitions={OrchestratorState.VISION_INTERVIEW, OrchestratorState.VISION_REVIEW, OrchestratorState.VISION_PERSISTENCE}
     ),
     OrchestratorState.VISION_REVIEW: StateDefinition(
         name=OrchestratorState.VISION_REVIEW,
@@ -553,8 +566,8 @@ STATE_REGISTRY = {
       name=OrchestratorState.BACKLOG_INTERVIEW,
       phase=OrchestratorPhase.BACKLOG,
       instruction=COMMON_HEADER + BACKLOG_INTERVIEW_INSTRUCTION,
-      tools=[backlog_primer_tool],
-      allowed_transitions={OrchestratorState.BACKLOG_INTERVIEW, OrchestratorState.BACKLOG_REVIEW}
+      tools=[backlog_primer_tool, save_backlog_tool],
+      allowed_transitions={OrchestratorState.BACKLOG_INTERVIEW, OrchestratorState.BACKLOG_REVIEW, OrchestratorState.BACKLOG_PERSISTENCE}
    ),
    OrchestratorState.BACKLOG_REVIEW: StateDefinition(
       name=OrchestratorState.BACKLOG_REVIEW,
@@ -570,12 +583,9 @@ STATE_REGISTRY = {
       name=OrchestratorState.BACKLOG_PERSISTENCE,
       phase=OrchestratorPhase.BACKLOG,
       instruction=COMMON_HEADER + BACKLOG_PERSISTENCE_INSTRUCTION,
-      tools=[roadmap_builder_tool, backlog_primer_tool, sprint_planner_tool],
+      tools=[roadmap_builder_tool, backlog_primer_tool],
       allowed_transitions={
          OrchestratorState.ROADMAP_INTERVIEW,
-         OrchestratorState.SPRINT_SETUP,
-         OrchestratorState.SPRINT_DRAFT,
-         OrchestratorState.ROUTING_MODE,
          OrchestratorState.BACKLOG_INTERVIEW,
       }
    ),
@@ -583,7 +593,7 @@ STATE_REGISTRY = {
       name=OrchestratorState.SPRINT_SETUP,
       phase=OrchestratorPhase.SPRINT,
       instruction=COMMON_HEADER + SPRINT_SETUP_INSTRUCTION,
-      tools=[sprint_planner_tool, get_project_details],
+      tools=[sprint_planner_tool, get_project_details, fetch_product_backlog],
       allowed_transitions={
          OrchestratorState.SPRINT_SETUP,
          OrchestratorState.SPRINT_DRAFT,
@@ -594,7 +604,7 @@ STATE_REGISTRY = {
       name=OrchestratorState.SPRINT_DRAFT,
       phase=OrchestratorPhase.SPRINT,
       instruction=COMMON_HEADER + SPRINT_DRAFT_INSTRUCTION,
-      tools=[sprint_planner_tool, save_sprint_plan_tool],
+      tools=[sprint_planner_tool, save_sprint_plan_tool, fetch_product_backlog],
       allowed_transitions={
          OrchestratorState.SPRINT_SETUP,
          OrchestratorState.SPRINT_DRAFT,
@@ -606,11 +616,9 @@ STATE_REGISTRY = {
       name=OrchestratorState.SPRINT_PERSISTENCE,
       phase=OrchestratorPhase.SPRINT,
       instruction=COMMON_HEADER + SPRINT_PERSISTENCE_INSTRUCTION,
-      tools=[roadmap_builder_tool, sprint_planner_tool],
+      tools=[sprint_planner_tool],
       allowed_transitions={
-         OrchestratorState.SPRINT_SETUP,
          OrchestratorState.SPRINT_DRAFT,
-         OrchestratorState.ROADMAP_INTERVIEW,
          OrchestratorState.ROUTING_MODE,
       }
    ),
@@ -635,13 +643,11 @@ STATE_REGISTRY = {
       name=OrchestratorState.ROADMAP_PERSISTENCE,
       phase=OrchestratorPhase.ROADMAP,
       instruction=COMMON_HEADER + ROADMAP_PERSISTENCE_INSTRUCTION,
-      tools=[user_story_writer_tool, sprint_planner_tool, save_sprint_plan_tool],
+      tools=[user_story_writer_tool, roadmap_builder_tool],
       allowed_transitions={
-         OrchestratorState.ROUTING_MODE,
          OrchestratorState.STORY_INTERVIEW,
          OrchestratorState.STORY_REVIEW,
-         OrchestratorState.SPRINT_SETUP,
-         OrchestratorState.SPRINT_DRAFT,
+         OrchestratorState.ROADMAP_INTERVIEW,
       }
    ),
    OrchestratorState.STORY_INTERVIEW: StateDefinition(
@@ -665,11 +671,11 @@ STATE_REGISTRY = {
       name=OrchestratorState.STORY_PERSISTENCE,
       phase=OrchestratorPhase.STORY,
       instruction=COMMON_HEADER + STORY_PERSISTENCE_INSTRUCTION,
-      tools=[user_story_writer_tool],
+      tools=[user_story_writer_tool, fetch_product_backlog, sprint_planner_tool],
       allowed_transitions={
          OrchestratorState.STORY_INTERVIEW,
          OrchestratorState.STORY_REVIEW,
-         OrchestratorState.ROUTING_MODE,
+         OrchestratorState.SPRINT_DRAFT,
       }
    ),
     OrchestratorState.SPEC_UPDATE: StateDefinition(

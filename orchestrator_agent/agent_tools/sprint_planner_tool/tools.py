@@ -28,7 +28,8 @@ class SaveSprintPlanInput(BaseModel):
     """Input schema for save_sprint_plan_tool."""
 
     product_id: Annotated[int, Field(description="Product ID for the sprint.")]
-    team_id: Annotated[int, Field(description="Team ID owning the sprint.")]
+    team_id: Annotated[Optional[int], Field(default=None, description="Team ID owning the sprint. Required if team_name is not provided.")]
+    team_name: Annotated[Optional[str], Field(default=None, description="Team name to lookup or create. Used if team_id is not provided.")]
     sprint_start_date: Annotated[str, Field(description="Sprint start date (YYYY-MM-DD).")]
     sprint_duration_days: Annotated[
         int,
@@ -104,13 +105,32 @@ def save_sprint_plan_tool(
                 "error": f"Product {input_data.product_id} not found.",
             }
 
-        team = session.exec(
-            select(Team).where(Team.team_id == input_data.team_id)
-        ).first()
-        if not team:
+        # Resolve Team
+        team = None
+        if input_data.team_id:
+            team = session.exec(
+                select(Team).where(Team.team_id == input_data.team_id)
+            ).first()
+            if not team:
+                return {
+                    "success": False,
+                    "error": f"Team {input_data.team_id} not found.",
+                }
+        elif input_data.team_name:
+            # Lookup by name
+            team = session.exec(
+                select(Team).where(Team.name == input_data.team_name)
+            ).first()
+            # Auto-create if not found
+            if not team:
+                team = Team(name=input_data.team_name)
+                session.add(team)
+                session.commit()
+                session.refresh(team)
+        else:
             return {
                 "success": False,
-                "error": f"Team {input_data.team_id} not found.",
+                "error": "Either team_id or team_name must be provided.",
             }
 
         story_ids = [story.story_id for story in validated_plan.selected_stories]
@@ -167,7 +187,7 @@ def save_sprint_plan_tool(
             end_date=end_date,
             status=SprintStatus.PLANNED,
             product_id=input_data.product_id,
-            team_id=input_data.team_id,
+            team_id=team.team_id,
         )
         session.add(sprint)
         session.flush()
@@ -207,7 +227,8 @@ def save_sprint_plan_tool(
             "success": True,
             "sprint_id": sprint.sprint_id,
             "product_id": input_data.product_id,
-            "team_id": input_data.team_id,
+            "team_id": team.team_id,
+            "team_name": team.name,
             "selected_story_count": len(story_ids),
             "message": "Sprint plan saved successfully.",
         }

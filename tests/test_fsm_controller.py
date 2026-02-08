@@ -121,16 +121,6 @@ class TestFSMController(unittest.TestCase):
         )
         self.assertEqual(next_state, OrchestratorState.ROADMAP_PERSISTENCE)
 
-    def test_backlog_persistence_sprint_planner_transition(self):
-        """BACKLOG_PERSISTENCE + sprint_planner_tool → SPRINT_DRAFT."""
-        next_state = self.controller.determine_next_state(
-            OrchestratorState.BACKLOG_PERSISTENCE,
-            "sprint_planner_tool",
-            {},
-            "plan sprint"
-        )
-        self.assertEqual(next_state, OrchestratorState.SPRINT_DRAFT)
-
     def test_backlog_persistence_existing_transitions_unchanged(self):
         """Existing transitions from BACKLOG_PERSISTENCE remain intact."""
         # roadmap_builder_tool → ROADMAP_INTERVIEW
@@ -151,19 +141,29 @@ class TestFSMController(unittest.TestCase):
         )
         self.assertEqual(next_state, OrchestratorState.BACKLOG_INTERVIEW)
 
-    def test_backlog_persistence_has_sprint_planner_tool(self):
-        """BACKLOG_PERSISTENCE state definition must include sprint_planner_tool."""
+    def test_backlog_persistence_blocks_sprint_planner_transition(self):
+        """BACKLOG_PERSISTENCE should not route directly to sprint planning."""
+        next_state = self.controller.determine_next_state(
+            OrchestratorState.BACKLOG_PERSISTENCE,
+            "sprint_planner_tool",
+            {},
+            "plan sprint"
+        )
+        self.assertEqual(next_state, OrchestratorState.BACKLOG_PERSISTENCE)
+
+    def test_backlog_persistence_excludes_sprint_planner_tool(self):
+        """BACKLOG_PERSISTENCE tools must not include sprint_planner_tool."""
         state_def = STATE_REGISTRY[OrchestratorState.BACKLOG_PERSISTENCE]
         tool_names = [
             getattr(t, "name", None) or getattr(t, "__name__", None)
             for t in state_def.tools
         ]
-        self.assertIn("sprint_planner_tool", tool_names)
+        self.assertNotIn("sprint_planner_tool", tool_names)
 
-    def test_backlog_persistence_allows_sprint_draft_transition(self):
-        """BACKLOG_PERSISTENCE allowed_transitions must include SPRINT_DRAFT."""
+    def test_backlog_persistence_disallows_sprint_draft_transition(self):
+        """BACKLOG_PERSISTENCE allowed_transitions must not include SPRINT_DRAFT."""
         state_def = STATE_REGISTRY[OrchestratorState.BACKLOG_PERSISTENCE]
-        self.assertIn(
+        self.assertNotIn(
             OrchestratorState.SPRINT_DRAFT,
             state_def.allowed_transitions,
         )

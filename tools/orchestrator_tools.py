@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from agile_sqlmodel import CompiledSpecAuthority, Epic, Feature, Product, SpecRegistry, Theme, UserStory, get_engine
+from agile_sqlmodel import CompiledSpecAuthority, Epic, Feature, Product, SpecRegistry, Theme, UserStory, StoryStatus, get_engine
 
 # --- Cache configuration ---
 CACHE_TTL_MINUTES: int = 5
@@ -290,6 +290,43 @@ def get_project_by_name(project_name: str) -> Dict[str, Any]:
             "product_id": product.product_id,
             "product_name": product.name,
             "message": f"Found project '{project_name}' with ID {product.product_id}",
+        }
+
+
+def fetch_product_backlog(product_id: int) -> Dict[str, Any]:
+    """
+    Fetch all 'To Do' user stories for a product.
+    Returns a list of stories with basic details for sprint planning.
+    """
+    print(f"\n[Tool: fetch_product_backlog] Fetching backlog for product ID: {product_id}")
+    with Session(get_engine()) as session:
+        stories = session.exec(
+            select(UserStory)
+            .where(UserStory.product_id == product_id)
+            .where(UserStory.status == StoryStatus.TO_DO)
+            .order_by(UserStory.rank)
+        ).all()
+
+        if not stories:
+            print("   [DB] No stories found.")
+            return {"success": True, "count": 0, "stories": [], "message": "No stories found in backlog."}
+
+        story_list = []
+        for s in stories:
+            story_list.append({
+                "story_id": s.story_id,
+                "title": s.title,
+                "story_points": s.story_points,
+                "priority": s.rank, # Using rank as proxy for priority if rank is integer-like or sortable
+                "persona": s.persona
+            })
+        
+        print(f"   [DB] Found {len(stories)} stories.")
+        return {
+            "success": True, 
+            "count": len(stories), 
+            "stories": story_list,
+            "message": f"Found {len(stories)} stories in backlog."
         }
 
 

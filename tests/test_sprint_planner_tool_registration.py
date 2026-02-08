@@ -57,6 +57,7 @@ class TestSprintPlannerToolRegistration:
 
     STATES_WITH_SPRINT_PLANNER = [
         OrchestratorState.ROUTING_MODE,
+        OrchestratorState.STORY_PERSISTENCE,
         OrchestratorState.SPRINT_SETUP,
         OrchestratorState.SPRINT_DRAFT,
         OrchestratorState.SPRINT_PERSISTENCE,
