@@ -1,9 +1,9 @@
 {
   "extraction_metadata": {
-    "timestamp": "2026-02-07T02:35:34.541783+00:00",
+    "timestamp": "2026-02-08T01:25:07.101670+00:00",
     "db_path": "C:\\Users\\mjnrc\\projects\\project_tcc\\db\\spec_authority_dev.db",
     "db_filename": "spec_authority_dev.db",
-    "commit_hash": "fac8b4d81209"
+    "commit_hash": "de6537826b33"
   },
   "schema": {
     "tables": [
@@ -467,7 +467,7 @@
             "pk": false
           }
         ],
-        "row_count": 1
+        "row_count": 5
       },
       {
         "name": "sprints",
@@ -647,7 +647,7 @@
             "pk": false
           }
         ],
-        "row_count": 9
+        "row_count": 25
       },
       {
         "name": "team_members",
@@ -737,7 +737,7 @@
             "pk": false
           }
         ],
-        "row_count": 3
+        "row_count": 5
       },
       {
         "name": "themes",
@@ -917,7 +917,7 @@
             "pk": false
           }
         ],
-        "row_count": 5
+        "row_count": 38
       },
       {
         "name": "workflow_events",
@@ -983,10 +983,10 @@
   },
   "products": [
     {
-      "product_id": 6,
-      "product_name": "HashbrownVision Phase 1",
-      "created_at": "2026-02-05 17:39:33.752654",
-      "total_stories": 5,
+      "product_id": 7,
+      "product_name": "Review-First Human-in-the-Loop Extraction Pipeline",
+      "created_at": "2026-02-08 00:59:40.774781",
+      "total_stories": 38,
       "stories_with_spec_version_id": 0,
       "stories_with_validation_evidence": 0,
       "stories_approved_first_pass": 0,
@@ -998,7 +998,7 @@
       "avg_sprint_planning_duration_sec": 0.0,
       "avg_story_cycle_time_hours": 0.0,
       "stories_with_evidence_links": 0,
-      "total_tasks": 9,
+      "total_tasks": 25,
       "completed_tasks": 0,
       "spec_versions_count": 1,
       "spec_versions_approved": 1,
@@ -1012,8 +1012,8 @@
       "count": 1,
       "avg_duration_sec": null,
       "total_duration_sec": null,
-      "first_event": "2026-02-06 14:33:42.541101",
-      "last_event": "2026-02-06 14:33:42.541101"
+      "first_event": "2026-02-08 01:16:53.961203",
+      "last_event": "2026-02-08 01:16:53.961203"
     }
   },
   "smoke_runs": {

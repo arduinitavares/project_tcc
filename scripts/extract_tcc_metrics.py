@@ -264,7 +264,7 @@ def extract_product_metrics(cursor: sqlite3.Cursor) -> list[ProductMetrics]:
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
         if cursor.fetchone():
             cursor.execute("""
-                SELECT COUNT(*), SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END)
+                SELECT COUNT(*), SUM(CASE WHEN t.status = 'DONE' THEN 1 ELSE 0 END)
                 FROM tasks t
                 JOIN user_stories us ON t.story_id = us.story_id
                 WHERE us.product_id = ?
