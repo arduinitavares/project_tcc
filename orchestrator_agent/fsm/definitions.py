@@ -282,7 +282,7 @@ BACKLOG_PERSISTENCE_INSTRUCTION = """
 3. **If user asks to refine backlog:** Call `backlog_primer_tool` instead.
 4. **STOP.**
 
-**FORBIDDEN:** Do NOT call `sprint_planner_tool` here.
+**FORBIDDEN:** Do NOT call `sprint_planner_tool` or `user_story_writer_tool` here.
 """
 
 ROADMAP_INTERVIEW_INSTRUCTION = """
@@ -314,6 +314,8 @@ ROADMAP_INTERVIEW_INSTRUCTION = """
    - `roadmap_data`: The approved output from the latest `roadmap_builder_tool`
 2. Confirm the save and state the pipeline is complete.
 3. **STOP.**
+
+**FORBIDDEN:** Do NOT call `user_story_writer_tool` in this turn. You MUST stop after saving to allow the state transition.
 """
 
 
