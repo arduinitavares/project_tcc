@@ -28,7 +28,7 @@ graph TD
         direction TB
         VisionAgent(<b>Agent: product_vision_tool</b><br/>Generates 'Mad Libs' Statement):::agent
         VisionArtifact(<b>Artifact: Product Vision</b><br/>'For... Who... The... Is a...'):::artifact
-        
+
         RefP35[Ref: Chapter 2, Page 35<br/>'The First Steps']:::book
     end
 
@@ -85,9 +85,26 @@ graph TD
     StoryAgent --> StoryAction1 --> StoryAction2 --> StoryAction3 --> StoryArtifact
     StoryArtifact --> StoryDB
 
+    %% PHASE 3: SPRINT PLANNING
+    subgraph Phase3 [Phase 3: Sprint Planning]
+        direction TB
+        SprintPlannerAgent(<b>Agent: sprint_planner_tool</b><br/>Sprint Planner):::agent
+        SprintPlanAction1[Define Sprint Goal]
+        SprintPlanAction2[Capacity Reasoning]
+        SprintPlanAction3[Task Decomposition]
+        SprintPlanArtifact(<b>Artifact: Sprint Plan</b><br/>JSON 'SprintPlannerOutput'):::artifact
+        SprintPlanDB[(<b>Tool: save_sprint_plan_tool</b><br/>Persist to DB)]:::db
+    end
+
+    StoryDB --> SprintPlannerAgent
+    UserInput -.-> SprintPlannerAgent
+    SpecArtifact -.-> SprintPlannerAgent
+    SprintPlannerAgent --> SprintPlanAction1 --> SprintPlanAction2 --> SprintPlanAction3 --> SprintPlanArtifact
+    SprintPlanArtifact --> SprintPlanDB
+
     %% Final State
     End((Sprint<br/>Ready)):::input
-    StoryDB --> End
+    SprintPlanDB --> End
 
     %% Linkages explaining the flow
     RefP47[Gate: Page 47<br/>'Need Backlog to build Roadmap']:::book

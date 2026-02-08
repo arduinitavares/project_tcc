@@ -1,0 +1,55 @@
+Resumo / Abstract
+O resumo está muito longo e conceitual para padrões clássicos.
+Há termos avançados (“gates determinísticos”, “Authority Pinning”) que aparecem sem breve contextualização. Sugestão é tirar e explicar no texto.
+Falta explicitar **qual foi o principal resultado obtido** (mesmo que exploratório).
+Exemplo: “Os resultados indicam redução da carga cognitiva percebida e maior rastreabilidade dos artefatos quando comparado ao baseline.”
+
+--> Introdução (Capítulo 1)
+Uso excessivo de linguagem acadêmica densa em alguns trechos (pode dificultar leitura para banca menos técnica).
+Dependência de relatórios de mercado (Digital.ai, Scrum.org) sem contrabalançar com mais fontes acadêmicas formais.
+O termo “exclusão metodológica” é forte e poderia ser melhor fundamentado.
+Sugestões: 
+Inserir pelo menos 1–2 referências acadêmicas que discutam adaptação do Scrum ou inadequação em contextos pequenos.
+Simplificar frases muito longas, mantendo rigor, mas melhorando fluidez. Pensa em frases de 1 a 3 linhas. Mais que isso, quebra em outra.
+
+--> Fundamentação Teórica e Trabalhos Relacionados (Capítulo 2)
+1. Fragilidade de referências
+   * Há diversos trechos com afirmações relevantes baseadas em “relatos”, “discussões de prática” e documentação técnica.
+2. Trabalhos relacionados pouco sistematizados
+   * A seção promete uma “tabela comparativa”, mas o conteúdo é majoritariamente textual.
+   * Falta um quadro claro de comparação (objetivo × contexto × método × lacuna).
+3. Mistura de fundamentação com documentação do artefato
+   * A seção 2.3 (Spec-Driven) soa mais como documentação técnica do sistema do que teoria fundamentada.
+Sugestões:
+Eliminar todos os placeholders e reforçar referências acadêmicas.
+Criar uma tabela comparativa explícita (mesmo simples).
+
+--> Método de Pesquisa (Capítulo 3)
+Avaliação intra-sujeito com o próprio pesquisador é válida para PoC, mas gera forte viés (isso pode ser discutido e levantado na parte de ameaças à validade).
+O uso do NASA-TLX com um único participante limita drasticamente inferências (é importante termos referências disso).
+Falta deixar ainda mais claro que os resultados são "exploratórios", não confirmatórios.
+Sugestões:
+Reforçar explicitamente no texto: > “Os resultados não permitem generalização estatística.”
+Discutir o método mais como avaliação de viabilidade técnica e conceitual.
+
+--> Desenvolvimento do Artefato (Capítulo 4)
+Falta de diagramas mais explícitos (ex.: arquitetura, fluxo de agentes).
+Algumas decisões técnicas poderiam ser melhor justificadas em termos de trade-off (ex.: por que SQLite?).
+Sugestões:
+Inserir ao menos:
+  * 1 diagrama de arquitetura
+  * 1 diagrama de fluxo do pipeline Spec-Driven
+Reduzir jargão excessivo onde não agrega à avaliação.
+
+--> Protocolo de Avaliação e Resultados (Capítulos 5 e 6)
+Falta de dados quantitativos mais explícitos (valores, percentuais, tabelas).
+Alguns resultados são descritos mais qualitativamente do que o esperado.
+Sugestões:
+Inserir tabelas-resumo dos resultados.
+Deixar explícito quando uma conclusão é:
+  * Evidência empírica
+  * Observação qualitativa
+
+--> Discussão, Validade e Conclusão (Capítulos 7 a 9)
+A discussão poderia dialogar mais diretamente com os trabalhos relacionados (menos descrição, mais contraste).
+Trabalhos futuros poderiam ser mais concretos (ex.: experimentos com N participantes).
