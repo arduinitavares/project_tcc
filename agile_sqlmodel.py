@@ -612,7 +612,7 @@ class UserStory(SQLModel, table=True):
 
     # --- Foreign Keys for "Orphan Story" ---
     # 1. Must belong to a product (for the backlog)
-    product_id: int = Field(foreign_key="products.product_id")
+    product_id: int = Field(foreign_key="products.product_id", index=True)
     # 2. Can optionally belong to a feature
     feature_id: Optional[int] = Field(default=None, foreign_key="features.feature_id")
 

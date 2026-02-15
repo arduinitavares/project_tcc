@@ -84,6 +84,62 @@ def _ensure_column_exists(
     return True
 
 
+def _get_existing_indexes(engine: Engine, table_name: str) -> Set[str]:
+    """Return set of index names for a table, or empty set if table doesn't exist."""
+    inspector = inspect(engine)
+    if table_name not in inspector.get_table_names():
+        return set()
+    indexes = inspector.get_indexes(table_name)
+    return {idx["name"] for idx in indexes}
+
+
+def _ensure_index_exists(
+    engine: Engine,
+    table_name: str,
+    index_name: str,
+    column_names: List[str],
+) -> bool:
+    """
+    Ensure an index exists on a table, creating it if necessary.
+
+    Returns True if the index was created, False if it already existed.
+    """
+    inspector = inspect(engine)
+    if table_name not in inspector.get_table_names():
+        return False
+
+    existing_indexes = inspector.get_indexes(table_name)
+    existing_by_name = {idx["name"]: idx for idx in existing_indexes}
+    if index_name in existing_by_name:
+        return False
+
+    # Strict mode: enforce canonical naming for equivalent indexes.
+    requested_columns = tuple(column_names)
+    conflicting_equivalent_indexes = []
+    for idx in existing_indexes:
+        idx_columns = tuple(idx.get("column_names") or [])
+        if idx_columns == requested_columns:
+            conflicting_equivalent_indexes.append(idx["name"])
+
+    if conflicting_equivalent_indexes:
+        conflicts = ", ".join(sorted(conflicting_equivalent_indexes))
+        raise RuntimeError(
+            "Non-canonical index detected for "
+            f"{table_name}({', '.join(column_names)}): {conflicts}. "
+            f"Expected canonical index name: {index_name}."
+        )
+
+    columns_str = ", ".join(column_names)
+    create_index_sql = f"CREATE INDEX {index_name} ON {table_name} ({columns_str})"
+    logger.info(
+        "db.migration.create_index",
+        extra={"table_name": table_name, "index_name": index_name},
+    )
+    with engine.begin() as conn:
+        conn.execute(text(create_index_sql))
+    return True
+
+
 # =============================================================================
 # SPEC AUTHORITY TABLES MIGRATION
 # =============================================================================
@@ -187,6 +243,22 @@ def migrate_product_spec_cache(engine: Engine) -> List[str]:
     return actions
 
 
+def migrate_performance_indexes(engine: Engine) -> List[str]:
+    """Ensure performance indexes exist."""
+    actions: List[str] = []
+
+    # Optimization: Index on UserStory.product_id for faster filtering
+    if _ensure_index_exists(
+        engine,
+        "user_stories",
+        "ix_user_stories_product_id",
+        ["product_id"],
+    ):
+        actions.append("created index: ix_user_stories_product_id")
+
+    return actions
+
+
 # =============================================================================
 # MAIN ENTRY POINT
 # =============================================================================
@@ -209,6 +281,7 @@ def ensure_schema_current(engine: Engine) -> None:
     try:
         actions = migrate_spec_authority_tables(engine)
         actions.extend(migrate_product_spec_cache(engine))
+        actions.extend(migrate_performance_indexes(engine))
 
         if actions:
             for action in actions:
