@@ -1,4 +1,15 @@
 {
   "github.copilot.chat.githubMcpServer.enabled": true,
-
+  "python.testing.pytestArgs": [
+    "tests"
+  ],
+  "python.testing.unittestEnabled": true,
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestArgs": [
+    "-v",
+    "-s",
+    "./tests",
+    "-p",
+    "*test.py"
+  ]
 }
