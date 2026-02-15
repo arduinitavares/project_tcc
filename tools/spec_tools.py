@@ -1119,13 +1119,28 @@ def compile_spec_authority(
                 )
             }
 
-        # TODO: Replace with actual LLM extraction
-        # For now, use minimal placeholder extraction
-        scope_themes, invariants = _mock_extract_spec_authority(spec_version.content)
+        # Extract authority using LLM agent
+        try:
+            success_artifact = _extract_spec_authority_llm(
+                spec_content=spec_version.content,
+                content_ref=spec_version.content_ref,
+                product_id=spec_version.product_id,
+                spec_version_id=spec_version.spec_version_id,
+            )
+        except ValueError as e:
+            return {
+                "success": False,
+                "error": str(e),
+            }
 
-        # Compute prompt hash (for reproducibility tracking)
-        extraction_prompt = _get_extraction_prompt_template()
-        prompt_hash = hashlib.sha256(extraction_prompt.encode("utf-8")).hexdigest()
+        # Compute prompt hash
+        prompt_hash = compute_prompt_hash(SPEC_AUTHORITY_COMPILER_INSTRUCTIONS)
+
+        # Prepare structured fields
+        scope_themes = success_artifact.scope_themes
+        invariants = [_render_invariant_summary(inv) for inv in success_artifact.invariants]
+        spec_gaps = success_artifact.gaps
+        compiled_artifact_json = success_artifact.model_dump_json()
 
         # Create compiled authority
         authority = CompiledSpecAuthority(
@@ -1135,9 +1150,10 @@ def compile_spec_authority(
             compiled_at=datetime.now(timezone.utc),
             scope_themes=json.dumps(scope_themes),
             invariants=json.dumps(invariants),
-            eligible_feature_ids=json.dumps([]),  # Populated later by feature analysis
-            rejected_features=json.dumps([]),
-            spec_gaps=json.dumps([])
+            eligible_feature_ids=json.dumps([]),  # Not yet mapped from compiler
+            rejected_features=json.dumps([]),  # Not yet mapped from compiler
+            spec_gaps=json.dumps(spec_gaps),
+            compiled_artifact_json=compiled_artifact_json,
         )
         session.add(authority)
         session.commit()
@@ -2288,53 +2304,39 @@ def validate_story_with_spec_authority(
         }
 
 
-# --- Mock LLM Extraction (Placeholder for v1) ---
+# --- Actual LLM Extraction (v1.1+) ---
 
 
-def _mock_extract_spec_authority(spec_content: str) -> tuple[List[str], List[str]]:
+def _extract_spec_authority_llm(
+    spec_content: str,
+    content_ref: Optional[str],
+    product_id: int,
+    spec_version_id: int,
+) -> SpecAuthorityCompilationSuccess:
     """
-    Mock extraction of scope themes and invariants from spec.
-
-    TODO: Replace with actual LLM-based extraction in v1.1+
+    Extract spec authority using LLM compiler agent.
 
     Args:
         spec_content: Full specification text
+        content_ref: Optional content reference
+        product_id: Product ID
+        spec_version_id: Spec version ID
 
     Returns:
-        Tuple of (scope_themes, invariants)
+        SpecAuthorityCompilationSuccess object
     """
-    # Extract markdown headings as themes (simple heuristic)
-    themes = re.findall(r'^##\s+(.+)$', spec_content, re.MULTILINE)[:5]
-
-    # Extract "MUST" statements as invariants (simple heuristic)
-    invariants = re.findall(
-        r'(?:^|\s)((?:MUST|SHALL|REQUIRED)[^.!?]+[.!?])',
-        spec_content,
-        re.MULTILINE
-    )[:5]
-
-    return (
-        themes if themes else ["Default scope theme"],
-        invariants if invariants else ["No invariants extracted"]
+    raw_json = _invoke_spec_authority_compiler(
+        spec_content=spec_content,
+        content_ref=content_ref,
+        product_id=product_id,
+        spec_version_id=spec_version_id,
     )
 
+    normalized = normalize_compiler_output(raw_json)
 
-def _get_extraction_prompt_template() -> str:
-    """
-    Return the LLM prompt template for spec extraction.
+    if isinstance(normalized.root, SpecAuthorityCompilationFailure):
+        raise ValueError(
+            f"Spec authority compilation failed: {normalized.root.error} - {normalized.root.reason}"
+        )
 
-    Used for prompt_hash computation to track reproducibility.
-
-    Returns:
-        Prompt template string
-    """
-    return """
-Extract the following from the technical specification:
-1. Scope themes (high-level features/domains)
-2. Invariants (MUST/SHALL requirements, business rules)
-3. Eligible feature IDs (features that align with spec)
-4. Rejected features (out-of-scope features)
-5. Spec gaps (ambiguities, missing requirements)
-
-Return as JSON.
-""".strip()
+    return normalized.root
