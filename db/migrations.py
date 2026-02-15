@@ -104,9 +104,30 @@ def _ensure_index_exists(
 
     Returns True if the index was created, False if it already existed.
     """
-    existing_indexes = _get_existing_indexes(engine, table_name)
-    if index_name in existing_indexes:
+    inspector = inspect(engine)
+    if table_name not in inspector.get_table_names():
         return False
+
+    existing_indexes = inspector.get_indexes(table_name)
+    existing_by_name = {idx["name"]: idx for idx in existing_indexes}
+    if index_name in existing_by_name:
+        return False
+
+    # Strict mode: enforce canonical naming for equivalent indexes.
+    requested_columns = tuple(column_names)
+    conflicting_equivalent_indexes = []
+    for idx in existing_indexes:
+        idx_columns = tuple(idx.get("column_names") or [])
+        if idx_columns == requested_columns:
+            conflicting_equivalent_indexes.append(idx["name"])
+
+    if conflicting_equivalent_indexes:
+        conflicts = ", ".join(sorted(conflicting_equivalent_indexes))
+        raise RuntimeError(
+            "Non-canonical index detected for "
+            f"{table_name}({', '.join(column_names)}): {conflicts}. "
+            f"Expected canonical index name: {index_name}."
+        )
 
     columns_str = ", ".join(column_names)
     create_index_sql = f"CREATE INDEX {index_name} ON {table_name} ({columns_str})"
