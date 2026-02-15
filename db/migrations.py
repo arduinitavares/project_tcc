@@ -84,6 +84,41 @@ def _ensure_column_exists(
     return True
 
 
+def _get_existing_indexes(engine: Engine, table_name: str) -> Set[str]:
+    """Return set of index names for a table, or empty set if table doesn't exist."""
+    inspector = inspect(engine)
+    if table_name not in inspector.get_table_names():
+        return set()
+    indexes = inspector.get_indexes(table_name)
+    return {idx["name"] for idx in indexes}
+
+
+def _ensure_index_exists(
+    engine: Engine,
+    table_name: str,
+    index_name: str,
+    column_names: List[str],
+) -> bool:
+    """
+    Ensure an index exists on a table, creating it if necessary.
+
+    Returns True if the index was created, False if it already existed.
+    """
+    existing_indexes = _get_existing_indexes(engine, table_name)
+    if index_name in existing_indexes:
+        return False
+
+    columns_str = ", ".join(column_names)
+    create_index_sql = f"CREATE INDEX {index_name} ON {table_name} ({columns_str})"
+    logger.info(
+        "db.migration.create_index",
+        extra={"table_name": table_name, "index_name": index_name},
+    )
+    with engine.begin() as conn:
+        conn.execute(text(create_index_sql))
+    return True
+
+
 # =============================================================================
 # SPEC AUTHORITY TABLES MIGRATION
 # =============================================================================
@@ -187,6 +222,22 @@ def migrate_product_spec_cache(engine: Engine) -> List[str]:
     return actions
 
 
+def migrate_performance_indexes(engine: Engine) -> List[str]:
+    """Ensure performance indexes exist."""
+    actions: List[str] = []
+
+    # Optimization: Index on UserStory.product_id for faster filtering
+    if _ensure_index_exists(
+        engine,
+        "user_stories",
+        "ix_user_stories_product_id",
+        ["product_id"],
+    ):
+        actions.append("created index: ix_user_stories_product_id")
+
+    return actions
+
+
 # =============================================================================
 # MAIN ENTRY POINT
 # =============================================================================
@@ -209,6 +260,7 @@ def ensure_schema_current(engine: Engine) -> None:
     try:
         actions = migrate_spec_authority_tables(engine)
         actions.extend(migrate_product_spec_cache(engine))
+        actions.extend(migrate_performance_indexes(engine))
 
         if actions:
             for action in actions:
