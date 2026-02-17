@@ -456,14 +456,31 @@ def _run_case_mode(case: Dict[str, Any], mode: ValidationMode, consensus_runs: i
         if r["passed"] == predicted_pass:
             merged_reasons.update(r["reason_codes"])
 
-    # Use first run's error class or result for details, but consensus verdict
-    primary_run = runs[0]
+    # Select a representative result object from a run that matches the consensus verdict.
+    # Prioritize successful runs.
+    representative_run = None
+    for r in runs:
+        if r["passed"] == predicted_pass and r["success"]:
+            representative_run = r
+            break
+
+    # Fallback if no successful run matches (unlikely unless all failed or mixed errors)
+    if not representative_run:
+        # Try finding ANY run that matches the verdict
+        for r in runs:
+            if r["passed"] == predicted_pass:
+                representative_run = r
+                break
+
+    # Final fallback (e.g. split vote where winner had execution errors? shouldn't happen with boolean logic but safe to fallback)
+    if not representative_run:
+        representative_run = runs[0]
 
     LOGGER.debug(
         "Completed case_id=%s mode=%s success=%s predicted_pass=%s reasons=%s latency_ms=%.2f stability=%.2f",
         case.get("case_id"),
         mode,
-        primary_run["success"],
+        representative_run["success"],
         predicted_pass,
         sorted(merged_reasons),
         total_latency / actual_runs,
@@ -477,15 +494,15 @@ def _run_case_mode(case: Dict[str, Any], mode: ValidationMode, consensus_runs: i
         "spec_version_id": case["spec_version_id"],
         "expected_pass": case["expected_pass"],
         "expected_fail_reasons": case["expected_fail_reasons"],
-        "success": primary_run["success"], # Reporting primary run success status
+        "success": representative_run["success"],
         "predicted_pass": predicted_pass,
         "predicted_fail": not predicted_pass,
         "predicted_reason_codes": sorted(merged_reasons),
-        "error_class": primary_run["error_class"],
+        "error_class": representative_run["error_class"],
         "latency_ms": total_latency / actual_runs,
         "stability_score": stability_score,
         "vote_split": f"{pass_votes}/{fail_votes}",
-        "result": primary_run["result"], # Primary result for structure
+        "result": representative_run["result"], # Representative result
     }
 
 
@@ -722,7 +739,11 @@ def _build_summary_markdown(
     return "\n".join(lines) + "\n"
 
 
-def evaluate_cases(cases: List[Dict[str, Any]], modes: Sequence[str], consensus_runs: int) -> Dict[str, Any]:
+def evaluate_cases(
+    cases: List[Dict[str, Any]],
+    modes: Sequence[str],
+    consensus_runs: int = 1  # Backward compatibility: default to 1
+) -> Dict[str, Any]:
     LOGGER.info("Evaluating %d case(s) across mode(s): %s", len(cases), ", ".join(modes))
     raw_rows: List[Dict[str, Any]] = []
     by_mode: Dict[str, List[Dict[str, Any]]] = {mode: [] for mode in modes}

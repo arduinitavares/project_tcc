@@ -69,6 +69,42 @@ A secure document review and attestation platform for regulated industries.
             {"type": "MAX_VALUE", "parameters": {"field_name": "Story Points", "max_value": 8}},
         ]
     },
+    8: {
+        "name": "Visionary Manufacturing", # Based on p8-s62-v9 content
+        "content": """# Visionary Manufacturing Specification (Phase 1)
+
+## Vision
+Offline dataset ingestion and 2D product segmentation system.
+
+## Scope
+### In Scope
+- Offline Dataset Ingestion & Organization
+- 2D Product Segmentation & Instance Extraction
+- 2D Color-Based Defect Detection Algorithms
+- Traceable CSV Export & Data Lineage
+
+### Out of Scope
+- Real-time line integration
+- 3D Scanning
+- Cloud connectivity
+
+## Invariants
+- FORBIDDEN_CAPABILITY: Cloud connectivity
+- FORBIDDEN_CAPABILITY: Real-time integration
+- REQUIRED_FIELD: Acceptance Criteria
+- MAX_VALUE: Story Points <= 5
+
+## Features
+- CSV Export: instance and batch level
+- File Ingestion: folder parsing
+""",
+        "spec_version_id": 9, # Matching v9 from cases
+        "mock_invariants": [
+            {"type": "FORBIDDEN_CAPABILITY", "parameters": {"capability": "Cloud connectivity"}},
+            {"type": "REQUIRED_FIELD", "parameters": {"field_name": "Acceptance Criteria"}},
+            {"type": "MAX_VALUE", "parameters": {"field_name": "Story Points", "max_value": 5}},
+        ]
+    },
     9: {
         "name": "E-Commerce Platform",
         "content": """# E-Commerce Platform Specification

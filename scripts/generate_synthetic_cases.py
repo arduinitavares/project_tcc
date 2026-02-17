@@ -73,11 +73,11 @@ def mutate_case(case: Dict[str, Any], mutation_type: str, mutation_payload: str)
     elif mutation_type == "SCOPE_CREEP":
         new_case["story_title"] = mutation_payload
         new_case["story_description"] = "Out of scope feature request."
-        new_case["expected_fail_reasons"] = ["LLM_SPEC_VALIDATION"]
+        new_case["expected_fail_reasons"] = ["RULE_LLM_SPEC_VALIDATION"]
 
     elif mutation_type == "CONTRADICTION":
         new_case["acceptance_criteria"] = (new_case.get("acceptance_criteria", "") + "\n" + mutation_payload).strip()
-        new_case["expected_fail_reasons"] = ["MAX_VALUE"] if "points" in mutation_payload else ["LLM_SPEC_VALIDATION"]
+        new_case["expected_fail_reasons"] = ["MAX_VALUE"] if "points" in mutation_payload else ["RULE_LLM_SPEC_VALIDATION"]
 
     return new_case
 
@@ -95,13 +95,14 @@ def generate_synthetic_cases(source_cases: List[Dict[str, Any]], count: int) -> 
     print(f"Found {len(passing_cases)} source cases.")
 
     # P7 Mutations
+    # Shift synthetic ID range to 9100+ to avoid collision with base 9001
     for i in range(count):
         source = random.choice(passing_cases)
         m_type = random.choice(list(MUTATIONS.keys()))
         m_payload = random.choice(MUTATIONS[m_type])
 
         syn_data = mutate_case(source, m_type, m_payload)
-        syn_id = 7000 + i # Synthetic Story IDs
+        syn_id = 9100 + i # Changed from 7000 to be safe
         prod_id = source.get("product_id", 7)
 
         syn_case_record = {
@@ -143,12 +144,12 @@ def generate_synthetic_cases(source_cases: List[Dict[str, Any]], count: int) -> 
         "acceptance_criteria": "Given light off, When toggle, Then on.", "rater_pass": True
     }
 
-    # Generate P9 Failures
+    # Generate P9 Failures (ID range 9200+)
     for i in range(5):
         m_type = random.choice(list(MUTATIONS.keys()))
         m_payload = random.choice(MUTATIONS[m_type])
         syn_data = mutate_case(p9_base, m_type, m_payload)
-        syn_id = 9000 + i
+        syn_id = 9200 + i
 
         syn_case_record = {
             "case_id": f"p9-syn-{i}",
@@ -174,12 +175,12 @@ def generate_synthetic_cases(source_cases: List[Dict[str, Any]], count: int) -> 
         generated_cases.append(syn_case_record)
         synthetic_stories.append(syn_story_record)
 
-    # Generate P10 Failures
+    # Generate P10 Failures (ID range 10200+)
     for i in range(5):
         m_type = random.choice(list(MUTATIONS.keys()))
         m_payload = random.choice(MUTATIONS[m_type])
         syn_data = mutate_case(p10_base, m_type, m_payload)
-        syn_id = 10000 + i
+        syn_id = 10200 + i
 
         syn_case_record = {
             "case_id": f"p10-syn-{i}",
@@ -215,6 +216,8 @@ def main():
     parser.add_argument("--count", type=int, default=20)
     args = parser.parse_args()
 
+    random.seed(42) # Deterministic generation
+
     source_cases = load_cases(args.input)
     synthetic_cases, synthetic_stories = generate_synthetic_cases(source_cases, args.count)
 
@@ -227,6 +230,13 @@ def main():
         if isinstance(fail_reasons, str):
             fail_reasons = [r.strip() for r in fail_reasons.split(",") if r.strip()]
 
+        # FIX: Ensure product_id is correctly mapped for P8 cases
+        # cases_for_labeling doesn't have product_id, so we usually default to 7 (Quadra).
+        # But if case_id starts with 'p8', it's Product 8.
+        product_id = sc.get("product_id", 7)
+        if str(sc.get("case_id", "")).startswith("p8-"):
+            product_id = 8
+
         final_cases.append({
             "case_id": sc["case_id"],
             "story_id": sc["story_id"],
@@ -236,7 +246,7 @@ def main():
             "notes": sc.get("rater_notes"),
             "tags": ["real-data"],
             "enabled": True,
-            "product_id": sc.get("product_id", 7),
+            "product_id": product_id,
             "story_title": sc["story_title"],
             "spec_source": "real",
             "label_source": "human_review"
@@ -244,7 +254,7 @@ def main():
 
         source_story_records.append({
             "story_id": sc["story_id"],
-            "product_id": sc.get("product_id", 7),
+            "product_id": product_id,
             "title": sc["story_title"],
             "description": sc.get("story_description", ""),
             "acceptance_criteria": sc.get("acceptance_criteria", "")
@@ -253,7 +263,7 @@ def main():
     final_cases.extend(synthetic_cases)
     final_story_records = source_story_records + synthetic_stories
 
-    # Add base P9/P10 passing cases
+    # Add base P9/P10 passing cases (IDs 9001, 10001)
     final_cases.append({
         "case_id": "p9-base", "story_id": 9001, "spec_version_id": 901, "expected_pass": True, "product_id": 9, "story_title": "Base P9", "expected_fail_reasons": [], "tags": ["synthetic-base"], "enabled": True, "spec_source": "synthetic", "label_source": "synthetic"
     })
