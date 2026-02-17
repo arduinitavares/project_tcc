@@ -265,3 +265,55 @@ def test_normalizer_handles_duplicate_ids_different_types_length_mismatch() -> N
         f"Every invariant ID must be covered by source_map. "
         f"Missing: {sorted(invariant_ids - source_map_ids)}"
     )
+
+
+def test_normalize_zero_invariants_returns_success_with_warning() -> None:
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+        normalize_compiler_output,
+    )
+
+    raw: Dict[str, Any] = {
+        "scope_themes": ["notes-only"],
+        "domain": None,
+        "invariants": [],
+        "eligible_feature_rules": [],
+        "gaps": [],
+        "assumptions": [],
+        "source_map": [
+            {
+                "invariant_id": "INV-0000000000000000",
+                "excerpt": "No normative requirements found.",
+                "location": "spec:notes",
+            }
+        ],
+        "compiler_version": "1.0.0",
+        "prompt_hash": "0" * 64,
+    }
+
+    normalized = normalize_compiler_output(json.dumps(raw))
+    assert isinstance(normalized.root, SpecAuthorityCompilationSuccess)
+    assert normalized.root.invariants == []
+    assert "No invariants extracted from spec" in normalized.root.gaps
+
+
+def test_normalize_empty_invariants_allows_empty_source_map() -> None:
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+        normalize_compiler_output,
+    )
+
+    raw: Dict[str, Any] = {
+        "scope_themes": [],
+        "domain": None,
+        "invariants": [],
+        "eligible_feature_rules": [],
+        "gaps": [],
+        "assumptions": [],
+        "source_map": [],
+        "compiler_version": "1.0.0",
+        "prompt_hash": "0" * 64,
+    }
+
+    normalized = normalize_compiler_output(json.dumps(raw))
+    assert isinstance(normalized.root, SpecAuthorityCompilationSuccess)
+    assert normalized.root.invariants == []
+    assert normalized.root.source_map == []

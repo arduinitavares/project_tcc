@@ -2,11 +2,13 @@
 
 import json
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
+from sqlmodel import Session as SqlSession, create_engine, SQLModel
 
+from agile_sqlmodel import Product
 from orchestrator_agent.agent_tools.backlog_primer.schemes import (
     BacklogItem,
     InputSchema,
@@ -93,6 +95,15 @@ class TestSaveBacklogTool:
         mock_context = MagicMock()
         mock_context.state = {}
 
+        # Create in-memory DB so get_engine() doesn't hit the pytest safety guard
+        test_engine = create_engine("sqlite://", echo=False)
+        SQLModel.metadata.create_all(test_engine)
+
+        # Insert a product so FK constraint is satisfied
+        with SqlSession(test_engine) as session:
+            session.add(Product(name="Test Product"))
+            session.commit()
+
         save_input = SaveBacklogInput(
             product_id=1,
             backlog_items=[
@@ -113,7 +124,11 @@ class TestSaveBacklogTool:
             ],
         )
 
-        result = await save_backlog_tool(save_input, tool_context=mock_context)
+        with patch(
+            "orchestrator_agent.agent_tools.backlog_primer.tools.get_engine",
+            return_value=test_engine,
+        ):
+            result = await save_backlog_tool(save_input, tool_context=mock_context)
 
         assert result["success"] is True
         assert result["saved_count"] == 2

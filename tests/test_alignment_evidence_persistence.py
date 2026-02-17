@@ -7,13 +7,21 @@ import pytest
 from sqlmodel import Session
 
 import tools.spec_tools as spec_tools
-from agile_sqlmodel import Product, Theme, Epic, Feature, UserStory, SpecRegistry
+from agile_sqlmodel import (
+    CompiledSpecAuthority,
+    Product,
+    Theme,
+    Epic,
+    Feature,
+    UserStory,
+    SpecRegistry,
+)
 from tools.spec_tools import (
     register_spec_version,
     approve_spec_version,
-    compile_spec_authority,
     validate_story_with_spec_authority,
 )
+from utils.schemes import SpecAuthorityCompilationSuccess, SpecAuthorityCompilerOutput
 
 
 @pytest.fixture
@@ -154,21 +162,40 @@ def test_alignment_warning_persisted(engine, session: Session):
     session.commit()
     session.refresh(product)
 
-    # Spec with no MUST statements -> mock extraction yields "No invariants extracted"
-    spec_content = "# Spec\n\n## Notes\n- No requirements here"
+    # Create an approved spec + precompiled authority with zero invariants.
     reg = register_spec_version(
-        {"product_id": product.product_id, "content": spec_content},
+        {"product_id": product.product_id, "content": "# Spec\n\n## Notes\n- No requirements here"},
         tool_context=None,
     )
     spec_version_id = reg["spec_version_id"]
-    approve_spec_version(
-        {"spec_version_id": spec_version_id, "approved_by": "tester"},
-        tool_context=None,
+    approve_spec_version({"spec_version_id": spec_version_id, "approved_by": "tester"}, tool_context=None)
+
+    zero_invariant_artifact = SpecAuthorityCompilationSuccess(
+        scope_themes=["notes-only"],
+        domain=None,
+        invariants=[],
+        eligible_feature_rules=[],
+        gaps=["No invariants extracted from spec"],
+        assumptions=[],
+        source_map=[],
+        compiler_version="1.0.0",
+        prompt_hash="0" * 64,
     )
-    compile_spec_authority(
-        {"spec_version_id": spec_version_id},
-        tool_context=None,
+    authority = CompiledSpecAuthority(
+        spec_version_id=spec_version_id,
+        compiler_version="1.0.0",
+        prompt_hash="0" * 64,
+        scope_themes="[\"notes-only\"]",
+        invariants="[]",
+        eligible_feature_ids="[]",
+        rejected_features="[]",
+        spec_gaps="[\"No invariants extracted from spec\"]",
+        compiled_artifact_json=SpecAuthorityCompilerOutput(
+            root=zero_invariant_artifact
+        ).model_dump_json(),
     )
+    session.add(authority)
+    session.commit()
 
     story = _create_story(session, product.product_id, title="Normal story")
     result = validate_story_with_spec_authority(

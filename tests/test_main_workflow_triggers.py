@@ -29,14 +29,15 @@ class TestMainWorkflowTriggers(unittest.TestCase):
         result = main.evaluate_workflow_triggers(state)
         self.assertIsNone(result)
 
-    def test_backlog_trigger_fires_outside_backlog_phase(self):
+    def test_backlog_trigger_disabled_returns_none(self):
+        """Automated triggers are disabled — returns None regardless of state."""
         state = {
             "product_backlog": [{"priority": 1}],
             "sprint_plan": None,
             "fsm_state": OrchestratorState.ROUTING_MODE.value,
         }
         result = main.evaluate_workflow_triggers(state)
-        self.assertEqual(result, "[SYSTEM TRIGGER]: The Product Backlog has been updated...")
+        self.assertIsNone(result)
 
     def test_sprint_trigger_suppressed_in_sprint_view(self):
         state = {

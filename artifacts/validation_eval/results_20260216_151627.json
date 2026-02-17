@@ -1,0 +1,130 @@
+{
+  "run_timestamp_utc": "20260216_151627",
+  "cases_file": "artifacts\\validation_benchmark\\cases.human_review.jsonl",
+  "modes": [
+    "deterministic",
+    "llm",
+    "hybrid"
+  ],
+  "num_cases": 2,
+  "mode_metrics": {
+    "deterministic": {
+      "num_cases": 2,
+      "num_labeled_cases": 2,
+      "confusion_matrix_fail_class": {
+        "tp": 1,
+        "fp": 0,
+        "tn": 1,
+        "fn": 0
+      },
+      "precision_fail": 1.0,
+      "precision_fail_ci_95": [
+        1.0,
+        1.0
+      ],
+      "recall_fail": 1.0,
+      "recall_fail_ci_95": [
+        1.0,
+        1.0
+      ],
+      "f1_fail": 1.0,
+      "f1_fail_ci_95": [
+        1.0,
+        1.0
+      ],
+      "accuracy": 1.0,
+      "accuracy_ci_95": [
+        1.0,
+        1.0
+      ],
+      "reason_recall_macro": 1.0,
+      "reason_precision_macro": 1.0,
+      "reason_f1_macro": 1.0,
+      "over_flagging_rate": 0.0,
+      "latency_ms_avg": 395.5022000009194,
+      "latency_ms_median": 395.5022000009194
+    },
+    "llm": {
+      "num_cases": 2,
+      "num_labeled_cases": 2,
+      "confusion_matrix_fail_class": {
+        "tp": 1,
+        "fp": 1,
+        "tn": 0,
+        "fn": 0
+      },
+      "precision_fail": 0.5,
+      "precision_fail_ci_95": [
+        0.4605,
+        0.5035
+      ],
+      "recall_fail": 1.0,
+      "recall_fail_ci_95": [
+        1.0,
+        1.0
+      ],
+      "f1_fail": 0.6666666666666666,
+      "f1_fail_ci_95": [
+        0.7606721162579472,
+        0.7838328792007266
+      ],
+      "accuracy": 0.5,
+      "accuracy_ci_95": [
+        0.4605,
+        0.5035
+      ],
+      "reason_recall_macro": 1.0,
+      "reason_precision_macro": 0.25,
+      "reason_f1_macro": 0.4,
+      "over_flagging_rate": 0.0,
+      "latency_ms_avg": 19254.048499991768,
+      "latency_ms_median": 19254.048499991768
+    },
+    "hybrid": {
+      "num_cases": 2,
+      "num_labeled_cases": 2,
+      "confusion_matrix_fail_class": {
+        "tp": 1,
+        "fp": 1,
+        "tn": 0,
+        "fn": 0
+      },
+      "precision_fail": 0.5,
+      "precision_fail_ci_95": [
+        0.4605,
+        0.5035
+      ],
+      "recall_fail": 1.0,
+      "recall_fail_ci_95": [
+        1.0,
+        1.0
+      ],
+      "f1_fail": 0.6666666666666666,
+      "f1_fail_ci_95": [
+        0.7606721162579472,
+        0.7838328792007266
+      ],
+      "accuracy": 0.5,
+      "accuracy_ci_95": [
+        0.4605,
+        0.5035
+      ],
+      "reason_recall_macro": 1.0,
+      "reason_precision_macro": 0.25,
+      "reason_f1_macro": 0.4,
+      "over_flagging_rate": 0.0,
+      "latency_ms_avg": 26592.796699987957,
+      "latency_ms_median": 26592.796699987957
+    }
+  },
+  "disagreements": {
+    "deterministic_vs_llm": [
+      "p7-s57-v8"
+    ],
+    "deterministic_vs_hybrid": [
+      "p7-s57-v8"
+    ],
+    "llm_vs_hybrid": []
+  },
+  "raw_path": "artifacts\\validation_eval\\raw_20260216_151627.jsonl"
+}

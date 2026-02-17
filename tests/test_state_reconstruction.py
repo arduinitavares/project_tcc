@@ -102,6 +102,7 @@ def agent_wrapper():
     """Fixture to create a StatefulVisionAgent instance."""
     return StatefulVisionAgent(root_agent)
 
+@pytest.mark.integration
 @pytest.mark.skipif(not os.getenv("OPEN_ROUTER_API_KEY"), reason="No API Key")
 class TestStateReconstruction:
     """Test cases for multi-turn state preservation."""
@@ -307,6 +308,7 @@ class TestStateReconstruction:
         )
 
 
+@pytest.mark.integration
 @pytest.mark.skipif(not os.getenv("OPEN_ROUTER_API_KEY"), reason="No API Key")
 class TestMergeLogic:
     """Test cases for specific merge logic scenarios."""
@@ -387,6 +389,7 @@ class TestMergeLogic:
 
 
 # pylint: disable=too-few-public-methods
+@pytest.mark.integration
 @pytest.mark.integration
 @pytest.mark.skipif(not os.getenv("OPEN_ROUTER_API_KEY"), reason="No API Key")
 class TestRealWorldScenarios:

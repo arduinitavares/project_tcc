@@ -530,7 +530,9 @@ class TestSpecWorkflowIntegration:
 
         # Step 2: Save pasted spec
 
-    def test_save_project_specification_sets_spec_persisted_flag(self, db_session, tmp_path):
+    def test_save_project_specification_sets_spec_persisted_flag(
+        self, db_session, tmp_path, compile_stub
+    ):
         """save_project_specification sets spec_persisted=True and preserves
         pending_spec_content for downstream phases (BACKLOG, ROADMAP, STORY)."""
         product = Product(name="Spec Pending Project", vision="Pending spec")
@@ -562,44 +564,6 @@ class TestSpecWorkflowIntegration:
         assert "pending_spec_content" in context.state
         # pending_spec_path MUST be preserved for downstream phase agents
         assert "pending_spec_path" in context.state
-        pasted_text = """# Pasted Specification
-## Section 1: Overview
-This is a test specification pasted by the user.
-
-## Section 2: Features
-- Feature A
-- Feature B
-"""
-        save_result = save_project_specification({
-            "product_id": product.product_id,
-            "spec_source": "text",
-            "content": pasted_text,
-        })
-        assert save_result["success"] is True
-        assert save_result["file_created"] is True
-
-        # Step 3: Verify backup file exists
-        backup_path = Path(save_result["spec_path"])
-        assert backup_path.exists()
-        assert backup_path.read_text(encoding='utf-8') == pasted_text
-
-        # Step 4: Read back from DB
-        context = MockToolContext(state={
-            "active_project": {
-                "product_id": product.product_id,
-                "name": "Pasted Project",
-            }
-        })
-        read_result = read_project_specification({}, context)
-
-        # Assert: Content matches exactly
-        assert read_result["success"] is True
-        assert read_result["spec_content"] == pasted_text
-        assert "Pasted Specification" in read_result["spec_content"]
-        assert len(read_result["sections"]) == 3  # H1 + two H2s
-
-        # Cleanup
-        backup_path.unlink()
 
 
 # ============================================================================

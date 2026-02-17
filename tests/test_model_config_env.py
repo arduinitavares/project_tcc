@@ -41,8 +41,11 @@ def test_model_config_path_env_overrides(monkeypatch: pytest.MonkeyPatch, temp_m
     monkeypatch.setenv("MODEL_CONFIG_PATH", str(temp_model_config))
     model_config.clear_config_cache()
 
-    assert get_model_id("orchestrator") == "openrouter/openai/gpt-5-mini"
-    assert get_story_pipeline_mode() == "single"
+    try:
+        assert get_model_id("orchestrator") == "openrouter/openai/gpt-5-mini"
+        assert get_story_pipeline_mode() == "single"
+    finally:
+        model_config.clear_config_cache()
 
 
 def test_relax_zdr_for_tests_toggles_privacy(monkeypatch: pytest.MonkeyPatch) -> None:

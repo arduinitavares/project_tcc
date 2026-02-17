@@ -42,6 +42,7 @@ from agile_sqlmodel import (
     CompiledSpecAuthority,
     SpecAuthorityAcceptance,
     SpecAuthorityStatus,
+    Feature,
     UserStory,
     get_engine,
 )
@@ -265,7 +266,7 @@ def save_project_specification(
         session.add(product)
         session.commit()
 
-        # action = "updated" if is_update else "saved"
+        action = "updated" if is_update else "saved"
         # print(
         #     f"[save_project_specification] Spec {action} "
         #     f"for '{product.name}' ({file_size_kb:.1f}KB)"
@@ -2025,6 +2026,13 @@ class ValidateStoryInput(BaseModel):
     spec_version_id: int = Field(
         description="Spec version ID to validate against (REQUIRED)"
     )
+    mode: Literal["deterministic", "llm", "hybrid"] = Field(
+        default="deterministic",
+        description=(
+            "Validation mode: deterministic (rule-based), llm (spec_validator_agent), "
+            "or hybrid (both)."
+        ),
+    )
 
 
 def _compute_story_input_hash(story: UserStory) -> str:
@@ -2054,6 +2062,280 @@ def _persist_validation_evidence(
         story.accepted_spec_version_id = evidence.spec_version_id
     session.add(story)
     session.commit()
+
+
+def _run_structural_story_checks(
+    story: UserStory,
+) -> tuple[List[str], List[ValidationFailure], List[str]]:
+    """Run deterministic structural story checks used by all validation modes."""
+    rules_checked: List[str] = []
+    failures: List[ValidationFailure] = []
+    warnings: List[str] = []
+
+    rules_checked.append("RULE_TITLE_REQUIRED")
+    if not story.title or not story.title.strip():
+        failures.append(
+            ValidationFailure(
+                rule="RULE_TITLE_REQUIRED",
+                expected="Non-empty title",
+                actual="Empty or missing",
+                message="Story must have a title",
+            )
+        )
+
+    rules_checked.append("RULE_ACCEPTANCE_CRITERIA_REQUIRED")
+    if not story.acceptance_criteria or not story.acceptance_criteria.strip():
+        failures.append(
+            ValidationFailure(
+                rule="RULE_ACCEPTANCE_CRITERIA_REQUIRED",
+                expected="Non-empty acceptance criteria",
+                actual="Empty or missing",
+                message="Story must have acceptance criteria",
+            )
+        )
+
+    rules_checked.append("RULE_PERSONA_FORMAT")
+    title_lower = (story.title or "").lower()
+    desc_lower = (story.story_description or "").lower()
+    if not (
+        "as a " in title_lower
+        or "as a " in desc_lower
+        or "as an " in title_lower
+        or "as an " in desc_lower
+    ):
+        warnings.append("Story does not follow 'As a [persona], I want...' format")
+
+    return rules_checked, failures, warnings
+
+
+def _run_deterministic_alignment_checks(
+    story: UserStory,
+    authority: CompiledSpecAuthority,
+) -> tuple[List[AlignmentFinding], List[AlignmentFinding], List[str]]:
+    """
+    Run deterministic alignment checks against compiled authority.
+
+    Returns alignment failures, alignment warnings, and non-blocking warnings.
+    """
+    alignment_failures: List[AlignmentFinding] = []
+    alignment_warnings: List[AlignmentFinding] = []
+    warnings: List[str] = []
+
+    artifact = _load_compiled_artifact(authority)
+    if not artifact or not artifact.invariants:
+        return alignment_failures, alignment_warnings, warnings
+
+    title_text = (story.title or "").lower()
+    description_text = (story.story_description or "").lower()
+    acceptance_text = (story.acceptance_criteria or "").lower()
+    combined_text = " ".join(
+        part for part in [title_text, description_text, acceptance_text] if part
+    )
+    normalized_acceptance = acceptance_text.replace("_", " ")
+
+    for invariant in artifact.invariants:
+        if invariant.type == InvariantType.FORBIDDEN_CAPABILITY:
+            capability = str(getattr(invariant.parameters, "capability", "") or "").strip()
+            if not capability:
+                continue
+            capability_lower = capability.lower()
+            capability_variants = {
+                capability_lower,
+                capability_lower.replace("_", " "),
+            }
+            if any(variant and variant in combined_text for variant in capability_variants):
+                alignment_failures.append(
+                    AlignmentFinding(
+                        code="FORBIDDEN_CAPABILITY",
+                        invariant=invariant.id,
+                        capability=capability,
+                        message=(
+                            f"Story references forbidden capability '{capability}' "
+                            f"(invariant {invariant.id})."
+                        ),
+                        severity="failure",
+                        created_at=datetime.now(timezone.utc),
+                    )
+                )
+            continue
+
+        if invariant.type == InvariantType.REQUIRED_FIELD:
+            field_name = str(getattr(invariant.parameters, "field_name", "") or "").strip()
+            if not field_name:
+                continue
+            field_lower = field_name.lower()
+            field_variants = {
+                field_lower,
+                field_lower.replace("_", " "),
+            }
+            has_field_mention = any(
+                variant and (variant in acceptance_text or variant in normalized_acceptance)
+                for variant in field_variants
+            )
+            if not has_field_mention:
+                alignment_warnings.append(
+                    AlignmentFinding(
+                        code="REQUIRED_FIELD_MISSING",
+                        invariant=invariant.id,
+                        capability=None,
+                        message=(
+                            f"Acceptance criteria may be missing required field "
+                            f"'{field_name}' (invariant {invariant.id})."
+                        ),
+                        severity="warning",
+                        created_at=datetime.now(timezone.utc),
+                    )
+                )
+            continue
+
+        if invariant.type == InvariantType.MAX_VALUE:
+            # Deterministic text matching is too brittle for numeric threshold logic.
+            continue
+
+    return alignment_failures, alignment_warnings, warnings
+
+
+async def _invoke_spec_validator_async(payload_text: str) -> str:
+    """Invoke spec_validator_agent and return response text."""
+    from orchestrator_agent.agent_tools.spec_validator_agent.agent import (
+        root_agent as spec_validator_agent,
+    )
+
+    session_service = InMemorySessionService()
+    runner = Runner(
+        agent=spec_validator_agent,
+        app_name="spec_validator_agent",
+        session_service=session_service,
+    )
+    session = await session_service.create_session(
+        app_name="spec_validator_agent",
+        user_id="spec_validator",
+    )
+
+    events: List[Any] = []
+    new_message = types.Content(
+        role="user",
+        parts=[types.Part.from_text(text=payload_text)],
+    )
+
+    async for event in runner.run_async(
+        user_id="spec_validator",
+        session_id=session.id,
+        new_message=new_message,
+    ):
+        events.append(event)
+
+    response_text = _extract_compiler_response_text(events)
+    if not response_text:
+        raise ValueError("Spec validator agent returned no text response")
+    return response_text
+
+
+def _parse_llm_validator_response(raw_text: str) -> Dict[str, Any]:
+    """Parse agent text into SpecValidationResult shape."""
+    from orchestrator_agent.agent_tools.spec_validator_agent.schemes import (
+        SpecValidationResult,
+    )
+
+    candidate = raw_text.strip()
+    if candidate.startswith("```"):
+        candidate = re.sub(r"^```(?:json)?\s*", "", candidate)
+        candidate = re.sub(r"\s*```$", "", candidate)
+
+    try:
+        parsed = SpecValidationResult.model_validate_json(candidate)
+        critical_gaps: List[str] = []
+        if parsed.domain_compliance and parsed.domain_compliance.critical_gaps:
+            critical_gaps = list(parsed.domain_compliance.critical_gaps)
+        return {
+            "passed": parsed.is_compliant,
+            "issues": list(parsed.issues),
+            "suggestions": list(parsed.suggestions),
+            "verdict": parsed.verdict,
+            "critical_gaps": critical_gaps,
+        }
+    except ValidationError as exc:
+        compliant_match = re.search(
+            r'"is_compliant"\s*:\s*(true|false)',
+            candidate,
+            flags=re.IGNORECASE,
+        )
+        if not compliant_match:
+            raise ValueError("Unable to parse LLM validator response") from exc
+
+        def _extract_string_list(field_name: str) -> List[str]:
+            pattern = rf'"{re.escape(field_name)}"\s*:\s*\[(.*?)(?:\]|$)'
+            list_match = re.search(pattern, candidate, flags=re.DOTALL)
+            if not list_match:
+                return []
+            raw_items = re.findall(r'"((?:\\.|[^"\\])*)"', list_match.group(1))
+            values: List[str] = []
+            for raw_item in raw_items:
+                try:
+                    values.append(json.loads(f'"{raw_item}"'))
+                except json.JSONDecodeError:
+                    values.append(raw_item)
+            return values
+
+        def _extract_string(field_name: str) -> Optional[str]:
+            pattern = rf'"{re.escape(field_name)}"\s*:\s*"((?:\\.|[^"\\])*)"'
+            value_match = re.search(pattern, candidate, flags=re.DOTALL)
+            if not value_match:
+                return None
+            try:
+                return json.loads(f'"{value_match.group(1)}"')
+            except json.JSONDecodeError:
+                return value_match.group(1)
+
+        is_compliant = compliant_match.group(1).lower() == "true"
+        issues = _extract_string_list("issues")
+        critical_gaps = _extract_string_list("critical_gaps")
+        suggestions = _extract_string_list("suggestions")
+        verdict = _extract_string("verdict") or "Recovered from truncated JSON response"
+
+        if is_compliant:
+            issues = []
+            critical_gaps = []
+            suggestions = []
+        elif not issues and critical_gaps:
+            # Preserve non-compliant semantics when only critical gaps were recoverable.
+            issues = list(critical_gaps)
+
+        if not is_compliant and not issues:
+            raise ValueError("Unable to recover non-compliant LLM validator response") from exc
+
+        logger.warning("Recovered partial LLM response (truncated JSON)")
+        return {
+            "passed": is_compliant,
+            "issues": issues,
+            "suggestions": suggestions,
+            "verdict": verdict,
+            "critical_gaps": critical_gaps,
+        }
+
+
+def _run_llm_spec_validation(
+    story: UserStory,
+    authority: CompiledSpecAuthority,
+    artifact: Optional[SpecAuthorityCompilationSuccess],
+    feature: Optional[Feature] = None,
+) -> Dict[str, Any]:
+    """Run LLM-based spec validation and normalize result."""
+    authority_json = authority.compiled_artifact_json or ""
+    if artifact:
+        authority_json = artifact.model_dump_json()
+
+    payload = {
+        "story_title": story.title or "",
+        "story_description": story.story_description or "",
+        "acceptance_criteria": story.acceptance_criteria or "",
+        "compiled_authority_json": authority_json,
+        "spec_version_id": authority.spec_version_id,
+        "feature_title": feature.title if feature else None,
+        "feature_description": feature.description if feature else None,
+    }
+    raw_text = _run_async_task(_invoke_spec_validator_async(json.dumps(payload)))
+    return _parse_llm_validator_response(raw_text)
 
 
 def validate_story_with_spec_authority(
@@ -2191,87 +2473,126 @@ def validate_story_with_spec_authority(
             invariants_checked = (
                 json.loads(authority.invariants) if authority.invariants else []
             )
-        rules_checked: List[str] = []
-        failures: List[ValidationFailure] = []
-        warnings: List[str] = []
+        rules_checked, failures, warnings = _run_structural_story_checks(story)
 
-        # Alignment check (pinned authority only)
-        # NOTE: story_pipeline was refactored out; alignment check is
-        # skipped gracefully when the module is unavailable.
         alignment_failures: List[AlignmentFinding] = []
         alignment_warnings: List[AlignmentFinding] = []
-        try:
-            from orchestrator_agent.agent_tools.story_pipeline.alignment_checker import (  # noqa: F401
-                validate_feature_alignment,
+        if not invariants_checked:
+            no_invariants_message = (
+                "Compiled authority has no invariants; alignment checks are informational only."
             )
-
-            alignment_result = validate_feature_alignment(
-                feature_title=f"{story.title or ''} {story.story_description or ''}".strip(),
-                compiled_authority=authority,
-            )
-
-            alignment_failures = [
+            warnings.append(no_invariants_message)
+            alignment_warnings.append(
                 AlignmentFinding(
-                    code=finding.code,
-                    invariant=finding.invariant,
-                    capability=finding.capability,
-                    message=finding.message,
-                    severity=finding.severity,  # type: ignore[arg-type]
-                    created_at=finding.created_at,
-                )
-                for finding in alignment_result.findings
-                if finding.severity == "failure"
-            ]
-            alignment_warnings = [
-                AlignmentFinding(
-                    code=finding.code,
-                    invariant=finding.invariant,
-                    capability=finding.capability,
-                    message=finding.message,
-                    severity=finding.severity,  # type: ignore[arg-type]
-                    created_at=finding.created_at,
-                )
-                for finding in alignment_result.findings
-                if finding.severity == "warning"
-            ]
-        except ImportError:
-            warnings.append(
-                "Alignment checker unavailable (story_pipeline removed); "
-                "skipping alignment validation."
-            )
-
-        rules_checked.append("RULE_TITLE_REQUIRED")
-        if not story.title or not story.title.strip():
-            failures.append(
-                ValidationFailure(
-                    rule="RULE_TITLE_REQUIRED",
-                    expected="Non-empty title",
-                    actual="Empty or missing",
-                    message="Story must have a title",
+                    code="NO_INVARIANTS",
+                    invariant=None,
+                    capability=None,
+                    message=no_invariants_message,
+                    severity="warning",
+                    created_at=datetime.now(timezone.utc),
                 )
             )
 
-        rules_checked.append("RULE_ACCEPTANCE_CRITERIA_REQUIRED")
-        if not story.acceptance_criteria or not story.acceptance_criteria.strip():
-            failures.append(
-                ValidationFailure(
-                    rule="RULE_ACCEPTANCE_CRITERIA_REQUIRED",
-                    expected="Non-empty acceptance criteria",
-                    actual="Empty or missing",
-                    message="Story must have acceptance criteria",
-                )
-            )
+        if parsed.mode in ("deterministic", "hybrid"):
+            (
+                deterministic_failures,
+                deterministic_warnings,
+                deterministic_messages,
+            ) = _run_deterministic_alignment_checks(story, authority)
+            alignment_failures.extend(deterministic_failures)
+            alignment_warnings.extend(deterministic_warnings)
+            warnings.extend(deterministic_messages)
 
-        rules_checked.append("RULE_PERSONA_FORMAT")
-        title_lower = (story.title or "").lower()
-        desc_lower = (story.story_description or "").lower()
-        if not (
-            "as a " in title_lower
-            or "as a " in desc_lower
-            or "as an " in title_lower
-            or "as an " in desc_lower
-        ):
-            warnings.append("Story does not follow 'As a [persona], I want...' format")
+        if parsed.mode in ("llm", "hybrid"):
+            rules_checked.append("RULE_LLM_SPEC_VALIDATION")
+            try:
+                feature = None
+                if story.feature_id is not None:
+                    feature = session.get(Feature, story.feature_id)
+
+                llm_result = _run_llm_spec_validation(
+                    story,
+                    authority,
+                    artifact,
+                    feature=feature,
+                )
+                llm_issues = list(llm_result.get("issues", []))
+                llm_critical_gaps = list(llm_result.get("critical_gaps", []))
+
+                # If the adapter reports non-compliance without explicit gaps/issues,
+                # keep verdict as an advisory warning instead of silently dropping it.
+                if (
+                    not llm_result.get("passed", False)
+                    and not llm_critical_gaps
+                    and not llm_issues
+                ):
+                    verdict = llm_result.get("verdict")
+                    if verdict:
+                        llm_issues = [verdict]
+
+                for issue in llm_issues:
+                    warnings.append(f"LLM advisory: {issue}")
+                    alignment_warnings.append(
+                        AlignmentFinding(
+                            code="LLM_SPEC_VALIDATION_ISSUE",
+                            invariant=None,
+                            capability=None,
+                            message=issue,
+                            severity="warning",
+                            created_at=datetime.now(timezone.utc),
+                        )
+                    )
+
+                for gap in llm_critical_gaps:
+                    failures.append(
+                        ValidationFailure(
+                            rule="RULE_LLM_SPEC_VALIDATION",
+                            expected="Spec-compliant story",
+                            actual=gap,
+                            message=gap,
+                        )
+                    )
+                    alignment_failures.append(
+                        AlignmentFinding(
+                            code="LLM_SPEC_VALIDATION",
+                            invariant=None,
+                            capability=None,
+                            message=gap,
+                            severity="failure",
+                            created_at=datetime.now(timezone.utc),
+                        )
+                    )
+                for suggestion in llm_result.get("suggestions", []):
+                    warnings.append(f"LLM suggestion: {suggestion}")
+                    alignment_warnings.append(
+                        AlignmentFinding(
+                            code="LLM_SPEC_VALIDATION_SUGGESTION",
+                            invariant=None,
+                            capability=None,
+                            message=suggestion,
+                            severity="warning",
+                            created_at=datetime.now(timezone.utc),
+                        )
+                    )
+            except Exception as exc:  # pylint: disable=broad-except
+                failures.append(
+                    ValidationFailure(
+                        rule="RULE_LLM_SPEC_VALIDATION",
+                        expected="LLM validator completes successfully",
+                        actual=str(exc),
+                        message="LLM validation execution failed",
+                    )
+                )
+                alignment_failures.append(
+                    AlignmentFinding(
+                        code="LLM_SPEC_VALIDATION_ERROR",
+                        invariant=None,
+                        capability=None,
+                        message=f"LLM validation execution failed: {exc}",
+                        severity="failure",
+                        created_at=datetime.now(timezone.utc),
+                    )
+                )
 
         passed = len(failures) == 0 and len(alignment_failures) == 0
 
@@ -2295,6 +2616,7 @@ def validate_story_with_spec_authority(
             "passed": passed,
             "story_id": parsed.story_id,
             "spec_version_id": parsed.spec_version_id,
+            "mode": parsed.mode,
             "failures": [failure.model_dump() for failure in failures],
             "warnings": warnings,
             "input_hash": input_hash,
