@@ -22,22 +22,24 @@ The expansion introduced "Hard Negatives" (stories that look valid structurally 
 
 | Metric | Original (40 cases) | Expanded (72 cases) | Delta |
 | :--- | :---: | :---: | :---: |
-| **Accuracy** | 92.5% | **61.1%** | ▼ -31.4% |
-| **Recall (Fail)** | 83.3% | **40.0%** | ▼ -43.3% |
-| **Precision (Fail)** | 100.0% | **94.7%** | ▼ -5.3% |
+| **Accuracy** | 92.5% | **72.2%** | ▼ -20.3% |
+| **Recall (Fail)** | 83.3% | **55.6%** | ▼ -27.7% |
+| **Precision (Fail)** | 100.0% | **100.0%** | - |
 | **Stability** | 100% | 100% | - |
 
+*(Source Artifact: `results_20260217_100511.json`)*
+
 ### Key Findings
-1.  **Semantic Blindness:** The deterministic validator failed to catch ~60% of the new failure cases. It cannot detect "Scope Creep" or subtle "Forbidden Capabilities" that don't match exact keyword strings.
-2.  **High Precision:** When the deterministic validator *does* flag an issue (mostly structural), it is almost always correct (94.7%).
-3.  **Necessity of Hybrid Mode:** To reach the >90% recall target on this harder benchmark, enabling LLM-based semantic validation is strictly required. The current deterministic logic is insufficient for product quality goals.
+1.  **Semantic Blindness:** The deterministic validator missed nearly half (20/45) of the failure cases. It successfully catches structural issues (Missing Fields) but completely misses nuanced "Scope Creep" or "Contradiction" mutations that require semantic understanding.
+2.  **High Precision:** When the deterministic validator flags an issue, it is 100% correct. This confirms its value as a "fast gate" before expensive LLM calls.
+3.  **Necessity of Hybrid Mode:** To reach the >90% recall target on this harder benchmark, enabling LLM-based semantic validation is strictly required.
 
 ## 3. Adjudication & Infrastructure
-- **Consensus Logic:** Implemented `N-run` consensus voting with stability tracking.
+- **Consensus Logic:** Implemented `N-run` consensus voting with stability tracking to handle future LLM non-determinism.
 - **Hydration:** Created robust DB hydration scripts (`hydrate_benchmark_db.py`) to spin up mock environments for testing without reliance on production data snapshots.
 - **LLM Status:** Currently blocked by provider authentication errors (502). Once resolved, the infrastructure is ready to re-run in `hybrid` mode to demonstrate the expected quality lift.
 
 ## 4. Recommendations
 1.  **Immediate:** Resolve LLM provider authentication/credit issues.
-2.  **Next Step:** Run `hybrid` mode on the expanded benchmark. Expect Recall to jump from 40% -> ~90%.
+2.  **Next Step:** Run `hybrid` mode on the expanded benchmark. Expect Recall to jump from 55.6% -> ~90%.
 3.  **Long Term:** Tune specific semantic prompts for the "IoT" and "E-Commerce" domains once we have baseline LLM performance data.

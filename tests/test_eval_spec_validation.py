@@ -26,18 +26,10 @@ def test_extract_reason_codes():
 def test_classify_row_error():
     assert eval_script._classify_row_error({}) == "semantic"
     assert eval_script._classify_row_error({"failures": [{"message": "execution failed"}]}) == "provider_error"
+    assert eval_script._classify_row_error({"failures": [{"message": "litellm.APIError"}]}) == "provider_error"
 
 def test_confusion_from_rows():
     rows = [
-        # {"expected_pass": True, "predicted_fail": False}, # TN (fail=false, pass=true) -> No, TN is expected_fail=False and predicted_fail=False
-        # Removing the first duplicate TN to make the test match expected counts
-        # Logic in script:
-        # expected_fail = not expected_pass
-        # tp: exp_fail and pred_fail
-        # fp: not exp_fail and pred_fail
-        # tn: not exp_fail and not pred_fail
-        # fn: exp_fail and not pred_fail
-
         {"expected_pass": True, "predicted_fail": False}, # TN
         {"expected_pass": False, "predicted_fail": True}, # TP
         {"expected_pass": True, "predicted_fail": True},  # FP
@@ -46,7 +38,7 @@ def test_confusion_from_rows():
     cm = eval_script._confusion_from_rows(rows)
     assert cm == {"tp": 1, "fp": 1, "tn": 1, "fn": 1}
 
-def test_compute_mode_metrics():
+def test_compute_mode_metrics_basic():
     # 2 cases
     rows = [
         {
@@ -74,6 +66,77 @@ def test_compute_mode_metrics():
     assert metrics["confusion_matrix_fail_class"]["tn"] == 1
     assert metrics["accuracy"] == 1.0
     assert metrics["reason_recall_macro"] == 1.0
+
+def test_compute_mode_metrics_over_flagging():
+    rows = [
+        {
+            "case_id": "c1",
+            "expected_pass": False,
+            "predicted_fail": True,
+            "latency_ms": 10,
+            "expected_fail_reasons": ["R1"],
+            "predicted_reason_codes": ["R1", "R2", "R3"], # 3 > 2*1, should trigger over-flagging
+            "error_class": "semantic"
+        }
+    ]
+    metrics = eval_script._compute_mode_metrics(rows)
+    assert metrics["over_flagging_rate"] == 1.0
+    assert metrics["reason_precision_macro"] == 1/3
+
+def test_bootstrap_ci_shape():
+    # Valid input
+    values = [1.0, 0.0, 1.0, 0.0] * 10
+    ci = eval_script._bootstrap_ci(values, n_resamples=100)
+    assert isinstance(ci, tuple)
+    assert len(ci) == 2
+    assert 0.0 <= ci[0] <= ci[1] <= 1.0
+
+    # Empty input
+    assert eval_script._bootstrap_ci([], n_resamples=10) is None
+
+def test_stratified_sampling():
+    cases = [
+        {"case_id": "p1", "expected_pass": True},
+        {"case_id": "p2", "expected_pass": True},
+        {"case_id": "f1", "expected_pass": False},
+        {"case_id": "f2", "expected_pass": False},
+    ]
+    # Limit 2, stratify=True -> Should get 1 pass, 1 fail
+    limited = eval_script._limit_cases(cases, limit=2, stratify=True, seed=42)
+    assert len(limited) == 2
+    pass_count = sum(1 for c in limited if c["expected_pass"])
+    fail_count = sum(1 for c in limited if not c["expected_pass"])
+    assert pass_count == 1
+    assert fail_count == 1
+
+def test_validate_min_positive_cases_errors():
+    cases = [
+        {"case_id": "f1", "expected_pass": False},
+        {"case_id": "f2", "expected_pass": False},
+    ]
+    # Require 1 positive, have 0 -> Should exit
+    with pytest.raises(SystemExit):
+        eval_script._validate_min_positive_cases(cases, min_positive_cases=1)
+
+    # Require 0 -> OK
+    eval_script._validate_min_positive_cases(cases, min_positive_cases=0)
+
+def test_disagreement_computation():
+    rows = [
+        {"case_id": "c1", "mode": "deterministic", "predicted_pass": True},
+        {"case_id": "c1", "mode": "llm", "predicted_pass": False},
+        {"case_id": "c1", "mode": "hybrid", "predicted_pass": True},
+
+        {"case_id": "c2", "mode": "deterministic", "predicted_pass": True},
+        {"case_id": "c2", "mode": "llm", "predicted_pass": True},
+        {"case_id": "c2", "mode": "hybrid", "predicted_pass": True},
+    ]
+    disagreements = eval_script._compute_disagreements(rows)
+
+    assert "c1" in disagreements["deterministic_vs_llm"]
+    assert "c1" in disagreements["llm_vs_hybrid"]
+    assert "c1" not in disagreements["deterministic_vs_hybrid"]
+    assert "c2" not in disagreements["deterministic_vs_llm"]
 
 def test_evaluate_cases_uses_stubbed_runner(monkeypatch: pytest.MonkeyPatch) -> None:
     cases = [
@@ -106,13 +169,12 @@ def test_evaluate_cases_uses_stubbed_runner(monkeypatch: pytest.MonkeyPatch) -> 
         }
 
     monkeypatch.setattr(eval_script, "_run_case_mode", _fake_run)
-    # The regression test in question calls this without consensus_runs
-    # But we modified the signature.
-    # If the signature of evaluate_cases was evaluate_cases(cases, modes, consensus_runs=1),
-    # this call would work.
-    # The test failure shows: evaluate_cases(cases, ["deterministic", "llm"])
-    # So we need to ensure evaluate_cases has a default.
-    evaluated = eval_script.evaluate_cases(cases, ["deterministic", "llm"])
 
+    # Verify backward compatibility (no consensus arg)
+    evaluated = eval_script.evaluate_cases(cases, ["deterministic", "llm"])
     assert "deterministic" in evaluated["mode_metrics"]
     assert "llm" in evaluated["mode_metrics"]
+
+    # Verify consensus arg passing
+    evaluated_consensus = eval_script.evaluate_cases(cases, ["deterministic"], consensus_runs=3)
+    assert "deterministic" in evaluated_consensus["mode_metrics"]
