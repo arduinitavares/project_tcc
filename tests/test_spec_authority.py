@@ -33,6 +33,21 @@ from tools.spec_tools import (
     get_compiled_authority_by_version,
     register_spec_version,
 )
+from utils.schemes import (
+    SpecAuthorityCompilationSuccess,
+    SpecAuthorityCompilerOutput,
+    SourceMapEntry,
+    Invariant,
+    InvariantType,
+    RequiredFieldParams,
+)
+from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (
+    SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
+    SPEC_AUTHORITY_COMPILER_VERSION,
+)
+from orchestrator_agent.agent_tools.spec_authority_compiler_agent.compiler_contract import (
+    compute_prompt_hash,
+)
 
 
 @pytest.fixture
@@ -66,6 +81,48 @@ def sample_spec_content() -> str:
 - All API calls require auth token
 - Export formats: CSV, JSON only
 """
+
+
+def _build_raw_compiler_output(excerpt: str, field_name: str) -> str:
+    """Build a raw compiler JSON output (pre-normalization)."""
+    invariant = Invariant(
+        id="INV-0000000000000000",
+        type=InvariantType.REQUIRED_FIELD,
+        parameters=RequiredFieldParams(field_name=field_name),
+    )
+    success = SpecAuthorityCompilationSuccess(
+        scope_themes=["Scope"],
+        domain="Test Domain",
+        invariants=[invariant],
+        eligible_feature_rules=[],
+        gaps=[],
+        assumptions=[],
+        source_map=[
+            SourceMapEntry(
+                invariant_id=invariant.id,
+                excerpt=excerpt,
+                location=None,
+            )
+        ],
+        compiler_version="0.0.0",
+        prompt_hash="0" * 64,
+    )
+    return SpecAuthorityCompilerOutput(root=success).model_dump_json()
+
+
+@pytest.fixture
+def compiler_stub(monkeypatch):
+    """Stub compiler agent to avoid real LLM calls."""
+    raw_json = _build_raw_compiler_output(
+        excerpt="The payload must include user_id.",
+        field_name="user_id",
+    )
+    monkeypatch.setattr(
+        spec_tools,
+        "_invoke_spec_authority_compiler",
+        lambda **_: raw_json,
+    )
+    return raw_json
 
 
 class TestSpecRegistryVersioning:
@@ -229,7 +286,7 @@ class TestExplicitCompilation:
         assert "not approved" in result["error"].lower()
 
     def test_compile_creates_cached_authority_for_approved_spec(
-        self, session: Session, sample_product: Product, sample_spec_content: str
+        self, session: Session, sample_product: Product, sample_spec_content: str, compiler_stub
     ):
         """Test successful compilation of an approved spec."""
         # Register and approve
@@ -278,7 +335,7 @@ class TestExplicitCompilation:
         assert isinstance(invariants, list)
 
     def test_compile_stores_compiler_version_and_prompt_hash(
-        self, session: Session, sample_product: Product, sample_spec_content: str
+        self, session: Session, sample_product: Product, sample_spec_content: str, compiler_stub
     ):
         """Test that compilation stores reproducibility metadata."""
         reg_result = register_spec_version(
@@ -363,7 +420,7 @@ class TestAuthorityStatusCheck:
         assert result["status"] == SpecAuthorityStatus.NOT_COMPILED.value
 
     def test_status_current_when_compiled_matches_latest_approved(
-        self, session: Session, sample_product: Product, sample_spec_content: str
+        self, session: Session, sample_product: Product, sample_spec_content: str, compiler_stub
     ):
         """Test status when compiled authority matches latest approved spec."""
         reg_result = register_spec_version(
@@ -391,7 +448,7 @@ class TestAuthorityStatusCheck:
         assert result["status"] == SpecAuthorityStatus.CURRENT.value
 
     def test_status_stale_when_new_approved_spec_after_compilation(
-        self, session: Session, sample_product: Product
+        self, session: Session, sample_product: Product, compiler_stub
     ):
         """Test status transitions to STALE when spec changes after compilation."""
         # Version 1: register, approve, compile
@@ -442,7 +499,7 @@ class TestDeterministicRetrieval:
     """AC6 — Deterministic Retrieval by Version"""
 
     def test_get_compiled_authority_by_version_success(
-        self, session: Session, sample_product: Product, sample_spec_content: str
+        self, session: Session, sample_product: Product, sample_spec_content: str, compiler_stub
     ):
         """Test successful retrieval of compiled authority."""
         reg_result = register_spec_version(
@@ -499,7 +556,7 @@ class TestDeterministicRetrieval:
         assert "not compiled" in result["error"].lower()
 
     def test_get_compiled_authority_fails_for_wrong_product(
-        self, session: Session, sample_product: Product, sample_spec_content: str
+        self, session: Session, sample_product: Product, sample_spec_content: str, compiler_stub
     ):
         """Test that retrieval validates product_id matches spec_version_id."""
         reg_result = register_spec_version(

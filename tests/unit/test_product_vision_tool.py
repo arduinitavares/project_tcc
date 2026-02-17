@@ -123,7 +123,12 @@ def test_save_vision_tool_handles_missing_active_project(engine: Engine):
 
     assert result["success"] is True
     assert tool_context.state["active_project"]["name"] == "Hashbrown"
-    assert "structure" not in tool_context.state["active_project"]
+    assert tool_context.state["active_project"]["structure"] == {
+        "themes": 0,
+        "epics": 0,
+        "features": 0,
+        "user_stories": 0,
+    }
 
 
 def test_save_vision_tool_updates_existing_project_by_name_when_id_is_none(engine: Engine):

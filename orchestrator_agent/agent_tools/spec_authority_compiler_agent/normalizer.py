@@ -101,11 +101,13 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
     success.compiler_version = SPEC_AUTHORITY_COMPILER_VERSION
 
     if not success.invariants:
-        print("[spec_authority_compiler] Missing invariants")
-        return _failure(
-            reason="MISSING_INVARIANTS",
-            blocking_gaps=["No invariants present in success output"],
+        print(
+            "[spec_authority_compiler] No invariants extracted "
+            "(spec has no normative requirements)"
         )
+        if "No invariants extracted from spec" not in success.gaps:
+            success.gaps.append("No invariants extracted from spec")
+        return SpecAuthorityCompilerOutput(root=success)
 
     if not success.source_map:
         print("[spec_authority_compiler] Missing source_map")

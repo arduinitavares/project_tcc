@@ -1,4 +1,9 @@
-import asyncio
+"""Tests for run_user_turn_with_retries.
+
+Retry logic (rate-limit, transient) is now handled internally by
+SelfHealingAgent.  run_user_turn_with_retries simply delegates to
+run_agent_turn and catches any exception that bubbles up.
+"""
 
 import pytest
 
@@ -10,43 +15,32 @@ class DummyRunner:
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_retries_then_success(monkeypatch):
+async def test_successful_turn_calls_run_agent_turn(monkeypatch):
+    """A successful turn completes without error."""
     calls = {"count": 0}
 
     async def fake_run_agent_turn(_runner, _user_input, is_system_trigger=False):
         calls["count"] += 1
-        if calls["count"] < 3:
-            raise Exception("RateLimitError: retry")
-
-    async def fake_sleep(_seconds):
-        return None
 
     monkeypatch.setattr(main, "run_agent_turn", fake_run_agent_turn)
-    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(main, "RATE_LIMIT_MAX_RETRIES", 3)
-    monkeypatch.setattr(main, "RATE_LIMIT_MAX_BACKOFF_SECONDS", 0)
 
     await main.run_user_turn_with_retries(DummyRunner(), "hello")
 
-    assert calls["count"] == 3
+    assert calls["count"] == 1
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_retries_exhausted(monkeypatch):
+async def test_failed_turn_does_not_propagate(monkeypatch):
+    """Errors are caught and logged, not re-raised."""
     calls = {"count": 0}
 
     async def fake_run_agent_turn(_runner, _user_input, is_system_trigger=False):
         calls["count"] += 1
         raise Exception("RateLimitError: retry")
 
-    async def fake_sleep(_seconds):
-        return None
-
     monkeypatch.setattr(main, "run_agent_turn", fake_run_agent_turn)
-    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(main, "RATE_LIMIT_MAX_RETRIES", 2)
-    monkeypatch.setattr(main, "RATE_LIMIT_MAX_BACKOFF_SECONDS", 0)
 
+    # Should NOT raise
     await main.run_user_turn_with_retries(DummyRunner(), "hello")
 
-    assert calls["count"] == 3
+    assert calls["count"] == 1

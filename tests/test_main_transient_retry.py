@@ -1,4 +1,8 @@
-import asyncio
+"""Tests for transient error handling in run_user_turn_with_retries.
+
+Retry logic is now handled internally by SelfHealingAgent.
+run_user_turn_with_retries catches and logs errors without re-raising.
+"""
 
 import pytest
 
@@ -10,43 +14,32 @@ class DummyRunner:
 
 
 @pytest.mark.asyncio
-async def test_transient_retries_then_success(monkeypatch):
-    calls = {"count": 0}
-
-    async def fake_run_agent_turn(_runner, _user_input, is_system_trigger=False):
-        calls["count"] += 1
-        if calls["count"] < 2:
-            raise Exception("OpenrouterException - Unable to get json response")
-
-    async def fake_sleep(_seconds):
-        return None
-
-    monkeypatch.setattr(main, "run_agent_turn", fake_run_agent_turn)
-    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(main, "TRANSIENT_MAX_RETRIES", 2)
-    monkeypatch.setattr(main, "TRANSIENT_MAX_BACKOFF_SECONDS", 0)
-
-    await main.run_user_turn_with_retries(DummyRunner(), "hello")
-
-    assert calls["count"] == 2
-
-
-@pytest.mark.asyncio
-async def test_transient_retries_exhausted(monkeypatch):
+async def test_transient_error_caught_not_propagated(monkeypatch):
+    """Transient errors are caught and logged, not re-raised."""
     calls = {"count": 0}
 
     async def fake_run_agent_turn(_runner, _user_input, is_system_trigger=False):
         calls["count"] += 1
         raise Exception("OpenrouterException - Unable to get json response")
 
-    async def fake_sleep(_seconds):
-        return None
+    monkeypatch.setattr(main, "run_agent_turn", fake_run_agent_turn)
+
+    # Should NOT raise
+    await main.run_user_turn_with_retries(DummyRunner(), "hello")
+
+    assert calls["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_successful_turn_completes(monkeypatch):
+    """Successful turn runs once without error."""
+    calls = {"count": 0}
+
+    async def fake_run_agent_turn(_runner, _user_input, is_system_trigger=False):
+        calls["count"] += 1
 
     monkeypatch.setattr(main, "run_agent_turn", fake_run_agent_turn)
-    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(main, "TRANSIENT_MAX_RETRIES", 1)
-    monkeypatch.setattr(main, "TRANSIENT_MAX_BACKOFF_SECONDS", 0)
 
     await main.run_user_turn_with_retries(DummyRunner(), "hello")
 
-    assert calls["count"] == 2
+    assert calls["count"] == 1

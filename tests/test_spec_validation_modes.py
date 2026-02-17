@@ -1,0 +1,490 @@
+"""Tests for validation mode routing: deterministic, llm, and hybrid."""
+
+import json
+from datetime import datetime, timezone
+
+import pytest
+from sqlmodel import Session
+
+import tools.spec_tools as spec_tools
+from agile_sqlmodel import CompiledSpecAuthority, Epic, Feature, Product, SpecRegistry, Theme, UserStory
+from tools.spec_tools import validate_story_with_spec_authority
+from utils.schemes import (
+    ForbiddenCapabilityParams,
+    Invariant,
+    InvariantType,
+    RequiredFieldParams,
+    SourceMapEntry,
+    SpecAuthorityCompilationSuccess,
+    SpecAuthorityCompilerOutput,
+)
+
+
+def _create_compiled_spec(session: Session, product_id: int) -> int:
+    spec = SpecRegistry(
+        product_id=product_id,
+        content="# Spec",
+        content_ref=None,
+        spec_hash="a" * 64,
+        version_number=1,
+        status="approved",
+        approved_at=datetime.now(timezone.utc),
+        approved_by="tester",
+        approval_notes=None,
+    )
+    session.add(spec)
+    session.commit()
+    session.refresh(spec)
+
+    invariant = Invariant(
+        id="INV-0000000000000001",
+        type=InvariantType.REQUIRED_FIELD,
+        parameters=RequiredFieldParams(field_name="user_id"),
+    )
+    artifact = SpecAuthorityCompilationSuccess(
+        scope_themes=["core"],
+        domain="test",
+        invariants=[invariant],
+        eligible_feature_rules=[],
+        gaps=[],
+        assumptions=[],
+        source_map=[
+            SourceMapEntry(
+                invariant_id=invariant.id,
+                excerpt="Must include user_id.",
+                location="spec",
+            )
+        ],
+        compiler_version="1.0.0",
+        prompt_hash="0" * 64,
+    )
+    compiled = CompiledSpecAuthority(
+        spec_version_id=spec.spec_version_id,
+        compiler_version="1.0.0",
+        prompt_hash="0" * 64,
+        compiled_at=datetime.now(timezone.utc),
+        scope_themes=json.dumps(["core"]),
+        invariants=json.dumps(["REQUIRED_FIELD:user_id"]),
+        eligible_feature_ids=json.dumps([]),
+        rejected_features=json.dumps([]),
+        spec_gaps=json.dumps([]),
+        compiled_artifact_json=SpecAuthorityCompilerOutput(root=artifact).model_dump_json(),
+    )
+    session.add(compiled)
+    session.commit()
+
+    return spec.spec_version_id
+
+
+def _create_story(session: Session, product_id: int) -> UserStory:
+    theme = Theme(product_id=product_id, title="Theme", description="")
+    session.add(theme)
+    session.commit()
+    session.refresh(theme)
+
+    epic = Epic(theme_id=theme.theme_id, title="Epic", description="")
+    session.add(epic)
+    session.commit()
+    session.refresh(epic)
+
+    feature = Feature(epic_id=epic.epic_id, title="Feature", description="")
+    session.add(feature)
+    session.commit()
+    session.refresh(feature)
+
+    story = UserStory(
+        product_id=product_id,
+        feature_id=feature.feature_id,
+        title="As a user, I want to export reports",
+        story_description="As a user, I want to export reports for audit.",
+        acceptance_criteria="Given reports exist, When I export, Then I get CSV.",
+    )
+    session.add(story)
+    session.commit()
+    session.refresh(story)
+    return story
+
+
+def _create_orphan_story(session: Session, product_id: int) -> UserStory:
+    story = UserStory(
+        product_id=product_id,
+        feature_id=None,
+        title="As a reviewer, I want attestation visibility",
+        story_description="As a reviewer, I want to confirm attestation state.",
+        acceptance_criteria="Given an item, When I open details, Then attestation is visible.",
+    )
+    session.add(story)
+    session.commit()
+    session.refresh(story)
+    return story
+
+
+def _build_authority_for_alignment(
+    invariants: list[Invariant],
+    source_map: list[SourceMapEntry],
+) -> CompiledSpecAuthority:
+    artifact = SpecAuthorityCompilationSuccess(
+        scope_themes=["core"],
+        domain="test",
+        invariants=invariants,
+        eligible_feature_rules=[],
+        gaps=[],
+        assumptions=[],
+        source_map=source_map,
+        compiler_version="1.0.0",
+        prompt_hash="0" * 64,
+    )
+    return CompiledSpecAuthority(
+        spec_version_id=1,
+        compiler_version="1.0.0",
+        prompt_hash="0" * 64,
+        compiled_at=datetime.now(timezone.utc),
+        scope_themes=json.dumps(["core"]),
+        invariants=json.dumps([f"{inv.type}:{inv.id}" for inv in invariants]),
+        eligible_feature_ids=json.dumps([]),
+        rejected_features=json.dumps([]),
+        spec_gaps=json.dumps([]),
+        compiled_artifact_json=SpecAuthorityCompilerOutput(root=artifact).model_dump_json(),
+    )
+
+
+@pytest.fixture
+def setup_validation_case(session: Session, engine):
+    """Create one product/spec/story tuple for mode tests."""
+    spec_tools.engine = engine
+    product = Product(name="Validation Modes", vision="Test")
+    session.add(product)
+    session.commit()
+    session.refresh(product)
+
+    spec_version_id = _create_compiled_spec(session, product.product_id)
+    story = _create_story(session, product.product_id)
+    return story, spec_version_id
+
+
+def test_llm_mode_passes_with_stubbed_compliant_result(
+    setup_validation_case, monkeypatch
+):
+    story, spec_version_id = setup_validation_case
+
+    monkeypatch.setattr(
+        spec_tools,
+        "_run_llm_spec_validation",
+        lambda *_args, **_kwargs: {
+            "passed": True,
+            "issues": [],
+            "suggestions": [],
+            "verdict": "Compliant",
+            "critical_gaps": [],
+        },
+    )
+
+    result = validate_story_with_spec_authority(
+        {"story_id": story.story_id, "spec_version_id": spec_version_id, "mode": "llm"},
+        tool_context=None,
+    )
+
+    assert result["success"] is True
+    assert result["mode"] == "llm"
+    assert result["passed"] is True
+
+
+def test_llm_payload_includes_feature_context(setup_validation_case, monkeypatch):
+    story, spec_version_id = setup_validation_case
+    captured_payload: dict = {}
+
+    async def _capture_payload(payload_text: str) -> str:
+        captured_payload.update(json.loads(payload_text))
+        return json.dumps(
+            {
+                "is_compliant": True,
+                "issues": [],
+                "suggestions": [],
+                "domain_compliance": None,
+                "verdict": "Compliant",
+            }
+        )
+
+    monkeypatch.setattr(spec_tools, "_invoke_spec_validator_async", _capture_payload)
+
+    result = validate_story_with_spec_authority(
+        {"story_id": story.story_id, "spec_version_id": spec_version_id, "mode": "llm"},
+        tool_context=None,
+    )
+
+    assert result["success"] is True
+    assert result["passed"] is True
+    assert captured_payload["spec_version_id"] == spec_version_id
+    assert captured_payload["feature_title"] == "Feature"
+    assert captured_payload["feature_description"] == ""
+
+
+def test_llm_payload_includes_feature_context_orphan_story(
+    setup_validation_case, monkeypatch, session: Session
+):
+    base_story, spec_version_id = setup_validation_case
+    orphan_story = _create_orphan_story(session, base_story.product_id)
+    captured_payload: dict = {}
+
+    async def _capture_payload(payload_text: str) -> str:
+        captured_payload.update(json.loads(payload_text))
+        return json.dumps(
+            {
+                "is_compliant": True,
+                "issues": [],
+                "suggestions": [],
+                "domain_compliance": None,
+                "verdict": "Compliant",
+            }
+        )
+
+    monkeypatch.setattr(spec_tools, "_invoke_spec_validator_async", _capture_payload)
+
+    result = validate_story_with_spec_authority(
+        {"story_id": orphan_story.story_id, "spec_version_id": spec_version_id, "mode": "llm"},
+        tool_context=None,
+    )
+
+    assert result["success"] is True
+    assert result["passed"] is True
+    assert captured_payload["spec_version_id"] == spec_version_id
+    assert captured_payload["feature_title"] is None
+    assert captured_payload["feature_description"] is None
+
+
+def test_llm_critical_gaps_remain_hard_failures_and_do_not_pin_spec_version(
+    setup_validation_case, monkeypatch, session: Session
+):
+    story, spec_version_id = setup_validation_case
+
+    monkeypatch.setattr(
+        spec_tools,
+        "_run_llm_spec_validation",
+        lambda *_args, **_kwargs: {
+            "passed": False,
+            "issues": ["Story misses domain detail"],
+            "suggestions": ["Mention user_id in acceptance criteria"],
+            "verdict": "Non-compliant",
+            "critical_gaps": ["Missing required user_id in acceptance criteria"],
+        },
+    )
+
+    result = validate_story_with_spec_authority(
+        {"story_id": story.story_id, "spec_version_id": spec_version_id, "mode": "llm"},
+        tool_context=None,
+    )
+    assert result["success"] is True
+    assert result["passed"] is False
+    assert any(f["rule"] == "RULE_LLM_SPEC_VALIDATION" for f in result["failures"])
+
+    session.expire(story)
+    refreshed = session.get(UserStory, story.story_id)
+    assert refreshed.accepted_spec_version_id is None
+
+
+@pytest.mark.parametrize("mode", ["llm", "hybrid"])
+def test_llm_soft_issues_become_warnings_not_failures(
+    setup_validation_case, monkeypatch, mode
+):
+    story, spec_version_id = setup_validation_case
+
+    monkeypatch.setattr(
+        spec_tools,
+        "_run_deterministic_alignment_checks",
+        lambda *_args, **_kwargs: ([], [], []),
+    )
+    monkeypatch.setattr(
+        spec_tools,
+        "_run_llm_spec_validation",
+        lambda *_args, **_kwargs: {
+            "passed": False,
+            "issues": ["Soft issue: mention testability in AC"],
+            "suggestions": ["Clarify an observable output"],
+            "verdict": "Needs clarification",
+            "critical_gaps": [],
+        },
+    )
+
+    result = validate_story_with_spec_authority(
+        {"story_id": story.story_id, "spec_version_id": spec_version_id, "mode": mode},
+        tool_context=None,
+    )
+
+    assert result["success"] is True
+    assert result["passed"] is True
+    assert not any(f["rule"] == "RULE_LLM_SPEC_VALIDATION" for f in result["failures"])
+
+
+def test_hybrid_mode_fails_when_deterministic_alignment_fails(
+    setup_validation_case, monkeypatch
+):
+    story, spec_version_id = setup_validation_case
+
+    monkeypatch.setattr(
+        spec_tools,
+        "_run_deterministic_alignment_checks",
+        lambda *_args, **_kwargs: (
+            [
+                spec_tools.AlignmentFinding(
+                    code="FORBIDDEN_CAPABILITY",
+                    invariant="INV-1",
+                    capability="cloud",
+                    message="cloud capability is forbidden",
+                    severity="failure",
+                    created_at=datetime.now(timezone.utc),
+                )
+            ],
+            [],
+            [],
+        ),
+    )
+    monkeypatch.setattr(
+        spec_tools,
+        "_run_llm_spec_validation",
+        lambda *_args, **_kwargs: {
+            "passed": True,
+            "issues": [],
+            "suggestions": [],
+            "verdict": "Compliant",
+            "critical_gaps": [],
+        },
+    )
+
+    result = validate_story_with_spec_authority(
+        {"story_id": story.story_id, "spec_version_id": spec_version_id, "mode": "hybrid"},
+        tool_context=None,
+    )
+    assert result["success"] is True
+    assert result["mode"] == "hybrid"
+    assert result["passed"] is False
+
+
+def test_deterministic_mode_does_not_call_llm_adapter(
+    setup_validation_case, monkeypatch
+):
+    story, spec_version_id = setup_validation_case
+
+    def _should_not_be_called(*_args, **_kwargs):
+        raise AssertionError("LLM adapter should not run in deterministic mode")
+
+    monkeypatch.setattr(spec_tools, "_run_llm_spec_validation", _should_not_be_called)
+
+    result = validate_story_with_spec_authority(
+        {"story_id": story.story_id, "spec_version_id": spec_version_id},
+        tool_context=None,
+    )
+    assert result["success"] is True
+    assert result["mode"] == "deterministic"
+
+
+def test_deterministic_forbidden_capability_keyword_match() -> None:
+    story = UserStory(
+        product_id=1,
+        feature_id=None,
+        title="Web dashboard",
+        story_description="Build dashboard UI for reviews.",
+        acceptance_criteria="Given authenticated user, when opening dashboard, then widgets appear.",
+    )
+    invariant = Invariant(
+        id="INV-0000000000000001",
+        type=InvariantType.FORBIDDEN_CAPABILITY,
+        parameters=ForbiddenCapabilityParams(capability="web"),
+    )
+    authority = _build_authority_for_alignment(
+        invariants=[invariant],
+        source_map=[
+            SourceMapEntry(
+                invariant_id=invariant.id,
+                excerpt="The system must not include web interfaces.",
+                location="spec",
+            )
+        ],
+    )
+
+    failures, warnings, messages = spec_tools._run_deterministic_alignment_checks(  # pylint: disable=protected-access
+        story,
+        authority,
+    )
+
+    assert not warnings
+    assert not messages
+    assert any(f.code == "FORBIDDEN_CAPABILITY" for f in failures)
+
+
+def test_deterministic_required_field_no_false_positive() -> None:
+    story = UserStory(
+        product_id=1,
+        feature_id=None,
+        title="Form validations",
+        story_description="Collect user contact data.",
+        acceptance_criteria="Given valid input, when saving, then the email field is persisted.",
+    )
+    invariant = Invariant(
+        id="INV-0000000000000002",
+        type=InvariantType.REQUIRED_FIELD,
+        parameters=RequiredFieldParams(field_name="email"),
+    )
+    authority = _build_authority_for_alignment(
+        invariants=[invariant],
+        source_map=[
+            SourceMapEntry(
+                invariant_id=invariant.id,
+                excerpt="Payload must include email.",
+                location="spec",
+            )
+        ],
+    )
+
+    failures, warnings, messages = spec_tools._run_deterministic_alignment_checks(  # pylint: disable=protected-access
+        story,
+        authority,
+    )
+
+    assert not failures
+    assert not warnings
+    assert not messages
+
+
+def test_deterministic_alignment_no_invariants() -> None:
+    story = UserStory(
+        product_id=1,
+        feature_id=None,
+        title="Any story",
+        story_description="No special constraints",
+        acceptance_criteria="Given item, when processed, then done.",
+    )
+    authority = _build_authority_for_alignment(
+        invariants=[],
+        source_map=[],
+    )
+
+    failures, warnings, messages = spec_tools._run_deterministic_alignment_checks(  # pylint: disable=protected-access
+        story,
+        authority,
+    )
+
+    assert failures == []
+    assert warnings == []
+    assert messages == []
+
+
+def test_parse_truncated_json_recovers_non_compliant() -> None:
+    raw_text = (
+        '{"is_compliant": false, '
+        '"issues": ["Missing in-scope requirement"], '
+        '"critical_gaps": ["Missing in-scope requirement"], '
+        '"suggestions": ["Add explicit acceptance criteria for attestation"]'
+    )
+
+    parsed = spec_tools._parse_llm_validator_response(raw_text)  # pylint: disable=protected-access
+
+    assert parsed["passed"] is False
+    assert parsed["issues"]
+    assert parsed["critical_gaps"]
+
+
+def test_parse_truncated_json_unrecoverable_raises() -> None:
+    raw_text = '{"issues": ["Missing in-scope requirement"]'
+
+    with pytest.raises(ValueError):
+        spec_tools._parse_llm_validator_response(raw_text)  # pylint: disable=protected-access

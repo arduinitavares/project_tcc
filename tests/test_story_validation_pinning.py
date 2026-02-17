@@ -12,6 +12,7 @@ These tests validate that:
 """
 
 import json
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -34,7 +35,12 @@ from tools.spec_tools import (
     register_spec_version,
     validate_story_with_spec_authority,
 )
-from utils.schemes import ValidationEvidence
+from utils.schemes import (
+    ValidationEvidence,
+    SpecAuthorityCompilationSuccess,
+    InvariantType,
+    ForbiddenCapabilityParams,
+)
 
 
 @pytest.fixture
@@ -79,10 +85,37 @@ def compiled_spec(session: Session, sample_product: Product) -> SpecRegistry:
         tool_context=None,
     )
 
-    compile_spec_authority(
-        {"spec_version_id": spec_version_id},
-        tool_context=None,
+    # Mock LLM extraction to avoid real API calls
+    fake_artifact = SpecAuthorityCompilationSuccess(
+        scope_themes=["API", "Auth"],
+        invariants=[
+            {
+                "id": "INV-0000000000000001",
+                "type": InvariantType.FORBIDDEN_CAPABILITY,
+                "parameters": ForbiddenCapabilityParams(capability="redis"),
+            }
+        ],
+        eligible_feature_rules=[],
+        gaps=[],
+        assumptions=[],
+        source_map=[
+            {
+                "invariant_id": "INV-0000000000000001",
+                "excerpt": "Auth token required",
+                "location": "spec:line:1",
+            }
+        ],
+        compiler_version="1.0.0",
+        prompt_hash="a" * 64,
     )
+    with patch(
+        "tools.spec_tools._extract_spec_authority_llm",
+        return_value=fake_artifact,
+    ):
+        compile_spec_authority(
+            {"spec_version_id": spec_version_id},
+            tool_context=None,
+        )
 
     spec = session.get(SpecRegistry, spec_version_id)
     session.refresh(spec)
