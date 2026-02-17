@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate story validation quality across deterministic/llm/hybrid modes."""
+"""Evaluate story validation quality across deterministic/llm/hybrid modes with consensus logic."""
 
 from __future__ import annotations
 
@@ -144,6 +144,7 @@ def _read_cases(path: Path, include_disabled: bool) -> List[Dict[str, Any]]:
                 "notes": case.get("notes"),
                 "tags": case.get("tags") if isinstance(case.get("tags"), list) else [],
                 "enabled": bool(enabled),
+                "label_source": case.get("label_source")
             }
         )
     LOGGER.info("Prepared %d normalized case(s)", len(normalized))
@@ -385,37 +386,88 @@ def _bootstrap_metric_ci(
     return _bootstrap_ci(values, n_resamples=n_resamples, seed=seed)
 
 
-def _run_case_mode(case: Dict[str, Any], mode: ValidationMode) -> Dict[str, Any]:
+def _run_case_mode(case: Dict[str, Any], mode: ValidationMode, consensus_runs: int) -> Dict[str, Any]:
     LOGGER.debug(
-        "Running validation case_id=%s mode=%s story_id=%s spec_version_id=%s",
+        "Running validation case_id=%s mode=%s story_id=%s spec_version_id=%s consensus=%d",
         case.get("case_id"),
         mode,
         case.get("story_id"),
         case.get("spec_version_id"),
+        consensus_runs,
     )
-    started = time.perf_counter()
-    result = validate_story_with_spec_authority(
-        {
-            "story_id": case["story_id"],
-            "spec_version_id": case["spec_version_id"],
-            "mode": mode,
-        },
-        tool_context=None,
-    )
-    elapsed_ms = (time.perf_counter() - started) * 1000
 
-    success = bool(result.get("success"))
-    passed = bool(result.get("passed")) if success else False
-    reason_codes = _extract_reason_codes(result)
-    error_class = _classify_row_error(result)
+    runs = []
+    total_latency = 0.0
+
+    # Deterministic modes don't need consensus
+    if mode == "deterministic":
+        actual_runs = 1
+    else:
+        actual_runs = max(1, consensus_runs)
+
+    for i in range(actual_runs):
+        started = time.perf_counter()
+        try:
+            result = validate_story_with_spec_authority(
+                {
+                    "story_id": case["story_id"],
+                    "spec_version_id": case["spec_version_id"],
+                    "mode": mode,
+                },
+                tool_context=None,
+            )
+            success = bool(result.get("success"))
+            passed = bool(result.get("passed")) if success else False
+            reason_codes = _extract_reason_codes(result)
+            error_class = _classify_row_error(result)
+        except Exception as e:
+            LOGGER.error(f"Error in validation run {i+1}: {e}")
+            result = {"error": str(e)}
+            success = False
+            passed = False
+            reason_codes = []
+            error_class = "execution_error"
+
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        total_latency += elapsed_ms
+
+        runs.append({
+            "success": success,
+            "passed": passed,
+            "reason_codes": reason_codes,
+            "error_class": error_class,
+            "result": result
+        })
+
+    # Consensus Logic
+    pass_votes = sum(1 for r in runs if r["passed"])
+    fail_votes = sum(1 for r in runs if not r["passed"])
+    majority_threshold = (actual_runs // 2) + 1
+
+    predicted_pass = pass_votes >= majority_threshold
+
+    # Stability Score: % agreement with majority
+    majority_count = pass_votes if predicted_pass else fail_votes
+    stability_score = majority_count / actual_runs if actual_runs > 0 else 0.0
+
+    # Merge reason codes from majority runs
+    merged_reasons = set()
+    for r in runs:
+        if r["passed"] == predicted_pass:
+            merged_reasons.update(r["reason_codes"])
+
+    # Use first run's error class or result for details, but consensus verdict
+    primary_run = runs[0]
+
     LOGGER.debug(
-        "Completed case_id=%s mode=%s success=%s predicted_pass=%s reasons=%s latency_ms=%.2f",
+        "Completed case_id=%s mode=%s success=%s predicted_pass=%s reasons=%s latency_ms=%.2f stability=%.2f",
         case.get("case_id"),
         mode,
-        success,
-        passed,
-        reason_codes,
-        elapsed_ms,
+        primary_run["success"],
+        predicted_pass,
+        sorted(merged_reasons),
+        total_latency / actual_runs,
+        stability_score
     )
 
     return {
@@ -425,13 +477,15 @@ def _run_case_mode(case: Dict[str, Any], mode: ValidationMode) -> Dict[str, Any]
         "spec_version_id": case["spec_version_id"],
         "expected_pass": case["expected_pass"],
         "expected_fail_reasons": case["expected_fail_reasons"],
-        "success": success,
-        "predicted_pass": passed,
-        "predicted_fail": not passed,
-        "predicted_reason_codes": reason_codes,
-        "error_class": error_class,
-        "latency_ms": elapsed_ms,
-        "result": result,
+        "success": primary_run["success"], # Reporting primary run success status
+        "predicted_pass": predicted_pass,
+        "predicted_fail": not predicted_pass,
+        "predicted_reason_codes": sorted(merged_reasons),
+        "error_class": primary_run["error_class"],
+        "latency_ms": total_latency / actual_runs,
+        "stability_score": stability_score,
+        "vote_split": f"{pass_votes}/{fail_votes}",
+        "result": primary_run["result"], # Primary result for structure
     }
 
 
@@ -451,6 +505,7 @@ def _compute_mode_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     clean_tn = clean_cm["tn"]
     clean_fn = clean_cm["fn"]
     latency = [float(r["latency_ms"]) for r in records]
+    stability = [float(r.get("stability_score", 1.0)) for r in records]
 
     reason_recall_values: List[float] = []
     reason_precision_values: List[float] = []
@@ -545,6 +600,7 @@ def _compute_mode_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         ),
         "latency_ms_avg": _safe_mean(latency),
         "latency_ms_median": _safe_median(latency),
+        "stability_avg": _safe_mean(stability),
     }
 
 
@@ -599,7 +655,7 @@ def _build_summary_markdown(
     lines.append(f"- Modes: `{', '.join(modes)}`")
     lines.append("")
     lines.append(
-        "| Mode | Cases | Labeled | Accuracy | Precision (fail) | Recall (fail) | F1 (fail) | Reason Recall | Reason Prec | Over-flag % | Avg Latency ms | Median Latency ms |"
+        "| Mode | Cases | Labeled | Accuracy | Precision (fail) | Recall (fail) | Stability | Reason Recall | Reason Prec | Over-flag % | Avg Latency ms | Median Latency ms |"
     )
     lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for mode in modes:
@@ -614,7 +670,7 @@ def _build_summary_markdown(
                     f"{_fmt_pct(m['accuracy'])} {_fmt_ci(m.get('accuracy_ci_95'))}",
                     f"{_fmt_pct(m['precision_fail'])} {_fmt_ci(m.get('precision_fail_ci_95'))}",
                     f"{_fmt_pct(m['recall_fail'])} {_fmt_ci(m.get('recall_fail_ci_95'))}",
-                    f"{_fmt_pct(m['f1_fail'])} {_fmt_ci(m.get('f1_fail_ci_95'))}",
+                    _fmt_pct(m.get("stability_avg")),
                     _fmt_pct(m["reason_recall_macro"]),
                     _fmt_pct(m.get("reason_precision_macro")),
                     _fmt_pct(m.get("over_flagging_rate")),
@@ -666,7 +722,7 @@ def _build_summary_markdown(
     return "\n".join(lines) + "\n"
 
 
-def evaluate_cases(cases: List[Dict[str, Any]], modes: Sequence[str]) -> Dict[str, Any]:
+def evaluate_cases(cases: List[Dict[str, Any]], modes: Sequence[str], consensus_runs: int) -> Dict[str, Any]:
     LOGGER.info("Evaluating %d case(s) across mode(s): %s", len(cases), ", ".join(modes))
     raw_rows: List[Dict[str, Any]] = []
     by_mode: Dict[str, List[Dict[str, Any]]] = {mode: [] for mode in modes}
@@ -674,7 +730,7 @@ def evaluate_cases(cases: List[Dict[str, Any]], modes: Sequence[str]) -> Dict[st
     for case_idx, case in enumerate(cases, start=1):
         LOGGER.info("Evaluating case %d/%d case_id=%s", case_idx, len(cases), case.get("case_id"))
         for mode in modes:
-            row = _run_case_mode(case, mode)
+            row = _run_case_mode(case, mode, consensus_runs)
             raw_rows.append(row)
             by_mode[mode].append(row)
 
@@ -866,6 +922,12 @@ def main() -> None:
         help="Fail run if selected cases have fewer than this many expected_pass=True labels.",
     )
     parser.add_argument(
+        "--consensus-runs",
+        type=int,
+        default=1,
+        help="Number of times to run LLM/Hybrid modes per case to determine consensus (default: 1)",
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default="INFO",
@@ -899,7 +961,7 @@ def main() -> None:
         raise SystemExit("No benchmark cases found. Build or provide cases first.")
 
     run_timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    evaluated = evaluate_cases(cases, modes)
+    evaluated = evaluate_cases(cases, modes, args.consensus_runs)
 
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -913,6 +975,7 @@ def main() -> None:
         "cases_file": str(args.cases),
         "modes": modes,
         "num_cases": len(cases),
+        "consensus_runs": args.consensus_runs,
         "mode_metrics": evaluated["mode_metrics"],
         "disagreements": evaluated["disagreements"],
         "raw_path": str(raw_path),
