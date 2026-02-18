@@ -327,9 +327,15 @@ def hydrate_db():
                     if not line.strip(): continue
                     s_data = json.loads(line)
 
-                    # Check existence
+                    # Upsert: update existing or insert new
                     story = session.get(UserStory, s_data["story_id"])
-                    if not story:
+                    if story:
+                        story.title = s_data["title"]
+                        story.story_description = s_data["description"]
+                        story.acceptance_criteria = s_data["acceptance_criteria"]
+                        story.product_id = s_data["product_id"]
+                        session.add(story)
+                    else:
                         story = UserStory(
                             story_id=s_data["story_id"],
                             product_id=s_data["product_id"],

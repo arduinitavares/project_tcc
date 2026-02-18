@@ -87,6 +87,11 @@ class StoryResolution(str, enum.Enum):
 class WorkflowEventType(str, enum.Enum):
     """Types of workflow events for metrics tracking."""
 
+    VISION_SAVED = "vision_saved"
+    SPEC_COMPILED = "spec_compiled"
+    BACKLOG_SAVED = "backlog_saved"
+    ROADMAP_SAVED = "roadmap_saved"
+    STORIES_SAVED = "stories_saved"
     SPRINT_PLAN_DRAFT = "sprint_plan_draft"
     SPRINT_PLAN_REVIEW = "sprint_plan_review"
     SPRINT_PLAN_SAVED = "sprint_plan_saved"
@@ -565,6 +570,35 @@ class UserStory(SQLModel, table=True):
     status: StoryStatus = Field(default=StoryStatus.TO_DO, nullable=False)
     story_points: Optional[int] = Field(default=None)
     rank: Optional[str] = Field(default=None, index=True)  # For ordering
+    source_requirement: Optional[str] = Field(
+        default=None,
+        index=True,
+        description="Normalized parent requirement key for refinement linkage",
+    )
+    refinement_slot: Optional[int] = Field(
+        default=None,
+        index=True,
+        description="1-based deterministic slot inside requirement decomposition",
+    )
+    story_origin: Optional[str] = Field(
+        default=None,
+        description="Origin marker: backlog_seed or refined",
+    )
+    is_refined: bool = Field(
+        default=False,
+        nullable=False,
+        description="True once story has been refined with final AC content",
+    )
+    is_superseded: bool = Field(
+        default=False,
+        nullable=False,
+        description="Soft supersede marker for duplicate legacy rows",
+    )
+    superseded_by_story_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user_stories.story_id",
+        description="Canonical replacement story when this row is superseded",
+    )
 
     # NEW: Persona field (auto-extracted from description)
     persona: Optional[str] = Field(

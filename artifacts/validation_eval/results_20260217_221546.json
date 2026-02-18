@@ -1,0 +1,175 @@
+{
+  "run_timestamp_utc": "20260217_221546",
+  "cases_file": "artifacts\\validation_benchmark\\cases.remaining8.jsonl",
+  "modes": [
+    "deterministic",
+    "llm",
+    "hybrid"
+  ],
+  "num_cases": 8,
+  "consensus_runs": 3,
+  "mode_metrics": {
+    "deterministic": {
+      "num_cases": 8,
+      "num_labeled_cases": 8,
+      "confusion_matrix_fail_class": {
+        "tp": 0,
+        "fp": 0,
+        "tn": 4,
+        "fn": 4
+      },
+      "precision_fail": null,
+      "precision_fail_ci_95": null,
+      "recall_fail": 0.0,
+      "recall_fail_ci_95": [
+        0.0,
+        0.0
+      ],
+      "f1_fail": null,
+      "f1_fail_ci_95": null,
+      "accuracy": 0.5,
+      "accuracy_ci_95": [
+        0.48475,
+        0.506
+      ],
+      "provider_error_count": 0,
+      "clean_cases": 8,
+      "clean_confusion_matrix": {
+        "tp": 0,
+        "fp": 0,
+        "tn": 4,
+        "fn": 4
+      },
+      "clean_accuracy": 0.5,
+      "clean_precision_fail": null,
+      "clean_recall_fail": 0.0,
+      "clean_f1_fail": null,
+      "reason_recall_macro": 0.0,
+      "reason_precision_macro": null,
+      "reason_f1_macro": null,
+      "over_flagging_rate": 0.0,
+      "latency_ms_avg": 110.23736249990179,
+      "latency_ms_median": 23.959450001711957,
+      "stability_avg": 1.0
+    },
+    "llm": {
+      "num_cases": 8,
+      "num_labeled_cases": 8,
+      "confusion_matrix_fail_class": {
+        "tp": 4,
+        "fp": 2,
+        "tn": 2,
+        "fn": 0
+      },
+      "precision_fail": 0.6666666666666666,
+      "precision_fail_ci_95": [
+        0.6587285714285714,
+        0.681947619047619
+      ],
+      "recall_fail": 1.0,
+      "recall_fail_ci_95": [
+        1.0,
+        1.0
+      ],
+      "f1_fail": 0.8,
+      "f1_fail_ci_95": [
+        0.7772733161622051,
+        0.7954814065925176
+      ],
+      "accuracy": 0.75,
+      "accuracy_ci_95": [
+        0.740375,
+        0.758625
+      ],
+      "provider_error_count": 0,
+      "clean_cases": 8,
+      "clean_confusion_matrix": {
+        "tp": 4,
+        "fp": 2,
+        "tn": 2,
+        "fn": 0
+      },
+      "clean_accuracy": 0.75,
+      "clean_precision_fail": 0.6666666666666666,
+      "clean_recall_fail": 1.0,
+      "clean_f1_fail": 0.8,
+      "reason_recall_macro": 1.0,
+      "reason_precision_macro": 0.6666666666666666,
+      "reason_f1_macro": 0.8,
+      "over_flagging_rate": 0.0,
+      "latency_ms_avg": 17939.411420833494,
+      "latency_ms_median": 17318.335100001907,
+      "stability_avg": 0.875
+    },
+    "hybrid": {
+      "num_cases": 8,
+      "num_labeled_cases": 8,
+      "confusion_matrix_fail_class": {
+        "tp": 3,
+        "fp": 1,
+        "tn": 3,
+        "fn": 1
+      },
+      "precision_fail": 0.75,
+      "precision_fail_ci_95": [
+        0.7470502112135177,
+        0.7766321044546851
+      ],
+      "recall_fail": 0.75,
+      "recall_fail_ci_95": [
+        0.7381297964631298,
+        0.7674352924352924
+      ],
+      "f1_fail": 0.75,
+      "f1_fail_ci_95": [
+        0.7333479821733141,
+        0.7548190771888423
+      ],
+      "accuracy": 0.75,
+      "accuracy_ci_95": [
+        0.7465,
+        0.7655
+      ],
+      "provider_error_count": 0,
+      "clean_cases": 8,
+      "clean_confusion_matrix": {
+        "tp": 3,
+        "fp": 1,
+        "tn": 3,
+        "fn": 1
+      },
+      "clean_accuracy": 0.75,
+      "clean_precision_fail": 0.75,
+      "clean_recall_fail": 0.75,
+      "clean_f1_fail": 0.75,
+      "reason_recall_macro": 0.75,
+      "reason_precision_macro": 0.75,
+      "reason_f1_macro": 0.75,
+      "over_flagging_rate": 0.0,
+      "latency_ms_avg": 19223.373525001687,
+      "latency_ms_median": 19257.590816666685,
+      "stability_avg": 0.875
+    }
+  },
+  "disagreements": {
+    "deterministic_vs_llm": [
+      "p7-s38-v8",
+      "p7-s58-v8",
+      "p7-syn-14",
+      "p9-syn-2",
+      "p9-syn-3",
+      "p10-syn-3"
+    ],
+    "deterministic_vs_hybrid": [
+      "p7-s58-v8",
+      "p9-syn-2",
+      "p9-syn-3",
+      "p10-syn-3"
+    ],
+    "llm_vs_hybrid": [
+      "p7-s38-v8",
+      "p7-syn-14"
+    ]
+  },
+  "raw_path": "artifacts\\validation_eval\\raw_20260217_221546.jsonl"
+}

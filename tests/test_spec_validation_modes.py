@@ -377,6 +377,57 @@ def test_deterministic_mode_does_not_call_llm_adapter(
     assert result["mode"] == "deterministic"
 
 
+def test_env_default_mode_uses_hybrid_when_mode_omitted(
+    setup_validation_case, monkeypatch
+):
+    story, spec_version_id = setup_validation_case
+    monkeypatch.setenv("SPEC_VALIDATION_DEFAULT_MODE", "hybrid")
+    monkeypatch.setattr(
+        spec_tools,
+        "_run_deterministic_alignment_checks",
+        lambda *_args, **_kwargs: ([], [], []),
+    )
+    monkeypatch.setattr(
+        spec_tools,
+        "_run_llm_spec_validation",
+        lambda *_args, **_kwargs: {
+            "passed": True,
+            "issues": [],
+            "suggestions": [],
+            "verdict": "Compliant",
+            "critical_gaps": [],
+        },
+    )
+
+    result = validate_story_with_spec_authority(
+        {"story_id": story.story_id, "spec_version_id": spec_version_id},
+        tool_context=None,
+    )
+
+    assert result["success"] is True
+    assert result["mode"] == "hybrid"
+
+
+def test_env_default_mode_invalid_falls_back_to_deterministic(
+    setup_validation_case, monkeypatch
+):
+    story, spec_version_id = setup_validation_case
+    monkeypatch.setenv("SPEC_VALIDATION_DEFAULT_MODE", "not-a-mode")
+
+    def _should_not_be_called(*_args, **_kwargs):
+        raise AssertionError("LLM adapter should not run when env default mode is invalid")
+
+    monkeypatch.setattr(spec_tools, "_run_llm_spec_validation", _should_not_be_called)
+
+    result = validate_story_with_spec_authority(
+        {"story_id": story.story_id, "spec_version_id": spec_version_id},
+        tool_context=None,
+    )
+
+    assert result["success"] is True
+    assert result["mode"] == "deterministic"
+
+
 def test_deterministic_forbidden_capability_keyword_match() -> None:
     story = UserStory(
         product_id=1,
@@ -466,6 +517,63 @@ def test_deterministic_alignment_no_invariants() -> None:
     assert failures == []
     assert warnings == []
     assert messages == []
+
+
+def test_structural_rule_detects_offline_cloud_connectivity_contradiction() -> None:
+    story = UserStory(
+        product_id=1,
+        feature_id=None,
+        title="Connectivity constraints",
+        story_description="Must run fully offline in all environments.",
+        acceptance_criteria="Given setup, when syncing, then cloud sync is required.",
+    )
+
+    _rules_checked, failures, _warnings = spec_tools._run_structural_story_checks(  # pylint: disable=protected-access
+        story
+    )
+
+    assert any(
+        failure.rule == "RULE_CONTRADICTORY_CONNECTIVITY_REQUIREMENTS"
+        for failure in failures
+    )
+
+
+def test_structural_rule_detects_impossible_latency_requirement() -> None:
+    story = UserStory(
+        product_id=1,
+        feature_id=None,
+        title="Latency target",
+        story_description="As a user, I want immediate response.",
+        acceptance_criteria="Given a request, when processed, then latency is under 0ms.",
+    )
+
+    _rules_checked, failures, _warnings = spec_tools._run_structural_story_checks(  # pylint: disable=protected-access
+        story
+    )
+
+    assert any(
+        failure.rule == "RULE_IMPOSSIBLE_LATENCY_REQUIREMENT"
+        for failure in failures
+    )
+
+
+def test_structural_rule_detects_scope_mismatch_placeholder_acceptance_criteria() -> None:
+    story = UserStory(
+        product_id=1,
+        feature_id=None,
+        title="As a user, I want to stream video from my security cameras.",
+        story_description="Out of scope feature request.",
+        acceptance_criteria="Given item, When add, Then in cart.",
+    )
+
+    _rules_checked, failures, _warnings = spec_tools._run_structural_story_checks(  # pylint: disable=protected-access
+        story
+    )
+
+    assert any(
+        failure.rule == "RULE_ACCEPTANCE_CRITERIA_SCOPE_MISMATCH"
+        for failure in failures
+    )
 
 
 def test_parse_truncated_json_recovers_non_compliant() -> None:

@@ -1,6 +1,6 @@
 
 import pytest
-from unittest.mock import MagicMock
+import time
 from scripts import eval_spec_validation as eval_script
 
 def test_parse_modes_all():
@@ -178,3 +178,130 @@ def test_evaluate_cases_uses_stubbed_runner(monkeypatch: pytest.MonkeyPatch) -> 
     # Verify consensus arg passing
     evaluated_consensus = eval_script.evaluate_cases(cases, ["deterministic"], consensus_runs=3)
     assert "deterministic" in evaluated_consensus["mode_metrics"]
+
+    # Verify async concurrency path
+    evaluated_parallel = eval_script.evaluate_cases(
+        cases,
+        ["deterministic", "llm"],
+        consensus_runs=1,
+        max_concurrency=2,
+    )
+    assert "deterministic" in evaluated_parallel["mode_metrics"]
+    assert "llm" in evaluated_parallel["mode_metrics"]
+
+
+def test_evaluate_cases_async_path_preserves_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    cases = [
+        {
+            "case_id": "c1",
+            "story_id": 10,
+            "spec_version_id": 1,
+            "expected_pass": True,
+            "expected_fail_reasons": [],
+        },
+        {
+            "case_id": "c2",
+            "story_id": 11,
+            "spec_version_id": 1,
+            "expected_pass": False,
+            "expected_fail_reasons": ["RULE_X"],
+        },
+    ]
+
+    delays = {
+        ("c1", "deterministic"): 0.04,
+        ("c1", "llm"): 0.03,
+        ("c2", "deterministic"): 0.02,
+        ("c2", "llm"): 0.01,
+    }
+
+    def _fake_run(case, mode, consensus_runs):
+        time.sleep(delays[(case["case_id"], mode)])
+        predicted_fail = case["case_id"] == "c2" and mode == "llm"
+        return {
+            "case_id": case["case_id"],
+            "mode": mode,
+            "story_id": case["story_id"],
+            "spec_version_id": case["spec_version_id"],
+            "expected_pass": case["expected_pass"],
+            "expected_fail_reasons": case["expected_fail_reasons"],
+            "success": True,
+            "predicted_pass": not predicted_fail,
+            "predicted_fail": predicted_fail,
+            "predicted_reason_codes": ["RULE_X"] if predicted_fail else [],
+            "error_class": "semantic",
+            "latency_ms": 1.0,
+            "result": {"success": True, "passed": not predicted_fail},
+        }
+
+    monkeypatch.setattr(eval_script, "_run_case_mode", _fake_run)
+
+    evaluated = eval_script.evaluate_cases(
+        cases,
+        ["deterministic", "llm"],
+        consensus_runs=1,
+        max_concurrency=2,
+    )
+
+    ordered_pairs = [(row["case_id"], row["mode"]) for row in evaluated["raw_rows"]]
+    assert ordered_pairs == [
+        ("c1", "deterministic"),
+        ("c1", "llm"),
+        ("c2", "deterministic"),
+        ("c2", "llm"),
+    ]
+
+
+def test_run_case_mode_retries_retryable_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {"count": 0}
+    sleep_calls = []
+
+    def _fake_validate(params, tool_context=None):
+        calls["count"] += 1
+        if calls["count"] < 3:
+            raise RuntimeError("429 too many requests")
+        return {"success": True, "passed": True, "failures": []}
+
+    monkeypatch.setattr(eval_script, "validate_story_with_spec_authority", _fake_validate)
+    monkeypatch.setattr(eval_script.random, "uniform", lambda _a, _b: 0.0)
+    monkeypatch.setattr(eval_script.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+
+    case = {
+        "case_id": "c1",
+        "story_id": 10,
+        "spec_version_id": 1,
+        "expected_pass": True,
+        "expected_fail_reasons": [],
+    }
+    row = eval_script._run_case_mode(case, "llm", consensus_runs=1)
+
+    assert calls["count"] == 3
+    assert sleep_calls == [1.0, 2.0]
+    assert row["success"] is True
+    assert row["predicted_pass"] is True
+
+
+def test_run_case_mode_does_not_retry_non_retryable_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {"count": 0}
+    sleep_calls = []
+
+    def _fake_validate(params, tool_context=None):
+        calls["count"] += 1
+        raise RuntimeError("schema mismatch")
+
+    monkeypatch.setattr(eval_script, "validate_story_with_spec_authority", _fake_validate)
+    monkeypatch.setattr(eval_script.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+
+    case = {
+        "case_id": "c1",
+        "story_id": 10,
+        "spec_version_id": 1,
+        "expected_pass": False,
+        "expected_fail_reasons": ["RULE_Y"],
+    }
+    row = eval_script._run_case_mode(case, "llm", consensus_runs=1)
+
+    assert calls["count"] == 1
+    assert sleep_calls == []
+    assert row["success"] is False
+    assert row["error_class"] == "execution_error"

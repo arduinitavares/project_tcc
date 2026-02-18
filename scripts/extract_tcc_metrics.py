@@ -48,6 +48,7 @@ class ProductMetrics:
     # Story counts
     total_stories: int = 0
     stories_with_spec_version_id: int = 0
+    refined_stories_with_spec_version_id: int = 0
     stories_with_validation_evidence: int = 0
     stories_approved_first_pass: int = 0
     stories_refined: int = 0
@@ -56,6 +57,16 @@ class ProductMetrics:
     sprint_count: int = 0
     sprint_plan_drafts: int = 0
     sprint_plan_saves: int = 0
+    vision_saves: int = 0
+    backlog_saves: int = 0
+    roadmap_saves: int = 0
+    stories_saves: int = 0
+    spec_compiles: int = 0
+    avg_vision_duration_sec: float = 0.0
+    avg_spec_compile_duration_sec: float = 0.0
+    avg_backlog_duration_sec: float = 0.0
+    avg_roadmap_duration_sec: float = 0.0
+    avg_stories_duration_sec: float = 0.0
     
     # Workflow timing (from WorkflowEvent)
     total_sprint_planning_duration_sec: float = 0.0
@@ -196,6 +207,21 @@ def extract_product_metrics(cursor: sqlite3.Cursor) -> list[ProductMetrics]:
         # Check if accepted_spec_version_id column exists
         cursor.execute("PRAGMA table_info(user_stories)")
         columns = [col[1] for col in cursor.fetchall()]
+
+        has_is_refined = 'is_refined' in columns
+        has_is_superseded = 'is_superseded' in columns
+
+        refined_scope_where = "product_id = ?"
+        if has_is_refined:
+            refined_scope_where += " AND is_refined = 1"
+        if has_is_superseded:
+            refined_scope_where += " AND COALESCE(is_superseded, 0) = 0"
+
+        cursor.execute(
+            f"SELECT COUNT(*) FROM user_stories WHERE {refined_scope_where}",
+            (product_id,),
+        )
+        metrics.stories_refined = cursor.fetchone()[0]
         
         if 'accepted_spec_version_id' in columns:
             cursor.execute("""
@@ -203,6 +229,15 @@ def extract_product_metrics(cursor: sqlite3.Cursor) -> list[ProductMetrics]:
                 WHERE product_id = ? AND accepted_spec_version_id IS NOT NULL
             """, (product_id,))
             metrics.stories_with_spec_version_id = cursor.fetchone()[0]
+
+            cursor.execute(
+                f"""
+                SELECT COUNT(*) FROM user_stories
+                WHERE {refined_scope_where} AND accepted_spec_version_id IS NOT NULL
+                """,
+                (product_id,),
+            )
+            metrics.refined_stories_with_spec_version_id = cursor.fetchone()[0]
         
         if 'validation_evidence' in columns:
             cursor.execute("""
@@ -225,6 +260,16 @@ def extract_product_metrics(cursor: sqlite3.Cursor) -> list[ProductMetrics]:
             GROUP BY event_type
         """, (product_id,))
         for event_type, count in cursor.fetchall():
+            if event_type == 'VISION_SAVED':
+                metrics.vision_saves = count
+            elif event_type == 'SPEC_COMPILED':
+                metrics.spec_compiles = count
+            elif event_type == 'BACKLOG_SAVED':
+                metrics.backlog_saves = count
+            elif event_type == 'ROADMAP_SAVED':
+                metrics.roadmap_saves = count
+            elif event_type == 'STORIES_SAVED':
+                metrics.stories_saves = count
             if event_type == 'SPRINT_PLAN_DRAFT':
                 metrics.sprint_plan_drafts = count
             elif event_type == 'SPRINT_PLAN_SAVED':
@@ -240,6 +285,29 @@ def extract_product_metrics(cursor: sqlite3.Cursor) -> list[ProductMetrics]:
         if result[0]:
             metrics.total_sprint_planning_duration_sec = round(result[0], 2)
             metrics.avg_sprint_planning_duration_sec = round(result[1], 2)
+
+        # Artifact creation timings
+        duration_queries = {
+            "VISION_SAVED": "avg_vision_duration_sec",
+            "SPEC_COMPILED": "avg_spec_compile_duration_sec",
+            "BACKLOG_SAVED": "avg_backlog_duration_sec",
+            "ROADMAP_SAVED": "avg_roadmap_duration_sec",
+            "STORIES_SAVED": "avg_stories_duration_sec",
+        }
+        for event_name, attr in duration_queries.items():
+            cursor.execute(
+                """
+                SELECT AVG(duration_seconds)
+                FROM workflow_events
+                WHERE product_id = ?
+                  AND event_type = ?
+                  AND duration_seconds IS NOT NULL
+                """,
+                (product_id, event_name),
+            )
+            avg_val = cursor.fetchone()[0]
+            if avg_val:
+                setattr(metrics, attr, round(avg_val, 2))
         
         # Flow Efficiency (Cycle Time)
         if 'completed_at' in columns:
@@ -544,11 +612,14 @@ def print_markdown_summary(result: ExtractionResult):
     # Products table
     print("## Products Summary")
     print()
-    print("| Product ID | Name | Stories | w/ Spec Version | Sprints | Sprint Plan Events |")
-    print("|------------|------|---------|-----------------|---------|-------------------|")
+    print("| Product ID | Name | Stories | Refined | Refined w/ Spec Version | Sprints | Sprint Plan Events |")
+    print("|------------|------|---------|---------|--------------------------|---------|-------------------|")
     for p in result.products:
         name_short = p.product_name[:40] + "..." if len(p.product_name) > 40 else p.product_name
-        print(f"| {p.product_id} | {name_short} | {p.total_stories} | {p.stories_with_spec_version_id} | {p.sprint_count} | {p.sprint_plan_saves} |")
+        print(
+            f"| {p.product_id} | {name_short} | {p.total_stories} | {p.stories_refined} | "
+            f"{p.refined_stories_with_spec_version_id} | {p.sprint_count} | {p.sprint_plan_saves} |"
+        )
     print()
     
     # Workflow events
@@ -565,12 +636,12 @@ def print_markdown_summary(result: ExtractionResult):
     # Spec Authority Pinning Coverage
     print("## Spec Authority Pinning Coverage")
     print()
-    total_stories = sum(p.total_stories for p in result.products)
-    total_with_spec = sum(p.stories_with_spec_version_id for p in result.products)
-    pct = (total_with_spec / total_stories * 100) if total_stories > 0 else 0
-    print(f"- Total stories: {total_stories}")
-    print(f"- Stories with valid `accepted_spec_version_id`: {total_with_spec} ({pct:.1f}%)")
-    print(f"- Stories without spec version: {total_stories - total_with_spec}")
+    total_refined = sum(p.stories_refined for p in result.products)
+    refined_with_spec = sum(p.refined_stories_with_spec_version_id for p in result.products)
+    pct = (refined_with_spec / total_refined * 100) if total_refined > 0 else 0
+    print(f"- Total canonical refined stories: {total_refined}")
+    print(f"- Refined stories with valid `accepted_spec_version_id`: {refined_with_spec} ({pct:.1f}%)")
+    print(f"- Refined stories without spec version: {total_refined - refined_with_spec}")
     print()
 
     # Flow Efficiency & Execution Metrics (Added for Proposal alignment)
@@ -608,10 +679,10 @@ def print_markdown_summary(result: ExtractionResult):
     print()
     print("| Task | DB Event/Table | Timing Available |")
     print("|------|----------------|------------------|")
-    print("| T1 - Vision | products.vision | No (external) |")
-    print("| T2 - Tech Spec | spec_registry | No (external) |")
-    print("| T3 - Compile Authority | compiled_spec_authority | Yes (compiled_at) |")
-    print("| T4 - Backlog Gen | user_stories | Partial (created_at) |")
+    print("| T1 - Vision | WorkflowEvent.VISION_SAVED | Yes (duration_seconds) |")
+    print("| T2 - Tech Spec | WorkflowEvent.SPEC_COMPILED | Yes (duration_seconds) |")
+    print("| T3 - Compile Authority | WorkflowEvent.SPEC_COMPILED | Yes (duration_seconds) |")
+    print("| T4 - Backlog Gen/Refine | WorkflowEvent.BACKLOG_SAVED + STORIES_SAVED + ROADMAP_SAVED | Yes (duration_seconds) |")
     print("| T5 - Sprint Plan | WorkflowEvent.SPRINT_PLAN_SAVED | Yes (duration_seconds) |")
     print()
     print("**Note:** Baseline manual times and NASA-TLX scores are NOT in the database.")
@@ -619,14 +690,20 @@ def print_markdown_summary(result: ExtractionResult):
     print("[PLACEHOLDER: NASA-TLX scores collected via self-assessment questionnaire]")
     print()
     
-    # Sprint planning cycle time
-    print("## Sprint Planning Cycle Time (T5)")
+    # Artifact timing (T1-T5 proxies)
+    print("## Artifact Timing (T1-T5)")
     print()
-    print("| Product ID | Duration (s) | Interpretation |")
-    print("|------------|--------------|----------------|")
+    print("| Product ID | T1 Vision (avg s) | T2 Spec/Compile (avg s) | T4 Backlog (avg s) | T4 Roadmap (avg s) | T4 Stories (avg s) | T5 Sprint (avg s) |")
+    print("|------------|-------------------|--------------------------|--------------------|--------------------|--------------------|-------------------|")
     for p in result.products:
-        if p.total_sprint_planning_duration_sec > 0:
-            print(f"| {p.product_id} | {p.total_sprint_planning_duration_sec} | SPRINT_PLAN_SAVED.duration_seconds |")
+        def _fmt(v: float) -> str:
+            return str(v) if v and v > 0 else "N/A"
+        print(
+            f"| {p.product_id} | {_fmt(p.avg_vision_duration_sec)} | "
+            f"{_fmt(p.avg_spec_compile_duration_sec)} | {_fmt(p.avg_backlog_duration_sec)} | "
+            f"{_fmt(p.avg_roadmap_duration_sec)} | {_fmt(p.avg_stories_duration_sec)} | "
+            f"{_fmt(p.avg_sprint_planning_duration_sec)} |"
+        )
     print()
 
 

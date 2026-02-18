@@ -1,0 +1,232 @@
+[
+  {
+    "case_id": "p10-syn-3",
+    "mode": "llm",
+    "runs": 5,
+    "pass": 0,
+    "fail": 5,
+    "reason_counts": {
+      "RULE_LLM_SPEC_VALIDATION": 5
+    },
+    "sample_fail_messages": [
+      [
+        "inv-1001-4"
+      ],
+      [
+        "inv-1001-4"
+      ],
+      [
+        "inv-1001-4: latency requirement untestable (<0ms)"
+      ]
+    ]
+  },
+  {
+    "case_id": "p7-s38-v8",
+    "mode": "llm",
+    "runs": 5,
+    "pass": 2,
+    "fail": 3,
+    "reason_counts": {
+      "RULE_LLM_SPEC_VALIDATION": 3
+    },
+    "sample_fail_messages": [
+      [
+        "INV-aca0b8f371dd9cbe: required attestation checkbox not specified in story/ACs"
+      ],
+      [
+        "INV-aca0b8f371dd9cbe"
+      ],
+      [
+        "INV-aca0b8f371dd9cbe missing mandatory attestation checkbox in ACs"
+      ]
+    ]
+  },
+  {
+    "case_id": "p7-s41-v8",
+    "mode": "llm",
+    "runs": 5,
+    "pass": 4,
+    "fail": 1,
+    "reason_counts": {
+      "RULE_LLM_SPEC_VALIDATION": 1
+    },
+    "sample_fail_messages": [
+      [
+        "INV-efc6a0ec97f0ee52: AC lacks test that confirmations are not stored with snapshots post-revocation.",
+        "INV-ef0f9f226562ce1d: AC lacks test that the eligibility gate cannot be bypassed."
+      ]
+    ]
+  },
+  {
+    "case_id": "p7-s50-v8",
+    "mode": "hybrid",
+    "runs": 5,
+    "pass": 5,
+    "fail": 0,
+    "reason_counts": {},
+    "sample_fail_messages": []
+  },
+  {
+    "case_id": "p7-s50-v8",
+    "mode": "llm",
+    "runs": 5,
+    "pass": 5,
+    "fail": 0,
+    "reason_counts": {},
+    "sample_fail_messages": []
+  },
+  {
+    "case_id": "p7-s57-v8",
+    "mode": "hybrid",
+    "runs": 5,
+    "pass": 5,
+    "fail": 0,
+    "reason_counts": {},
+    "sample_fail_messages": []
+  },
+  {
+    "case_id": "p7-syn-14",
+    "mode": "hybrid",
+    "runs": 5,
+    "pass": 0,
+    "fail": 5,
+    "reason_counts": {
+      "RULE_LLM_SPEC_VALIDATION": 5
+    },
+    "sample_fail_messages": [
+      [
+        "INV-aca0b8f371dd9cbe: checkbox semantics not specified in AC"
+      ],
+      [
+        "INV-aca0b8f371dd9cbe: attestation checkbox UI missing from acceptance criteria"
+      ],
+      [
+        "INV-aca0b8f371dd9cbe: AC lacks verification of mandatory attestation checkbox and its semantics."
+      ]
+    ]
+  },
+  {
+    "case_id": "p7-syn-3",
+    "mode": "hybrid",
+    "runs": 5,
+    "pass": 1,
+    "fail": 4,
+    "reason_counts": {
+      "RULE_LLM_SPEC_VALIDATION": 4
+    },
+    "sample_fail_messages": [
+      [
+        "INV-efc6a0ec97f0ee52: no AC preventing training datasets/gold snapshots without attestation"
+      ],
+      [
+        "INV-efc6a0ec97f0ee52: AC lacks explicit verification that RED prevents snapshot, gold snapshot, and training dataset generation.",
+        "INV-ef0f9f226562ce1d: AC lacks explicit verification that data-usage eligibility gate cannot be bypassed when rule triggers."
+      ],
+      [
+        "INV-efc6a0ec97f0ee52: no acceptance criteria to block snapshot/train dataset generation without attestation",
+        "INV-ef0f9f226562ce1d: no acceptance criteria to prevent bypassing the data-usage eligibility gate"
+      ]
+    ]
+  },
+  {
+    "case_id": "p7-syn-3",
+    "mode": "llm",
+    "runs": 5,
+    "pass": 3,
+    "fail": 2,
+    "reason_counts": {
+      "RULE_LLM_SPEC_VALIDATION": 2
+    },
+    "sample_fail_messages": [
+      [
+        "INV-efc6a0ec97f0ee52: no AC to block gold snapshots, training datasets, or storing confirmations without attestation."
+      ],
+      [
+        "INV-efc6a0ec97f0ee52 missing blocking acceptance criteria for downstream artifact prevention",
+        "INV-ef0f9f226562ce1d missing AC ensuring hard-stop cannot be bypassed"
+      ]
+    ]
+  },
+  {
+    "case_id": "p9-syn-0",
+    "mode": "llm",
+    "runs": 5,
+    "pass": 1,
+    "fail": 4,
+    "reason_counts": {
+      "RULE_LLM_SPEC_VALIDATION": 4
+    },
+    "sample_fail_messages": [
+      [
+        "Acceptance criteria contains impossible latency <0ms."
+      ],
+      [
+        "inv-901-3: Acceptance Criteria contains impossible latency 'under 0ms'"
+      ],
+      [
+        "inv-901-3: Acceptance Criteria is untestable (latency <0ms)."
+      ]
+    ]
+  },
+  {
+    "case_id": "p9-syn-1",
+    "mode": "hybrid",
+    "runs": 5,
+    "pass": 3,
+    "fail": 2,
+    "reason_counts": {
+      "RULE_LLM_SPEC_VALIDATION": 2
+    },
+    "sample_fail_messages": [
+      [
+        "inv-901-4 (API Endpoint) not provided in story or acceptance criteria"
+      ],
+      [
+        "inv-901-4: API Endpoint field missing from story"
+      ]
+    ]
+  },
+  {
+    "case_id": "p9-syn-1",
+    "mode": "llm",
+    "runs": 5,
+    "pass": 1,
+    "fail": 4,
+    "reason_counts": {
+      "RULE_LLM_SPEC_VALIDATION": 4
+    },
+    "sample_fail_messages": [
+      [
+        "inv-901-3 contradictory acceptance criteria (offline vs cloud sync)"
+      ],
+      [
+        "inv-901-4: API Endpoint required but not provided."
+      ],
+      [
+        "Acceptance criteria contradictory: offline required but cloud sync also required."
+      ]
+    ]
+  },
+  {
+    "case_id": "p9-syn-3",
+    "mode": "hybrid",
+    "runs": 5,
+    "pass": 0,
+    "fail": 5,
+    "reason_counts": {
+      "RULE_LLM_SPEC_VALIDATION": 5
+    },
+    "sample_fail_messages": [
+      [
+        "Acceptance criteria unrelated to streaming; untestable."
+      ],
+      [
+        "inv-901-3: Acceptance Criteria not testable for streaming scope"
+      ],
+      [
+        "Acceptance criteria untestable for story scope",
+        "inv-901-5"
+      ]
+    ]
+  }
+]

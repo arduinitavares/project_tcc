@@ -1,0 +1,166 @@
+{
+  "run_timestamp_utc": "20260217_222727",
+  "cases_file": "artifacts\\validation_benchmark\\cases.remaining8.jsonl",
+  "modes": [
+    "deterministic",
+    "llm",
+    "hybrid"
+  ],
+  "num_cases": 8,
+  "consensus_runs": 3,
+  "mode_metrics": {
+    "deterministic": {
+      "num_cases": 8,
+      "num_labeled_cases": 8,
+      "confusion_matrix_fail_class": {
+        "tp": 4,
+        "fp": 0,
+        "tn": 4,
+        "fn": 0
+      },
+      "precision_fail": 1.0,
+      "precision_fail_ci_95": [
+        1.0,
+        1.0
+      ],
+      "recall_fail": 1.0,
+      "recall_fail_ci_95": [
+        1.0,
+        1.0
+      ],
+      "f1_fail": 1.0,
+      "f1_fail_ci_95": [
+        1.0,
+        1.0
+      ],
+      "accuracy": 1.0,
+      "accuracy_ci_95": [
+        1.0,
+        1.0
+      ],
+      "provider_error_count": 0,
+      "clean_cases": 8,
+      "clean_confusion_matrix": {
+        "tp": 4,
+        "fp": 0,
+        "tn": 4,
+        "fn": 0
+      },
+      "clean_accuracy": 1.0,
+      "clean_precision_fail": 1.0,
+      "clean_recall_fail": 1.0,
+      "clean_f1_fail": 1.0,
+      "reason_recall_macro": 0.0,
+      "reason_precision_macro": 0.0,
+      "reason_f1_macro": null,
+      "over_flagging_rate": 0.0,
+      "latency_ms_avg": 232.45657500046946,
+      "latency_ms_median": 14.90380000177538,
+      "stability_avg": 1.0
+    },
+    "llm": {
+      "num_cases": 8,
+      "num_labeled_cases": 8,
+      "confusion_matrix_fail_class": {
+        "tp": 4,
+        "fp": 0,
+        "tn": 4,
+        "fn": 0
+      },
+      "precision_fail": 1.0,
+      "precision_fail_ci_95": [
+        1.0,
+        1.0
+      ],
+      "recall_fail": 1.0,
+      "recall_fail_ci_95": [
+        1.0,
+        1.0
+      ],
+      "f1_fail": 1.0,
+      "f1_fail_ci_95": [
+        1.0,
+        1.0
+      ],
+      "accuracy": 1.0,
+      "accuracy_ci_95": [
+        1.0,
+        1.0
+      ],
+      "provider_error_count": 0,
+      "clean_cases": 8,
+      "clean_confusion_matrix": {
+        "tp": 4,
+        "fp": 0,
+        "tn": 4,
+        "fn": 0
+      },
+      "clean_accuracy": 1.0,
+      "clean_precision_fail": 1.0,
+      "clean_recall_fail": 1.0,
+      "clean_f1_fail": 1.0,
+      "reason_recall_macro": 0.75,
+      "reason_precision_macro": 0.375,
+      "reason_f1_macro": 0.5,
+      "over_flagging_rate": 0.0,
+      "latency_ms_avg": 16239.831166666287,
+      "latency_ms_median": 16151.826683337276,
+      "stability_avg": 0.9583333333333334
+    },
+    "hybrid": {
+      "num_cases": 8,
+      "num_labeled_cases": 8,
+      "confusion_matrix_fail_class": {
+        "tp": 4,
+        "fp": 0,
+        "tn": 4,
+        "fn": 0
+      },
+      "precision_fail": 1.0,
+      "precision_fail_ci_95": [
+        1.0,
+        1.0
+      ],
+      "recall_fail": 1.0,
+      "recall_fail_ci_95": [
+        1.0,
+        1.0
+      ],
+      "f1_fail": 1.0,
+      "f1_fail_ci_95": [
+        1.0,
+        1.0
+      ],
+      "accuracy": 1.0,
+      "accuracy_ci_95": [
+        1.0,
+        1.0
+      ],
+      "provider_error_count": 0,
+      "clean_cases": 8,
+      "clean_confusion_matrix": {
+        "tp": 4,
+        "fp": 0,
+        "tn": 4,
+        "fn": 0
+      },
+      "clean_accuracy": 1.0,
+      "clean_precision_fail": 1.0,
+      "clean_recall_fail": 1.0,
+      "clean_f1_fail": 1.0,
+      "reason_recall_macro": 0.75,
+      "reason_precision_macro": 0.375,
+      "reason_f1_macro": 0.5,
+      "over_flagging_rate": 0.0,
+      "latency_ms_avg": 16034.98431249985,
+      "latency_ms_median": 16168.254599998665,
+      "stability_avg": 0.9583333333333334
+    }
+  },
+  "disagreements": {
+    "deterministic_vs_llm": [],
+    "deterministic_vs_hybrid": [],
+    "llm_vs_hybrid": []
+  },
+  "raw_path": "artifacts\\validation_eval\\raw_20260217_222727.jsonl"
+}

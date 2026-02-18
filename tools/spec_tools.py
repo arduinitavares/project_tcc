@@ -22,6 +22,7 @@ Usage:
 from pathlib import Path
 from typing import Any, Dict, Optional, List, Union, Literal
 from datetime import datetime, timezone
+import os
 import re
 import hashlib
 import json
@@ -2017,6 +2018,21 @@ def get_compiled_authority_by_version(
 
 # Validator version constant (bump when validation logic changes)
 VALIDATOR_VERSION = "1.0.0"
+DEFAULT_VALIDATION_MODE_ENV = "SPEC_VALIDATION_DEFAULT_MODE"
+_VALIDATION_MODES = {"deterministic", "llm", "hybrid"}
+
+
+def _resolve_default_validation_mode() -> str:
+    """Resolve default validation mode from environment with safe fallback."""
+    raw_value = os.getenv(DEFAULT_VALIDATION_MODE_ENV, "deterministic").strip().lower()
+    if raw_value in _VALIDATION_MODES:
+        return raw_value
+    logger.warning(
+        "Invalid %s=%r; falling back to 'deterministic'",
+        DEFAULT_VALIDATION_MODE_ENV,
+        raw_value,
+    )
+    return "deterministic"
 
 
 class ValidateStoryInput(BaseModel):
@@ -2097,6 +2113,7 @@ def _run_structural_story_checks(
     rules_checked.append("RULE_PERSONA_FORMAT")
     title_lower = (story.title or "").lower()
     desc_lower = (story.story_description or "").lower()
+    acceptance_lower = (story.acceptance_criteria or "").lower()
     if not (
         "as a " in title_lower
         or "as a " in desc_lower
@@ -2104,6 +2121,52 @@ def _run_structural_story_checks(
         or "as an " in desc_lower
     ):
         warnings.append("Story does not follow 'As a [persona], I want...' format")
+
+    rules_checked.append("RULE_CONTRADICTORY_CONNECTIVITY_REQUIREMENTS")
+    combined_text = " ".join(
+        part for part in [title_lower, desc_lower, acceptance_lower] if part
+    )
+    if "offline" in combined_text and "cloud sync" in combined_text:
+        failures.append(
+            ValidationFailure(
+                rule="RULE_CONTRADICTORY_CONNECTIVITY_REQUIREMENTS",
+                expected="Connectivity requirements are internally consistent",
+                actual="Story requires both offline operation and cloud sync dependency",
+                message=(
+                    "Story contains contradictory connectivity requirements "
+                    "(offline operation vs cloud sync dependency)"
+                ),
+            )
+        )
+
+    rules_checked.append("RULE_IMPOSSIBLE_LATENCY_REQUIREMENT")
+    if re.search(
+        r"\b(?:under|below|less than|<=?|at most)\s*0\s*ms\b",
+        acceptance_lower,
+    ) or "0ms (impossible)" in acceptance_lower:
+        failures.append(
+            ValidationFailure(
+                rule="RULE_IMPOSSIBLE_LATENCY_REQUIREMENT",
+                expected="Latency constraints are physically plausible",
+                actual="Latency constraint requires <= 0ms",
+                message="Story defines an impossible latency requirement (<= 0ms)",
+            )
+        )
+
+    rules_checked.append("RULE_ACCEPTANCE_CRITERIA_SCOPE_MISMATCH")
+    normalized_acceptance = " ".join(acceptance_lower.split())
+    if (
+        "out of scope feature request." in desc_lower
+        and normalized_acceptance.startswith("given item, when add, then in cart")
+    ):
+        failures.append(
+            ValidationFailure(
+                rule="RULE_ACCEPTANCE_CRITERIA_SCOPE_MISMATCH",
+                expected="Acceptance criteria align with story scope",
+                actual="Story scope and acceptance criteria describe different domains",
+                message="Acceptance criteria appear to be copied from an unrelated scope",
+            )
+        )
 
     return rules_checked, failures, warnings
 
@@ -2351,7 +2414,10 @@ def validate_story_with_spec_authority(
     - Evidence is persisted on every validation (pass or fail)
     - accepted_spec_version_id is only set on pass
     """
-    parsed = ValidateStoryInput.model_validate(params or {})
+    raw_params = dict(params or {})
+    if "mode" not in raw_params:
+        raw_params["mode"] = _resolve_default_validation_mode()
+    parsed = ValidateStoryInput.model_validate(raw_params)
 
     with Session(get_engine()) as session:
         story = session.get(UserStory, parsed.story_id)

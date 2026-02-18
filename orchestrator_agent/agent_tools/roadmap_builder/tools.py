@@ -1,11 +1,19 @@
 """Tools for the Roadmap Builder agent."""
 
 from typing import Annotated, Any, Dict
+import json
+import time
 
+from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from agile_sqlmodel import Product, get_engine
+from agile_sqlmodel import (
+    Product,
+    WorkflowEvent,
+    WorkflowEventType,
+    get_engine,
+)
 from orchestrator_agent.agent_tools.roadmap_builder.schemes import RoadmapBuilderOutput
 
 
@@ -24,12 +32,14 @@ class SaveRoadmapToolInput(BaseModel):
 
 def save_roadmap_tool(
     input_data: SaveRoadmapToolInput,
+    tool_context: ToolContext | None = None,
 ) -> Dict[str, Any]:
     """
     Saves the generated roadmap to the Product.roadmap field in the database.
     Input must be the full RoadmapBuilderOutput object.
     """
     engine = get_engine()
+    start_ts = time.perf_counter()
     
     with Session(engine) as session:
         # Retrieve the product
@@ -50,6 +60,24 @@ def save_roadmap_tool(
         # Update the product
         product.roadmap = roadmap_json
         session.add(product)
+        duration_seconds = None
+        if tool_context and tool_context.state:
+            duration_seconds = tool_context.state.get("roadmap_generation_duration")
+        if duration_seconds is None:
+            duration_seconds = round(time.perf_counter() - start_ts, 3)
+        session_id = getattr(tool_context, "session_id", None) if tool_context else None
+        metadata = json.dumps(
+            {"releases_count": len(input_data.roadmap_data.roadmap_releases)}
+        )
+        session.add(
+            WorkflowEvent(
+                event_type=WorkflowEventType.ROADMAP_SAVED,
+                product_id=input_data.product_id,
+                session_id=session_id,
+                duration_seconds=float(duration_seconds),
+                event_metadata=metadata,
+            )
+        )
         session.commit()
         session.refresh(product)
 

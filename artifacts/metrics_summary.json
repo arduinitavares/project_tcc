@@ -1,9 +1,9 @@
 {
   "extraction_metadata": {
-    "timestamp": "2026-02-08T23:26:34.257221+00:00",
+    "timestamp": "2026-02-18T02:32:34.301365+00:00",
     "db_path": "C:\\Users\\mjnrc\\projects\\project_tcc\\db\\spec_authority_dev.db",
     "db_filename": "spec_authority_dev.db",
-    "commit_hash": "ab06268e1d06"
+    "commit_hash": "e9f1e57a7055"
   },
   "schema": {
     "tables": [
@@ -41,6 +41,12 @@
             "pk": false
           },
           {
+            "name": "compiled_artifact_json",
+            "type": "TEXT",
+            "notnull": false,
+            "pk": false
+          },
+          {
             "name": "scope_themes",
             "type": "TEXT",
             "notnull": true,
@@ -69,15 +75,9 @@
             "type": "TEXT",
             "notnull": false,
             "pk": false
-          },
-          {
-            "name": "compiled_artifact_json",
-            "type": "TEXT",
-            "notnull": false,
-            "pk": false
           }
         ],
-        "row_count": 2
+        "row_count": 1
       },
       {
         "name": "epics",
@@ -158,12 +158,6 @@
             "name": "epic_id",
             "type": "INTEGER",
             "notnull": true,
-            "pk": false
-          },
-          {
-            "name": "delivery_role",
-            "type": "VARCHAR",
-            "notnull": false,
             "pk": false
           }
         ],
@@ -275,6 +269,12 @@
             "pk": false
           },
           {
+            "name": "compiled_authority_json",
+            "type": "TEXT",
+            "notnull": false,
+            "pk": false
+          },
+          {
             "name": "spec_file_path",
             "type": "VARCHAR",
             "notnull": false,
@@ -297,15 +297,9 @@
             "type": "DATETIME",
             "notnull": true,
             "pk": false
-          },
-          {
-            "name": "compiled_authority_json",
-            "type": "TEXT",
-            "notnull": false,
-            "pk": false
           }
         ],
-        "row_count": 2
+        "row_count": 1
       },
       {
         "name": "spec_authority_acceptance",
@@ -443,7 +437,7 @@
             "pk": false
           }
         ],
-        "row_count": 2
+        "row_count": 1
       },
       {
         "name": "sprint_stories",
@@ -467,7 +461,7 @@
             "pk": false
           }
         ],
-        "row_count": 10
+        "row_count": 4
       },
       {
         "name": "sprints",
@@ -527,7 +521,7 @@
             "pk": false
           }
         ],
-        "row_count": 2
+        "row_count": 1
       },
       {
         "name": "story_completion_logs",
@@ -647,7 +641,7 @@
             "pk": false
           }
         ],
-        "row_count": 50
+        "row_count": 27
       },
       {
         "name": "team_members",
@@ -737,7 +731,7 @@
             "pk": false
           }
         ],
-        "row_count": 6
+        "row_count": 1
       },
       {
         "name": "themes",
@@ -833,6 +827,42 @@
             "pk": false
           },
           {
+            "name": "source_requirement",
+            "type": "VARCHAR",
+            "notnull": false,
+            "pk": false
+          },
+          {
+            "name": "refinement_slot",
+            "type": "INTEGER",
+            "notnull": false,
+            "pk": false
+          },
+          {
+            "name": "story_origin",
+            "type": "VARCHAR",
+            "notnull": false,
+            "pk": false
+          },
+          {
+            "name": "is_refined",
+            "type": "BOOLEAN",
+            "notnull": true,
+            "pk": false
+          },
+          {
+            "name": "is_superseded",
+            "type": "BOOLEAN",
+            "notnull": true,
+            "pk": false
+          },
+          {
+            "name": "superseded_by_story_id",
+            "type": "INTEGER",
+            "notnull": false,
+            "pk": false
+          },
+          {
             "name": "persona",
             "type": "VARCHAR(100)",
             "notnull": false,
@@ -917,7 +947,7 @@
             "pk": false
           }
         ],
-        "row_count": 57
+        "row_count": 21
       },
       {
         "name": "workflow_events",
@@ -977,67 +1007,54 @@
             "pk": false
           }
         ],
-        "row_count": 2
+        "row_count": 1
       }
     ]
   },
   "products": [
     {
-      "product_id": 7,
+      "product_id": 1,
       "product_name": "Review-First Human-in-the-Loop Extraction Pipeline",
-      "created_at": "2026-02-08 00:59:40.774781",
-      "total_stories": 38,
-      "stories_with_spec_version_id": 25,
-      "stories_with_validation_evidence": 38,
+      "created_at": "2026-02-18 01:36:32.088573",
+      "total_stories": 21,
+      "stories_with_spec_version_id": 7,
+      "refined_stories_with_spec_version_id": 7,
+      "stories_with_validation_evidence": 21,
       "stories_approved_first_pass": 0,
-      "stories_refined": 0,
+      "stories_refined": 10,
       "sprint_count": 1,
       "sprint_plan_drafts": 0,
       "sprint_plan_saves": 1,
+      "vision_saves": 0,
+      "backlog_saves": 0,
+      "roadmap_saves": 0,
+      "stories_saves": 0,
+      "spec_compiles": 0,
+      "avg_vision_duration_sec": 0.0,
+      "avg_spec_compile_duration_sec": 0.0,
+      "avg_backlog_duration_sec": 0.0,
+      "avg_roadmap_duration_sec": 0.0,
+      "avg_stories_duration_sec": 0.0,
       "total_sprint_planning_duration_sec": 0.0,
       "avg_sprint_planning_duration_sec": 0.0,
       "avg_story_cycle_time_hours": 0.0,
       "stories_with_evidence_links": 0,
-      "total_tasks": 25,
+      "total_tasks": 27,
       "completed_tasks": 0,
       "spec_versions_count": 1,
       "spec_versions_approved": 1,
       "compiled_authorities_count": 1,
       "spec_accepted_count": 1,
       "spec_rejected_count": 0
-    },
-    {
-      "product_id": 8,
-      "product_name": "HashbrownVision Phase 1",
-      "created_at": "2026-02-08 21:25:55.087916",
-      "total_stories": 19,
-      "stories_with_spec_version_id": 6,
-      "stories_with_validation_evidence": 19,
-      "stories_approved_first_pass": 0,
-      "stories_refined": 0,
-      "sprint_count": 1,
-      "sprint_plan_drafts": 0,
-      "sprint_plan_saves": 1,
-      "total_sprint_planning_duration_sec": 0.0,
-      "avg_sprint_planning_duration_sec": 0.0,
-      "avg_story_cycle_time_hours": 0.0,
-      "stories_with_evidence_links": 0,
-      "total_tasks": 25,
-      "completed_tasks": 0,
-      "spec_versions_count": 1,
-      "spec_versions_approved": 1,
-      "compiled_authorities_count": 1,
-      "spec_accepted_count": 0,
-      "spec_rejected_count": 0
     }
   ],
   "workflow_events": {
     "SPRINT_PLAN_SAVED": {
-      "count": 2,
+      "count": 1,
       "avg_duration_sec": null,
       "total_duration_sec": null,
-      "first_event": "2026-02-08 01:16:53.961203",
-      "last_event": "2026-02-08 21:44:05.706629"
+      "first_event": "2026-02-18 01:51:18.604146",
+      "last_event": "2026-02-18 01:51:18.604146"
     }
   },
   "smoke_runs": {

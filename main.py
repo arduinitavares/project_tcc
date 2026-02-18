@@ -342,9 +342,17 @@ async def run_agent_turn(
     latest_tool_data: Dict[str, Any] = {}  # Capture the raw data here
     last_tool_name = None  # Capture tool name for FSM
     current_text_chunk = ""  # Accumulate text between tool calls for logging
+    captured_durations: Dict[str, float] = {}
 
     # Track tool execution times to capture durations (e.g. for Sprint Planning)
     tool_start_times: Dict[str, datetime] = {}
+    duration_state_keys: Dict[str, str] = {
+        "product_vision_tool": "vision_generation_duration",
+        "backlog_primer_tool": "backlog_generation_duration",
+        "roadmap_builder_tool": "roadmap_generation_duration",
+        "user_story_writer_tool": "story_refinement_duration",
+        "sprint_planner_tool": "sprint_planning_duration",
+    }
 
     try:
         async for event in runner.run_async(
@@ -376,9 +384,10 @@ async def run_agent_turn(
                         # Calculate duration if we tracked the start
                         if last_tool_name in tool_start_times:
                             duration = (datetime.now() - tool_start_times[last_tool_name]).total_seconds()
-                            # Inject duration for sprint planner so it can be persisted
-                            if last_tool_name == "sprint_planner_tool":
-                                latest_tool_data["sprint_planning_duration"] = duration
+                            state_key = duration_state_keys.get(last_tool_name)
+                            if state_key:
+                                captured_durations[state_key] = duration
+                                latest_tool_data[state_key] = duration
 
                     # C. Text
                     if part.text:
@@ -421,6 +430,10 @@ async def run_agent_turn(
     data_to_save = latest_tool_data or extract_json_from_response(
         full_response_text
     )
+    if captured_durations:
+        if not data_to_save:
+            data_to_save = {}
+        data_to_save.update(captured_durations)
 
     if data_to_save:
         if "updated_components" in data_to_save:
@@ -449,7 +462,15 @@ async def run_agent_turn(
                 )
             )
 
-        elif "sprint_plan" in data_to_save:
+        if "sprint_planning_duration" in data_to_save:
+            update_state_in_db(
+                {"sprint_planning_duration": data_to_save["sprint_planning_duration"]}
+            )
+            console.print(
+                "[bold dim cyan]>> State Updated (Sprint Planning Duration)[/bold dim cyan]"
+            )
+
+        if "sprint_plan" in data_to_save:
             payload = {"sprint_plan": data_to_save["sprint_plan"]}
             if "sprint_planning_duration" in data_to_save:
                 payload["sprint_planning_duration"] = data_to_save["sprint_planning_duration"]

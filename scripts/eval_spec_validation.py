@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import math
@@ -26,6 +27,10 @@ from tools.spec_tools import validate_story_with_spec_authority  # pylint: disab
 ValidationMode = str
 VALID_MODES: Tuple[ValidationMode, ...] = ("deterministic", "llm", "hybrid")
 LOGGER = logging.getLogger(__name__)
+DEFAULT_CONCURRENCY = 20
+RETRY_ATTEMPTS = 2
+RETRY_BASE_DELAY_SECONDS = 1.0
+RETRY_JITTER_SECONDS = 0.25
 BRANCH_LOG_LIMIT = 20
 _BRANCH_LOG_COUNTS: Dict[str, int] = {}
 _BRANCH_LOG_SUPPRESSED: set[str] = set()
@@ -36,6 +41,18 @@ _PROVIDER_ERROR_PATTERNS: Tuple[str, ...] = (
     "execution failed",
     "litellm.apierror",
     "openrouterexception",
+)
+_RETRYABLE_ERROR_PATTERNS: Tuple[str, ...] = (
+    "429",
+    "rate limit",
+    "timeout",
+    "timed out",
+    "connection reset",
+    "connection refused",
+    "temporary unavailable",
+    "gateway error",
+    "service unavailable",
+    "too many requests",
 )
 
 
@@ -183,6 +200,11 @@ def _classify_row_error(result: Dict[str, Any]) -> str:
         if any(pattern in text for pattern in _PROVIDER_ERROR_PATTERNS):
             return "provider_error"
     return "semantic"
+
+
+def _is_retryable_error_text(text: str) -> bool:
+    lowered = text.lower()
+    return any(pattern in lowered for pattern in _RETRYABLE_ERROR_PATTERNS)
 
 
 def _safe_mean(values: Sequence[float]) -> Optional[float]:
@@ -406,30 +428,62 @@ def _run_case_mode(case: Dict[str, Any], mode: ValidationMode, consensus_runs: i
         actual_runs = max(1, consensus_runs)
 
     for i in range(actual_runs):
-        started = time.perf_counter()
-        try:
-            result = validate_story_with_spec_authority(
-                {
-                    "story_id": case["story_id"],
-                    "spec_version_id": case["spec_version_id"],
-                    "mode": mode,
-                },
-                tool_context=None,
-            )
-            success = bool(result.get("success"))
-            passed = bool(result.get("passed")) if success else False
-            reason_codes = _extract_reason_codes(result)
-            error_class = _classify_row_error(result)
-        except Exception as e:
-            LOGGER.error(f"Error in validation run {i+1}: {e}")
-            result = {"error": str(e)}
-            success = False
-            passed = False
-            reason_codes = []
-            error_class = "execution_error"
+        max_attempts = 1 + RETRY_ATTEMPTS
+        attempt = 1
+        while True:
+            started = time.perf_counter()
+            try:
+                result = validate_story_with_spec_authority(
+                    {
+                        "story_id": case["story_id"],
+                        "spec_version_id": case["spec_version_id"],
+                        "mode": mode,
+                    },
+                    tool_context=None,
+                )
+                success = bool(result.get("success"))
+                passed = bool(result.get("passed")) if success else False
+                reason_codes = _extract_reason_codes(result)
+                error_class = _classify_row_error(result)
+                elapsed_ms = (time.perf_counter() - started) * 1000
+                total_latency += elapsed_ms
+                break
+            except Exception as e:
+                elapsed_ms = (time.perf_counter() - started) * 1000
+                total_latency += elapsed_ms
+                error_text = str(e)
+                should_retry = (
+                    attempt < max_attempts and _is_retryable_error_text(error_text)
+                )
+                if should_retry:
+                    backoff = (
+                        RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+                        + random.uniform(0, RETRY_JITTER_SECONDS)
+                    )
+                    LOGGER.warning(
+                        (
+                            "Retryable error in validation run %d attempt %d/%d "
+                            "(case_id=%s mode=%s): %s; retrying in %.2fs"
+                        ),
+                        i + 1,
+                        attempt,
+                        max_attempts,
+                        case.get("case_id"),
+                        mode,
+                        error_text,
+                        backoff,
+                    )
+                    time.sleep(backoff)
+                    attempt += 1
+                    continue
 
-        elapsed_ms = (time.perf_counter() - started) * 1000
-        total_latency += elapsed_ms
+                LOGGER.error("Error in validation run %d: %s", i + 1, error_text)
+                result = {"error": error_text}
+                success = False
+                passed = False
+                reason_codes = []
+                error_class = "execution_error"
+                break
 
         runs.append({
             "success": success,
@@ -742,18 +796,65 @@ def _build_summary_markdown(
 def evaluate_cases(
     cases: List[Dict[str, Any]],
     modes: Sequence[str],
-    consensus_runs: int = 1  # Backward compatibility: default to 1
+    consensus_runs: int = 1,  # Backward compatibility: default to 1
+    max_concurrency: int = 1,
 ) -> Dict[str, Any]:
     LOGGER.info("Evaluating %d case(s) across mode(s): %s", len(cases), ", ".join(modes))
     raw_rows: List[Dict[str, Any]] = []
     by_mode: Dict[str, List[Dict[str, Any]]] = {mode: [] for mode in modes}
-
+    tasks: List[Tuple[int, int, Dict[str, Any], str]] = []
     for case_idx, case in enumerate(cases, start=1):
         LOGGER.info("Evaluating case %d/%d case_id=%s", case_idx, len(cases), case.get("case_id"))
-        for mode in modes:
+        for mode_idx, mode in enumerate(modes):
+            tasks.append((case_idx - 1, mode_idx, case, mode))
+
+    if max_concurrency <= 1:
+        for _, _, case, mode in tasks:
             row = _run_case_mode(case, mode, consensus_runs)
             raw_rows.append(row)
             by_mode[mode].append(row)
+    else:
+        LOGGER.info("Running with async concurrency=%d", max_concurrency)
+        total_tasks = len(tasks)
+        progress_every = max(1, total_tasks // 10)
+        ordered_rows: Dict[Tuple[int, int], Dict[str, Any]] = {}
+
+        async def _evaluate_cases_async() -> Dict[Tuple[int, int], Dict[str, Any]]:
+            semaphore = asyncio.Semaphore(max_concurrency)
+            completed_count = 0
+
+            async def _run_task(
+                case_order: int,
+                mode_order: int,
+                case: Dict[str, Any],
+                mode: str,
+            ) -> Tuple[int, int, Dict[str, Any]]:
+                async with semaphore:
+                    row = await asyncio.to_thread(_run_case_mode, case, mode, consensus_runs)
+                    return case_order, mode_order, row
+
+            async_tasks = [
+                asyncio.create_task(_run_task(case_order, mode_order, case, mode))
+                for case_order, mode_order, case, mode in tasks
+            ]
+
+            ordered: Dict[Tuple[int, int], Dict[str, Any]] = {}
+            for finished in asyncio.as_completed(async_tasks):
+                case_order, mode_order, row = await finished
+                ordered[(case_order, mode_order)] = row
+                completed_count += 1
+                if completed_count == total_tasks or completed_count % progress_every == 0:
+                    LOGGER.info("Completed %d/%d tasks", completed_count, total_tasks)
+
+            return ordered
+
+        ordered_rows = asyncio.run(_evaluate_cases_async())
+
+        for case_order in range(len(cases)):
+            for mode_order, mode in enumerate(modes):
+                row = ordered_rows[(case_order, mode_order)]
+                raw_rows.append(row)
+                by_mode[mode].append(row)
 
     mode_metrics = {mode: _compute_mode_metrics(rows) for mode, rows in by_mode.items()}
     disagreements = _compute_disagreements(raw_rows)
@@ -949,6 +1050,15 @@ def main() -> None:
         help="Number of times to run LLM/Hybrid modes per case to determine consensus (default: 1)",
     )
     parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=DEFAULT_CONCURRENCY,
+        help=(
+            "Maximum in-flight case/mode evaluations "
+            f"(default: {DEFAULT_CONCURRENCY}; set 1 for sequential)."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default="INFO",
@@ -963,6 +1073,8 @@ def main() -> None:
     LOGGER.setLevel(getattr(logging, args.log_level))
     LOGGER.info("Starting eval_spec_validation")
     LOGGER.info("CLI args: %s", vars(args))
+    if args.concurrency < 1:
+        raise SystemExit("--concurrency must be >= 1")
 
     modes = parse_modes(args.modes)
     cases = _read_cases(args.cases, include_disabled=args.include_disabled)
@@ -982,7 +1094,12 @@ def main() -> None:
         raise SystemExit("No benchmark cases found. Build or provide cases first.")
 
     run_timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    evaluated = evaluate_cases(cases, modes, args.consensus_runs)
+    evaluated = evaluate_cases(
+        cases,
+        modes,
+        consensus_runs=args.consensus_runs,
+        max_concurrency=args.concurrency,
+    )
 
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
