@@ -6,8 +6,11 @@ Tests the query tools used by the orchestrator agent.
 import pytest
 from sqlmodel import Session, select
 
+from agile_sqlmodel import Product, StoryStatus, UserStory
 from tools.orchestrator_tools import (
     count_projects,
+    fetch_product_backlog,
+    fetch_sprint_candidates,
     get_project_by_name,
     get_project_details,
     list_projects,
@@ -259,3 +262,108 @@ def test_get_project_by_name_found(engine):
     assert result["success"] is True
     assert result["product_id"] == product_id
     assert result["product_name"] == "Findable Project"
+
+
+def test_fetch_sprint_candidates_only_refined_todo(session: Session) -> None:
+    """Sprint candidates must include only refined, non-superseded TO_DO stories."""
+    session.add(Product(product_id=21, name="Sprint Filter Project"))
+    session.commit()
+
+    refined_story = UserStory(
+        product_id=21,
+        title="Refined Story",
+        status=StoryStatus.TO_DO,
+        rank="2",
+        story_points=3,
+        is_refined=True,
+        is_superseded=False,
+        story_origin="refined",
+        persona="Document Reviewer",
+    )
+    non_refined_story = UserStory(
+        product_id=21,
+        title="Backlog Seed",
+        status=StoryStatus.TO_DO,
+        rank="1",
+        story_points=5,
+        is_refined=False,
+        is_superseded=False,
+        story_origin="backlog_seed",
+    )
+    superseded_story = UserStory(
+        product_id=21,
+        title="Superseded Story",
+        status=StoryStatus.TO_DO,
+        rank="3",
+        story_points=3,
+        is_refined=True,
+        is_superseded=True,
+        story_origin="refined",
+    )
+    done_story = UserStory(
+        product_id=21,
+        title="Done Story",
+        status=StoryStatus.DONE,
+        rank="4",
+        story_points=2,
+        is_refined=True,
+        is_superseded=False,
+        story_origin="refined",
+    )
+
+    session.add(refined_story)
+    session.add(non_refined_story)
+    session.add(superseded_story)
+    session.add(done_story)
+    session.commit()
+
+    result = fetch_sprint_candidates(21)
+
+    assert result["success"] is True
+    assert result["count"] == 1
+    assert result["excluded_counts"] == {"non_refined": 1, "superseded": 1}
+    assert result["stories"][0]["story_title"] == "Refined Story"
+    assert result["stories"][0]["priority"] == 2
+    assert result["stories"][0]["persona"] == "Document Reviewer"
+
+
+def test_fetch_product_backlog_exposes_refinement_flags(session: Session) -> None:
+    """Backlog fetch should expose refinement metadata for diagnostics."""
+    session.add(Product(product_id=31, name="Backlog Metadata Project"))
+    session.commit()
+
+    session.add(
+        UserStory(
+            product_id=31,
+            title="Seed Story",
+            status=StoryStatus.TO_DO,
+            rank="1",
+            is_refined=False,
+            is_superseded=False,
+            story_origin="backlog_seed",
+            persona=None,
+        )
+    )
+    session.add(
+        UserStory(
+            product_id=31,
+            title="Refined Story",
+            status=StoryStatus.TO_DO,
+            rank="2",
+            is_refined=True,
+            is_superseded=False,
+            story_origin="refined",
+            persona="Data Steward",
+        )
+    )
+    session.commit()
+
+    result = fetch_product_backlog(31)
+    assert result["success"] is True
+    assert result["count"] == 2
+
+    by_title = {story["title"]: story for story in result["stories"]}
+    assert by_title["Seed Story"]["is_refined"] is False
+    assert by_title["Seed Story"]["story_origin"] == "backlog_seed"
+    assert by_title["Refined Story"]["is_refined"] is True
+    assert by_title["Refined Story"]["story_origin"] == "refined"

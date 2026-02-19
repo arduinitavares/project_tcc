@@ -15,6 +15,8 @@ from agile_sqlmodel import (
     Task,
     Team,
     UserStory,
+    WorkflowEvent,
+    WorkflowEventType,
 )
 from orchestrator_agent.agent_tools.sprint_planner_tool.tools import (
     SaveSprintPlanInput,
@@ -106,6 +108,101 @@ def test_save_sprint_plan_creates_records(session: Session):
 
     tasks = session.exec(select(Task)).all()
     assert len(tasks) == 2
+
+
+def test_save_sprint_plan_uses_orchestrator_duration_when_valid(session: Session):
+    """Persisted workflow event must keep a valid orchestrator-provided duration."""
+    product_id, team_id, story_ids = _seed_product_team_stories(session)
+
+    tool_context = cast(
+        ToolContext,
+        SimpleNamespace(
+            state={
+                "sprint_plan": _build_sprint_plan(story_ids),
+                "sprint_planning_duration": 12.75,
+            }
+        ),
+    )
+    input_data = SaveSprintPlanInput(
+        product_id=product_id,
+        team_id=team_id,
+        sprint_start_date="2026-02-01",
+        sprint_duration_days=14,
+    )
+
+    result = save_sprint_plan_tool(input_data, tool_context)
+    assert result["success"] is True
+
+    event = session.exec(
+        select(WorkflowEvent).where(
+            WorkflowEvent.event_type == WorkflowEventType.SPRINT_PLAN_SAVED
+        )
+    ).first()
+    assert event is not None
+    assert event.duration_seconds == 12.75
+
+
+def test_save_sprint_plan_falls_back_to_elapsed_duration(session: Session):
+    """Persisted workflow event must include numeric duration when state key is missing."""
+    product_id, team_id, story_ids = _seed_product_team_stories(session)
+
+    tool_context = cast(
+        ToolContext,
+        SimpleNamespace(state={"sprint_plan": _build_sprint_plan(story_ids)}),
+    )
+    input_data = SaveSprintPlanInput(
+        product_id=product_id,
+        team_id=team_id,
+        sprint_start_date="2026-02-01",
+        sprint_duration_days=14,
+    )
+
+    result = save_sprint_plan_tool(input_data, tool_context)
+    assert result["success"] is True
+
+    event = session.exec(
+        select(WorkflowEvent).where(
+            WorkflowEvent.event_type == WorkflowEventType.SPRINT_PLAN_SAVED
+        )
+    ).first()
+    assert event is not None
+    assert event.duration_seconds is not None
+    assert isinstance(event.duration_seconds, float)
+    assert event.duration_seconds >= 0.0
+
+
+def test_save_sprint_plan_falls_back_when_state_duration_invalid(session: Session):
+    """Invalid state duration must not propagate as NULL to workflow event."""
+    product_id, team_id, story_ids = _seed_product_team_stories(session)
+
+    tool_context = cast(
+        ToolContext,
+        SimpleNamespace(
+            state={
+                "sprint_plan": _build_sprint_plan(story_ids),
+                "sprint_planning_duration": "not-a-number",
+            }
+        ),
+    )
+    input_data = SaveSprintPlanInput(
+        product_id=product_id,
+        team_id=team_id,
+        sprint_start_date="2026-02-01",
+        sprint_duration_days=14,
+    )
+
+    result = save_sprint_plan_tool(input_data, tool_context)
+    assert result["success"] is True
+
+    event = session.exec(
+        select(WorkflowEvent).where(
+            WorkflowEvent.event_type == WorkflowEventType.SPRINT_PLAN_SAVED
+        )
+    ).first()
+    assert event is not None
+    assert event.duration_seconds is not None
+    assert isinstance(event.duration_seconds, float)
+    assert event.duration_seconds >= 0.0
 
 
 def test_save_sprint_plan_rejects_story_conflict(session: Session):

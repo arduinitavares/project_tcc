@@ -97,6 +97,7 @@ class WorkflowEventType(str, enum.Enum):
     SPRINT_PLAN_SAVED = "sprint_plan_saved"
     SPRINT_STARTED = "sprint_started"
     SPRINT_COMPLETED = "sprint_completed"
+    FSM_STATE_DWELL = "fsm_state_dwell"
     TLX_PROMPT_TRIGGERED = "tlx_prompt_triggered"
 
 

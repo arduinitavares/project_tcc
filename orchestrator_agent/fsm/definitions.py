@@ -1,12 +1,12 @@
 from typing import Any, List, Set
 
-from google.adk.tools import AgentTool
 from pydantic import BaseModel, Field
 
 from .deterministic_tool_adapters import (
     backlog_primer_tool,
     product_vision_tool,
     roadmap_builder_tool,
+    sprint_planner_tool,
     user_story_writer_tool,
 )
 from .states import OrchestratorPhase, OrchestratorState
@@ -30,12 +30,8 @@ from tools.spec_tools import (
 from orchestrator_agent.agent_tools.product_vision_tool.tools import save_vision_tool
 from orchestrator_agent.agent_tools.backlog_primer.tools import save_backlog_tool
 from orchestrator_agent.agent_tools.roadmap_builder.tools import save_roadmap_tool
-from orchestrator_agent.agent_tools.sprint_planner_tool.agent import root_agent as sprint_planner_agent
 from orchestrator_agent.agent_tools.sprint_planner_tool.tools import save_sprint_plan_tool
 from orchestrator_agent.agent_tools.user_story_writer_tool.tools import save_stories_tool
-
-# Wrappers for Agent Tools
-sprint_planner_tool = AgentTool(agent=sprint_planner_agent)
 
 class StateDefinition(BaseModel):
       name: OrchestratorState
@@ -78,7 +74,8 @@ You never add information, hallucinate, or invent requirements.
   see, explain which workflow step must be completed first and guide them
   there. NEVER attempt to call a tool that is not in your current tool set.
 - **CONTEXT INJECTION RULE:** For `product_vision_tool`,
-  `backlog_primer_tool`, `roadmap_builder_tool`, and `user_story_writer_tool`,
+  `backlog_primer_tool`, `roadmap_builder_tool`, `user_story_writer_tool`,
+  and `sprint_planner_tool`,
   context fields are injected automatically from volatile state. Pass only the
   user-intent fields required by each tool signature.
 
@@ -393,7 +390,7 @@ STORY_PERSISTENCE_INSTRUCTION = """
        - If user agrees, call `user_story_writer_tool` for the next requirement.
     - If no: Confirm *"All roadmap requirements have been decomposed into stories."*
        - Ask: *"Proceed to Sprint Planning?"*
-       - If user agrees, call `fetch_product_backlog` then call `sprint_planner_tool`.
+       - If user agrees, call `sprint_planner_tool`.
 3. **STOP.**
 """
 
@@ -401,18 +398,16 @@ SPRINT_SETUP_INSTRUCTION = """
 # STATE 11 — SPRINT SETUP MODE
 
 **Behavior:**
-1. **Fetch Stories:** Always call `fetch_product_backlog(product_id=<active_project_id>)` immediately to get the fresh pool of available `TO_DO` stories.
-   - You MUST identify stories by their real `story_id` from this tool. Do NOT invent IDs.
-   - If user asks to list stories, display them from this tool's output.
-2. **Gather Inputs:** Ask the user for:
+1. **Gather Inputs:** Ask the user for:
    - `team_velocity_assumption` (Low/Medium/High).
    - `sprint_duration_days` (default 14).
-   - Preference for story selection (e.g. "Take top 5", "high priority only").
-3. **Call Tool:** Call `sprint_planner_tool` with:
-   - `available_stories`: The list from `fetch_product_backlog` (filtered if user requested specific ones).
+   - Optional constraints: `max_story_points`, focus/context, and optional `selected_story_ids`.
+2. **Call Tool:** Call `sprint_planner_tool` with:
    - `team_velocity_assumption`: User choice or default Medium.
    - `sprint_duration_days`: User choice or default 14.
-4. **STOP.**
+   - Optional: `user_context`, `max_story_points`, `include_task_decomposition`, `selected_story_ids`.
+   - IMPORTANT: Do NOT pass `available_stories`; sprint candidates are injected deterministically from refined volatile/DB state.
+3. **STOP.**
 """
 
 SPRINT_DRAFT_INSTRUCTION = """
@@ -428,9 +423,8 @@ SPRINT_DRAFT_INSTRUCTION = """
    - `sprint_start_date`: user-provided start date
    - `sprint_duration_days`: from sprint plan or user override
 4. **On Changes:**
-   - Call `fetch_product_backlog` to ensure up-to-date stories.
    - Collect updated inputs/constraints.
-   - Call `sprint_planner_tool` with real stories and new constraints.
+   - Re-call `sprint_planner_tool` with updated intent fields only.
 5. **STOP.**
 """
 

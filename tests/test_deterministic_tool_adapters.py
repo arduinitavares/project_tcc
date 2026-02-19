@@ -221,6 +221,113 @@ async def test_story_adapter_fail_fast_without_derived_or_explicit_context(
     )
 
 
+@pytest.mark.asyncio
+async def test_sprint_adapter_injects_refined_candidates_from_state(
+    monkeypatch,
+) -> None:
+    captured = {}
+
+    def fake_fetch_sprint_candidates(*, product_id):
+        assert product_id == 7
+        return {
+            "success": True,
+            "count": 2,
+            "stories": [
+                {
+                    "story_id": 11,
+                    "story_title": "Attestation Gate UI",
+                    "priority": 1,
+                    "story_points": 5,
+                },
+                {
+                    "story_id": 12,
+                    "story_title": "Event Delta Persistence",
+                    "priority": 2,
+                    "story_points": 3,
+                },
+            ],
+        }
+
+    async def fake_run_async(*, args, tool_context):
+        captured["args"] = args
+        captured["tool_context"] = tool_context
+        return {"sprint_goal": "goal", "selected_stories": [], "capacity_analysis": {}}
+
+    monkeypatch.setattr(adapters, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(adapters._SPRINT_PLANNER_TOOL, "run_async", fake_run_async)
+
+    context = MockToolContext({"active_project": {"product_id": 7}})
+    _ = await adapters.sprint_planner_tool(
+        team_velocity_assumption="high",
+        sprint_duration_days=40,
+        selected_story_ids=[12],
+        include_task_decomposition=False,
+        tool_context=context,
+    )
+
+    assert captured["tool_context"] is context
+    assert captured["args"]["team_velocity_assumption"] == "High"
+    assert captured["args"]["sprint_duration_days"] == 31
+    assert captured["args"]["include_task_decomposition"] is False
+    assert captured["args"]["available_stories"] == [
+        {
+            "story_id": 12,
+            "story_title": "Event Delta Persistence",
+            "priority": 2,
+            "story_points": 3,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_sprint_adapter_fail_fast_without_active_project(monkeypatch) -> None:
+    async def fail_if_called(*, args, tool_context):
+        pytest.fail("Sub-agent should not run when active project is missing")
+
+    monkeypatch.setattr(adapters._SPRINT_PLANNER_TOOL, "run_async", fail_if_called)
+
+    context = MockToolContext({})
+    result = await adapters.sprint_planner_tool(tool_context=context)
+
+    assert result["is_complete"] is False
+    assert result["error"] == "SPRINT_CONTEXT_MISSING"
+    assert "active_project.product_id" in result["missing_context"]
+
+
+@pytest.mark.asyncio
+async def test_sprint_adapter_rejects_non_eligible_selected_story_ids(
+    monkeypatch,
+) -> None:
+    def fake_fetch_sprint_candidates(*, product_id):
+        return {
+            "success": True,
+            "count": 1,
+            "stories": [
+                {
+                    "story_id": 22,
+                    "story_title": "Refined Story",
+                    "priority": 1,
+                    "story_points": 3,
+                }
+            ],
+        }
+
+    async def fail_if_called(*, args, tool_context):
+        pytest.fail("Sub-agent should not run when selection is invalid")
+
+    monkeypatch.setattr(adapters, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(adapters._SPRINT_PLANNER_TOOL, "run_async", fail_if_called)
+
+    context = MockToolContext({"active_project": {"product_id": 1}})
+    result = await adapters.sprint_planner_tool(
+        selected_story_ids=[999],
+        tool_context=context,
+    )
+
+    assert result["is_complete"] is False
+    assert result["error"] == "SPRINT_SELECTION_INVALID"
+
+
 def test_state_registry_keeps_public_generation_tool_names() -> None:
     routing_def = STATE_REGISTRY[OrchestratorState.ROUTING_MODE]
     tool_names = [
@@ -232,6 +339,7 @@ def test_state_registry_keeps_public_generation_tool_names() -> None:
     assert "backlog_primer_tool" in tool_names
     assert "roadmap_builder_tool" in tool_names
     assert "user_story_writer_tool" in tool_names
+    assert "sprint_planner_tool" in tool_names
     assert len(tool_names) == len(set(tool_names))
 
 
@@ -239,6 +347,7 @@ def test_minimal_adapter_signatures_remove_legacy_context_fields() -> None:
     vision_params = inspect.signature(adapters.product_vision_tool).parameters
     backlog_params = inspect.signature(adapters.backlog_primer_tool).parameters
     roadmap_params = inspect.signature(adapters.roadmap_builder_tool).parameters
+    sprint_params = inspect.signature(adapters.sprint_planner_tool).parameters
     story_params = inspect.signature(adapters.user_story_writer_tool).parameters
 
     assert "specification_content" not in vision_params
@@ -255,6 +364,8 @@ def test_minimal_adapter_signatures_remove_legacy_context_fields() -> None:
     assert "technical_spec" not in roadmap_params
     assert "compiled_authority" not in roadmap_params
     assert "prior_roadmap_state" not in roadmap_params
+
+    assert "available_stories" not in sprint_params
 
     assert "technical_spec" not in story_params
     assert "compiled_authority" not in story_params

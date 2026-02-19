@@ -125,6 +125,7 @@ class ExtractionResult:
     
     # Workflow events summary
     workflow_events_by_type: dict = field(default_factory=dict)
+    state_dwell_by_state: dict = field(default_factory=dict)
     
     # Task mapping notes
     task_mapping_notes: str = ""
@@ -411,6 +412,41 @@ def extract_workflow_events_summary(cursor: sqlite3.Cursor) -> dict:
     return summary
 
 
+def extract_state_dwell_summary(cursor: sqlite3.Cursor) -> dict:
+    """Extract per-FSM-state dwell duration summary from workflow events."""
+    cursor.execute(
+        """
+        SELECT event_metadata, duration_seconds
+        FROM workflow_events
+        WHERE event_type = 'FSM_STATE_DWELL'
+          AND duration_seconds IS NOT NULL
+        """
+    )
+
+    buckets: dict[str, list[float]] = {}
+    for metadata_raw, duration in cursor.fetchall():
+        if duration is None:
+            continue
+        try:
+            payload = json.loads(metadata_raw) if metadata_raw else {}
+        except json.JSONDecodeError:
+            payload = {}
+        from_state = payload.get("from_state")
+        if not isinstance(from_state, str) or not from_state:
+            from_state = "UNKNOWN"
+        buckets.setdefault(from_state, []).append(float(duration))
+
+    summary: dict[str, dict[str, Any]] = {}
+    for state_name in sorted(buckets.keys()):
+        durations = buckets[state_name]
+        summary[state_name] = {
+            "count": len(durations),
+            "avg_duration_sec": round(sum(durations) / len(durations), 2),
+            "total_duration_sec": round(sum(durations), 2),
+        }
+    return summary
+
+
 def extract_smoke_run_metrics(artifacts_dir: Path) -> Optional[SmokeRunMetrics]:
     """Extract metrics from smoke_runs.jsonl if available."""
     smoke_file = artifacts_dir / "smoke_runs.jsonl"
@@ -493,6 +529,7 @@ The database does NOT encode T1-T5 directly. Proposed mapping:
 | T3 | Compilação de Autoridade | compiled_spec_authority.compiled_at, spec_authority_acceptance | Timing available via compiled_at |
 | T4 | Geração de Backlog | user_stories.created_at, validation_evidence | Aggregate by product |
 | T5 | Planejamento de Sprint | WorkflowEvent.SPRINT_PLAN_SAVED.duration_seconds | Explicit timing available |
+| State Dwell | Tempo por estado FSM (inclui tempo de interação/humano) | WorkflowEvent.FSM_STATE_DWELL.duration_seconds + event_metadata.from_state | Explicit timing available |
 
 **Caveats:**
 - T1/T2/T4 cycle times must be computed as wall-clock differences between timestamps
@@ -501,6 +538,7 @@ The database does NOT encode T1-T5 directly. Proposed mapping:
 
 **Recommended approach:**
 - Use WorkflowEvent timestamps for T5 (sprint planning) cycle time
+- Use WorkflowEvent.FSM_STATE_DWELL for true per-state platform dwell time
 - Use products.created_at and first story created_at for T4 rough estimate
 - Use spec_registry/compiled_spec_authority timestamps for T3
 - T1/T2 timing requires external baseline data or session logs
@@ -538,6 +576,15 @@ def write_csv_results(output_dir: Path, result: ExtractionResult):
                     data["first_event"],
                     data["last_event"]
                 ])
+
+    if result.state_dwell_by_state:
+        with open(query_dir / "state_dwell_summary.csv", "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["from_state", "count", "avg_duration_sec", "total_duration_sec"])
+            for state_name, data in result.state_dwell_by_state.items():
+                writer.writerow(
+                    [state_name, data["count"], data["avg_duration_sec"], data["total_duration_sec"]]
+                )
     
     # Smoke runs
     if result.smoke_runs:
@@ -590,6 +637,7 @@ def write_summary_json(output_file: Path, result: ExtractionResult):
         },
         "products": [asdict(p) for p in result.products],
         "workflow_events": result.workflow_events_by_type,
+        "state_dwell_by_state": result.state_dwell_by_state,
         "smoke_runs": asdict(result.smoke_runs) if result.smoke_runs else None,
         "task_mapping_notes": result.task_mapping_notes
     }
@@ -632,6 +680,17 @@ def print_markdown_summary(result: ExtractionResult):
         total_dur = data["total_duration_sec"] if data["total_duration_sec"] else "N/A"
         print(f"| {event_type} | {data['count']} | {avg_dur} | {total_dur} |")
     print()
+
+    if result.state_dwell_by_state:
+        print("## FSM State Dwell Time (Includes User Thinking/Interaction)")
+        print()
+        print("| FSM State | Exits | Avg Dwell (s) | Total Dwell (s) |")
+        print("|-----------|-------|---------------|-----------------|")
+        for state_name, data in result.state_dwell_by_state.items():
+            print(
+                f"| {state_name} | {data['count']} | {data['avg_duration_sec']} | {data['total_duration_sec']} |"
+            )
+        print()
     
     # Spec Authority Pinning Coverage
     print("## Spec Authority Pinning Coverage")
@@ -765,6 +824,7 @@ def main():
     
     print("Extracting workflow events...", file=sys.stderr)
     result.workflow_events_by_type = extract_workflow_events_summary(cursor)
+    result.state_dwell_by_state = extract_state_dwell_summary(cursor)
     
     conn.close()
     

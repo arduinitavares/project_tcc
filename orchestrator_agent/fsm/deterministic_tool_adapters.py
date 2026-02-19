@@ -21,14 +21,19 @@ from orchestrator_agent.agent_tools.product_vision_tool.agent import (
 from orchestrator_agent.agent_tools.roadmap_builder.agent import (
     root_agent as roadmap_agent,
 )
+from orchestrator_agent.agent_tools.sprint_planner_tool.agent import (
+    root_agent as sprint_planner_agent,
+)
 from orchestrator_agent.agent_tools.user_story_writer_tool.agent import (
     root_agent as story_writer_agent,
 )
+from tools.orchestrator_tools import fetch_sprint_candidates
 
 
 _PRODUCT_VISION_TOOL = AgentTool(agent=vision_agent)
 _BACKLOG_PRIMER_TOOL = AgentTool(agent=backlog_agent)
 _ROADMAP_BUILDER_TOOL = AgentTool(agent=roadmap_agent)
+_SPRINT_PLANNER_TOOL = AgentTool(agent=sprint_planner_agent)
 _USER_STORY_WRITER_TOOL = AgentTool(agent=story_writer_agent)
 
 
@@ -156,6 +161,78 @@ def _derive_requirement_context(
         return " | ".join(parts).strip() if parts else None
 
     return None
+
+
+def _normalize_velocity(value: Any) -> str:
+    """Normalize velocity input to Low/Medium/High."""
+    normalized = _as_text(value).strip().lower()
+    if normalized == "low":
+        return "Low"
+    if normalized == "high":
+        return "High"
+    return "Medium"
+
+
+def _normalize_duration_days(value: Any) -> int:
+    """Normalize sprint duration into schema-safe bounds (1..31)."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 14
+    return max(1, min(parsed, 31))
+
+
+def _normalize_positive_int(value: Any) -> Optional[int]:
+    """Normalize optional positive integer fields."""
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _coerce_priority(value: Any, fallback: int) -> int:
+    """Ensure priority is always an integer >= 1."""
+    parsed = _normalize_positive_int(value)
+    return parsed if parsed is not None else max(1, fallback)
+
+
+def _normalize_selected_story_ids(value: Any) -> List[int]:
+    """Normalize selected story IDs while preserving order and uniqueness."""
+    if not isinstance(value, list):
+        return []
+    seen = set()
+    normalized: List[int] = []
+    for item in value:
+        parsed = _normalize_positive_int(item)
+        if parsed is None or parsed in seen:
+            continue
+        seen.add(parsed)
+        normalized.append(parsed)
+    return normalized
+
+
+def _selection_error(invalid_ids: Sequence[int]) -> Dict[str, Any]:
+    """Build deterministic error payload for invalid sprint selections."""
+    invalid = list(invalid_ids)
+    invalid_text = ", ".join(str(item) for item in invalid)
+    return {
+        "is_complete": False,
+        "error": "SPRINT_SELECTION_INVALID",
+        "missing_context": [f"selected_story_ids_not_eligible: {invalid_text}"],
+        "clarifying_questions": [
+            (
+                "Some selected_story_ids are not refined TO_DO candidates: "
+                f"{invalid_text}. Please provide eligible story IDs."
+            )
+        ],
+        "message": (
+            "Deterministic adapter blocked sprint planning because selection "
+            "contains non-eligible stories."
+        ),
+    }
 
 
 async def product_vision_tool(
@@ -293,6 +370,106 @@ async def roadmap_builder_tool(
     return cast(Dict[str, Any], result)
 
 
+async def sprint_planner_tool(
+    team_velocity_assumption: str = "Medium",
+    sprint_duration_days: int = 14,
+    user_context: str = "",
+    max_story_points: Optional[int] = None,
+    include_task_decomposition: bool = True,
+    selected_story_ids: Optional[List[int]] = None,
+    tool_context: Optional[ToolContext] = None,
+) -> Dict[str, Any]:
+    """Deterministic adapter for sprint_planner_tool."""
+    if tool_context is None:
+        return _missing_context_error(
+            code="SPRINT_CONTEXT_MISSING",
+            missing_context=["tool_context.state"],
+            guidance="Select a project before sprint planning.",
+        )
+
+    state = _state(tool_context)
+    active_project = state.get("active_project")
+    product_id = None
+    if isinstance(active_project, dict):
+        product_id = _normalize_positive_int(active_project.get("product_id"))
+
+    if product_id is None:
+        return _missing_context_error(
+            code="SPRINT_CONTEXT_MISSING",
+            missing_context=["active_project.product_id"],
+            guidance="Select an active project, then retry sprint planning.",
+        )
+
+    candidate_result = fetch_sprint_candidates(product_id=product_id)
+    if not candidate_result.get("success"):
+        return _missing_context_error(
+            code="SPRINT_CANDIDATE_FETCH_FAILED",
+            missing_context=["sprint candidates"],
+            guidance="Retry fetching the backlog after selecting the active project.",
+        )
+
+    candidate_rows = candidate_result.get("stories")
+    if not isinstance(candidate_rows, list) or not candidate_rows:
+        return _missing_context_error(
+            code="SPRINT_CANDIDATES_MISSING",
+            missing_context=["refined TO_DO stories"],
+            guidance="Only refined stories are sprint-eligible. Refine stories first.",
+        )
+
+    selected_ids = _normalize_selected_story_ids(selected_story_ids)
+    selected_rows = candidate_rows
+    if selected_ids:
+        by_id: Dict[int, Dict[str, Any]] = {}
+        for row in candidate_rows:
+            if isinstance(row, dict):
+                story_id = _normalize_positive_int(row.get("story_id"))
+                if story_id is not None:
+                    by_id[story_id] = row
+        invalid_ids = [story_id for story_id in selected_ids if story_id not in by_id]
+        if invalid_ids:
+            return _selection_error(invalid_ids)
+        selected_rows = [by_id[story_id] for story_id in selected_ids]
+
+    available_stories: List[Dict[str, Any]] = []
+    for idx, row in enumerate(selected_rows, start=1):
+        if not isinstance(row, dict):
+            continue
+        story_id = _normalize_positive_int(row.get("story_id"))
+        if story_id is None:
+            continue
+        story_title = _as_text(row.get("story_title") or row.get("title")).strip()
+        if not story_title:
+            story_title = f"Story {story_id}"
+
+        available_stories.append(
+            {
+                "story_id": story_id,
+                "story_title": story_title,
+                "priority": _coerce_priority(row.get("priority"), idx),
+                "story_points": _normalize_positive_int(row.get("story_points")),
+            }
+        )
+
+    if not available_stories:
+        return _missing_context_error(
+            code="SPRINT_CANDIDATES_MISSING",
+            missing_context=["sprint-eligible stories with valid IDs"],
+            guidance="Refine stories first, then retry sprint planning.",
+        )
+
+    args = {
+        "available_stories": available_stories,
+        "team_velocity_assumption": _normalize_velocity(team_velocity_assumption),
+        "sprint_duration_days": _normalize_duration_days(sprint_duration_days),
+        "user_context": _as_text(user_context).strip() or None,
+        "max_story_points": _normalize_positive_int(max_story_points),
+        "include_task_decomposition": bool(include_task_decomposition),
+    }
+
+    result = await _SPRINT_PLANNER_TOOL.run_async(args=args, tool_context=tool_context)
+    return cast(Dict[str, Any], result)
+
+
 async def user_story_writer_tool(
     parent_requirement: str,
     requirement_context: str = "",
@@ -349,6 +526,6 @@ __all__ = [
     "product_vision_tool",
     "backlog_primer_tool",
     "roadmap_builder_tool",
+    "sprint_planner_tool",
     "user_story_writer_tool",
 ]
-
