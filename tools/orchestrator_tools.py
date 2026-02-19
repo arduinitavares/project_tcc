@@ -319,19 +319,44 @@ def get_project_by_name(project_name: str) -> Dict[str, Any]:
         }
 
 
+def _priority_to_int(rank: Optional[str]) -> Optional[int]:
+    """Convert story rank to integer priority when possible."""
+    if rank is None:
+        return None
+    text = str(rank).strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def _story_order_key(story: UserStory) -> Tuple[int, int]:
+    """Sort key that keeps numeric rank first and stable ordering by story_id."""
+    numeric_priority = _priority_to_int(story.rank)
+    return (
+        numeric_priority if numeric_priority is not None else 10_000,
+        int(story.story_id or 0),
+    )
+
+
 def fetch_product_backlog(product_id: int) -> Dict[str, Any]:
     """
     Fetch all 'To Do' user stories for a product.
-    Returns a list of stories with basic details for sprint planning.
+    Returns a list of stories with basic details for inspection/diagnostics.
     """
     print(f"\n[Tool: fetch_product_backlog] Fetching backlog for product ID: {product_id}")
     with Session(get_engine()) as session:
-        stories = session.exec(
+        stories = list(
+            session.exec(
             select(UserStory)
             .where(UserStory.product_id == product_id)
             .where(UserStory.status == StoryStatus.TO_DO)
-            .order_by(UserStory.rank)
-        ).all()
+            .order_by(UserStory.rank, UserStory.story_id)
+            ).all()
+        )
+        stories.sort(key=_story_order_key)
 
         if not stories:
             print("   [DB] No stories found.")
@@ -339,21 +364,109 @@ def fetch_product_backlog(product_id: int) -> Dict[str, Any]:
 
         story_list = []
         for s in stories:
+            priority = _priority_to_int(s.rank)
             story_list.append({
                 "story_id": s.story_id,
                 "title": s.title,
                 "story_points": s.story_points,
-                "priority": s.rank, # Using rank as proxy for priority if rank is integer-like or sortable
-                "persona": s.persona
+                "priority": s.rank,
+                "priority_numeric": priority,
+                "persona": s.persona,
+                "story_origin": s.story_origin,
+                "is_refined": bool(s.is_refined),
+                "is_superseded": bool(s.is_superseded),
             })
-        
+
         print(f"   [DB] Found {len(stories)} stories.")
         return {
-            "success": True, 
-            "count": len(stories), 
+            "success": True,
+            "count": len(stories),
             "stories": story_list,
             "message": f"Found {len(stories)} stories in backlog."
         }
+
+
+def fetch_sprint_candidates(product_id: int) -> Dict[str, Any]:
+    """
+    Fetch sprint-eligible stories for a product.
+
+    Eligibility rule:
+    - status == TO_DO
+    - is_refined == True
+    - is_superseded == False
+    """
+    print(
+        f"\n[Tool: fetch_sprint_candidates] Fetching refined sprint candidates for product ID: {product_id}"
+    )
+    with Session(get_engine()) as session:
+        stories = list(
+            session.exec(
+                select(UserStory)
+                .where(UserStory.product_id == product_id)
+                .where(UserStory.status == StoryStatus.TO_DO)
+                .order_by(UserStory.rank, UserStory.story_id)
+            ).all()
+        )
+
+    if not stories:
+        print("   [DB] No stories found.")
+        return {
+            "success": True,
+            "count": 0,
+            "stories": [],
+            "excluded_counts": {
+                "non_refined": 0,
+                "superseded": 0,
+            },
+            "message": "No stories found in backlog.",
+        }
+
+    refined: List[UserStory] = []
+    excluded_non_refined = 0
+    excluded_superseded = 0
+
+    for story in stories:
+        if bool(story.is_superseded):
+            excluded_superseded += 1
+            continue
+        if not bool(story.is_refined):
+            excluded_non_refined += 1
+            continue
+        refined.append(story)
+
+    refined.sort(key=_story_order_key)
+
+    candidate_list: List[Dict[str, Any]] = []
+    for story in refined:
+        candidate_list.append(
+            {
+                "story_id": story.story_id,
+                "story_title": story.title,
+                "priority": _priority_to_int(story.rank),
+                "story_points": story.story_points,
+                "persona": story.persona,
+                "story_origin": story.story_origin,
+            }
+        )
+
+    print(
+        "   [DB] Found %s sprint candidates (excluded: non_refined=%s, superseded=%s)."
+        % (len(candidate_list), excluded_non_refined, excluded_superseded)
+    )
+
+    return {
+        "success": True,
+        "count": len(candidate_list),
+        "stories": candidate_list,
+        "excluded_counts": {
+            "non_refined": excluded_non_refined,
+            "superseded": excluded_superseded,
+        },
+        "message": (
+            f"Found {len(candidate_list)} refined sprint candidate(s) in backlog "
+            f"(excluded non-refined={excluded_non_refined}, superseded={excluded_superseded})."
+        ),
+    }
 
 
 def load_specification_from_file(
