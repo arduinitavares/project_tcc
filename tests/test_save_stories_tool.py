@@ -6,13 +6,14 @@ inside the error formatting code.
 """
 
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from agile_sqlmodel import Product
+from agile_sqlmodel import Product, UserStory
 from orchestrator_agent.agent_tools.user_story_writer_tool.tools import (
     SaveStoriesInput,
     save_stories_tool,
 )
+from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_key
 
 
 # ---------------------------------------------------------------------------
@@ -161,3 +162,100 @@ class TestSaveStoriesTool:
         # OR return a validation error — either way, must not crash
         assert isinstance(result, dict)
         assert "success" in result
+
+    def test_refinement_updates_seed_rows_by_linkage(self, session: Session):
+        _seed_product(session)
+        seed = UserStory(
+            product_id=7,
+            title="Attestation Gate",
+            story_description="Backlog seed",
+            acceptance_criteria=None,
+            source_requirement=normalize_requirement_key("Attestation Gate"),
+            refinement_slot=1,
+            story_origin="backlog_seed",
+            is_refined=False,
+            is_superseded=False,
+        )
+        session.add(seed)
+        session.commit()
+        session.refresh(seed)
+        seed_id = seed.story_id
+
+        payload = SaveStoriesInput(
+            product_id=7,
+            parent_requirement="Attestation Gate",
+            stories=[_valid_story()],
+        )
+        result = save_stories_tool(input_data=payload, tool_context=None)
+
+        assert result["success"] is True
+        assert result["updated_count"] == 1
+        assert result["created_count"] == 0
+        assert result["updated_story_ids"] == [seed_id]
+
+        session.expire_all()
+        refreshed = session.get(UserStory, seed_id)
+        assert refreshed is not None
+        assert refreshed.is_refined is True
+        assert (refreshed.acceptance_criteria or "").strip().startswith("- Verify")
+        assert refreshed.story_origin == "refined"
+
+    def test_refinement_repeat_is_idempotent_no_new_rows(self, session: Session):
+        _seed_product(session)
+        seed = UserStory(
+            product_id=7,
+            title="Attestation Gate",
+            story_description="Backlog seed",
+            acceptance_criteria=None,
+            source_requirement=normalize_requirement_key("Attestation Gate"),
+            refinement_slot=1,
+            story_origin="backlog_seed",
+            is_refined=False,
+            is_superseded=False,
+        )
+        session.add(seed)
+        session.commit()
+
+        payload = SaveStoriesInput(
+            product_id=7,
+            parent_requirement="Attestation Gate",
+            stories=[_valid_story()],
+        )
+        first = save_stories_tool(input_data=payload, tool_context=None)
+        second = save_stories_tool(input_data=payload, tool_context=None)
+
+        assert first["success"] is True
+        assert second["success"] is True
+        assert second["created_count"] == 0
+        assert second["updated_count"] == 1
+
+        rows = session.exec(
+            select(UserStory).where(UserStory.product_id == 7)
+        ).all()
+        assert len(rows) == 1
+
+    def test_source_requirement_normalization_matches_rows(self, session: Session):
+        _seed_product(session)
+        seed = UserStory(
+            product_id=7,
+            title="Attestation Gate",
+            story_description="Backlog seed",
+            acceptance_criteria=None,
+            source_requirement=normalize_requirement_key("Attestation Gate"),
+            refinement_slot=1,
+            story_origin="backlog_seed",
+            is_refined=False,
+            is_superseded=False,
+        )
+        session.add(seed)
+        session.commit()
+        session.refresh(seed)
+
+        payload = SaveStoriesInput(
+            product_id=7,
+            parent_requirement="  attestation   gate  ",
+            stories=[_valid_story()],
+        )
+        result = save_stories_tool(input_data=payload, tool_context=None)
+        assert result["success"] is True
+        assert result["updated_story_ids"] == [seed.story_id]

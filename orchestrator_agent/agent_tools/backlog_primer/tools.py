@@ -1,12 +1,21 @@
 """Tools for backlog_primer agent."""
 
 from typing import Annotated, Any, Dict, List, Optional
+import json
+import time
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session, select
 
-from agile_sqlmodel import UserStory, StoryStatus, get_engine
+from agile_sqlmodel import (
+    StoryStatus,
+    UserStory,
+    WorkflowEvent,
+    WorkflowEventType,
+    get_engine,
+)
+from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_key
 
 
 from .schemes import BacklogItem
@@ -74,11 +83,15 @@ async def save_backlog_tool(
     }
 
     # 2. Persist to Database (New Logic)
+    start_ts = time.perf_counter()
     engine = get_engine()
     created_count = 0
     
     with Session(engine) as session:
         for item in validated_items:
+            normalized_requirement = normalize_requirement_key(item.requirement)
+            slot = item.priority
+
             # Check for duplicates to prevent double-saving on retries
             # (Simple check: same title, same product, same status=TO_DO)
             existing = session.exec(
@@ -89,6 +102,17 @@ async def save_backlog_tool(
             ).first()
 
             if existing:
+                continue
+
+            # Strong deterministic duplicate guard after refinement exists.
+            existing_by_linkage = session.exec(
+                select(UserStory)
+                .where(UserStory.product_id == save_input.product_id)
+                .where(UserStory.source_requirement == normalized_requirement)
+                .where(UserStory.refinement_slot == slot)
+                .where(UserStory.is_superseded == False)  # noqa: E712
+            ).first()
+            if existing_by_linkage:
                 continue
 
             # Create new UserStory
@@ -119,11 +143,35 @@ async def save_backlog_tool(
                 rank=str(item.priority), # Storing priority as rank
                 story_points=points,
                 story_description=item.justification, # Using justification as initial description context
-                acceptance_criteria=None # To be filled by UserStory Writer later
+                acceptance_criteria=None, # To be filled by UserStory Writer later
+                source_requirement=normalized_requirement,
+                refinement_slot=slot,
+                story_origin="backlog_seed",
+                is_refined=False,
+                is_superseded=False,
             )
             session.add(new_story)
             created_count += 1
         
+        duration_seconds = tool_context.state.get("backlog_generation_duration")
+        if duration_seconds is None:
+            duration_seconds = round(time.perf_counter() - start_ts, 3)
+        session_id = getattr(tool_context, "session_id", None)
+        event_metadata = json.dumps(
+            {
+                "processed_count": len(validated_items),
+                "created_count": created_count,
+            }
+        )
+        session.add(
+            WorkflowEvent(
+                event_type=WorkflowEventType.BACKLOG_SAVED,
+                product_id=save_input.product_id,
+                session_id=session_id,
+                duration_seconds=float(duration_seconds),
+                event_metadata=event_metadata,
+            )
+        )
         session.commit()
 
     print(f"\n\033[92m[Backlog Saved]\033[0m {created_count} new items persisted to DB (Total processed: {len(validated_items)})")

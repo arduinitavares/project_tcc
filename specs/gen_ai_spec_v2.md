@@ -1,4 +1,4 @@
-# Review-First Human-in-the-Loop Extraction Pipeline  
+# P&ID information extraction  
 **Technical Specification (Final Draft with Inline Change Annotations)**
 
 ---

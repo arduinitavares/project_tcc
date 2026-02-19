@@ -1,0 +1,66 @@
+{
+  "run_timestamp_utc": "20260217_125613",
+  "cases_file": "artifacts\\validation_benchmark\\chunks\\cases.expanded.chunk1.jsonl",
+  "modes": [
+    "llm"
+  ],
+  "num_cases": 24,
+  "consensus_runs": 3,
+  "mode_metrics": {
+    "llm": {
+      "num_cases": 24,
+      "num_labeled_cases": 24,
+      "confusion_matrix_fail_class": {
+        "tp": 13,
+        "fp": 1,
+        "tn": 10,
+        "fn": 0
+      },
+      "precision_fail": 0.9285714285714286,
+      "precision_fail_ci_95": [
+        0.9245356802854868,
+        0.9327839960907685
+      ],
+      "recall_fail": 1.0,
+      "recall_fail_ci_95": [
+        1.0,
+        1.0
+      ],
+      "f1_fail": 0.962962962962963,
+      "f1_fail_ci_95": [
+        0.9594109674283174,
+        0.9639837127777839
+      ],
+      "accuracy": 0.9583333333333334,
+      "accuracy_ci_95": [
+        0.9561666666666666,
+        0.960875
+      ],
+      "provider_error_count": 0,
+      "clean_cases": 24,
+      "clean_confusion_matrix": {
+        "tp": 13,
+        "fp": 1,
+        "tn": 10,
+        "fn": 0
+      },
+      "clean_accuracy": 0.9583333333333334,
+      "clean_precision_fail": 0.9285714285714286,
+      "clean_recall_fail": 1.0,
+      "clean_f1_fail": 0.962962962962963,
+      "reason_recall_macro": 1.0,
+      "reason_precision_macro": 0.6071428571428571,
+      "reason_f1_macro": 0.7555555555555554,
+      "over_flagging_rate": 0.0,
+      "latency_ms_avg": 18222.264324999236,
+      "latency_ms_median": 18419.832233332272,
+      "stability_avg": 0.9722222222222222
+    }
+  },
+  "disagreements": {
+    "deterministic_vs_llm": [],
+    "deterministic_vs_hybrid": [],
+    "llm_vs_hybrid": []
+  },
+  "raw_path": "artifacts\\validation_eval\\raw_20260217_125613.jsonl"
+}

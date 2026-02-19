@@ -1,14 +1,19 @@
 === EXTRACTION METADATA ===
-timestamp,2026-02-08T23:26:34.257221+00:00
+timestamp,2026-02-19T01:36:03.295457+00:00
 db_path,C:\Users\mjnrc\projects\project_tcc\db\spec_authority_dev.db
 db_filename,spec_authority_dev.db
-commit_hash,ab06268e1d06
+commit_hash,122aaf7a74c5
 
 === PRODUCT METRICS ===
-product_id,product_name,created_at,total_stories,stories_with_spec_version_id,stories_with_validation_evidence,stories_approved_first_pass,stories_refined,sprint_count,sprint_plan_drafts,sprint_plan_saves,total_sprint_planning_duration_sec,avg_sprint_planning_duration_sec,avg_story_cycle_time_hours,stories_with_evidence_links,total_tasks,completed_tasks,spec_versions_count,spec_versions_approved,compiled_authorities_count,spec_accepted_count,spec_rejected_count
-7,Review-First Human-in-the-Loop Extraction Pipeline,2026-02-08 00:59:40.774781,38,25,38,0,0,1,0,1,0.0,0.0,0.0,0,25,0,1,1,1,1,0
-8,HashbrownVision Phase 1,2026-02-08 21:25:55.087916,19,6,19,0,0,1,0,1,0.0,0.0,0.0,0,25,0,1,1,1,0,0
+product_id,product_name,created_at,total_stories,stories_with_spec_version_id,refined_stories_with_spec_version_id,stories_with_validation_evidence,stories_approved_first_pass,stories_refined,sprint_count,sprint_plan_drafts,sprint_plan_saves,vision_saves,backlog_saves,roadmap_saves,stories_saves,spec_compiles,avg_vision_duration_sec,avg_spec_compile_duration_sec,avg_backlog_duration_sec,avg_roadmap_duration_sec,avg_stories_duration_sec,total_sprint_planning_duration_sec,avg_sprint_planning_duration_sec,avg_story_cycle_time_hours,stories_with_evidence_links,total_tasks,completed_tasks,spec_versions_count,spec_versions_approved,compiled_authorities_count,spec_accepted_count,spec_rejected_count
+1,P&ID Review & Extraction Platform,2026-02-19 01:15:47.192154,23,4,4,8,0,8,1,0,1,1,1,1,1,1,25.66,25.44,0.12,0.02,0.05,0.1,0.1,0.0,0,30,0,1,1,1,1,0
 
 === WORKFLOW EVENTS ===
 event_type,count,avg_duration_sec,total_duration_sec
-SPRINT_PLAN_SAVED,2,,
+BACKLOG_SAVED,1,0.12,0.12
+FSM_STATE_DWELL,12,119.51,1434.1
+ROADMAP_SAVED,1,0.02,0.02
+SPEC_COMPILED,1,25.44,25.44
+SPRINT_PLAN_SAVED,1,0.1,0.1
+STORIES_SAVED,1,0.05,0.05
+VISION_SAVED,1,25.66,25.66

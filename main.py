@@ -12,13 +12,14 @@ os.environ["LITELLM_LOG"] = "ERROR"
 os.environ["LITELLM_SUPPRESS_INSTRUMENTATION"] = "True"
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
 import sqlite3
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, List
 
@@ -29,7 +30,9 @@ from google.adk.sessions import DatabaseSessionService
 from google.genai import types
 from rich.console import Console
 from rich.panel import Panel
+from sqlmodel import Session
 
+from agile_sqlmodel import WorkflowEvent, WorkflowEventType, get_engine
 # Import Agent
 from orchestrator_agent.agent import root_agent
 from orchestrator_agent.fsm.controller import FSMController
@@ -175,6 +178,124 @@ def _serialize_for_display(payload: Any) -> str:
     return text
 
 
+def _context_fingerprint(value: Any) -> Dict[str, Any]:
+    """Return a compact fingerprint for large context payloads."""
+    if not isinstance(value, str) or not value:
+        return {"present": False, "length": 0, "sha256_12": None}
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+    return {"present": True, "length": len(value), "sha256_12": digest}
+
+
+def _utc_now() -> datetime:
+    """Return timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc)
+
+
+def _utc_now_iso() -> str:
+    """Return UTC ISO string for state timestamps."""
+    return _utc_now().isoformat().replace("+00:00", "Z")
+
+
+def _parse_iso_utc(value: Any) -> Optional[datetime]:
+    """Parse an ISO timestamp from state, handling Z suffix."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _active_product_id_from_state(state: Dict[str, Any]) -> Optional[int]:
+    """Extract active product ID from volatile state when present."""
+    active_project = state.get("active_project")
+    if not isinstance(active_project, dict):
+        return None
+    product_id = active_project.get("product_id")
+    try:
+        parsed = int(product_id)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _record_fsm_state_dwell_event(
+    *,
+    from_state: OrchestratorState,
+    to_state: Optional[OrchestratorState],
+    entered_at: datetime,
+    reason: str,
+    state_snapshot: Dict[str, Any],
+    user_input: str,
+    last_tool_name: Optional[str],
+    is_system_trigger: bool,
+) -> None:
+    """Persist FSM dwell duration for a state exit."""
+    now = _utc_now()
+    duration_seconds = max(0.0, (now - entered_at).total_seconds())
+    product_id = _active_product_id_from_state(state_snapshot)
+    metadata = {
+        "from_state": from_state.value,
+        "to_state": to_state.value if to_state else None,
+        "reason": reason,
+        "trigger_type": "system" if is_system_trigger else "user",
+        "last_tool_name": last_tool_name,
+        "state_entered_at": entered_at.isoformat().replace("+00:00", "Z"),
+        "state_exited_at": now.isoformat().replace("+00:00", "Z"),
+        "user_input_length": len(user_input or ""),
+    }
+
+    try:
+        with Session(get_engine()) as db_session:
+            db_session.add(
+                WorkflowEvent(
+                    event_type=WorkflowEventType.FSM_STATE_DWELL,
+                    product_id=product_id,
+                    session_id=SESSION_ID,
+                    duration_seconds=round(duration_seconds, 3),
+                    event_metadata=json.dumps(metadata, ensure_ascii=False),
+                )
+            )
+            db_session.commit()
+        app_logger.info(
+            "FSM DWELL RECORDED: from=%s to=%s duration=%.3fs reason=%s",
+            from_state.value,
+            to_state.value if to_state else "SESSION_END",
+            duration_seconds,
+            reason,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        app_logger.error("Failed to record FSM dwell event: %s", exc, exc_info=True)
+
+
+def flush_current_state_dwell_on_session_end() -> None:
+    """Record dwell for the current state when the CLI session ends."""
+    snapshot = get_current_state(APP_NAME, USER_ID, SESSION_ID)
+    current_state_key = snapshot.get("fsm_state", OrchestratorState.ROUTING_MODE.value)
+    try:
+        current_state = OrchestratorState(current_state_key)
+    except ValueError:
+        current_state = OrchestratorState.ROUTING_MODE
+
+    entered_at = _parse_iso_utc(snapshot.get("fsm_state_entered_at"))
+    if entered_at is None:
+        return
+
+    _record_fsm_state_dwell_event(
+        from_state=current_state,
+        to_state=None,
+        entered_at=entered_at,
+        reason="session_end",
+        state_snapshot=snapshot,
+        user_input="",
+        last_tool_name=None,
+        is_system_trigger=False,
+    )
+
+
 def _display_tool_call(part: types.Part) -> None:
     """Helper to visualize tool calls."""
     if not part.function_call:
@@ -286,6 +407,20 @@ async def run_agent_turn(
     
     # 1. PREPARE STATE
     full_state = get_current_state(APP_NAME, USER_ID, SESSION_ID)
+    app_logger.info(
+        "CONTEXT FINGERPRINTS: %s",
+        json.dumps(
+            {
+                "pending_spec_content": _context_fingerprint(
+                    full_state.get("pending_spec_content")
+                ),
+                "compiled_authority_cached": _context_fingerprint(
+                    full_state.get("compiled_authority_cached")
+                ),
+            },
+            ensure_ascii=False,
+        ),
+    )
 
     # --- FSM CONFIGURATION ---
     active_state_key = full_state.get("fsm_state", OrchestratorState.ROUTING_MODE)
@@ -293,6 +428,16 @@ async def run_agent_turn(
         active_state = OrchestratorState(active_state_key)
     except ValueError:
         active_state = OrchestratorState.ROUTING_MODE
+    state_entered_at = _parse_iso_utc(full_state.get("fsm_state_entered_at"))
+    if state_entered_at is None:
+        state_entered_at = _utc_now()
+        update_state_in_db(
+            {
+                "fsm_state": active_state.value,
+                "fsm_state_entered_at": _utc_now_iso(),
+            },
+            force=True,
+        )
 
     state_def = fsm_controller.get_state_definition(active_state)
 
@@ -342,9 +487,17 @@ async def run_agent_turn(
     latest_tool_data: Dict[str, Any] = {}  # Capture the raw data here
     last_tool_name = None  # Capture tool name for FSM
     current_text_chunk = ""  # Accumulate text between tool calls for logging
+    captured_durations: Dict[str, float] = {}
 
     # Track tool execution times to capture durations (e.g. for Sprint Planning)
     tool_start_times: Dict[str, datetime] = {}
+    duration_state_keys: Dict[str, str] = {
+        "product_vision_tool": "vision_generation_duration",
+        "backlog_primer_tool": "backlog_generation_duration",
+        "roadmap_builder_tool": "roadmap_generation_duration",
+        "user_story_writer_tool": "story_refinement_duration",
+        "sprint_planner_tool": "sprint_planning_duration",
+    }
 
     try:
         async for event in runner.run_async(
@@ -376,9 +529,10 @@ async def run_agent_turn(
                         # Calculate duration if we tracked the start
                         if last_tool_name in tool_start_times:
                             duration = (datetime.now() - tool_start_times[last_tool_name]).total_seconds()
-                            # Inject duration for sprint planner so it can be persisted
-                            if last_tool_name == "sprint_planner_tool":
-                                latest_tool_data["sprint_planning_duration"] = duration
+                            state_key = duration_state_keys.get(last_tool_name)
+                            if state_key:
+                                captured_durations[state_key] = duration
+                                latest_tool_data[state_key] = duration
 
                     # C. Text
                     if part.text:
@@ -409,9 +563,25 @@ async def run_agent_turn(
     )
 
     if next_state != active_state:
+        _record_fsm_state_dwell_event(
+            from_state=active_state,
+            to_state=next_state,
+            entered_at=state_entered_at,
+            reason="state_transition",
+            state_snapshot=full_state,
+            user_input=user_input,
+            last_tool_name=last_tool_name,
+            is_system_trigger=is_system_trigger,
+        )
         # Force persist FSM state regardless of configuration flag
-        update_state_in_db({"fsm_state": next_state.value}, force=True)
-        console.print(f"[dim cyan]State: {active_state.value} → {next_state.value}[/dim cyan]")
+        update_state_in_db(
+            {
+                "fsm_state": next_state.value,
+                "fsm_state_entered_at": _utc_now_iso(),
+            },
+            force=True,
+        )
+        console.print(f"[dim cyan]State: {active_state.value} -> {next_state.value}[/dim cyan]")
     else:
         console.print(f"[dim]State: {active_state.value}[/dim]", style="dim cyan")
 
@@ -421,6 +591,10 @@ async def run_agent_turn(
     data_to_save = latest_tool_data or extract_json_from_response(
         full_response_text
     )
+    if captured_durations:
+        if not data_to_save:
+            data_to_save = {}
+        data_to_save.update(captured_durations)
 
     if data_to_save:
         if "updated_components" in data_to_save:
@@ -449,7 +623,15 @@ async def run_agent_turn(
                 )
             )
 
-        elif "sprint_plan" in data_to_save:
+        if "sprint_planning_duration" in data_to_save:
+            update_state_in_db(
+                {"sprint_planning_duration": data_to_save["sprint_planning_duration"]}
+            )
+            console.print(
+                "[bold dim cyan]>> State Updated (Sprint Planning Duration)[/bold dim cyan]"
+            )
+
+        if "sprint_plan" in data_to_save:
             payload = {"sprint_plan": data_to_save["sprint_plan"]}
             if "sprint_planning_duration" in data_to_save:
                 payload["sprint_planning_duration"] = data_to_save["sprint_planning_duration"]
@@ -523,6 +705,8 @@ async def main():
         "[bold green]Hydrating Business State...", spinner="dots"
     ):
         initial_state = get_real_business_state()
+        initial_state["fsm_state"] = OrchestratorState.ROUTING_MODE.value
+        initial_state["fsm_state_entered_at"] = _utc_now_iso()
         app_logger.info("Initial business state loaded: %s", json.dumps(initial_state, indent=2, ensure_ascii=False, default=str))
 
     await session_service.create_session(
@@ -576,6 +760,7 @@ if __name__ == "__main__":
         console.print(f"[dim]See log file for details: {LOG_FILENAME}[/dim]")
         sys.exit(1)
     finally:
+        flush_current_state_dwell_on_session_end()
         app_logger.info("="*80)
         app_logger.info("SESSION ENDED")
         app_logger.info("="*80)

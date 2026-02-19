@@ -2,6 +2,7 @@
 
 import json
 from datetime import date, timedelta
+import time
 from typing import Annotated, Any, Dict, List, Optional
 
 from google.adk.tools import ToolContext
@@ -61,6 +62,19 @@ def _get_story_conflicts(
     return list({row for row in existing})
 
 
+def _coerce_duration_seconds(value: Any) -> Optional[float]:
+    """Return a non-negative float duration or None when value is invalid."""
+    if value is None:
+        return None
+    try:
+        duration = float(value)
+    except (TypeError, ValueError):
+        return None
+    if duration < 0:
+        return None
+    return duration
+
+
 def save_sprint_plan_tool(
     input_data: SaveSprintPlanInput,
     tool_context: Optional[ToolContext] = None,
@@ -93,6 +107,7 @@ def save_sprint_plan_tool(
             "error": f"Sprint plan validation error: {exc}",
         }
 
+    start_ts = time.perf_counter()
     engine = get_engine()
 
     with Session(engine) as session:
@@ -212,18 +227,24 @@ def save_sprint_plan_tool(
                 "capacity_analysis": validated_plan.capacity_analysis.model_dump(),
             }
         )
-        # Try to retrieve duration from context (populated by Orchestrator/Runner)
-        duration_seconds = None
+        # Prefer orchestrator-provided duration when present and valid.
+        duration_seconds: Optional[float] = None
         if tool_context and tool_context.state:
-            duration_seconds = tool_context.state.get("sprint_planning_duration")
+            duration_seconds = _coerce_duration_seconds(
+                tool_context.state.get("sprint_planning_duration")
+            )
+        if duration_seconds is None:
+            duration_seconds = round(time.perf_counter() - start_ts, 3)
+        session_id = getattr(tool_context, "session_id", None)
 
         session.add(
             WorkflowEvent(
                 event_type=WorkflowEventType.SPRINT_PLAN_SAVED,
                 product_id=input_data.product_id,
                 sprint_id=sprint.sprint_id,
+                session_id=session_id,
                 event_metadata=event_metadata,
-                duration_seconds=duration_seconds,
+                duration_seconds=float(duration_seconds),
             )
         )
 

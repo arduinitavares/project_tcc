@@ -6,13 +6,20 @@ product_tools.py
 from typing import Annotated, Any, Dict, Optional
 from datetime import datetime, timezone
 from pathlib import Path
+import json
+import time
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
-from agile_sqlmodel import Product, get_engine
+from agile_sqlmodel import (
+    Product,
+    WorkflowEvent,
+    WorkflowEventType,
+    get_engine,
+)
 from tools.spec_tools import (
     UpdateSpecAndCompileAuthorityInput,
     update_spec_and_compile_authority,
@@ -41,6 +48,7 @@ def save_vision_tool(
         f"\n[Tool: save_vision_tool] Processing '{vision_input.project_name}' (ID: {vision_input.product_id})..."
     )
 
+    start_ts = time.perf_counter()
     try:
         with Session(get_engine()) as session:
             p_id = vision_input.product_id
@@ -125,6 +133,27 @@ def save_vision_tool(
             # --- Link spec & compile authority (Pre-Phase completion) ---
             _link_spec_if_pending(p_id, tool_context)
 
+            duration_seconds = tool_context.state.get("vision_generation_duration")
+            if duration_seconds is None:
+                duration_seconds = round(time.perf_counter() - start_ts, 3)
+            session_id = getattr(tool_context, "session_id", None)
+            metadata = json.dumps(
+                {
+                    "mode": "create" if vision_input.product_id is None else "update",
+                    "project_name": vision_input.project_name,
+                }
+            )
+            session.add(
+                WorkflowEvent(
+                    event_type=WorkflowEventType.VISION_SAVED,
+                    product_id=p_id,
+                    session_id=session_id,
+                    duration_seconds=float(duration_seconds),
+                    event_metadata=metadata,
+                )
+            )
+            session.commit()
+
             return {
                 "success": True,
                 "product_id": p_id,
@@ -182,6 +211,7 @@ def _link_spec_if_pending(
     state["spec_persisted"] = True
 
     # Compile authority (creates SpecRegistry + CompiledSpecAuthority)
+    compile_start_ts = time.perf_counter()
     try:
         compile_input = UpdateSpecAndCompileAuthorityInput(
             product_id=product_id,
@@ -203,3 +233,18 @@ def _link_spec_if_pending(
             )
     except Exception as exc:  # pylint: disable=broad-except
         print(f"   [save_vision_tool] Authority compile error: {exc}")
+    finally:
+        duration_seconds = round(time.perf_counter() - compile_start_ts, 3)
+        session_id = getattr(tool_context, "session_id", None)
+        metadata = json.dumps({"spec_path": spec_path})
+        with Session(get_engine()) as session:
+            session.add(
+                WorkflowEvent(
+                    event_type=WorkflowEventType.SPEC_COMPILED,
+                    product_id=product_id,
+                    session_id=session_id,
+                    duration_seconds=duration_seconds,
+                    event_metadata=metadata,
+                )
+            )
+            session.commit()

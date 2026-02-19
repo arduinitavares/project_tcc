@@ -6,9 +6,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
-from sqlmodel import Session as SqlSession, create_engine, SQLModel
+from sqlmodel import Session as SqlSession, create_engine, SQLModel, select
 
-from agile_sqlmodel import Product
+from agile_sqlmodel import Product, UserStory
+from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_key
 from orchestrator_agent.agent_tools.backlog_primer.schemes import (
     BacklogItem,
     InputSchema,
@@ -177,3 +178,93 @@ class TestSaveBacklogTool:
 
         assert result["success"] is False
         assert "ToolContext required" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_backlog_save_sets_linkage_fields(self) -> None:
+        mock_context = MagicMock()
+        mock_context.state = {}
+        test_engine = create_engine("sqlite://", echo=False)
+        SQLModel.metadata.create_all(test_engine)
+        with SqlSession(test_engine) as session:
+            session.add(Product(name="Test Product"))
+            session.commit()
+
+        save_input = SaveBacklogInput(
+            product_id=1,
+            backlog_items=[
+                {
+                    "priority": 1,
+                    "requirement": "User authentication",
+                    "value_driver": "Customer Satisfaction",
+                    "justification": "Security baseline",
+                    "estimated_effort": "M",
+                },
+            ],
+        )
+
+        with patch(
+            "orchestrator_agent.agent_tools.backlog_primer.tools.get_engine",
+            return_value=test_engine,
+        ):
+            result = await save_backlog_tool(save_input, tool_context=mock_context)
+
+        assert result["success"] is True
+        with SqlSession(test_engine) as session:
+            story = session.exec(
+                select(UserStory).where(UserStory.product_id == 1)
+            ).first()
+            assert story is not None
+            assert story.source_requirement == normalize_requirement_key("User authentication")
+            assert story.refinement_slot == 1
+            assert story.story_origin == "backlog_seed"
+            assert story.is_refined is False
+            assert story.is_superseded is False
+
+    @pytest.mark.asyncio
+    async def test_backlog_resave_after_refinement_does_not_insert_duplicates(self) -> None:
+        mock_context = MagicMock()
+        mock_context.state = {}
+        test_engine = create_engine("sqlite://", echo=False)
+        SQLModel.metadata.create_all(test_engine)
+        with SqlSession(test_engine) as session:
+            session.add(Product(name="Test Product"))
+            session.commit()
+            session.add(
+                UserStory(
+                    product_id=1,
+                    title="Refined auth title",
+                    story_description="As a user, I want auth, so that secure login.",
+                    acceptance_criteria="- Verify auth",
+                    source_requirement=normalize_requirement_key("User authentication"),
+                    refinement_slot=1,
+                    story_origin="refined",
+                    is_refined=True,
+                    is_superseded=False,
+                )
+            )
+            session.commit()
+
+        save_input = SaveBacklogInput(
+            product_id=1,
+            backlog_items=[
+                {
+                    "priority": 1,
+                    "requirement": "User authentication",
+                    "value_driver": "Customer Satisfaction",
+                    "justification": "Security baseline",
+                    "estimated_effort": "M",
+                },
+            ],
+        )
+
+        with patch(
+            "orchestrator_agent.agent_tools.backlog_primer.tools.get_engine",
+            return_value=test_engine,
+        ):
+            result = await save_backlog_tool(save_input, tool_context=mock_context)
+
+        assert result["success"] is True
+        assert result["saved_count"] == 0
+        with SqlSession(test_engine) as session:
+            count = len(session.exec(select(UserStory).where(UserStory.product_id == 1)).all())
+            assert count == 1

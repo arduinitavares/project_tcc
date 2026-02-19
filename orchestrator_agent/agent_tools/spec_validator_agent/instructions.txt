@@ -49,11 +49,18 @@ Granular scoping for REQUIRED_FIELD and FORBIDDEN_CAPABILITY invariants:
 ## 3. Apply invariants with scope awareness
 Evaluate only IN-SCOPE invariants for compliance.
 Do not fail a story for OUT-OF-SCOPE invariants.
+When scope is ambiguous, prefer OUT-OF-SCOPE and return advisory issues, not blocking critical gaps.
 
 Always treat explicit contradictions as IN-SCOPE failures.
 Examples:
 - Spec requires PostgreSQL, story says MongoDB.
 - Spec forbids cloud services, story requires cloud processing.
+
+Attestation-specific scoping guardrails:
+- If a story is about attestation ACCEPT/REVOKE workflow outcomes, do NOT require
+  explicit checkbox rendering invariants unless the story explicitly implements UI checkbox behavior.
+- If a story is about RED-state mapping or review-state priority logic, do NOT require
+  persistence/export gating invariants unless persistence/export behavior is part of story scope.
 
 ## 4. Evaluate acceptance criteria quality
 Fail only when acceptance criteria are missing or clearly untestable for the story scope.
@@ -68,6 +75,7 @@ Populate:
 - `out_of_scope_invariants`
 
 `critical_gaps` must contain only IN-SCOPE blocking gaps.
+Do not include speculative gaps in `critical_gaps`; uncertain findings belong in `issues` only.
 
 # Decision Rules
 

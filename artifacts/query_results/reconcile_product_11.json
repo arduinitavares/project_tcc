@@ -1,0 +1,44 @@
+{
+  "product_id": 11,
+  "migrated_actions": [],
+  "canonical_story_ids": [
+    10217,
+    10218,
+    10219,
+    10220,
+    10221
+  ],
+  "superseded_story_ids": [],
+  "placeholder_story_ids": [
+    10205,
+    10206,
+    10207,
+    10208,
+    10209,
+    10210,
+    10211,
+    10212,
+    10213,
+    10214,
+    10215,
+    10216
+  ],
+  "unresolved_story_ids": [
+    10205,
+    10206,
+    10207,
+    10208,
+    10209,
+    10210,
+    10211,
+    10212,
+    10213,
+    10214,
+    10215,
+    10216
+  ],
+  "canonical_count": 5,
+  "superseded_count": 0,
+  "placeholder_count": 12,
+  "unresolved_count": 12
+}

@@ -89,10 +89,13 @@ class TestSprintPlannerToolRegistration:
         for tool in state_def.tools:
             name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
             if name == "sprint_planner_tool":
-                assert isinstance(tool, BaseTool), (
-                    f"sprint_planner_tool should be BaseTool, got {type(tool)}"
-                )
-                decl = tool._get_declaration()
+                if isinstance(tool, BaseTool):
+                    decl = tool._get_declaration()
+                else:
+                    assert callable(tool), (
+                        f"sprint_planner_tool should be callable or BaseTool, got {type(tool)}"
+                    )
+                    decl = FunctionTool(func=tool)._get_declaration()
                 assert decl is not None, "sprint_planner_tool declaration is None"
                 assert decl.name == "sprint_planner_tool", (
                     f"Declaration name mismatch: {decl.name}"

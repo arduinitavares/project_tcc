@@ -256,6 +256,101 @@ def migrate_performance_indexes(engine: Engine) -> List[str]:
     ):
         actions.append("created index: ix_user_stories_product_id")
 
+    existing_columns = _get_existing_columns(engine, "user_stories")
+    linkage_columns = {
+        "product_id",
+        "source_requirement",
+        "refinement_slot",
+        "is_superseded",
+    }
+    if linkage_columns.issubset(existing_columns):
+        if _ensure_index_exists(
+            engine,
+            "user_stories",
+            "ix_user_stories_refinement_linkage",
+            ["product_id", "source_requirement", "refinement_slot", "is_superseded"],
+        ):
+            actions.append("created index: ix_user_stories_refinement_linkage")
+
+    return actions
+
+
+# =============================================================================
+# USER STORY REFINEMENT LINKAGE MIGRATION
+# =============================================================================
+
+def migrate_user_story_refinement_linkage(engine: Engine) -> List[str]:
+    """Ensure refinement linkage columns exist and defaults are backfilled."""
+    actions: List[str] = []
+
+    if _ensure_column_exists(
+        engine,
+        "user_stories",
+        "source_requirement",
+        "VARCHAR",
+    ):
+        actions.append("added column: user_stories.source_requirement")
+
+    if _ensure_column_exists(
+        engine,
+        "user_stories",
+        "refinement_slot",
+        "INTEGER",
+    ):
+        actions.append("added column: user_stories.refinement_slot")
+
+    if _ensure_column_exists(
+        engine,
+        "user_stories",
+        "story_origin",
+        "VARCHAR",
+    ):
+        actions.append("added column: user_stories.story_origin")
+
+    if _ensure_column_exists(
+        engine,
+        "user_stories",
+        "is_refined",
+        "BOOLEAN DEFAULT 0",
+    ):
+        actions.append("added column: user_stories.is_refined")
+
+    if _ensure_column_exists(
+        engine,
+        "user_stories",
+        "is_superseded",
+        "BOOLEAN DEFAULT 0",
+    ):
+        actions.append("added column: user_stories.is_superseded")
+
+    if _ensure_column_exists(
+        engine,
+        "user_stories",
+        "superseded_by_story_id",
+        "INTEGER",
+    ):
+        actions.append("added column: user_stories.superseded_by_story_id")
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE user_stories
+                SET is_refined = 0
+                WHERE is_refined IS NULL
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE user_stories
+                SET is_superseded = 0
+                WHERE is_superseded IS NULL
+                """
+            )
+        )
+
     return actions
 
 
@@ -281,6 +376,7 @@ def ensure_schema_current(engine: Engine) -> None:
     try:
         actions = migrate_spec_authority_tables(engine)
         actions.extend(migrate_product_spec_cache(engine))
+        actions.extend(migrate_user_story_refinement_linkage(engine))
         actions.extend(migrate_performance_indexes(engine))
 
         if actions:

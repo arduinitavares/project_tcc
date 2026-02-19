@@ -1,7 +1,15 @@
 from typing import Any, List, Set
+
 from pydantic import BaseModel, Field
-from google.adk.tools import AgentTool
-from .states import OrchestratorState, OrchestratorPhase
+
+from .deterministic_tool_adapters import (
+    backlog_primer_tool,
+    product_vision_tool,
+    roadmap_builder_tool,
+    sprint_planner_tool,
+    user_story_writer_tool,
+)
+from .states import OrchestratorPhase, OrchestratorState
 
 # --- Tool Imports ---
 from tools.orchestrator_tools import (
@@ -20,22 +28,10 @@ from tools.spec_tools import (
     preview_spec_authority,
 )
 from orchestrator_agent.agent_tools.product_vision_tool.tools import save_vision_tool
-from orchestrator_agent.agent_tools.product_vision_tool.agent import root_agent as vision_agent
-from orchestrator_agent.agent_tools.backlog_primer.agent import root_agent as backlog_agent
 from orchestrator_agent.agent_tools.backlog_primer.tools import save_backlog_tool
-from orchestrator_agent.agent_tools.roadmap_builder.agent import root_agent as roadmap_agent
 from orchestrator_agent.agent_tools.roadmap_builder.tools import save_roadmap_tool
-from orchestrator_agent.agent_tools.sprint_planner_tool.agent import root_agent as sprint_planner_agent
 from orchestrator_agent.agent_tools.sprint_planner_tool.tools import save_sprint_plan_tool
-from orchestrator_agent.agent_tools.user_story_writer_tool.agent import root_agent as story_writer_agent
 from orchestrator_agent.agent_tools.user_story_writer_tool.tools import save_stories_tool
-
-# Wrappers for Agent Tools
-product_vision_tool = AgentTool(agent=vision_agent)
-backlog_primer_tool = AgentTool(agent=backlog_agent)
-roadmap_builder_tool = AgentTool(agent=roadmap_agent)
-sprint_planner_tool = AgentTool(agent=sprint_planner_agent)
-user_story_writer_tool = AgentTool(agent=story_writer_agent)
 
 class StateDefinition(BaseModel):
       name: OrchestratorState
@@ -77,6 +73,11 @@ You never add information, hallucinate, or invent requirements.
   current state. If the user requests work that requires a tool you cannot
   see, explain which workflow step must be completed first and guide them
   there. NEVER attempt to call a tool that is not in your current tool set.
+- **CONTEXT INJECTION RULE:** For `product_vision_tool`,
+  `backlog_primer_tool`, `roadmap_builder_tool`, `user_story_writer_tool`,
+  and `sprint_planner_tool`,
+  context fields are injected automatically from volatile state. Pass only the
+  user-intent fields required by each tool signature.
 
 **WORKFLOW SEQUENCE (IMMUTABLE):**
 Vision → Backlog → Roadmap → Stories → Sprint Planning.
@@ -100,7 +101,7 @@ ROUTING_INSTRUCTION = """
 
 2. **Explicit Vision Modification:** User says "modify vision", "change vision", "update vision" for the active project
    - Load vision from `state["active_project"]["vision"]`
-   - Call: `product_vision_tool(user_raw_text=..., specification_content="", prior_vision_state=<JSON from state>)`
+   - Call: `product_vision_tool(user_raw_text=...)`
 
 3. **New Project with Specification File:** User says "start new project" AND provides a file path
    - **Extract file path** from user message (look for patterns: `*.md`, `*.txt`, `docs/...`, `C:\\...`)
@@ -108,7 +109,7 @@ ROUTING_INSTRUCTION = """
    - **Store in state:** Save to `tool_context.state["pending_spec_content"]` and `state["pending_spec_path"]`
    - **Compile Authority (Preview):** Call `preview_spec_authority(content=spec_content)`
      - Store output `compiled_authority` JSON string in `tool_context.state["compiled_authority_cached"]`
-   - **Pass to vision agent:** Call `product_vision_tool(user_raw_text="Analyze this specification.", specification_content=spec_content, compiled_authority=<cached_authority>, prior_vision_state="NO_HISTORY")`
+   - **Pass to vision agent:** Call `product_vision_tool(user_raw_text="Analyze this specification.")`
    - **STOP immediately after `product_vision_tool` returns.** Do NOT call any save tools.
      The FSM will transition to VISION_REVIEW where the user can approve or request changes.
      Saving happens in later states (VISION_REVIEW → VISION_PERSISTENCE).
@@ -118,7 +119,7 @@ ROUTING_INSTRUCTION = """
    - **Store pasted content:** Save to `tool_context.state["pending_spec_content"] = <pasted_text>`
    - **Compile Authority (Preview):** Call `preview_spec_authority(content=<pasted_text>)`
      - Store output `compiled_authority` JSON string in `tool_context.state["compiled_authority_cached"]`
-   - Call: `product_vision_tool(user_raw_text=<pasted_text>, specification_content=<pasted_text>, compiled_authority=<cached_authority>, prior_vision_state="NO_HISTORY")`
+   - Call: `product_vision_tool(user_raw_text=<pasted_text>)`
    - **STOP immediately after `product_vision_tool` returns.** Do NOT call any save tools.
      The FSM will transition to VISION_REVIEW where the user can approve or request changes.
      Saving happens in later states (VISION_REVIEW → VISION_PERSISTENCE).
@@ -138,15 +139,12 @@ ROUTING_INSTRUCTION = """
    - **IMPORTANT:** Use `user_story_writer_tool` — do NOT call `query_features_for_stories` or `get_story_details`.
      `query_features_for_stories` is a legacy query tool. Story creation goes through `user_story_writer_tool`.
    - If the active project has NO saved roadmap: redirect to roadmap flow first.
-   - If the active project HAS a saved roadmap (check `state["active_project"]["roadmap"]` or Product.roadmap in DB):
-     1. Load the saved roadmap JSON (parse `roadmap_releases`).
-     2. Pick the **first requirement** from the first release's `items` list.
-     3. Call `user_story_writer_tool` with:
-        - `parent_requirement`: The requirement name
-        - `requirement_context`: The release `reasoning` + `theme` + `focus_area`
-        - `technical_spec`: Use `tool_context.state["pending_spec_content"]` if present; otherwise empty string
-        - `compiled_authority`: Use `tool_context.state["compiled_authority_cached"]` if present; otherwise empty string
-     4. After the tool responds, present stories for user review before proceeding to the next requirement.
+    - If the active project HAS a saved roadmap (check `state["active_project"]["roadmap"]` or Product.roadmap in DB):
+      1. Load the saved roadmap JSON (parse `roadmap_releases`).
+      2. Pick the **first requirement** from the first release's `items` list.
+      3. Call `user_story_writer_tool(parent_requirement=<requirement_name>)`.
+         - Optionally pass `requirement_context` only when you have explicit user-provided context overrides.
+      4. After the tool responds, present stories for user review before proceeding to the next requirement.
 
 9. **Sprint Planning Request (After Stories):** User says "plan sprint", "sprint planning", or "sprint backlog"
    - If roadmap is missing: route to Roadmap flow first.
@@ -161,10 +159,8 @@ VISION_INTERVIEW_INSTRUCTION = """
 1. **Output Lead-in:** *"I am handing this response to the Product Vision Agent…"*
 2. **Construct Arguments:**
    - `user_raw_text`: The EXACT new string from the user.
-   - `specification_content`: Use `tool_context.state["pending_spec_content"]` if present; otherwise empty string.
-   - `compiled_authority`: Use `tool_context.state["compiled_authority_cached"]` if present; otherwise empty string.
-   - `prior_vision_state`: **COPY** the entire JSON string from the *previous* `product_vision_tool` output found in the chat history.
-3. **Execute Call:** `product_vision_tool(user_raw_text=..., specification_content=..., compiled_authority=..., prior_vision_state=...)`
+   - Do NOT pass context fields manually. They are injected from volatile state.
+3. **Execute Call:** `product_vision_tool(user_raw_text=...)`
 4. **Tool Integrity Rule:** If the tool returns `is_complete: false` or clarifying questions, you MUST relay those questions to the user.
    - Do NOT say "The vision is complete" unless the tool explicitly returns `is_complete: true`.
    - Do NOT hallucinate that the vision is saved.
@@ -209,12 +205,9 @@ BACKLOG_INTERVIEW_INSTRUCTION = """
 **Behavior:**
 1. **Output Lead-in:** *"Working with the Backlog Primer..."*
 2. **Construct Arguments:**
-   - `product_vision_statement`: The completed vision from active_project or database
-   - `technical_spec`: Use `tool_context.state["pending_spec_content"]` if present; otherwise empty string
-   - `compiled_authority`: Use `tool_context.state["compiled_authority_cached"]` if present; otherwise empty string
-   - `prior_backlog_state`: **COPY** the entire JSON from the *previous* `backlog_primer_tool` output in chat history. If this is the FIRST call, use "NO_HISTORY".
    - `user_input`: The EXACT new string from the user
-3. **Execute Call:** `backlog_primer_tool(product_vision_statement=..., technical_spec=..., compiled_authority=..., prior_backlog_state=..., user_input=...)`
+   - Do NOT pass context fields manually. They are injected from volatile state.
+3. **Execute Call:** `backlog_primer_tool(user_input=...)`
 4. **Present Results:** Display the backlog items in a clear table.
    - If the tool returns clarifying questions, display them.
    - Do NOT say "The backlog is saved" unless you have explicitly called `save_backlog_tool` successfully.
@@ -225,7 +218,7 @@ BACKLOG_INTERVIEW_INSTRUCTION = """
      *Choose 1 or 2."*
 6. **STOP.**
 
-**CRITICAL:** You MUST pass the previous backlog_items as `prior_backlog_state` to maintain context across turns.
+**CRITICAL:** Prior backlog state is injected automatically from volatile state. Never summarize or rewrite it manually.
 
 **ON USER CONFIRMATION (any of: "save", "1", "proceed", "yes", "looks good", "approved", "next"):**
 1. Immediately call `save_backlog_tool` with:
@@ -296,14 +289,10 @@ ROADMAP_INTERVIEW_INSTRUCTION = """
 **Behavior:**
 1. **Output Lead-in:** *"Working with the Roadmap Builder..."*
 2. **Construct Arguments:**
-   - `backlog_items`: Use `tool_context.state["approved_backlog"]["items"]`
-   - `product_vision`: Use active project vision
-   - `technical_spec`: Use `tool_context.state["pending_spec_content"]` if present; otherwise empty string
-   - `compiled_authority`: Use `tool_context.state["compiled_authority_cached"]` if present; otherwise empty string
    - `time_increment`: "Milestone-based"
-   - `prior_roadmap_state`: **COPY** the entire JSON from the previous `roadmap_builder_tool` output. If first call, use "NO_HISTORY".
    - `user_input`: The EXACT new string from the user
-3. **Execute Call:** `roadmap_builder_tool(...)`
+   - Do NOT pass context fields manually. They are injected from volatile state.
+3. **Execute Call:** `roadmap_builder_tool(user_input=..., time_increment=...)`
 4. **Display Questions:** Show any `clarifying_questions` as bullet points
 5. **STOP.**
 
@@ -358,10 +347,9 @@ STORY_INTERVIEW_INSTRUCTION = """
 1. **Output Lead-in:** *"Working with the User Story Writer..."*
 2. **Construct Arguments:**
    - `parent_requirement`: The roadmap requirement being decomposed
-   - `requirement_context`: Release theme, reasoning, and focus_area from the saved roadmap
-   - `technical_spec`: Use `tool_context.state["pending_spec_content"]` if present; otherwise empty string
-   - `compiled_authority`: Use `tool_context.state["compiled_authority_cached"]` if present; otherwise empty string
-3. **Execute Call:** `user_story_writer_tool(...)`
+   - `requirement_context` (optional): pass only if user explicitly provided override context
+   - Do NOT pass `technical_spec` or `compiled_authority`; they are injected from volatile state.
+3. **Execute Call:** `user_story_writer_tool(parent_requirement=..., requirement_context=...)`
 4. **Display:** Show generated `user_stories` clearly, with INVEST scores
 5. **STOP.**
 """
@@ -402,7 +390,7 @@ STORY_PERSISTENCE_INSTRUCTION = """
        - If user agrees, call `user_story_writer_tool` for the next requirement.
     - If no: Confirm *"All roadmap requirements have been decomposed into stories."*
        - Ask: *"Proceed to Sprint Planning?"*
-       - If user agrees, call `fetch_product_backlog` then call `sprint_planner_tool`.
+       - If user agrees, call `sprint_planner_tool`.
 3. **STOP.**
 """
 
@@ -410,18 +398,16 @@ SPRINT_SETUP_INSTRUCTION = """
 # STATE 11 — SPRINT SETUP MODE
 
 **Behavior:**
-1. **Fetch Stories:** Always call `fetch_product_backlog(product_id=<active_project_id>)` immediately to get the fresh pool of available `TO_DO` stories.
-   - You MUST identify stories by their real `story_id` from this tool. Do NOT invent IDs.
-   - If user asks to list stories, display them from this tool's output.
-2. **Gather Inputs:** Ask the user for:
+1. **Gather Inputs:** Ask the user for:
    - `team_velocity_assumption` (Low/Medium/High).
    - `sprint_duration_days` (default 14).
-   - Preference for story selection (e.g. "Take top 5", "high priority only").
-3. **Call Tool:** Call `sprint_planner_tool` with:
-   - `available_stories`: The list from `fetch_product_backlog` (filtered if user requested specific ones).
+   - Optional constraints: `max_story_points`, focus/context, and optional `selected_story_ids`.
+2. **Call Tool:** Call `sprint_planner_tool` with:
    - `team_velocity_assumption`: User choice or default Medium.
    - `sprint_duration_days`: User choice or default 14.
-4. **STOP.**
+   - Optional: `user_context`, `max_story_points`, `include_task_decomposition`, `selected_story_ids`.
+   - IMPORTANT: Do NOT pass `available_stories`; sprint candidates are injected deterministically from refined volatile/DB state.
+3. **STOP.**
 """
 
 SPRINT_DRAFT_INSTRUCTION = """
@@ -437,9 +423,8 @@ SPRINT_DRAFT_INSTRUCTION = """
    - `sprint_start_date`: user-provided start date
    - `sprint_duration_days`: from sprint plan or user override
 4. **On Changes:**
-   - Call `fetch_product_backlog` to ensure up-to-date stories.
    - Collect updated inputs/constraints.
-   - Call `sprint_planner_tool` with real stories and new constraints.
+   - Re-call `sprint_planner_tool` with updated intent fields only.
 5. **STOP.**
 """
 
