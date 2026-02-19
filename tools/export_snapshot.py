@@ -5,7 +5,7 @@ from __future__ import annotations
 import html
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 try:
     from markdown import markdown as _md  # type: ignore[import-not-found]
@@ -78,13 +78,18 @@ def export_project_snapshot_html(
         epic_ids = [epic.epic_id for epic in epics if epic.epic_id is not None]
         features = list(session.exec(select(Feature)).all())
         features = [feature for feature in features if feature.epic_id in epic_ids]
-        stories = list(
+        all_stories = list(
             session.exec(select(UserStory).where(UserStory.product_id == product_id)).all()
         )
         sprints = list(
             session.exec(select(Sprint).where(Sprint.product_id == product_id)).all()
         )
         sprint_story_map = _load_sprint_story_map(session, [s.sprint_id for s in sprints])
+        stories = _select_refined_current_sprint_stories(
+            all_stories,
+            sprints,
+            sprint_story_map,
+        )
 
         approved_spec = _get_latest_approved_spec(session, product_id)
         spec_content, spec_meta = _resolve_spec_content(product, approved_spec)
@@ -96,6 +101,7 @@ def export_project_snapshot_html(
         epics=epics,
         features=features,
         stories=stories,
+        all_stories=all_stories,
         sprints=sprints,
         sprint_story_map=sprint_story_map,
         spec_content=spec_content,
@@ -190,6 +196,7 @@ def _render_snapshot_html(
     epics: List[Epic],
     features: List[Feature],
     stories: List[UserStory],
+    all_stories: List[UserStory],
     sprints: List[Sprint],
     sprint_story_map: Dict[int, List[int]],
     spec_content: str,
@@ -197,8 +204,9 @@ def _render_snapshot_html(
     authority: Optional[SpecAuthorityCompilationSuccess],
 ) -> str:
     generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    roadmap_html = _render_roadmap(themes, epics, features, stories)
+    roadmap_html = _render_roadmap(themes, epics, features, all_stories)
     stories_html = _render_stories_table(stories, epics, features, themes)
+    full_backlog_html = _render_all_stories_table(all_stories, epics, features, themes)
     sprint_html = _render_sprint_summary(sprints, stories, sprint_story_map)
     spec_html = _markdown(spec_content or "", extensions=["fenced_code", "tables"])
     spec_toc = _extract_markdown_headings(spec_content or "")
@@ -225,6 +233,11 @@ def _render_snapshot_html(
         .badge-ok {{ background: #dcfce7; color: #166534; }}
         .badge-warn {{ background: #fef9c3; color: #854d0e; }}
         .toc li {{ margin-bottom: 4px; }}
+        .toc-level-2 {{ margin-left: 16px; }}
+        .toc-level-3 {{ margin-left: 32px; }}
+        .toc-level-4 {{ margin-left: 48px; }}
+        .toc-level-5 {{ margin-left: 64px; }}
+        .toc-level-6 {{ margin-left: 80px; }}
   </style>
 </head>
 <body>
@@ -268,8 +281,16 @@ def _render_snapshot_html(
   </div>
 
   <div class="section">
-    <h2>User Stories</h2>
+    <h2>Current Sprint Refined Stories</h2>
     {stories_html}
+  </div>
+
+  <div class="section">
+    <h2>Project Backlog (All Stories)</h2>
+    <div class="card">
+      <p><strong>Backlog summary:</strong> {all_story_summary}</p>
+    </div>
+    {full_backlog_html}
   </div>
 
   <div class="section">
@@ -283,6 +304,7 @@ def _render_snapshot_html(
         product_name=html.escape(product.name or "(Unnamed Product)"),
         product_description=html.escape(product.description or ""),
         story_summary=_format_story_summary(stories),
+        all_story_summary=_format_all_story_summary(all_stories),
         sprint_summary=_format_sprint_summary_line(sprints, stories, sprint_story_map),
         vision_html=_markdown(product.vision or "(No vision set)"),
         roadmap_html=roadmap_html,
@@ -292,6 +314,7 @@ def _render_snapshot_html(
         spec_html=spec_html,
         compiled_html=compiled_html,
         stories_html=stories_html,
+        full_backlog_html=full_backlog_html,
         sprint_html=sprint_html,
     )
 
@@ -300,7 +323,7 @@ def _format_story_summary(stories: Iterable[UserStory]) -> str:
     story_list = list(stories)
     total = len(story_list)
     if total == 0:
-        return "No stories yet."
+        return "No refined stories in the current sprint."
     counts = {
         StoryStatus.TO_DO: 0,
         StoryStatus.IN_PROGRESS: 0,
@@ -313,6 +336,18 @@ def _format_story_summary(stories: Iterable[UserStory]) -> str:
         f"Total {total} | To Do {counts[StoryStatus.TO_DO]} | "
         f"In Progress {counts[StoryStatus.IN_PROGRESS]} | "
         f"Done {counts[StoryStatus.DONE]} | Accepted {counts[StoryStatus.ACCEPTED]}"
+    )
+
+
+def _format_all_story_summary(stories: Iterable[UserStory]) -> str:
+    story_list = list(stories)
+    if not story_list:
+        return "No stories in product backlog."
+    refined = sum(1 for story in story_list if bool(story.is_refined))
+    superseded = sum(1 for story in story_list if bool(story.is_superseded))
+    return (
+        f"Total {len(story_list)} | Refined {refined} | "
+        f"Not refined {len(story_list) - refined} | Superseded {superseded}"
     )
 
 
@@ -426,6 +461,53 @@ def _render_stories_table(
         "<thead><tr>"
         "<th>ID</th><th>Title</th><th>Persona</th><th>Status</th><th>Points</th>"
         "<th>Theme</th><th>Feature</th><th>Acceptance Criteria</th>"
+        "</tr></thead>"
+        "<tbody>"
+        + "".join(rows)
+        + "</tbody></table>"
+    )
+
+
+def _render_all_stories_table(
+    stories: List[UserStory],
+    epics: List[Epic],
+    features: List[Feature],
+    themes: List[Theme],
+) -> str:
+    if not stories:
+        return "<p class=\"muted\">No stories available.</p>"
+
+    feature_to_epic = {feature.feature_id: feature.epic_id for feature in features}
+    epic_to_theme = {epic.epic_id: epic.theme_id for epic in epics}
+    theme_by_id = {theme.theme_id: theme for theme in themes}
+    feature_by_id = {feature.feature_id: feature for feature in features}
+
+    rows: List[str] = []
+    ordered_stories = sorted(stories, key=lambda story: (story.rank or "", story.story_id or 0))
+    for story in ordered_stories:
+        epic_id = feature_to_epic.get(story.feature_id)
+        theme_id = epic_to_theme.get(epic_id)
+        theme = theme_by_id.get(theme_id) if theme_id in theme_by_id else None
+        feature = feature_by_id.get(story.feature_id) if story.feature_id else None
+        rows.append(
+            "<tr>"
+            f"<td>{story.story_id}</td>"
+            f"<td>{html.escape(story.title)}</td>"
+            f"<td>{html.escape(story.status.value)}</td>"
+            f"<td>{html.escape('yes' if bool(story.is_refined) else 'no')}</td>"
+            f"<td>{html.escape('yes' if bool(story.is_superseded) else 'no')}</td>"
+            f"<td>{html.escape(story.story_origin or '')}</td>"
+            f"<td>{story.accepted_spec_version_id or ''}</td>"
+            f"<td>{html.escape(theme.title if theme else '')}</td>"
+            f"<td>{html.escape(feature.title if feature else '')}</td>"
+            "</tr>"
+        )
+
+    return (
+        "<table>"
+        "<thead><tr>"
+        "<th>ID</th><th>Title</th><th>Status</th><th>Refined</th><th>Superseded</th>"
+        "<th>Origin</th><th>Spec Version</th><th>Theme</th><th>Feature</th>"
         "</tr></thead>"
         "<tbody>"
         + "".join(rows)
@@ -550,21 +632,25 @@ def _render_spec_status_badge(meta: Dict[str, Any]) -> str:
     return '<span class="badge badge-warn">draft</span>'
 
 
-def _extract_markdown_headings(text: str) -> List[str]:
-    headings: List[str] = []
+def _extract_markdown_headings(text: str) -> List[Tuple[int, str]]:
+    headings: List[Tuple[int, str]] = []
     for line in text.splitlines():
         stripped = line.strip()
         if stripped.startswith("#"):
-            title = stripped.lstrip("#").strip()
+            level = len(stripped) - len(stripped.lstrip("#"))
+            title = stripped[level:].strip()
             if title:
-                headings.append(title)
+                headings.append((min(max(level, 1), 6), title))
     return headings
 
 
-def _render_spec_toc(headings: List[str]) -> str:
+def _render_spec_toc(headings: List[Tuple[int, str]]) -> str:
     if not headings:
         return ""
-    items = "".join(f"<li>{html.escape(title)}</li>" for title in headings)
+    items = "".join(
+        f"<li class=\"toc-level-{level}\">{html.escape(title)}</li>"
+        for level, title in headings
+    )
     return "<div class=\"card\"><strong>Contents</strong><ul class=\"toc\">" + items + "</ul></div>"
 
 
@@ -575,6 +661,29 @@ def _pick_current_sprint(sprints: List[Sprint]) -> Optional[Sprint]:
     if active:
         return sorted(active, key=lambda sprint: sprint.end_date, reverse=True)[0]
     return sorted(sprints, key=lambda sprint: sprint.end_date, reverse=True)[0]
+
+
+def _select_refined_current_sprint_stories(
+    stories: List[UserStory],
+    sprints: List[Sprint],
+    sprint_story_map: Dict[int, List[int]],
+) -> List[UserStory]:
+    sprint = _pick_current_sprint(sprints)
+    if not sprint or not sprint.sprint_id:
+        return []
+
+    sprint_story_ids = set(sprint_story_map.get(sprint.sprint_id, []))
+    if not sprint_story_ids:
+        return []
+
+    selected = [
+        story
+        for story in stories
+        if story.story_id in sprint_story_ids
+        and bool(story.is_refined)
+        and not bool(story.is_superseded)
+    ]
+    return sorted(selected, key=lambda story: (story.rank or "", story.story_id or 0))
 
 
 def _group_by(items: Iterable[Any], key_fn: Callable[[Any], Any]) -> Dict[Any, List[Any]]:
