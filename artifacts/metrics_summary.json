@@ -1,9 +1,9 @@
 {
   "extraction_metadata": {
-    "timestamp": "2026-02-18T02:32:34.301365+00:00",
+    "timestamp": "2026-02-19T00:08:01.155288+00:00",
     "db_path": "C:\\Users\\mjnrc\\projects\\project_tcc\\db\\spec_authority_dev.db",
     "db_filename": "spec_authority_dev.db",
-    "commit_hash": "e9f1e57a7055"
+    "commit_hash": "c39a2b049c44"
   },
   "schema": {
     "tables": [
@@ -641,7 +641,7 @@
             "pk": false
           }
         ],
-        "row_count": 27
+        "row_count": 25
       },
       {
         "name": "team_members",
@@ -947,7 +947,7 @@
             "pk": false
           }
         ],
-        "row_count": 21
+        "row_count": 17
       },
       {
         "name": "workflow_events",
@@ -1007,39 +1007,39 @@
             "pk": false
           }
         ],
-        "row_count": 1
+        "row_count": 6
       }
     ]
   },
   "products": [
     {
       "product_id": 1,
-      "product_name": "Review-First Human-in-the-Loop Extraction Pipeline",
-      "created_at": "2026-02-18 01:36:32.088573",
-      "total_stories": 21,
-      "stories_with_spec_version_id": 7,
-      "refined_stories_with_spec_version_id": 7,
-      "stories_with_validation_evidence": 21,
+      "product_name": "P&ID Information Extraction Review Pipeline",
+      "created_at": "2026-02-18 23:46:34.712669",
+      "total_stories": 17,
+      "stories_with_spec_version_id": 3,
+      "refined_stories_with_spec_version_id": 3,
+      "stories_with_validation_evidence": 5,
       "stories_approved_first_pass": 0,
-      "stories_refined": 10,
+      "stories_refined": 5,
       "sprint_count": 1,
       "sprint_plan_drafts": 0,
       "sprint_plan_saves": 1,
-      "vision_saves": 0,
-      "backlog_saves": 0,
-      "roadmap_saves": 0,
-      "stories_saves": 0,
-      "spec_compiles": 0,
-      "avg_vision_duration_sec": 0.0,
-      "avg_spec_compile_duration_sec": 0.0,
-      "avg_backlog_duration_sec": 0.0,
-      "avg_roadmap_duration_sec": 0.0,
-      "avg_stories_duration_sec": 0.0,
+      "vision_saves": 1,
+      "backlog_saves": 1,
+      "roadmap_saves": 1,
+      "stories_saves": 1,
+      "spec_compiles": 1,
+      "avg_vision_duration_sec": 42.1,
+      "avg_spec_compile_duration_sec": 41.91,
+      "avg_backlog_duration_sec": 0.24,
+      "avg_roadmap_duration_sec": 0.01,
+      "avg_stories_duration_sec": 0.05,
       "total_sprint_planning_duration_sec": 0.0,
       "avg_sprint_planning_duration_sec": 0.0,
       "avg_story_cycle_time_hours": 0.0,
       "stories_with_evidence_links": 0,
-      "total_tasks": 27,
+      "total_tasks": 25,
       "completed_tasks": 0,
       "spec_versions_count": 1,
       "spec_versions_approved": 1,
@@ -1049,12 +1049,47 @@
     }
   ],
   "workflow_events": {
+    "BACKLOG_SAVED": {
+      "count": 1,
+      "avg_duration_sec": 0.24,
+      "total_duration_sec": 0.24,
+      "first_event": "2026-02-18 23:55:46.478290",
+      "last_event": "2026-02-18 23:55:46.478290"
+    },
+    "ROADMAP_SAVED": {
+      "count": 1,
+      "avg_duration_sec": 0.01,
+      "total_duration_sec": 0.01,
+      "first_event": "2026-02-18 23:57:09.166307",
+      "last_event": "2026-02-18 23:57:09.166307"
+    },
+    "SPEC_COMPILED": {
+      "count": 1,
+      "avg_duration_sec": 41.91,
+      "total_duration_sec": 41.91,
+      "first_event": "2026-02-18 23:47:16.739731",
+      "last_event": "2026-02-18 23:47:16.739731"
+    },
     "SPRINT_PLAN_SAVED": {
       "count": 1,
       "avg_duration_sec": null,
       "total_duration_sec": null,
-      "first_event": "2026-02-18 01:51:18.604146",
-      "last_event": "2026-02-18 01:51:18.604146"
+      "first_event": "2026-02-19 00:02:37.129414",
+      "last_event": "2026-02-19 00:02:37.129414"
+    },
+    "STORIES_SAVED": {
+      "count": 1,
+      "avg_duration_sec": 0.05,
+      "total_duration_sec": 0.05,
+      "first_event": "2026-02-19 00:00:28.126358",
+      "last_event": "2026-02-19 00:00:28.126358"
+    },
+    "VISION_SAVED": {
+      "count": 1,
+      "avg_duration_sec": 42.1,
+      "total_duration_sec": 42.1,
+      "first_event": "2026-02-18 23:47:16.761289",
+      "last_event": "2026-02-18 23:47:16.761289"
     }
   },
   "smoke_runs": {

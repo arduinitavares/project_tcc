@@ -12,6 +12,7 @@ os.environ["LITELLM_LOG"] = "ERROR"
 os.environ["LITELLM_SUPPRESS_INSTRUMENTATION"] = "True"
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -175,6 +176,14 @@ def _serialize_for_display(payload: Any) -> str:
     return text
 
 
+def _context_fingerprint(value: Any) -> Dict[str, Any]:
+    """Return a compact fingerprint for large context payloads."""
+    if not isinstance(value, str) or not value:
+        return {"present": False, "length": 0, "sha256_12": None}
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+    return {"present": True, "length": len(value), "sha256_12": digest}
+
+
 def _display_tool_call(part: types.Part) -> None:
     """Helper to visualize tool calls."""
     if not part.function_call:
@@ -286,6 +295,20 @@ async def run_agent_turn(
     
     # 1. PREPARE STATE
     full_state = get_current_state(APP_NAME, USER_ID, SESSION_ID)
+    app_logger.info(
+        "CONTEXT FINGERPRINTS: %s",
+        json.dumps(
+            {
+                "pending_spec_content": _context_fingerprint(
+                    full_state.get("pending_spec_content")
+                ),
+                "compiled_authority_cached": _context_fingerprint(
+                    full_state.get("compiled_authority_cached")
+                ),
+            },
+            ensure_ascii=False,
+        ),
+    )
 
     # --- FSM CONFIGURATION ---
     active_state_key = full_state.get("fsm_state", OrchestratorState.ROUTING_MODE)

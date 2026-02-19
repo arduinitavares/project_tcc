@@ -17,7 +17,18 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from agile_sqlmodel import CompiledSpecAuthority, Epic, Feature, Product, SpecRegistry, Theme, UserStory, StoryStatus, get_engine
+from agile_sqlmodel import (
+    CompiledSpecAuthority,
+    Epic,
+    Feature,
+    Product,
+    SpecRegistry,
+    Sprint,
+    StoryStatus,
+    Theme,
+    UserStory,
+    get_engine,
+)
 
 # --- Cache configuration ---
 CACHE_TTL_MINUTES: int = 5
@@ -85,10 +96,18 @@ def _build_projects_payload(
         .where(cast(Any, UserStory.product_id).in_(product_ids))
         .group_by(cast(Any, UserStory.product_id))
     )
+    sprint_counts_query = (
+        select(Sprint.product_id, func.count(cast(Any, Sprint.sprint_id)))
+        .where(cast(Any, Sprint.product_id).in_(product_ids))
+        .group_by(cast(Any, Sprint.product_id))
+    )
 
     # Map product_id -> count
     story_counts: Dict[int, int] = {
         pid: count for pid, count in session.exec(story_counts_query).all()
+    }
+    sprint_counts: Dict[int, int] = {
+        pid: count for pid, count in session.exec(sprint_counts_query).all()
     }
 
     for product in products:
@@ -99,6 +118,7 @@ def _build_projects_payload(
                 "vision": product.vision or "(No vision set)",
                 "roadmap": product.roadmap or "(No roadmap set)",
                 "user_stories_count": story_counts.get(cast(int, product.product_id), 0),
+                "sprint_count": sprint_counts.get(cast(int, product.product_id), 0),
             }
         )
     return len(projects), projects
@@ -235,6 +255,11 @@ def get_project_details(product_id: int) -> Dict[str, Any]:
                 UserStory.product_id == product_id
             )
         ).one()
+        sprint_count = session.exec(
+            select(func.count(cast(Any, Sprint.sprint_id))).where(
+                Sprint.product_id == product_id
+            )
+        ).one()
 
         latest_spec_version_id = session.exec(
             select(SpecRegistry.spec_version_id)
@@ -266,11 +291,12 @@ def get_project_details(product_id: int) -> Dict[str, Any]:
                 "epics": epic_count,
                 "features": feature_count,
                 "user_stories": story_count,
+                "sprints": sprint_count,
             },
             "message": (
                 f"Project '{product.name}' has {theme_count} theme(s), "
                 f"{epic_count} epic(s), {feature_count} feature(s), "
-                f"{story_count} story(ies)"
+                f"{story_count} story(ies), {sprint_count} sprint(s)"
             ),
         }
 
