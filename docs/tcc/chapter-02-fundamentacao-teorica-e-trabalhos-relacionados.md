@@ -30,7 +30,7 @@ Em projetos de software, decisões de planejamento precisam respeitar simultanea
 Neste trabalho, “governança por especificação” é utilizada como conceito operacional: a especificação técnica é tratada como fonte explícita de regras e restrições, e parte dessas restrições é compilada em um artefato estruturado (autoridade compilada). A partir disso, o sistema separa dois momentos:
 
 1. **Geração (não determinística):** produção inicial de artefatos textuais por LLM.
-2. **Aceitação (determinística):** validação “passa/falha” baseada em regras e contratos, com evidência persistida.
+2. **Aceitação (auditável):** validação “passa/falha” baseada em regras (determinísticas e, quando configurado, validação por LLM), com evidência persistida.
 
 Do ponto de vista teórico, essa separação é compatível com a noção de que critérios de qualidade (como DoD e critérios de aceitação) precisam ser explícitos para viabilizar inspeção e adaptação. Do ponto de vista arquitetural, essa abordagem busca reduzir deriva de escopo e tornar decisões auditáveis. A operacionalização concreta (registro versionado de especificação, compilação e pinagem de aceitação) é descrita no Capítulo 4.
 

@@ -22,7 +22,7 @@ Os requisitos funcionais foram definidos a partir do pipeline efetivamente imple
 
 Para garantir reprodutibilidade, auditabilidade e controle de escopo, foram adotadas as seguintes restrições técnicas:
 
-- **RNF01 — Aceitação determinística (passa/falha):** embora a geração de conteúdo utilize modelos probabilísticos, a aceitação de artefatos críticos (por exemplo, histórias) deve ser decidida por validações determinísticas registradas como evidência.
+- **RNF01 — Aceitação auditável (passa/falha):** embora a geração de conteúdo utilize modelos probabilísticos, a aceitação de artefatos críticos (por exemplo, histórias) é registrada como um resultado binário (passa/falha) com evidência persistida para auditoria.
 - **RNF02 — Especialistas sem estado interno persistente:** os agentes especializados não mantêm memória oculta. O estado necessário é passado explicitamente como estruturas serializadas (JSON) e persistido no banco.
 - **RNF03 — Fronteiras explícitas de ferramentas (tool boundaries):** cada estado da FSM expõe apenas as ferramentas necessárias à fase corrente, reduzindo ações fora de contexto e tornando o fluxo mais previsível.
 - **RNF04 — Persistência local e replicável:** a persistência deve operar em ambiente local, sem dependência de infraestrutura externa, para facilitar replicação em estudos futuros.
@@ -45,12 +45,12 @@ O sistema é composto por três camadas:
 
 Na implementação analisada nesta monografia, foram utilizadas as seguintes tecnologias:
 
-- **Linguagem:** Python 3.11+ (compatível com o ambiente de refatoração e execução utilizado durante o desenvolvimento).
+- **Linguagem:** Python 3.12+ (conforme `pyproject.toml`).
 - **Framework de agentes:** Google ADK (Agent Development Kit), empregado para estruturar agentes, ferramentas e sessão de execução.
 - **Integração com LLM:** LiteLLM, como camada de abstração para provedores compatíveis com a API OpenAI (via OpenRouter).
 - **Persistência:** SQLModel (sobre SQLAlchemy) e SQLite.
 
-Observa-se que o repositório também inclui um arquivo `pyproject.toml` com restrição de versão de Python mais recente, o que reflete uma escolha de configuração do projeto. Contudo, a execução utilizada para a avaliação relatada neste trabalho foi mantida em Python 3.11+ por restrições externas de ferramenta.
+No estado atual do repositório, o arquivo `pyproject.toml` define `requires-python = ">=3.12"`.
 
 ## 4.3 Componentes do sistema
 
@@ -89,11 +89,11 @@ Os especialistas principais são:
 
 ### 4.3.4 Validação pós-salvamento e evidências de rastreabilidade
 
-Além de gerar e persistir histórias, o sistema inclui uma etapa de validação determinística por autoridade compilada. Essa validação é realizada pela ferramenta `validate_story_with_spec_authority`, que recebe um identificador de história e um identificador de versão de especificação.
+Além de gerar e persistir histórias, o sistema inclui uma etapa de validação por autoridade compilada. Essa validação é realizada pela ferramenta `validate_story_with_spec_authority`, que recebe um identificador de história, um identificador de versão de especificação e um modo de validação (`deterministic`, `llm` ou `hybrid`).
 
 O resultado da validação é persistido em dois campos principais do registro de história:
 
-- `validation_evidence`: um JSON com evidências do processo de validação, contendo regras aplicadas, versão do validador e o resultado (passa/falha).
+- `validation_evidence`: um JSON com evidências do processo de validação (regras/invariantes checadas, avisos/falhas de alinhamento quando aplicável), versão do validador e o resultado (passa/falha).
 - `accepted_spec_version_id`: uma chave estrangeira que é preenchida **apenas quando a história passa** na validação. Esse vínculo materializa a pinagem da história a uma versão de autoridade aceita.
 
 Um aspecto importante observado no estado atual do repositório é que essa validação não estava inicialmente encadeada automaticamente ao salvamento de histórias, o que causou um cenário de integração parcial: histórias eram persistidas via `save_stories_tool`, porém não recebiam automaticamente validação pós-salvamento. Essa lacuna foi tratada por meio de um procedimento de *backfill* com script dedicado (`scripts/apply_story_validation.py`), que aplicou a validação contra uma versão aprovada de especificação.
@@ -129,16 +129,16 @@ SQLite foi adotado por ser um banco embarcado, replicável e suficiente para uma
 
 ## 4.6 Cenário de uso e demonstração (execução do pipeline)
 
-Como demonstração do artefato, foi executado um projeto de teste (Produto ID 7) que percorre o pipeline até o planejamento de sprint. O conjunto de métricas extraído do banco e consolidado por script de extração (`scripts/extract_tcc_metrics.py`) registra os seguintes resultados do estado atual:
+Como demonstração do artefato, foi executado um projeto de teste (Produto ID 1) que percorre o pipeline até o planejamento de sprint. O conjunto de métricas extraído do banco (`db/spec_authority_dev.db`) e consolidado por script de extração (`scripts/extract_tcc_metrics.py`) registra os seguintes resultados do estado atual:
 
-- **Histórias e tarefas:** 38 histórias de usuário persistidas e 25 tarefas geradas.
+- **Histórias e tarefas:** 23 histórias de usuário persistidas e 30 tarefas persistidas.
 - **Sprint:** 1 sprint persistido, com 5 histórias associadas.
 - **Autoridade e aceitação:** 1 versão de especificação aprovada, 1 autoridade compilada e 1 decisão de aceitação.
 
-Após a execução inicial, foi aplicado o procedimento de validação pós-salvamento (backfill) com `scripts/apply_story_validation.py` contra a versão aprovada de especificação (v8). O resultado do backfill demonstrou rastreabilidade e auditabilidade:
+Para registrar evidências de validação pós-salvamento, foi aplicado o procedimento de *backfill* com `scripts/apply_story_validation.py` contra a versão aprovada de especificação (Spec Version 1). O resultado do *backfill* (aplicado ao conjunto de histórias refinadas canônicas) demonstrou rastreabilidade e auditabilidade:
 
-- **Evidência completa:** 38 de 38 histórias (100%) passaram a possuir `validation_evidence` persistido (passa/falha).
-- **Pinagem por aceitação:** 25 de 38 histórias (65,8%) receberam `accepted_spec_version_id` válido, indicando validação aprovada.
-- **Falhas determinísticas:** 13 histórias falharam por motivo objetivo e repetível: ausência de critérios de aceitação, detectada pela regra `RULE_ACCEPTANCE_CRITERIA_REQUIRED`.
+- **Evidência completa (refinadas):** 8 de 8 histórias refinadas canônicas (100%) passaram a possuir `validation_evidence` persistido (passa/falha).
+- **Pinagem por aceitação (refinadas):** 4 de 8 histórias refinadas canônicas (50,0%) receberam `accepted_spec_version_id` válido, indicando validação aprovada.
+- **Falhas registradas (refinadas):** 4 histórias falharam com evidências persistidas, predominantemente por `FORBIDDEN_CAPABILITY` (alinhamento com invariantes) e `RULE_LLM_SPEC_VALIDATION` (validação por LLM).
 
 Esses resultados indicam que o mecanismo de pinagem por autoridade compilada é operacional e auditável quando a validação é executada como etapa explícita do pipeline. Ao mesmo tempo, o cenário evidencia um ponto de integração: para maximizar a rastreabilidade em uso contínuo, a validação pós-salvamento deve ser encadeada automaticamente à persistência de histórias.

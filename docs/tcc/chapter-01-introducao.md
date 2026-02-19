@@ -1,6 +1,6 @@
 # CAPÍTULO 1 — Introdução
 
-Este capítulo apresenta o contexto e a motivação desta pesquisa, o problema investigado, os objetivos e hipóteses, as contribuições e a organização do trabalho.
+Este capítulo apresenta o contexto e a motivação desta pesquisa, o problema investigado, os objetivos, as questões de pesquisa (QP), as contribuições e a organização do trabalho.
 
 ## 1.1 Contexto e motivação
 
@@ -12,7 +12,7 @@ Contudo, a aplicação do Scrum pode impor barreiras quando o contexto de trabal
 
 O desafio, portanto, não é apenas “fazer mais com menos”, mas manter um fluxo de planejamento consistente com restrições de tempo e atenção. Quando papéis e decisões competem pela mesma pessoa, o risco é que o processo seja simplificado de forma ad hoc, perdendo rastreabilidade de decisões e coerência entre visão, requisitos, backlog e execução.
 
-A motivação desta pesquisa é investigar se uma solução de software baseada em agentes pode reduzir parte da carga de coordenação associada ao planejamento. Em particular, agentes baseados em modelos de linguagem podem apoiar a criação e manutenção de artefatos, desde que exista uma camada de governança que limite inconsistências e preserve rastreabilidade. A proposta desta monografia é, portanto, construir e avaliar um artefato que orquestre um fluxo inspirado no Scrum e torne verificável (auditável) a aceitação de certos artefatos por meio de regras determinísticas.
+A motivação desta pesquisa é investigar se uma solução de software baseada em agentes pode reduzir parte da carga de coordenação associada ao planejamento. Em particular, agentes baseados em modelos de linguagem podem apoiar a criação e manutenção de artefatos, desde que exista uma camada de governança que limite inconsistências e preserve rastreabilidade. A proposta desta monografia é, portanto, construir e avaliar um artefato que orquestre um fluxo inspirado no Scrum e torne verificável (auditável) a aceitação de certos artefatos por meio de regras e evidências persistidas.
 
 ## 1.2 Problema de pesquisa
 
@@ -44,15 +44,13 @@ Para alcançar o objetivo geral, foram definidos os seguintes objetivos específ
 
 - Definir e aplicar um protocolo de avaliação replicável, com métricas de carga de trabalho percebida, qualidade/rastreabilidade de artefatos e eficiência do fluxo, em comparação com um baseline operacional.
 
-## 1.5 Hipóteses
+## 1.5 Questões de pesquisa
 
-Com base no problema de pesquisa e nos objetivos definidos, foram formuladas as seguintes hipóteses:
+Com base no problema de pesquisa e nos objetivos definidos, a avaliação é orientada pelas seguintes questões de pesquisa:
 
-- H1: A utilização de uma plataforma de gestão ágil baseada em sistema multiagente reduz a carga de trabalho percebida por desenvolvedores individuais ou pequenas equipes ao executarem um fluxo de trabalho inspirado no Scrum, quando comparada à utilização de ferramentas de gestão tradicionais sem suporte automatizado.
-
-- H2: Os artefatos gerados pela plataforma multiagente, notadamente histórias de usuário e planos de sprint, atendem a critérios de qualidade definidos operacionalmente neste estudo, com níveis comparáveis ou superiores aos artefatos produzidos manualmente por desenvolvedores atuando sem suporte de agentes.
-
-- H3: A adoção de uma arquitetura de governança por especificação, na qual a especificação técnica é tratada como fonte de verdade e a aceitação de artefatos é condicionada por validação determinística, aumenta a rastreabilidade e reduz a deriva de escopo em comparação com abordagens puramente generativas.
+- **QP1 (carga de trabalho):** o uso da plataforma está associado a menor carga de trabalho percebida pelo operador durante tarefas de planejamento?
+- **QP2 (qualidade e completude):** os artefatos gerados atendem a critérios mínimos de completude e qualidade estrutural, de forma auditável?
+- **QP3 (viabilidade operacional):** o fluxo ponta a ponta é executável de forma consistente, com persistência e trilhas de evidência suficientes para auditoria?
 
 ## 1.6 Contribuições
 
@@ -72,9 +70,9 @@ O Capítulo 3 descreve o método de pesquisa adotado, caracterizando o estudo co
 
 O Capítulo 4 apresenta o desenvolvimento do artefato, descrevendo os requisitos e restrições, a visão geral da arquitetura, os componentes principais incluindo o orquestrador, os agentes especializados, a memória de estado, o registro de especificações e a autoridade compilada. São detalhados o fluxo de trabalho de ponta a ponta, as principais decisões de implementação e os cenários de uso demonstrados.
 
-O Capítulo 5 estabelece o protocolo de avaliação, formulando as questões de pesquisa e hipóteses associadas, definindo operacionalmente o baseline, descrevendo as tarefas e procedimentos experimentais, caracterizando os participantes, especificando os métodos de coleta de dados e apresentando o plano de análise.
+O Capítulo 5 estabelece o protocolo de avaliação, formulando as questões de pesquisa, definindo operacionalmente o baseline, descrevendo as tarefas e procedimentos experimentais, caracterizando os participantes, especificando os métodos de coleta de dados e apresentando o plano de análise.
 
-O Capítulo 6 apresenta os resultados obtidos na avaliação, organizados por dimensão de análise: carga de trabalho percebida, eficiência do fluxo e qualidade dos artefatos, com síntese por hipótese.
+O Capítulo 6 apresenta os resultados obtidos na avaliação, organizados por questão de pesquisa (QP1–QP3).
 
 O Capítulo 7 discute os resultados, interpretando os achados, analisando trade-offs identificados, apresentando implicações práticas para equipes pequenas e confrontando os resultados com a literatura existente.
 

@@ -6,7 +6,7 @@ Este capítulo descreve o método de pesquisa empregado para concepção, desenv
 
 O estudo adota **Design Science Research (DSR)** como abordagem metodológica por ser orientada à criação e avaliação de artefatos de TI destinados a resolver problemas organizacionais relevantes (Hevner et al., 2004). O artefato desta pesquisa é uma plataforma baseada em sistema multiagente e governança por especificação, com orquestração por máquina de estados finita e persistência em banco de dados.
 
-No enquadramento de contribuições em DSR, este trabalho caracteriza-se como **melhoria** (*improvement*), pois propõe uma alternativa presumivelmente superior para reduzir sobrecarga de coordenação e custos de planejamento em cenários de equipe reduzida, mantendo a rastreabilidade de decisões por meio de validações determinísticas e trilhas de auditoria (Gregor; Hevner, 2013).
+No enquadramento de contribuições em DSR, este trabalho caracteriza-se como **melhoria** (*improvement*), pois propõe uma alternativa presumivelmente superior para reduzir sobrecarga de coordenação e custos de planejamento em cenários de equipe reduzida, mantendo a rastreabilidade de decisões por meio de validações **auditáveis** (passa/falha) e trilhas de auditoria (Gregor; Hevner, 2013).
 
 ## 3.2 Processo de pesquisa (Peffers et al.)
 
@@ -14,19 +14,19 @@ A pesquisa segue as seis atividades de DSR conforme Peffers et al. (2007), com a
 
 1. **Identificação do problema e motivação:** o problema é a dificuldade prática de executar Scrum “como prescrito” em equipes muito pequenas (1 a 4 desenvolvedores), especialmente devido à sobrecarga de papéis, coordenação e manutenção de artefatos.
 
-2. **Definição dos objetivos de uma solução:** (i) reduzir o esforço de coordenação e a carga de trabalho do operador; (ii) manter consistência e rastreabilidade entre especificação, backlog e planejamento; (iii) tornar o fluxo operacionalmente executável com governança por validação determinística.
+2. **Definição dos objetivos de uma solução:** (i) reduzir o esforço de coordenação e a carga de trabalho do operador; (ii) manter consistência e rastreabilidade entre especificação, backlog e planejamento; (iii) tornar o fluxo operacionalmente executável com governança por validação **auditável** (passa/falha).
 
-3. **Design e desenvolvimento:** implementação do artefato em **Python 3.11+**, com agentes e orquestração via **Google ADK** e integração com LLM via **LiteLLM**. A persistência utiliza **SQLModel/SQLite**, viabilizando extração reprodutível de métricas (contagens, tempos e evidências de validação). Observação: o repositório do projeto pode declarar uma versão mínima distinta em configuração; neste trabalho, o requisito metodológico adotado para execução é Python 3.11+.
+3. **Design e desenvolvimento:** implementação do artefato em **Python 3.12+** (conforme `pyproject.toml`), com agentes e orquestração via **Google ADK** e integração com LLM via **LiteLLM**. A persistência utiliza **SQLModel/SQLite**, viabilizando extração reprodutível de métricas (contagens, tempos e evidências de validação).
 
 4. **Demonstração:** execução ponta a ponta de um ciclo reduzido de planejamento (visão, especificação, backlog e planejamento de sprint) em ambiente controlado, com persistência dos artefatos e registros no banco de dados.
 
-5. **Avaliação:** avaliação exploratória baseada em métricas extraídas do banco de dados e de arquivos de execução (*logs* e *smoke runs*), complementada por instrumento de carga de trabalho (NASA-TLX) aplicado ao operador.
+5. **Avaliação:** avaliação exploratória baseada em métricas extraídas do banco de dados e de arquivos de execução (*logs* e *smoke runs* agregados do pipeline), complementada por instrumento de carga de trabalho (NASA-TLX) aplicado ao operador.
 
 6. **Comunicação:** produção desta monografia e documentação de apoio no repositório (scripts de extração e artefatos exportados), permitindo reexecução do protocolo.
 
 ## 3.3 Desenho da avaliação
 
-A avaliação foi delineada para responder às questões de pesquisa e examinar as hipóteses de forma **exploratória**, com foco em viabilidade e consistência interna das evidências geradas pelo artefato.
+A avaliação foi delineada para responder às questões de pesquisa (QP1–QP3) de forma **exploratória**, com foco em viabilidade e consistência interna das evidências geradas pelo artefato.
 
 ### 3.3.1 Desenho experimental e baseline
 
@@ -44,7 +44,7 @@ As evidências quantitativas e de rastreabilidade são extraídas principalmente
 - **Banco de dados SQLite**: registra produtos, histórias, sprints, versões de especificação, aceites e eventos de fluxo.
 - **Evidências de validação por autoridade de especificação**: cada história pode armazenar (i) a versão de especificação aceita à qual foi “pinada” e (ii) um JSON de evidências de validação (pass/fail e regras aplicadas).
 - **Eventos de workflow**: a plataforma persiste eventos para medição de esforço/tempo em atividades de planejamento (por exemplo, eventos associados ao rascunho/revisão/salvamento do plano de sprint e marcações operacionais relevantes ao protocolo de avaliação).
-- **Registros de execução (*smoke runs*)**, quando disponíveis, para sumarização de desempenho e consistência do pipeline.
+- **Registros de execução (*smoke runs*)**, quando disponíveis, para sumarização agregada de desempenho e consistência do pipeline (evidência complementar, não restrita ao `product_id` avaliado).
 
 Para assegurar reprodutibilidade, a extração de métricas utiliza script dedicado que gera saídas auditáveis (CSV/JSON) e também sumarização em formato compatível com inserção no Capítulo 6.
 
@@ -54,13 +54,13 @@ A avaliação é organizada em três dimensões: carga de trabalho percebida, qu
 
 ### 3.4.1 Carga de trabalho percebida (NASA-TLX)
 
-Para avaliar a hipótese de redução de sobrecarga (H1), utiliza-se o **NASA-TLX (Task Load Index)** aplicado ao operador ao final das execuções (baseline e intervenção), com foco em carga de trabalho percebida.
+Para abordar a **QP1 (carga de trabalho)**, utiliza-se o **NASA-TLX (Task Load Index)** aplicado ao operador ao final das execuções (baseline e intervenção), com foco em carga de trabalho percebida.
 
-Neste estudo, adota-se o NASA-TLX em formato **RAW (não ponderado)** e com **cinco dimensões**: Demanda Mental, Demanda Temporal, Desempenho, Esforço e Frustração. A dimensão **Demanda Física** é excluída por não ser pertinente ao tipo de tarefa (planejamento e produção de artefatos textuais), cujo custo é majoritariamente cognitivo. As respostas são coletadas fora do banco de dados (instrumento de pesquisa) e utilizadas para análise descritiva.
+Neste estudo, adota-se o NASA-TLX em formato **RAW (não ponderado)** e com **cinco dimensões**: Demanda Mental, Demanda Temporal, Desempenho, Esforço e Frustração. A dimensão **Demanda Física** é excluída por não ser pertinente ao tipo de tarefa (planejamento e produção de artefatos textuais), cujo custo é majoritariamente cognitivo. As respostas são coletadas fora do banco de dados (instrumento de pesquisa), registradas como artefato em `artifacts/nasa_tlx_raw_5d_form.csv`, e utilizadas para análise descritiva.
 
 ### 3.4.2 Qualidade e conformidade dos artefatos (proxies de INVEST + regras)
 
-Para examinar a hipótese de melhoria de qualidade (H2), a avaliação considera dois níveis complementares:
+Para abordar a **QP2 (qualidade e completude)**, a avaliação considera dois níveis complementares:
 
 1. **Conformidade estrutural e completude mínima**: regras determinísticas verificam a presença e consistência de elementos essenciais (por exemplo, título e critérios de aceitação em histórias), produzindo evidências persistidas como JSON. Essas regras reduzem ambiguidade e tornam auditável a aderência mínima a padrões.
 
@@ -86,7 +86,7 @@ Para permitir reexecução do estudo e auditoria dos números apresentados nos r
 Exemplo de extração de métricas:
 
 ```bash
-python scripts/extract_tcc_metrics.py <caminho_para_db.sqlite>
+python .\\scripts\\extract_tcc_metrics.py db\\spec_authority_dev.db
 ```
 
 O script gera, no mínimo, os arquivos `artifacts/metrics_summary.json` e `artifacts/metrics_summary.csv`, além de resultados de consultas em `artifacts/query_results/`.
@@ -96,7 +96,7 @@ O script gera, no mínimo, os arquivos `artifacts/metrics_summary.json` e `artif
 Os dados são analisados de forma **descritiva e triangulada**:
 
 - **Quantitativo (descritivo):** contagens, proporções e médias extraídas do banco e dos arquivos de execução (por exemplo, total de histórias, proporção com evidência de validação, duração média de atividades instrumentadas).
-- **Qualitativo (observacional):** inspeção da coerência dos artefatos gerados (clareza de histórias, adequação de critérios de aceitação e consistência com a especificação) e análise de casos de falha, quando regras determinísticas bloqueiam aceitação.
+- **Qualitativo (observacional):** inspeção da coerência dos artefatos gerados (clareza de histórias, adequação de critérios de aceitação e consistência com a especificação) e análise de casos de falha, quando regras de validação bloqueiam aceitação.
 
 Como se trata de avaliação exploratória com único participante, não se realizam inferências estatísticas; os resultados são interpretados como evidência de viabilidade, consistência interna e rastreabilidade do fluxo.
 
@@ -111,4 +111,4 @@ Reconhecem-se as seguintes ameaças e limitações:
 - **Validade de construção:** parte dos conceitos (qualidade textual, valor de histórias) não é plenamente capturável por regras automáticas. Mitiga-se com combinação de proxies objetivos (evidências determinísticas) e análise qualitativa.
 - **Validade interna (instrumentação):** o que pode ser medido depende do que o artefato registra (eventos, timestamps e evidências). Mitiga-se com extração padronizada via script e inspeção do esquema do banco no momento da extração.
 - **Validade externa:** resultados são limitados ao escopo do cenário e ao perfil do operador (single-participant), não permitindo generalização para contextos organizacionais distintos.
-- **Confiabilidade de LLM:** modelos de linguagem podem produzir variação. A arquitetura de governança por especificação visa reduzir efeitos nocivos por meio de validações determinísticas, aceites explícitos e trilhas de evidência persistidas.
+- **Confiabilidade de LLM:** modelos de linguagem podem produzir variação. A arquitetura de governança por especificação visa reduzir efeitos nocivos por meio de validações auditáveis (passa/falha), aceites explícitos e trilhas de evidência persistidas.

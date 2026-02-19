@@ -13,7 +13,7 @@ CAPÍTULO 1 — Introdução
 1.2 Problema de pesquisa (dor + lacuna)
 1.3 Objetivo geral
 1.4 Objetivos específicos
-1.5 Hipóteses / Proposições (ex.: H1, H2)
+1.5 Questões de pesquisa (QP1–QP3)
 1.6 Contribuições (artefato + conhecimento)
 1.7 Organização do trabalho
 
@@ -40,25 +40,25 @@ CAPÍTULO 4 — Desenvolvimento do artefato (a “proposta”)
 4.1 Requisitos e restrições
 4.2 Visão geral da arquitetura
 4.3 Componentes (orquestrador, agentes, memória/estado, spec_registry, compiled_spec_authority)
-4.4 Fluxo end-to-end (pipeline Scrum-shaped + gates determinísticos)
+4.4 Fluxo end-to-end (pipeline Scrum-shaped + gates de validação passa/falha)
 4.5 Implementação (principais decisões técnicas)
 4.6 Cenários de uso / demonstração
 
 CAPÍTULO 5 — Protocolo de avaliação (replicável)
-5.1 Questões de pesquisa (RQ1, RQ2…)
-5.2 Hipóteses associadas (H1…)
-5.3 Baseline (definição operacional: ferramenta tradicional + processo manual)
+5.1 Questões de pesquisa (QP1–QP3)
+5.2 Desenho experimental e baseline (definição operacional)
+5.3 Objeto de estudo e ambiente
 5.4 Tarefas e procedimentos (passo a passo)
-5.5 Participantes / perfil / amostra
-5.6 Coleta de dados (logs, formulários, NASA-TLX, tempos)
-5.7 Critérios de aceitação/validação de dados
-5.8 Plano de análise (como virar resultado)
+5.5 Participante
+5.6 Coleta de dados: evidência empírica vs. observação
+5.7 Critérios de consistência dos dados e de sucesso (viabilidade)
+5.8 Plano de análise
 
 CAPÍTULO 6 — Resultados
-6.1 Resultados de carga cognitiva (NASA-TLX)
-6.2 Resultados de eficiência do fluxo (cycle time etc.)
-6.3 Resultados de qualidade de artefatos
-6.4 Síntese por hipótese (H1/H2… bateu ou não bateu)
+6.1 Caracterização da execução e do conjunto de evidências
+6.2 Resultados por questão de pesquisa (QP1–QP3)
+6.3 Observações qualitativas (não métricas)
+6.4 Síntese por questão de pesquisa (QP1–QP3)
 
 CAPÍTULO 7 — Discussão
 7.1 Interpretação: por que melhorou/piorou

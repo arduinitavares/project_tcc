@@ -2,25 +2,19 @@
 
 Este capítulo apresenta o protocolo de avaliação adotado para verificar a viabilidade e analisar, de forma exploratória, os efeitos do artefato proposto. O protocolo foi definido para ser **replicável**: descreve tarefas, instrumentos, fontes de dados, critérios de coleta e etapas de extração de métricas, com rastreabilidade para os artefatos gerados pelo próprio sistema.
 
-## 5.1 Questões de pesquisa, hipóteses e variáveis observáveis
+## 5.1 Questões de pesquisa e variáveis observáveis
 
-A avaliação é orientada por questões de pesquisa (QP) derivadas do problema e dos objetivos, com hipóteses (H) definidas no Capítulo 1:
+A avaliação é orientada por questões de pesquisa (QP) derivadas do problema e dos objetivos:
 
 - **QP1 (carga de trabalho):** o uso da plataforma está associado a menor carga de trabalho percebida pelo operador durante tarefas de planejamento?
 - **QP2 (qualidade e completude):** os artefatos gerados atendem a critérios mínimos de completude e qualidade estrutural, de forma auditável?
 - **QP3 (viabilidade operacional):** o fluxo ponta a ponta é executável de forma consistente, com persistência e trilhas de evidência suficientes para auditoria?
 
-As hipóteses avaliadas são:
+Para cada QP, são usadas variáveis observáveis extraídas de instrumentos e do banco de dados:
 
-- **H1:** a plataforma reduz a carga de trabalho percebida em relação ao baseline manual.
-- **H2:** os artefatos gerados atendem a critérios de qualidade operacionalizados por regras e validações.
-- **H3:** a governança por especificação aumenta rastreabilidade e reduz inconsistências entre especificação e artefatos derivados.
-
-Para cada hipótese, são usadas variáveis observáveis extraídas de instrumentos e do banco de dados:
-
-- **H1:** escores NASA-TLX (instrumento) e tempos de execução (baseline manual e/ou eventos registrados).
-- **H2:** proporção de histórias com evidência de validação, proporção de histórias aceitas (quando aplicável) e motivos de falha.
-- **H3:** existência de vínculo explícito entre histórias e a versão de especificação aceita (pinagem) e existência de evidências persistidas.
+- **QP1:** escores NASA-TLX (instrumento) e tempos de execução (baseline manual e/ou eventos registrados).
+- **QP2:** proporção de histórias com evidência de validação, proporção de histórias aceitas (quando aplicável) e motivos de falha.
+- **QP3:** existência de vínculo explícito entre histórias e a versão de especificação aceita (pinagem) e existência de evidências persistidas.
 
 ## 5.2 Desenho experimental e baseline (definição operacional)
 
@@ -54,7 +48,7 @@ O objeto de estudo é a instância executável do artefato descrito no Capítulo
 
 ### 5.3.2 Ambiente de execução
 
-O artefato é executado em ambiente Python 3.11+ e utiliza persistência em SQLite. Para fins de reprodutibilidade, os resultados reportados no Capítulo 6 são extraídos de uma base SQLite específica e acompanhados de metadados de extração (timestamp, caminho da base e hash de commit), conforme registrado no artefato de métricas.
+O artefato é executado em ambiente Python 3.12+ (conforme `pyproject.toml`) e utiliza persistência em SQLite. Nesta monografia, os resultados reportados no Capítulo 6 são extraídos de `db/spec_authority_dev.db` e se restringem ao `product_id = 1`. Para fins de reprodutibilidade, os números reportados são acompanhados de metadados de extração (timestamp, caminho da base e hash de commit), conforme registrado no artefato de métricas.
 
 ## 5.4 Tarefas e procedimentos (passo a passo)
 
@@ -83,7 +77,7 @@ As intervenções manuais são tratadas como **observação qualitativa** e tamb
 
 ## 5.5 Participante
 
-O participante é o próprio pesquisador, com experiência em desenvolvimento de software e familiaridade com práticas ágeis. Essa configuração viabiliza a avaliação em TCC e caracteriza os resultados como exploratórios, sem generalização estatística.
+O participante é o próprio pesquisador (identificado nos artefatos como `Alexandre`), com experiência em desenvolvimento de software e familiaridade com práticas ágeis. A coleta reportada nesta monografia foi realizada em 19/02/2026. Essa configuração viabiliza a avaliação em TCC e caracteriza os resultados como exploratórios, sem generalização estatística.
 
 ## 5.6 Coleta de dados: evidência empírica vs. observação
 
@@ -100,7 +94,7 @@ As evidências automatizadas são extraídas de tabelas e campos persistidos, in
 - **artefatos persistidos:** produtos, histórias e sprints (incluindo timestamps disponíveis);
 - **governança por especificação:** versões de especificação, autoridade compilada, decisão de aceite e evidências de validação das histórias.
 
-Observação importante: a interpretação de "tempo" depende do que está instrumentado como evento (por exemplo, eventos associados ao planejamento de sprint) e do que é derivável de timestamps (por exemplo, quando há campos de criação e conclusão em histórias). O protocolo não assume métricas não registradas. Para a condição de intervenção, os intervalos temporais reportados são **deltas wall-clock** entre timestamps persistidos no banco (por exemplo, diferença entre `products.created_at` e `workflow_events.timestamp` do evento `SPRINT_PLAN_SAVED`); esses deltas representam o intervalo decorrido entre marcos do fluxo automatizado e **não medem esforço humano isolado**, podendo incluir latência de rede, processamento de LLM e eventuais pausas.
+Observação importante: a interpretação de "tempo" depende do que está instrumentado como evento (por exemplo, eventos de workflow com `duration_seconds`) e do que é derivável de timestamps (por exemplo, quando há apenas `created_at`/`timestamp`). O protocolo não assume métricas não registradas. No baseline, os tempos são coletados externamente (cronômetro) e não são persistidos no banco. Na intervenção, há eventos com `workflow_events.duration_seconds` (incluindo `VISION_SAVED`, `SPEC_COMPILED`, `SPRINT_PLAN_SAVED` e `FSM_STATE_DWELL`) e, quando necessário, podem-se calcular deltas entre timestamps; em ambos os casos, as medidas representam *wall-clock* e **não isolam esforço humano**, podendo incluir latência de rede, processamento de LLM e pausas.
 
 ### 5.6.2 Evidências automatizadas (scripts e artefatos de extração)
 
@@ -115,7 +109,7 @@ Adicionalmente, quando necessário, aplica-se validação em lote (backfill) das
 
 ### 5.6.3 Instrumento de percepção (NASA-TLX)
 
-Ao final de cada cenário (baseline e intervenção), aplica-se o NASA-TLX em formato **RAW (não ponderado)**, com cinco dimensões: Demanda Mental, Demanda Temporal, Desempenho, Esforço e Frustração. A Demanda Física é excluída por não ser pertinente às tarefas do estudo (planejamento e produção textual). As respostas são registradas em planilha/formulário do estudo e reportadas no Capítulo 6.
+Ao final de cada cenário (baseline e intervenção), aplica-se o NASA-TLX em formato **RAW (não ponderado)**, com cinco dimensões: Demanda Mental, Demanda Temporal, Desempenho, Esforço e Frustração. A Demanda Física é excluída por não ser pertinente às tarefas do estudo (planejamento e produção textual). As respostas são registradas como artefato do estudo em `artifacts/nasa_tlx_raw_5d_form.csv` e reportadas no Capítulo 6.
 
 Para eliminar ambiguidade na dimensão **Desempenho (Performance)**, adota-se explicitamente a seguinte âncora: **0 = desempenho perfeito (sem problemas)** e **100 = desempenho muito ruim (muitos problemas/falha)**; portanto, **valores menores indicam melhor desempenho percebido**.
 
@@ -145,10 +139,10 @@ A análise segue abordagem mista e descritiva:
 
 ### 5.8.1 Quantitativo (descritivo)
 
-- **NASA-TLX (H1):** comparação descritiva entre baseline e intervenção para cada dimensão, e sumarização por escore global RAW quando aplicável.
-- **Eficiência (H1):** tempos medidos no baseline (cronômetro) e tempos agregados no cenário experimental conforme eventos instrumentados e/ou timestamps disponíveis.
-- **Qualidade e completude (H2):** proporção de histórias com evidência de validação, proporção de histórias aceitas e distribuição de falhas por regra.
-- **Rastreabilidade (H3):** proporção de histórias pinadas a uma versão de especificação aceita e completude de evidências persistidas.
+- **NASA-TLX (QP1):** comparação descritiva entre baseline e intervenção para cada dimensão, e sumarização por escore global RAW quando aplicável.
+- **Eficiência (QP1):** tempos medidos no baseline (cronômetro) e tempos agregados no cenário experimental conforme eventos instrumentados e/ou timestamps disponíveis.
+- **Qualidade e completude (QP2):** proporção de histórias com evidência de validação, proporção de histórias aceitas e distribuição de falhas por regra.
+- **Rastreabilidade (QP3):** proporção de histórias pinadas a uma versão de especificação aceita e completude de evidências persistidas.
 
 ### 5.8.2 Qualitativo (triangulação)
 

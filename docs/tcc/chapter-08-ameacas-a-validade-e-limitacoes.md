@@ -19,7 +19,7 @@ Além disso, a dimensão **Desempenho (Performance)** pode ser ambígua em estud
 
 ### 8.1.2 Qualidade e completude das histórias
 
-A qualidade de histórias de usuário é um conceito multifacetado, que envolve clareza, valor, negociabilidade e testabilidade. Neste trabalho, parte da avaliação é operacionalizada por **regras determinísticas** e evidências de validação persistidas no banco.
+A qualidade de histórias de usuário é um conceito multifacetado, que envolve clareza, valor, negociabilidade e testabilidade. Neste trabalho, parte da avaliação é operacionalizada por **regras de validação** (determinísticas e, quando configurado, validação por LLM) e evidências persistidas no banco.
 
 Essa estratégia fortalece a auditabilidade, mas limita o que é efetivamente medido:
 
@@ -33,7 +33,7 @@ Portanto, a interpretação correta é: o artefato demonstra capacidade de **det
 O conceito de “tempo” pode representar esforço humano, tempo de processamento do sistema, latência de rede, e pausas operacionais. No repositório, a evidência temporal disponível para a intervenção inclui:
 
 - deltas wall-clock entre timestamps persistidos no banco (marcos do fluxo);
-- ausência de duração explícita (`duration_seconds`) preenchida para o evento `SPRINT_PLAN_SAVED` nesta execução;
+- `duration_seconds` preenchido em eventos de workflow (incluindo `SPRINT_PLAN_SAVED`) e dwell times por estado (`FSM_STATE_DWELL`), que ainda assim não isolam esforço humano;
 - ausência de tempos baseline (manual) persistidos no banco.
 
 Assim, o estudo mede, de forma reprodutível, o **intervalo decorrido** entre marcos do fluxo (intervenção), mas não mede de forma isolada o esforço humano nem sustenta comparação temporal completa com baseline apenas a partir do DB.
@@ -54,7 +54,7 @@ Como mitigação parcial, o protocolo define tarefas equivalentes e explicita, n
 
 ### 8.2.2 Variabilidade de LLM e não determinismo
 
-Modelos de linguagem podem produzir variação de saída com o mesmo input. Essa variabilidade ameaça a estabilidade de resultados qualitativos e quantitativos (por exemplo, taxa de histórias aprovadas). O artefato busca mitigar esse risco por meio de governança por especificação e validações determinísticas, porém permanecem limitações:
+Modelos de linguagem podem produzir variação de saída com o mesmo input. Essa variabilidade ameaça a estabilidade de resultados qualitativos e quantitativos (por exemplo, taxa de histórias aprovadas). O artefato busca mitigar esse risco por meio de governança por especificação e validações por regras e evidências persistidas, porém permanecem limitações:
 
 - A variabilidade pode afetar a proporção de itens reprovados e a necessidade de refino.
 - A execução depende de configurações de modelos e parâmetros que podem mudar com o tempo, ainda que a arquitetura de evidências preserve o resultado daquela execução.
@@ -65,7 +65,7 @@ Validade externa diz respeito à generalização dos resultados para outros cont
 
 As evidências reportadas referem-se a um recorte específico:
 
-- um produto avaliado (`product_id = 7`);
+- um produto avaliado (`product_id = 1` na base analisada);
 - um participante;
 - um conjunto de tarefas alinhadas ao pipeline do artefato;
 - um ambiente de execução controlado.
@@ -85,9 +85,9 @@ Validade de conclusão trata de quão apropriadas são as inferências feitas a 
 Nesta monografia, as conclusões são deliberadamente **descritivas**, e isso reduz o risco de conclusões indevidas. Ainda assim, existem limites:
 
 - Não há base para inferência estatística (N=1, sem replicações independentes).
-- A comparação temporal baseline vs intervenção é incompleta no conjunto de evidências atual, pois o baseline não está no DB e a duração explícita de planejamento não está preenchida; portanto, qualquer afirmação de “redução de tempo” deve ser evitada sem dados externos adicionais.
+- A comparação temporal baseline vs intervenção é incompleta no conjunto de evidências atual, pois o baseline não está no DB e as durações registradas no DB caracterizam execução wall-clock do sistema (não isolando esforço humano); portanto, qualquer afirmação de “redução de tempo” deve ser evitada sem dados externos adicionais.
 
-O Capítulo 6 adota explicitamente essas restrições ao sintetizar hipóteses com base no que está disponível no repositório.
+O Capítulo 6 adota explicitamente essas restrições ao sintetizar as respostas por questão de pesquisa (QP1–QP3) com base no que está disponível no repositório.
 
 ## 8.5 Confiabilidade e reprodutibilidade (reliability)
 
@@ -107,8 +107,8 @@ Por outro lado, a reprodutibilidade em sentido estrito possui limitações:
 
 Além das ameaças de validade, há limitações operacionais relevantes para interpretação do artefato e do estudo.
 
-1. **Instrumentação parcial de duração em eventos:** a execução analisada não preenche `duration_seconds` em eventos de planejamento, o que limita a mensuração de tempo instrumentado.
-2. **Necessidade de loop de refino:** a detecção determinística de incompletude (por exemplo, critérios de aceitação ausentes) evidencia que o backlog inicial pode exigir refino para atingir completude mínima; o sistema registra o problema, mas não o elimina por si só.
+1. **Instrumentação parcial de tempo humano vs. tempo de sistema:** embora existam durações registradas em eventos (`duration_seconds`), elas caracterizam execução wall-clock do processamento e não distinguem tempo de interação humana (edição/refino), o que limita a mensuração de eficiência.
+2. **Necessidade de loop de refino:** a detecção de falhas por regras explícitas evidencia que o backlog inicial pode exigir refino para atingir critérios mínimos; o sistema registra o problema, mas não o elimina por si só.
 3. **Escopo de avaliação:** o estudo prioriza evidência de rastreabilidade, governança e viabilidade do fluxo; não avalia efeitos de longo prazo (por exemplo, manutenção contínua de backlog ao longo de múltiplos sprints) nem efeitos organizacionais.
 
 ## 8.7 Encaminhamento

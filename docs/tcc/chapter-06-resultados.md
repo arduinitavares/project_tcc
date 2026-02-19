@@ -1,6 +1,6 @@
 # CAPÍTULO 6 — Resultados
 
-Este capítulo apresenta os resultados obtidos na avaliação empírica exploratória do artefato. Os valores numéricos reportados são derivados de evidências extraídas do banco de dados e de artefatos de extração (CSV/JSON) gerados por script, conforme o protocolo definido no Capítulo 5. Quando um dado não está disponível no repositório (por exemplo, respostas de questionário NASA-TLX), isso é indicado explicitamente, evitando inferências não suportadas.
+Este capítulo apresenta os resultados obtidos na avaliação empírica exploratória do artefato. Os valores numéricos reportados são derivados de evidências extraídas do banco de dados e de artefatos de extração (CSV/JSON) gerados por script, conforme o protocolo definido no Capítulo 5. Quando um dado não está disponível no banco ou não é rastreável no repositório, isso é indicado explicitamente, evitando inferências não suportadas.
 
 ## 6.1 Caracterização da execução e do conjunto de evidências
 
@@ -9,18 +9,18 @@ Os resultados quantitativos deste capítulo são extraídos de uma base SQLite e
 **Fonte de verdade (evidência):**
 
 - Base: `db/spec_authority_dev.db`
-- Timestamp de extração: 2026-02-08T12:43:31Z
-- Commit (hash curto): ab06268e1d06
+- Timestamp de extração: 2026-02-19T14:00:40.161314+00:00
+- Commit (hash curto): b1318f5b2005
 
 **Produto avaliado (evidência):**
 
-- `product_id = 7`
-- Nome: *Review-First Human-in-the-Loop Extraction Pipeline*
-- Especificação: 1 versão registrada e aprovada (`spec_version_id = 8`, status `approved`)
+- `product_id = 1`
+- Nome: *P&ID Review & Extraction Platform*
+- Especificação: 1 versão registrada e aprovada (`spec_version_id = 1`, status `approved`)
 
-## 6.2 Resultados por dimensão de análise
+## 6.2 Resultados por questão de pesquisa (QP1–QP3)
 
-### 6.2.1 Qualidade e completude mínima das histórias (validação determinística)
+### 6.2.1 QP2 — Qualidade e completude mínima das histórias (evidência de validação)
 
 Esta dimensão reporta resultados de validação persistidos no banco por história. A evidência é composta por:
 
@@ -31,60 +31,70 @@ Esta dimensão reporta resultados de validação persistidos no banco por histó
 
 | Métrica | Valor | Interpretação |
 |---|---:|---|
-| Histórias no produto | 38 | Total de histórias persistidas no produto avaliado |
-| Histórias com evidência de validação | 38 (100,0%) | Todas as histórias possuem trilha de evidência JSON |
-| Histórias aceitas/pinadas (`accepted_spec_version_id` não nulo) | 25 (65,8%) | Histórias que passaram no gate determinístico |
-| Histórias reprovadas (não pinadas) | 13 (34,2%) | Histórias com falhas determinísticas registradas |
+| Histórias no produto | 23 | Total de histórias persistidas no produto avaliado |
+| Histórias refinadas canônicas | 8 | Histórias com `is_refined = 1` e `is_superseded = 0` |
+| Histórias refinadas com evidência de validação | 8 (100,0%) | Evidência JSON persistida para cada história refinada canônica |
+| Histórias refinadas aceitas/pinadas (`accepted_spec_version_id` não nulo) | 4 (50,0%) | Histórias refinadas que passaram na validação e foram pinadas |
+| Histórias refinadas reprovadas (não pinadas) | 4 (50,0%) | Histórias refinadas com resultado `passed = false` |
 
-**Motivo de reprovação (evidência):**
+**Motivos de reprovação (histórias refinadas; evidência):**
 
-| Regra de falha | Ocorrências | Observação |
+| Tipo/código | Ocorrências | Observação |
 |---|---:|---|
-| `RULE_ACCEPTANCE_CRITERIA_REQUIRED` | 13 | Critérios de aceitação ausentes/vazios |
+| `FORBIDDEN_CAPABILITY` | 3 | falha de alinhamento registrada em `alignment_failures` |
+| `RULE_LLM_SPEC_VALIDATION` | 1 | falha registrada em `failures` (validação por LLM) |
 
-Esses resultados indicam que a camada de governança é capaz de **detectar de forma determinística** histórias incompletas sob o critério mínimo de testabilidade (presença de critérios de aceitação). Ao mesmo tempo, a proporção de reprovação (34,2%) evidencia que, sem um loop de refino aplicado a todas as histórias, parte do backlog inicial pode permanecer incompleto, ainda que auditável.
+Esses resultados indicam que a camada de governança registra aceitação (pinagem) e reprovação (motivo) de forma auditável no escopo avaliado (histórias refinadas canônicas).
 
-### 6.2.2 Rastreabilidade e pinagem à especificação aprovada
+### 6.2.2 QP3 — Rastreabilidade e pinagem à especificação aprovada
 
 O objetivo desta dimensão é demonstrar que a plataforma preserva rastreabilidade entre a especificação aprovada e histórias derivadas. No conjunto analisado, observa-se:
 
-- existência de uma versão de especificação aprovada (`spec_version_id = 8`);
+- existência de uma versão de especificação aprovada (`spec_version_id = 1`);
 - existência de autoridade compilada (1 registro em `compiled_spec_authority`);
 - decisões de aceite registradas (1 aceite, 0 rejeições);
-- trilha por história: evidência JSON de validação em 100% das histórias e pinagem em 65,8%.
+- trilha por história (escopo: refinadas canônicas): evidência JSON de validação em 100% das histórias refinadas e pinagem em 50,0%.
 
 Em termos metodológicos, mesmo as histórias reprovadas permanecem rastreáveis, pois a causa da reprovação é registrada no `validation_evidence` e pode ser utilizada como insumo para refino.
 
-### 6.2.3 Eficiência do fluxo (evidências disponíveis)
+### 6.2.3 QP1 — Eficiência do fluxo (evidências disponíveis)
 
-Os resultados de eficiência dependem do que está instrumentado como evento ou do que é derivável de timestamps. No conjunto de evidências extraído, há registro de evento de planejamento de sprint (`SPRINT_PLAN_SAVED`), porém sem preenchimento de `duration_seconds`. Ainda assim, para a condição de intervenção é possível reportar **deltas wall-clock** (diferença entre timestamps persistidos no banco), os quais caracterizam a ordem e o intervalo temporal entre marcos do fluxo.
+Os resultados de eficiência dependem do que está instrumentado como evento ou do que é derivável de timestamps. No conjunto de evidências extraído, há eventos de workflow com `duration_seconds` (por exemplo, `SPRINT_PLAN_SAVED`) e eventos de permanência por estado da FSM (`FSM_STATE_DWELL`). Essas medidas representam *wall-clock* do sistema, podendo incluir processamento de LLM, latência externa e tempo de interação humana.
 
-**Resumo de eventos (evidência):**
+**Resumo de eventos (evidência no banco):**
 
-| Evento | Contagem | Primeiro timestamp | Último timestamp | Duração (agregada) |
-|---|---:|---|---|---|
-| `SPRINT_PLAN_SAVED` | 1 | 2026-02-08 01:16:53 | 2026-02-08 01:16:53 | não disponível |
+| Evento | Contagem | Duração média (s) | Total (s) |
+|---|---:|---:|---:|
+| `VISION_SAVED` | 1 | 25,66 | 25,66 |
+| `SPEC_COMPILED` | 1 | 25,44 | 25,44 |
+| `BACKLOG_SAVED` | 1 | 0,12 | 0,12 |
+| `ROADMAP_SAVED` | 1 | 0,02 | 0,02 |
+| `STORIES_SAVED` | 1 | 0,05 | 0,05 |
+| `SPRINT_PLAN_SAVED` | 1 | 0,10 | 0,10 |
+| `FSM_STATE_DWELL` | 12 | 119,51 | 1434,10 |
 
-Como evidência complementar, foram derivados deltas entre marcos do fluxo (T1–T5) a partir de timestamps do próprio banco de dados (arquivo em `artifacts/query_results/`). Esses deltas não substituem tempo de esforço humano (por exemplo, pausas e latência externa podem estar incluídas), mas permitem reportar um retrato reprodutível do intervalo temporal observado na execução de intervenção.
+**Tempo de permanência por estado (FSM; evidência no banco):**
 
-**Deltas derivados (evidência; intervenção, `product_id = 7`):**
+| Estado | Saídas | Dwell médio (s) |
+|---|---:|---:|
+| `ROUTING_MODE` | 1 | 130,06 |
+| `VISION_INTERVIEW` | 1 | 70,17 |
+| `VISION_REVIEW` | 1 | 169,24 |
+| `VISION_PERSISTENCE` | 1 | 49,82 |
+| `BACKLOG_INTERVIEW` | 1 | 130,96 |
+| `BACKLOG_REVIEW` | 1 | 335,33 |
+| `BACKLOG_PERSISTENCE` | 1 | 93,01 |
+| `ROADMAP_INTERVIEW` | 1 | 169,35 |
+| `ROADMAP_PERSISTENCE` | 1 | 62,41 |
+| `STORY_REVIEW` | 1 | 74,64 |
+| `STORY_PERSISTENCE` | 1 | 65,88 |
+| `SPRINT_DRAFT` | 1 | 83,22 |
 
-| Delta | De → Até | Segundos | mm:ss |
-|---|---|---:|---:|
-| T1→T2 (Visão → Spec) | 00:59:40.77 → 00:59:40.95 | 0.18 | 00:00 |
-| T2→T3 (Spec → Autoridade compilada) | 00:59:40.95 → 01:00:01.47 | 20.52 | 00:21 |
-| T3→T4 (Autoridade → Primeira story) | 01:00:01.47 → 01:02:34.12 | 152.64 | 02:33 |
-| T4 (Primeira → Última story; 38 stories) | 01:02:34.12 → 01:13:57.79 | 683.68 | 11:24 |
-| T4→T5 (Última story → Sprint plan saved) | 01:13:57.79 → 01:16:53.96 | 176.17 | 02:56 |
-| T1→T5 (Total; produto criado → sprint) | 00:59:40.77 → 01:16:53.96 | 1033.19 | 17:13 |
+### 6.2.4 QP1 — Carga de trabalho percebida (NASA-TLX)
 
-Observa-se que T1 e T2 são quase simultâneos, pois visão e especificação são carregadas no mesmo fluxo de criação do produto na execução registrada. Já o tempo “T4” agrega a janela entre a primeira e a última história persistida no produto.
+O protocolo prevê NASA-TLX RAW com cinco dimensões (Demanda Mental, Demanda Temporal, Desempenho, Esforço e Frustração). As respostas, por definição do protocolo, são coletadas em instrumento externo (formulário/planilha), registradas como artefato do estudo e **não** são persistidas no banco.
 
-### 6.2.4 Carga de trabalho percebida (NASA-TLX)
-
-O protocolo prevê NASA-TLX RAW com cinco dimensões (Demanda Mental, Demanda Temporal, Desempenho, Esforço e Frustração). As respostas, por definição do protocolo, são coletadas em formulário/planilha e **não** são persistidas no banco.
-
-Para esta execução, os valores foram registrados em planilha (arquivo CSV em `artifacts/`), em escala 0–100, adotando a convenção **menor = melhor** também para a dimensão de Desempenho (isto é, 0 indica desempenho percebido excelente; 100 indica desempenho percebido ruim).
+Para esta execução, os valores foram registrados em `artifacts/nasa_tlx_raw_5d_form.csv` (run_01), em escala 0–100, adotando a convenção **menor = melhor** também para a dimensão de Desempenho (isto é, 0 indica desempenho percebido excelente; 100 indica desempenho percebido ruim). No CSV, a coleta utilizada neste capítulo está associada a `product_id = 1`.
 
 | Dimensão NASA-TLX | Baseline | Intervenção |
 |---|---:|---:|
@@ -100,9 +110,9 @@ Para esta execução, os valores foram registrados em planilha (arquivo CSV em `
 |---|---:|---:|
 | Média RAW (5 dimensões) | 81 | 27 |
 
-### 6.2.5 Evidências de execução automatizada (smoke runs)
+### 6.2.5 QP3 — Evidências de execução automatizada (*smoke runs*)
 
-Além das métricas por produto, foram extraídas métricas agregadas de execuções automatizadas (*smoke runs*), quando disponíveis. No conjunto analisado:
+Além das métricas por produto, foram extraídas métricas agregadas de execuções automatizadas (*smoke runs*) a partir de `artifacts/smoke_runs.jsonl`, quando disponível. Observação: esse conjunto é **agregado** (inclui múltiplos cenários/produtos) e, portanto, não é filtrado apenas para o `product_id = 1`; os números abaixo são reportados como evidência complementar do comportamento do pipeline. No conjunto analisado:
 
 | Métrica | Valor |
 |---|---:|
@@ -111,28 +121,29 @@ Além das métricas por produto, foram extraídas métricas agregadas de execuç
 | Rejeições por alinhamento | 5 |
 | Bloqueios por aceite/gate | 8 |
 | Execuções com contrato aprovado | 3 |
+| Match de `spec_version_id` | 11 |
 | Mismatch de `spec_version_id` | 0 |
 
-Esses números caracterizam, de forma agregada, o comportamento do pipeline sob execução automatizada e sugerem consistência na pinagem de versão (sem divergências registradas no conjunto analisado).
+Esses números caracterizam, de forma agregada, o comportamento do pipeline sob execução automatizada. No conjunto analisado, o indicador `spec_version_id_match` não registrou divergências nas execuções em que o pipeline rodou.
 
 ## 6.3 Observações qualitativas (não métricas)
 
 As observações desta seção não são métricas automatizadas e não substituem os resultados quantitativos. Elas servem para contextualizar os achados:
 
-- A principal causa de reprovação foi a ausência de critérios de aceitação, o que reforça o papel do gate como mecanismo de completude mínima.
-- A presença de evidência de validação em 100% das histórias reduz ambiguidade na auditoria: para cada história, há registro explícito de “passou/falhou” e, quando falha, do motivo.
-- A ausência de duração em eventos de planejamento impede, nesta execução, avaliação de eficiência temporal com base em evidências do banco.
+- As reprovações observadas nas histórias refinadas concentraram-se em falhas de alinhamento registradas como `FORBIDDEN_CAPABILITY` e em um caso de falha por `RULE_LLM_SPEC_VALIDATION`.
+- A presença de evidência de validação em 100% das histórias refinadas canônicas reduz ambiguidade na auditoria: para cada história, há registro explícito de “passou/falhou” e, quando falha, do motivo.
+- Há `duration_seconds` instrumentado em eventos relevantes, mas as medidas são *wall-clock* e podem incluir interação humana e latências externas; não representam esforço humano isolado.
 
-## 6.4 Síntese por hipótese (com base nas evidências disponíveis)
+## 6.4 Síntese por questão de pesquisa (QP1–QP3)
 
-### Hipótese H1 (redução de carga de trabalho percebida)
+### QP1 (carga de trabalho)
 
-**Evidência disponível:** há respostas NASA-TLX (RAW, 5 dimensões) registradas em planilha, com redução descritiva da média de 81 (baseline) para 27 (intervenção). Para a condição de intervenção, existem deltas wall-clock derivados de timestamps do banco; entretanto, os tempos baseline (manual) não estão persistidos nesta base, e o campo de duração explícita (`duration_seconds`) não foi preenchido para o evento de planejamento. Assim, **neste conjunto de evidências, H1 é suportada apenas pela evidência do instrumento de percepção**, não sendo possível sustentar uma conclusão sobre redução de tempo em comparação ao baseline.
+**Evidência disponível:** há respostas NASA-TLX (RAW, 5 dimensões) registradas em `artifacts/nasa_tlx_raw_5d_form.csv` (run_01, `product_id = 1`), com redução descritiva da média de 81 (baseline) para 27 (intervenção). Para eficiência temporal, há evidência por eventos de workflow e dwell por estado da FSM, porém sem tempos baseline manual persistidos para comparação direta.
 
-### Hipótese H2 (qualidade/completude estrutural dos artefatos)
+### QP2 (qualidade e completude)
 
-**Evidência disponível:** 38/38 histórias com evidência de validação; 25/38 histórias aceitas/pinadas; 13/38 reprovadas por ausência de critérios de aceitação (`RULE_ACCEPTANCE_CRITERIA_REQUIRED`). Esses resultados sustentam que o sistema aplica um critério objetivo de completude mínima e registra falhas de forma auditável. Entretanto, a qualidade final do conjunto depende de refino posterior das histórias reprovadas.
+**Evidência disponível:** no conjunto de histórias refinadas canônicas (`product_id = 1`), 8/8 histórias possuem evidência de validação persistida; 4/8 foram aceitas/pinadas; e 4/8 foram reprovadas com evidências registradas (principalmente `FORBIDDEN_CAPABILITY` e `RULE_LLM_SPEC_VALIDATION`).
 
-### Hipótese H3 (rastreabilidade por governança de especificação)
+### QP3 (viabilidade operacional)
 
-**Evidência disponível:** há especificação aprovada (`spec_version_id = 8`), autoridade compilada, decisão de aceite e trilhas por história (evidência de validação em 100% e pinagem em 65,8%). Assim, **H3 é suportada** no sentido de que a arquitetura produz rastreabilidade operacional e auditável; e, quando a história falha, preserva a causa da falha como evidência.
+**Evidência disponível:** há especificação aprovada (`spec_version_id = 1`), autoridade compilada, decisão de aceite e trilhas por história (evidência de validação e pinagem no escopo refinado canônico). Como evidência complementar (não filtrada por `product_id`), as métricas agregadas de *smoke runs* indicam execução repetida do pipeline e consistência de `spec_version_id` nas execuções em que o pipeline rodou (sem mismatch registrado).
