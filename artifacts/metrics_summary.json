@@ -1,9 +1,9 @@
 {
   "extraction_metadata": {
-    "timestamp": "2026-02-19T01:36:03.295457+00:00",
+    "timestamp": "2026-02-19T14:00:40.161314+00:00",
     "db_path": "C:\\Users\\mjnrc\\projects\\project_tcc\\db\\spec_authority_dev.db",
     "db_filename": "spec_authority_dev.db",
-    "commit_hash": "122aaf7a74c5"
+    "commit_hash": "b1318f5b2005"
   },
   "schema": {
     "tables": [

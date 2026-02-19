@@ -20,7 +20,7 @@ from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_k
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _seed_product(session: Session, product_id: int = 7) -> Product:
+def _seed_product(session: Session, product_id: int = 1) -> Product:
     """Insert a minimal Product row and return it."""
     product = Product(
         product_id=product_id,
@@ -76,7 +76,7 @@ class TestSaveStoriesTool:
         _seed_product(session)
 
         payload = SaveStoriesInput(
-            product_id=7,
+            product_id=1,
             parent_requirement="Attestation Gate",
             stories=[_story_missing_so_that()],
         )
@@ -93,7 +93,7 @@ class TestSaveStoriesTool:
         _seed_product(session)
 
         payload = SaveStoriesInput(
-            product_id=7,
+            product_id=1,
             parent_requirement="Attestation Gate",
             stories=[_valid_story(), _story_missing_so_that()],
         )
@@ -108,7 +108,7 @@ class TestSaveStoriesTool:
         _seed_product(session)
 
         payload = SaveStoriesInput(
-            product_id=7,
+            product_id=1,
             parent_requirement="Attestation Gate",
             stories=[_valid_story()],
         )
@@ -138,7 +138,7 @@ class TestSaveStoriesTool:
         story["unknown_field"] = "should be rejected"
 
         payload = SaveStoriesInput(
-            product_id=7,
+            product_id=1,
             parent_requirement="Attestation Gate",
             stories=[story],
         )
@@ -152,7 +152,7 @@ class TestSaveStoriesTool:
         _seed_product(session)
 
         payload = SaveStoriesInput(
-            product_id=7,
+            product_id=1,
             parent_requirement="Attestation Gate",
             stories=[],
         )
@@ -166,7 +166,7 @@ class TestSaveStoriesTool:
     def test_refinement_updates_seed_rows_by_linkage(self, session: Session):
         _seed_product(session)
         seed = UserStory(
-            product_id=7,
+            product_id=1,
             title="Attestation Gate",
             story_description="Backlog seed",
             acceptance_criteria=None,
@@ -182,7 +182,7 @@ class TestSaveStoriesTool:
         seed_id = seed.story_id
 
         payload = SaveStoriesInput(
-            product_id=7,
+            product_id=1,
             parent_requirement="Attestation Gate",
             stories=[_valid_story()],
         )
@@ -203,7 +203,7 @@ class TestSaveStoriesTool:
     def test_refinement_repeat_is_idempotent_no_new_rows(self, session: Session):
         _seed_product(session)
         seed = UserStory(
-            product_id=7,
+            product_id=1,
             title="Attestation Gate",
             story_description="Backlog seed",
             acceptance_criteria=None,
@@ -217,7 +217,7 @@ class TestSaveStoriesTool:
         session.commit()
 
         payload = SaveStoriesInput(
-            product_id=7,
+            product_id=1,
             parent_requirement="Attestation Gate",
             stories=[_valid_story()],
         )
@@ -230,14 +230,14 @@ class TestSaveStoriesTool:
         assert second["updated_count"] == 1
 
         rows = session.exec(
-            select(UserStory).where(UserStory.product_id == 7)
+            select(UserStory).where(UserStory.product_id == 1)
         ).all()
         assert len(rows) == 1
 
     def test_source_requirement_normalization_matches_rows(self, session: Session):
         _seed_product(session)
         seed = UserStory(
-            product_id=7,
+            product_id=1,
             title="Attestation Gate",
             story_description="Backlog seed",
             acceptance_criteria=None,
@@ -252,7 +252,7 @@ class TestSaveStoriesTool:
         session.refresh(seed)
 
         payload = SaveStoriesInput(
-            product_id=7,
+            product_id=1,
             parent_requirement="  attestation   gate  ",
             stories=[_valid_story()],
         )
