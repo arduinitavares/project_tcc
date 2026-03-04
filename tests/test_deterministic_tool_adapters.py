@@ -329,7 +329,7 @@ async def test_sprint_adapter_rejects_non_eligible_selected_story_ids(
 
 
 def test_state_registry_keeps_public_generation_tool_names() -> None:
-    routing_def = STATE_REGISTRY[OrchestratorState.ROUTING_MODE]
+    routing_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
     tool_names = [
         getattr(tool, "__name__", None) or getattr(tool, "name", None)
         for tool in routing_def.tools
@@ -369,3 +369,4 @@ def test_minimal_adapter_signatures_remove_legacy_context_fields() -> None:
 
     assert "technical_spec" not in story_params
     assert "compiled_authority" not in story_params
+

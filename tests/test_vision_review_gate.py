@@ -1,14 +1,14 @@
 """
 Tests for the Vision Review approval gate.
 
-Bug: ROUTING_MODE instruction embedded an inline save recipe
+Bug: SETUP_REQUIRED instruction embedded an inline save recipe
 (save_vision_tool + link_spec_to_product) that let the LLM
 bypassed the VISION_REVIEW approval gate after product_vision_tool
 returned is_complete=True.
 
 Fix contract:
-1. ROUTING_MODE instruction must NOT tell the agent to call
-   save_vision_tool directly — it must STOP after product_vision_tool.
+1. SETUP_REQUIRED instruction must NOT tell the agent to call
+   save_vision_tool directly - it must STOP after product_vision_tool.
 2. Spec linking happens INSIDE save_vision_tool (Pre-Phase / authority
    compilation before vision persistence).  VISION_PERSISTENCE is a
    pure confirmation state with no spec/authority tools.
@@ -31,9 +31,9 @@ class TestVisionReviewGate(unittest.TestCase):
     # --- FSM transition correctness (sanity) ---
 
     def test_routing_mode_vision_complete_transitions_to_review(self):
-        """product_vision_tool(is_complete=True) in ROUTING_MODE → VISION_REVIEW."""
+        """product_vision_tool(is_complete=True) in SETUP_REQUIRED -> VISION_REVIEW."""
         next_state = self.controller.determine_next_state(
-            OrchestratorState.ROUTING_MODE,
+            OrchestratorState.SETUP_REQUIRED,
             "product_vision_tool",
             {"is_complete": True},
             "start project",
@@ -41,7 +41,7 @@ class TestVisionReviewGate(unittest.TestCase):
         self.assertEqual(next_state, OrchestratorState.VISION_REVIEW)
 
     def test_vision_review_save_transitions_to_persistence(self):
-        """save_vision_tool in VISION_REVIEW → VISION_PERSISTENCE."""
+        """save_vision_tool in VISION_REVIEW -> VISION_PERSISTENCE."""
         next_state = self.controller.determine_next_state(
             OrchestratorState.VISION_REVIEW,
             "save_vision_tool",
@@ -53,10 +53,10 @@ class TestVisionReviewGate(unittest.TestCase):
     # --- Instruction-level guard: no inline save recipe in ROUTING ---
 
     def test_routing_instruction_does_not_embed_save_recipe(self):
-        """ROUTING_MODE instruction must not tell the agent to chain
+        """SETUP_REQUIRED instruction must not tell the agent to chain
         save_vision_tool immediately after product_vision_tool.
         It should contain an explicit STOP directive after the vision call."""
-        routing_def = STATE_REGISTRY[OrchestratorState.ROUTING_MODE]
+        routing_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         instruction = routing_def.instruction
 
         # The instruction should NOT contain a recipe that says
@@ -80,9 +80,9 @@ class TestVisionReviewGate(unittest.TestCase):
         )
 
     def test_routing_instruction_does_not_embed_spec_save_recipe(self):
-        """ROUTING_MODE section 4 (pasted content) must not embed
+        """SETUP_REQUIRED section 4 (pasted content) must not embed
         save_project_specification inline either."""
-        routing_def = STATE_REGISTRY[OrchestratorState.ROUTING_MODE]
+        routing_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         instruction = routing_def.instruction
 
         section4_match = re.search(
@@ -117,8 +117,8 @@ class TestVisionReviewGate(unittest.TestCase):
         )
 
     def test_routing_mode_does_not_have_link_spec_to_product(self):
-        """ROUTING_MODE must NOT include link_spec_to_product."""
-        routing_def = STATE_REGISTRY[OrchestratorState.ROUTING_MODE]
+        """SETUP_REQUIRED must NOT include link_spec_to_product."""
+        routing_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         tool_names = [
             getattr(t, "__name__", None) or getattr(t, "name", None) or str(t)
             for t in routing_def.tools
@@ -126,7 +126,7 @@ class TestVisionReviewGate(unittest.TestCase):
         self.assertNotIn(
             "link_spec_to_product",
             tool_names,
-            "ROUTING_MODE must NOT contain link_spec_to_product.",
+            "SETUP_REQUIRED must NOT contain link_spec_to_product.",
         )
 
     def test_vision_persistence_only_has_backlog_primer(self):
@@ -146,3 +146,4 @@ class TestVisionReviewGate(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

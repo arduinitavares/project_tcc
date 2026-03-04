@@ -274,11 +274,11 @@ def _record_fsm_state_dwell_event(
 def flush_current_state_dwell_on_session_end() -> None:
     """Record dwell for the current state when the CLI session ends."""
     snapshot = get_current_state(APP_NAME, USER_ID, SESSION_ID)
-    current_state_key = snapshot.get("fsm_state", OrchestratorState.ROUTING_MODE.value)
+    current_state_key = snapshot.get("fsm_state", OrchestratorState.SETUP_REQUIRED.value)
     try:
         current_state = OrchestratorState(current_state_key)
     except ValueError:
-        current_state = OrchestratorState.ROUTING_MODE
+        current_state = OrchestratorState.SETUP_REQUIRED
 
     entered_at = _parse_iso_utc(snapshot.get("fsm_state_entered_at"))
     if entered_at is None:
@@ -386,8 +386,8 @@ async def get_user_input(prompt: str = "") -> str:
 def evaluate_workflow_triggers(state: Dict[str, Any]) -> Optional[str]:
     """Evaluates workflow triggers based on the current state.
 
-    Currently returns None — automated triggers are disabled until
-    the sprint planning agent is implemented. The Vision → Backlog → Roadmap
+    Currently returns None - automated triggers are disabled until
+    the sprint planning agent is implemented. The Vision -> Backlog -> Roadmap
     pipeline is driven entirely by user interaction.
     """
     return None
@@ -423,11 +423,11 @@ async def run_agent_turn(
     )
 
     # --- FSM CONFIGURATION ---
-    active_state_key = full_state.get("fsm_state", OrchestratorState.ROUTING_MODE)
+    active_state_key = full_state.get("fsm_state", OrchestratorState.SETUP_REQUIRED)
     try:
         active_state = OrchestratorState(active_state_key)
     except ValueError:
-        active_state = OrchestratorState.ROUTING_MODE
+        active_state = OrchestratorState.SETUP_REQUIRED
     state_entered_at = _parse_iso_utc(full_state.get("fsm_state_entered_at"))
     if state_entered_at is None:
         state_entered_at = _utc_now()
@@ -448,7 +448,7 @@ async def run_agent_turn(
         raise RuntimeError("Runner agent wrapper missing inner agent.")
     inner_agent.instruction = state_def.instruction
     # Hermetic tool injection: each FSM state defines its complete tool set.
-    # No BASE_TOOLS merge — prevents the LLM from seeing tools the FSM can't track.
+    # No BASE_TOOLS merge - prevents the LLM from seeing tools the FSM can't track.
     inner_agent.tools = _dedupe_tools(state_def.tools)
 
     # Construct Prompt
@@ -705,7 +705,7 @@ async def main():
         "[bold green]Hydrating Business State...", spinner="dots"
     ):
         initial_state = get_real_business_state()
-        initial_state["fsm_state"] = OrchestratorState.ROUTING_MODE.value
+        initial_state["fsm_state"] = OrchestratorState.SETUP_REQUIRED.value
         initial_state["fsm_state_entered_at"] = _utc_now_iso()
         app_logger.info("Initial business state loaded: %s", json.dumps(initial_state, indent=2, ensure_ascii=False, default=str))
 
@@ -764,3 +764,4 @@ if __name__ == "__main__":
         app_logger.info("="*80)
         app_logger.info("SESSION ENDED")
         app_logger.info("="*80)
+

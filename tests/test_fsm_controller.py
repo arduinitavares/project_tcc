@@ -10,7 +10,7 @@ class TestFSMController(unittest.TestCase):
         self.controller = FSMController()
 
     def test_initial_state(self):
-        self.assertEqual(self.controller.get_initial_state(), OrchestratorState.ROUTING_MODE)
+        self.assertEqual(self.controller.get_initial_state(), OrchestratorState.SETUP_REQUIRED)
 
     def test_registry_integrity(self):
         """Verify that all allowed transitions target valid states."""
@@ -22,7 +22,7 @@ class TestFSMController(unittest.TestCase):
     def test_routing_mode_transitions(self):
         # Vision Interview
         next_state = self.controller.determine_next_state(
-            OrchestratorState.ROUTING_MODE,
+            OrchestratorState.SETUP_REQUIRED,
             "product_vision_tool",
             {"is_complete": False},
             "start project"
@@ -31,7 +31,7 @@ class TestFSMController(unittest.TestCase):
 
         # Vision Review
         next_state = self.controller.determine_next_state(
-            OrchestratorState.ROUTING_MODE,
+            OrchestratorState.SETUP_REQUIRED,
             "product_vision_tool",
             {"is_complete": True},
             "start project"
@@ -66,19 +66,19 @@ class TestFSMController(unittest.TestCase):
         )
         self.assertEqual(next_state, OrchestratorState.VISION_INTERVIEW)
 
-        # Vision Review -> Backlog Review (User requests backlog)
+        # Vision Review -> stays in review until explicit save
         next_state = self.controller.determine_next_state(
             OrchestratorState.VISION_REVIEW,
             "backlog_primer_tool",
             {"is_complete": True},
             "create backlog"
         )
-        self.assertEqual(next_state, OrchestratorState.BACKLOG_REVIEW)
+        self.assertEqual(next_state, OrchestratorState.VISION_REVIEW)
 
     def test_roadmap_phase_transitions(self):
         # Routing -> Roadmap Interview
         next_state = self.controller.determine_next_state(
-            OrchestratorState.ROUTING_MODE,
+            OrchestratorState.SETUP_REQUIRED,
             "roadmap_builder_tool",
             {"is_complete": False},
             "create roadmap"
@@ -87,7 +87,7 @@ class TestFSMController(unittest.TestCase):
 
         # Routing -> Roadmap Review
         next_state = self.controller.determine_next_state(
-            OrchestratorState.ROUTING_MODE,
+            OrchestratorState.SETUP_REQUIRED,
             "roadmap_builder_tool",
             {"is_complete": True},
             "create roadmap"
@@ -123,7 +123,7 @@ class TestFSMController(unittest.TestCase):
 
     def test_backlog_persistence_existing_transitions_unchanged(self):
         """Existing transitions from BACKLOG_PERSISTENCE remain intact."""
-        # roadmap_builder_tool → ROADMAP_INTERVIEW
+        # roadmap_builder_tool -> ROADMAP_INTERVIEW
         next_state = self.controller.determine_next_state(
             OrchestratorState.BACKLOG_PERSISTENCE,
             "roadmap_builder_tool",
@@ -132,7 +132,7 @@ class TestFSMController(unittest.TestCase):
         )
         self.assertEqual(next_state, OrchestratorState.ROADMAP_INTERVIEW)
 
-        # backlog_primer_tool → BACKLOG_INTERVIEW
+        # backlog_primer_tool -> BACKLOG_INTERVIEW
         next_state = self.controller.determine_next_state(
             OrchestratorState.BACKLOG_PERSISTENCE,
             "backlog_primer_tool",
@@ -182,13 +182,13 @@ class TestFSMController(unittest.TestCase):
         Verify that a transition calculated by the controller is BLOCKED if it is not
         in the current state's allowed_transitions set.
         """
-        fake_def = STATE_REGISTRY[OrchestratorState.ROUTING_MODE].model_copy(deep=True)
+        fake_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED].model_copy(deep=True)
         fake_def.allowed_transitions.remove(OrchestratorState.VISION_INTERVIEW)
 
         # Patch the class method instead of instance
         with patch.object(FSMController, 'get_state_definition', return_value=fake_def) as mock_method:
             next_state = self.controller.determine_next_state(
-                OrchestratorState.ROUTING_MODE,
+                OrchestratorState.SETUP_REQUIRED,
                 "product_vision_tool",
                 {"is_complete": False},
                 "draft vision"
@@ -197,7 +197,8 @@ class TestFSMController(unittest.TestCase):
             # Check call
             print(f"DEBUG TEST: Mock called? {mock_method.called}", file=sys.stderr)
 
-            self.assertEqual(next_state, OrchestratorState.ROUTING_MODE)
+            self.assertEqual(next_state, OrchestratorState.SETUP_REQUIRED)
 
 if __name__ == "__main__":
     unittest.main()
+

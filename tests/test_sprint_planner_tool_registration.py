@@ -56,7 +56,7 @@ class TestSprintPlannerToolRegistration:
     """Verify that sprint_planner_tool is accessible in all FSM states that list it."""
 
     STATES_WITH_SPRINT_PLANNER = [
-        OrchestratorState.ROUTING_MODE,
+        OrchestratorState.SETUP_REQUIRED,
         OrchestratorState.STORY_PERSISTENCE,
         OrchestratorState.SPRINT_SETUP,
         OrchestratorState.SPRINT_DRAFT,
@@ -64,17 +64,17 @@ class TestSprintPlannerToolRegistration:
     ]
 
     def test_sprint_planner_in_routing_mode_tools(self):
-        state_def = STATE_REGISTRY[OrchestratorState.ROUTING_MODE]
+        state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         names = [
             getattr(t, "name", None) or getattr(t, "__name__", None)
             for t in state_def.tools
         ]
         assert "sprint_planner_tool" in names, (
-            f"sprint_planner_tool not in ROUTING_MODE tools: {names}"
+            f"sprint_planner_tool not in SETUP_REQUIRED tools: {names}"
         )
 
     def test_sprint_planner_survives_dedupe(self):
-        state_def = STATE_REGISTRY[OrchestratorState.ROUTING_MODE]
+        state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         deduped = _dedupe_tools(state_def.tools)
         names = [
             getattr(t, "name", None) or getattr(t, "__name__", None)
@@ -85,7 +85,7 @@ class TestSprintPlannerToolRegistration:
         )
 
     def test_sprint_planner_declaration_valid(self):
-        state_def = STATE_REGISTRY[OrchestratorState.ROUTING_MODE]
+        state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         for tool in state_def.tools:
             name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
             if name == "sprint_planner_tool":
@@ -101,11 +101,11 @@ class TestSprintPlannerToolRegistration:
                     f"Declaration name mismatch: {decl.name}"
                 )
                 return
-        assert False, "sprint_planner_tool not found in ROUTING_MODE tools"
+        assert False, "sprint_planner_tool not found in SETUP_REQUIRED tools"
 
     def test_sprint_planner_in_simulated_tools_dict(self):
         """Key test: Simulates the full ADK tools_dict build pipeline."""
-        state_def = STATE_REGISTRY[OrchestratorState.ROUTING_MODE]
+        state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         deduped = _dedupe_tools(state_def.tools)
         tools_dict = _build_tools_dict(deduped)
         assert "sprint_planner_tool" in tools_dict, (
@@ -126,8 +126,8 @@ class TestSprintPlannerToolRegistration:
             )
 
     def test_no_duplicate_tool_names(self):
-        """Verify no two tools share the same name in ROUTING_MODE."""
-        state_def = STATE_REGISTRY[OrchestratorState.ROUTING_MODE]
+        """Verify no two tools share the same name in SETUP_REQUIRED."""
+        state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         names = []
         for tool in state_def.tools:
             name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
@@ -135,3 +135,4 @@ class TestSprintPlannerToolRegistration:
         seen = set()
         dupes = [n for n in names if n in seen or seen.add(n)]
         assert not dupes, f"Duplicate tool names: {dupes}"
+

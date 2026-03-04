@@ -12,11 +12,11 @@ class TestFSMStoryTransitions:
     def setup_method(self) -> None:
         self.ctrl = FSMController()
 
-    # --- ROUTING → STORY ---
+    # --- ROUTING -> STORY ---
 
     def test_routing_to_story_interview_on_incomplete(self) -> None:
         next_state = self.ctrl.determine_next_state(
-            current_state=OrchestratorState.ROUTING_MODE,
+            current_state=OrchestratorState.SETUP_REQUIRED,
             tool_name="user_story_writer_tool",
             tool_output={"is_complete": False},
             user_input="decompose stories",
@@ -25,14 +25,14 @@ class TestFSMStoryTransitions:
 
     def test_routing_to_story_review_on_complete(self) -> None:
         next_state = self.ctrl.determine_next_state(
-            current_state=OrchestratorState.ROUTING_MODE,
+            current_state=OrchestratorState.SETUP_REQUIRED,
             tool_name="user_story_writer_tool",
             tool_output={"is_complete": True},
             user_input="decompose stories",
         )
         assert next_state == OrchestratorState.STORY_REVIEW
 
-    # --- ROADMAP_PERSISTENCE → STORY ---
+    # --- ROADMAP_PERSISTENCE -> STORY ---
 
     def test_roadmap_persistence_to_story_interview(self) -> None:
         next_state = self.ctrl.determine_next_state(
@@ -168,6 +168,7 @@ class TestFSMStoryStateDefinitions:
         assert OrchestratorState.STORY_INTERVIEW in defn.allowed_transitions
 
     def test_routing_allows_story_transitions(self) -> None:
-        defn = self.ctrl.get_state_definition(OrchestratorState.ROUTING_MODE)
+        defn = self.ctrl.get_state_definition(OrchestratorState.SETUP_REQUIRED)
         assert OrchestratorState.STORY_INTERVIEW in defn.allowed_transitions
         assert OrchestratorState.STORY_REVIEW in defn.allowed_transitions
+

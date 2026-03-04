@@ -84,7 +84,7 @@ Vision → Backlog → Roadmap → Stories → Sprint Planning.
 """
 
 ROUTING_INSTRUCTION = """
-# ROUTING MODE (State 4)
+# SETUP MODE (State 4)
 
 **Trigger:** Start of conversation, or User changes topic.
 
@@ -475,9 +475,9 @@ SPEC_COMPILE_INSTRUCTION = """
 # --- REGISTRY ---
 
 STATE_REGISTRY = {
-    OrchestratorState.ROUTING_MODE: StateDefinition(
-        name=OrchestratorState.ROUTING_MODE,
-        phase=OrchestratorPhase.ROUTING,
+    OrchestratorState.SETUP_REQUIRED: StateDefinition(
+        name=OrchestratorState.SETUP_REQUIRED,
+        phase=OrchestratorPhase.SETUP,
         instruction=COMMON_HEADER + ROUTING_INSTRUCTION,
         tools=[
             count_projects,
@@ -516,8 +516,8 @@ STATE_REGISTRY = {
         name=OrchestratorState.VISION_INTERVIEW,
         phase=OrchestratorPhase.VISION,
         instruction=COMMON_HEADER + VISION_INTERVIEW_INSTRUCTION,
-        tools=[product_vision_tool, save_vision_tool],
-        allowed_transitions={OrchestratorState.VISION_INTERVIEW, OrchestratorState.VISION_REVIEW, OrchestratorState.VISION_PERSISTENCE}
+        tools=[product_vision_tool],
+        allowed_transitions={OrchestratorState.VISION_INTERVIEW, OrchestratorState.VISION_REVIEW}
     ),
     OrchestratorState.VISION_REVIEW: StateDefinition(
         name=OrchestratorState.VISION_REVIEW,
@@ -527,8 +527,6 @@ STATE_REGISTRY = {
       allowed_transitions={
          OrchestratorState.VISION_INTERVIEW,
          OrchestratorState.VISION_PERSISTENCE,
-         OrchestratorState.BACKLOG_INTERVIEW,
-         OrchestratorState.BACKLOG_REVIEW,
       }
     ),
     OrchestratorState.VISION_PERSISTENCE: StateDefinition(
@@ -547,7 +545,7 @@ STATE_REGISTRY = {
 3. **STOP.**
 """,
       tools=[backlog_primer_tool],
-      allowed_transitions={OrchestratorState.BACKLOG_INTERVIEW, OrchestratorState.ROUTING_MODE}
+      allowed_transitions={OrchestratorState.BACKLOG_INTERVIEW, OrchestratorState.SETUP_REQUIRED}
     ),
    OrchestratorState.BACKLOG_INTERVIEW: StateDefinition(
       name=OrchestratorState.BACKLOG_INTERVIEW,
@@ -584,7 +582,7 @@ STATE_REGISTRY = {
       allowed_transitions={
          OrchestratorState.SPRINT_SETUP,
          OrchestratorState.SPRINT_DRAFT,
-         OrchestratorState.ROUTING_MODE,
+         OrchestratorState.SETUP_REQUIRED,
       }
    ),
    OrchestratorState.SPRINT_DRAFT: StateDefinition(
@@ -596,7 +594,7 @@ STATE_REGISTRY = {
          OrchestratorState.SPRINT_SETUP,
          OrchestratorState.SPRINT_DRAFT,
          OrchestratorState.SPRINT_PERSISTENCE,
-         OrchestratorState.ROUTING_MODE,
+         OrchestratorState.SETUP_REQUIRED,
       }
    ),
    OrchestratorState.SPRINT_PERSISTENCE: StateDefinition(
@@ -606,7 +604,7 @@ STATE_REGISTRY = {
       tools=[sprint_planner_tool],
       allowed_transitions={
          OrchestratorState.SPRINT_DRAFT,
-         OrchestratorState.ROUTING_MODE,
+         OrchestratorState.SETUP_REQUIRED,
       }
    ),
    OrchestratorState.ROADMAP_INTERVIEW: StateDefinition(
@@ -670,13 +668,13 @@ STATE_REGISTRY = {
         phase=OrchestratorPhase.SPEC,
         instruction=COMMON_HEADER + SPEC_UPDATE_INSTRUCTION,
         tools=[update_spec_and_compile_authority],
-        allowed_transitions={OrchestratorState.ROUTING_MODE}
+        allowed_transitions={OrchestratorState.SETUP_REQUIRED}
     ),
     OrchestratorState.SPEC_COMPILE: StateDefinition(
         name=OrchestratorState.SPEC_COMPILE,
         phase=OrchestratorPhase.SPEC,
         instruction=COMMON_HEADER + SPEC_COMPILE_INSTRUCTION,
         tools=[compile_spec_authority_for_version],
-        allowed_transitions={OrchestratorState.ROUTING_MODE}
+        allowed_transitions={OrchestratorState.SETUP_REQUIRED}
     )
 }

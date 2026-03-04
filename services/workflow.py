@@ -1,0 +1,244 @@
+import asyncio
+import json
+import logging
+import sqlite3
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+
+from google.adk.runners import Runner
+from google.adk.sessions import DatabaseSessionService
+from google.genai import types
+
+from orchestrator_agent.agent import root_agent
+from orchestrator_agent.fsm.controller import FSMController
+from orchestrator_agent.fsm.states import OrchestratorState
+from repositories.product import ProductRepository
+from repositories.session import WorkflowSessionRepository
+from tools.orchestrator_tools import get_real_business_state
+
+logger = logging.getLogger(__name__)
+
+
+class WorkflowService:
+    """
+    Application service coordinating session state and optional ADK-driven turns.
+    """
+
+    def __init__(
+        self,
+        app_name: str = "agile_orchestrator",
+        user_id: str = "local_developer",
+    ):
+        self.app_name = app_name
+        self.user_id = user_id
+
+        self.fsm = FSMController()
+        self.session_repo = WorkflowSessionRepository()
+        self.product_repo = ProductRepository()
+
+    async def initialize_session(self, session_id: Optional[str] = None) -> str:
+        """Create a new workflow session and return its ID."""
+        if not session_id:
+            session_id = str(uuid.uuid4())
+
+        initial_state = get_real_business_state()
+        initial_state["fsm_state"] = OrchestratorState.SETUP_REQUIRED.value
+        initial_state["fsm_state_entered_at"] = (
+            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        )
+
+        session_service = DatabaseSessionService(f"sqlite:///{self.session_repo.db_path}")
+        await session_service.create_session(
+            app_name=self.app_name,
+            user_id=self.user_id,
+            session_id=session_id,
+            state=initial_state,
+        )
+        logger.info("Initialized new UI Workflow Session: %s", session_id)
+        return session_id
+
+    def get_session_status(self, session_id: str) -> Dict[str, Any]:
+        """Return the current session state payload."""
+        return self.session_repo.get_session_state(
+            app_name=self.app_name,
+            user_id=self.user_id,
+            session_id=session_id,
+        )
+
+    def update_session_status(self, session_id: str, partial_update: Dict[str, Any]) -> None:
+        """Apply partial update to session state."""
+        self.session_repo.update_session_state(
+            app_name=self.app_name,
+            user_id=self.user_id,
+            session_id=session_id,
+            partial_update=partial_update,
+        )
+
+    def migrate_legacy_setup_state(self) -> int:
+        """
+        One-time migration: convert legacy ROUTING_MODE session states
+        to SETUP_REQUIRED.
+        """
+        migrated = 0
+        try:
+            conn = sqlite3.connect(self.session_repo.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, state FROM sessions WHERE app_name=? AND user_id=?",
+                (self.app_name, self.user_id),
+            )
+            rows = cursor.fetchall()
+
+            for session_id, state_json in rows:
+                try:
+                    state = json.loads(state_json or "{}")
+                except json.JSONDecodeError:
+                    continue
+
+                if state.get("fsm_state") != "ROUTING_MODE":
+                    continue
+
+                state["fsm_state"] = OrchestratorState.SETUP_REQUIRED.value
+                cursor.execute(
+                    "UPDATE sessions SET state=? WHERE app_name=? AND user_id=? AND id=?",
+                    (
+                        json.dumps(state),
+                        self.app_name,
+                        self.user_id,
+                        session_id,
+                    ),
+                )
+                migrated += 1
+
+            conn.commit()
+            conn.close()
+        except sqlite3.Error as exc:
+            logger.error("Failed migrating legacy setup states: %s", exc)
+
+        return migrated
+
+    def advance_fsm_to_next_phase(
+        self,
+        session_id: str,
+        trigger_tool_name: str,
+        tool_output: Dict[str, Any],
+        user_input: str,
+    ) -> str:
+        """
+        Force-evaluate FSM using a simulated tool result.
+        """
+        current_data = self.get_session_status(session_id)
+        current_state_key = current_data.get(
+            "fsm_state", OrchestratorState.SETUP_REQUIRED.value
+        )
+
+        try:
+            current_state = OrchestratorState(current_state_key)
+        except ValueError:
+            current_state = OrchestratorState.SETUP_REQUIRED
+
+        next_state = self.fsm.determine_next_state(
+            current_state=current_state,
+            tool_name=trigger_tool_name,
+            tool_output=tool_output,
+            user_input=user_input,
+        )
+
+        self.update_session_status(
+            session_id,
+            {
+                "fsm_state": next_state.value,
+                "fsm_state_entered_at": datetime.now(timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z"),
+            },
+        )
+        return next_state.value
+
+    async def trigger_agent_turn(self, session_id: str, user_input: str) -> Dict[str, Any]:
+        """
+        Legacy generic agent turn entrypoint.
+        Kept for non-dashboard callers.
+        """
+        session_service = DatabaseSessionService(f"sqlite:///{self.session_repo.db_path}")
+        runner = Runner(
+            agent=root_agent,
+            app_name=self.app_name,
+            session_service=session_service,
+        )
+
+        full_state = self.get_session_status(session_id)
+        current_state_key = full_state.get(
+            "fsm_state", OrchestratorState.SETUP_REQUIRED.value
+        )
+        try:
+            current_state = OrchestratorState(current_state_key)
+        except ValueError:
+            current_state = OrchestratorState.SETUP_REQUIRED
+
+        state_def = self.fsm.get_state_definition(current_state)
+
+        inner_agent: Any = getattr(runner.agent, "agent", None)
+        if inner_agent:
+            inner_agent.instruction = state_def.instruction
+            inner_agent.tools = state_def.tools
+
+        vision_draft = full_state.get("vision_components", "NO_HISTORY")
+        prompt_with_state = (
+            f"<prior_vision_state>\n{vision_draft}\n</prior_vision_state>\n\n"
+            f"<user_raw_text>\n{user_input}\n</user_raw_text>"
+        )
+
+        new_message = types.Content(
+            role="user",
+            parts=[types.Part.from_text(text=prompt_with_state)],
+        )
+
+        full_response_text = ""
+        latest_tool_data: Dict[str, Any] = {}
+        last_tool_name = None
+
+        logger.info(
+            "Triggering background agent for session %s in state %s",
+            session_id,
+            current_state.value,
+        )
+
+        async for event in runner.run_async(
+            user_id=self.user_id,
+            session_id=session_id,
+            new_message=new_message,
+        ):
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if part.function_response:
+                        last_tool_name = part.function_response.name
+                        latest_tool_data = part.function_response.response or {}
+                    if part.text:
+                        full_response_text += part.text
+
+        next_state = self.fsm.determine_next_state(
+            current_state=current_state,
+            tool_name=last_tool_name,
+            tool_output=latest_tool_data,
+            user_input=user_input,
+        )
+
+        update_payload: Dict[str, Any] = {"fsm_state": next_state.value}
+        if next_state != current_state:
+            update_payload["fsm_state_entered_at"] = (
+                datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            )
+
+        if latest_tool_data and "updated_components" in latest_tool_data:
+            update_payload["vision_components"] = latest_tool_data["updated_components"]
+
+        self.update_session_status(session_id, update_payload)
+
+        return {
+            "previous_state": current_state.value,
+            "new_state": next_state.value,
+            "tool_executed": last_tool_name,
+            "response_text": full_response_text,
+        }

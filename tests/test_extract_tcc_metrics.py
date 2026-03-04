@@ -28,12 +28,12 @@ def test_extract_state_dwell_summary_groups_by_from_state() -> None:
             (
                 "FSM_STATE_DWELL",
                 10.0,
-                json.dumps({"from_state": "ROUTING_MODE"}),
+                json.dumps({"from_state": "SETUP_REQUIRED"}),
             ),
             (
                 "FSM_STATE_DWELL",
                 20.0,
-                json.dumps({"from_state": "ROUTING_MODE"}),
+                json.dumps({"from_state": "SETUP_REQUIRED"}),
             ),
             (
                 "FSM_STATE_DWELL",
@@ -41,17 +41,18 @@ def test_extract_state_dwell_summary_groups_by_from_state() -> None:
                 json.dumps({"from_state": "SPRINT_SETUP"}),
             ),
             ("BACKLOG_SAVED", 1.0, json.dumps({})),
-            ("FSM_STATE_DWELL", None, json.dumps({"from_state": "ROUTING_MODE"})),
+            ("FSM_STATE_DWELL", None, json.dumps({"from_state": "SETUP_REQUIRED"})),
         ],
     )
     conn.commit()
 
     summary = extract_state_dwell_summary(cur)
 
-    assert summary["ROUTING_MODE"]["count"] == 2
-    assert summary["ROUTING_MODE"]["avg_duration_sec"] == 15.0
-    assert summary["ROUTING_MODE"]["total_duration_sec"] == 30.0
+    assert summary["SETUP_REQUIRED"]["count"] == 2
+    assert summary["SETUP_REQUIRED"]["avg_duration_sec"] == 15.0
+    assert summary["SETUP_REQUIRED"]["total_duration_sec"] == 30.0
     assert summary["SPRINT_SETUP"]["count"] == 1
     assert summary["SPRINT_SETUP"]["total_duration_sec"] == 5.0
 
     conn.close()
+

@@ -13,11 +13,11 @@ class FSMController:
 
     def get_initial_state(self) -> OrchestratorState:
         """Default starting state."""
-        return OrchestratorState.ROUTING_MODE
+        return OrchestratorState.SETUP_REQUIRED
 
     def get_state_definition(self, state: OrchestratorState) -> StateDefinition:
         """Retrieve definition for a given state."""
-        return self.registry.get(state, self.registry[OrchestratorState.ROUTING_MODE])
+        return self.registry.get(state, self.registry[OrchestratorState.SETUP_REQUIRED])
 
     def determine_next_state(
         self,
@@ -32,8 +32,8 @@ class FSMController:
         # Default: Stay in current state
         next_state = current_state
 
-        # --- ROUTING MODE LOGIC (State 4) ---
-        if current_state == OrchestratorState.ROUTING_MODE:
+        # --- SETUP MODE LOGIC (State 4) ---
+        if current_state == OrchestratorState.SETUP_REQUIRED:
             if tool_name == "product_vision_tool":
                 # Check completeness to decide Interview vs Review
                 is_complete = tool_output.get("is_complete", False)
@@ -63,8 +63,7 @@ class FSMController:
             elif tool_name is None and "sprint" in user_input.lower():
                 next_state = OrchestratorState.SPRINT_SETUP
 
-            # select_project keeps us in ROUTING_MODE (context update)
-
+            # setup/selection context updates keep us in SETUP_REQUIRED
             pass
 
         # --- VISION PHASE ---
@@ -73,9 +72,6 @@ class FSMController:
                 is_complete = tool_output.get("is_complete", False)
                 if is_complete:
                     next_state = OrchestratorState.VISION_REVIEW
-            elif tool_name == "save_vision_tool":
-                # Emergency Exit: User forced save from interview
-                next_state = OrchestratorState.VISION_PERSISTENCE
 
         elif current_state == OrchestratorState.VISION_REVIEW:
             if tool_name == "save_vision_tool":
@@ -84,13 +80,6 @@ class FSMController:
                 is_complete = tool_output.get("is_complete", False)
                 if not is_complete:
                     next_state = OrchestratorState.VISION_INTERVIEW
-            elif tool_name == "backlog_primer_tool":
-                is_complete = tool_output.get("is_complete", False)
-                next_state = (
-                    OrchestratorState.BACKLOG_REVIEW
-                    if is_complete
-                    else OrchestratorState.BACKLOG_INTERVIEW
-                )
 
         elif current_state == OrchestratorState.VISION_PERSISTENCE:
             if tool_name == "backlog_primer_tool":
@@ -199,3 +188,4 @@ class FSMController:
                 return current_state
 
         return next_state
+

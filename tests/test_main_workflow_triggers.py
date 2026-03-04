@@ -30,11 +30,11 @@ class TestMainWorkflowTriggers(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_backlog_trigger_disabled_returns_none(self):
-        """Automated triggers are disabled — returns None regardless of state."""
+        """Automated triggers are disabled - returns None regardless of state."""
         state = {
             "product_backlog": [{"priority": 1}],
             "sprint_plan": None,
-            "fsm_state": OrchestratorState.ROUTING_MODE.value,
+            "fsm_state": OrchestratorState.SETUP_REQUIRED.value,
         }
         result = main.evaluate_workflow_triggers(state)
         self.assertIsNone(result)
@@ -51,3 +51,4 @@ class TestMainWorkflowTriggers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -2,7 +2,7 @@ from enum import Enum
 
 class OrchestratorPhase(str, Enum):
     VISION = "VISION"
-    ROUTING = "ROUTING"
+    SETUP = "SETUP"
     BACKLOG = "BACKLOG"
     ROADMAP = "ROADMAP"
     STORY = "STORY"
@@ -10,8 +10,8 @@ class OrchestratorPhase(str, Enum):
     SPEC = "SPEC"
 
 class OrchestratorState(str, Enum):
-    # ROUTING
-    ROUTING_MODE = "ROUTING_MODE"  # State 4
+    # SETUP
+    SETUP_REQUIRED = "SETUP_REQUIRED"  # State 4
 
     # VISION PHASE
     VISION_INTERVIEW = "VISION_INTERVIEW"  # State 1
@@ -46,3 +46,4 @@ class OrchestratorState(str, Enum):
     # SPEC PHASE
     SPEC_UPDATE = "SPEC_UPDATE"  # State 21
     SPEC_COMPILE = "SPEC_COMPILE"  # State 22
+

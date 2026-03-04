@@ -1,0 +1,311 @@
+"""API tests for vision interview endpoints."""
+
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
+
+from fastapi.testclient import TestClient
+
+import api as api_module
+
+
+@dataclass
+class DummyProduct:
+    product_id: int
+    name: str
+    description: Optional[str] = None
+    vision: Optional[str] = None
+    spec_file_path: Optional[str] = None
+    compiled_authority_json: Optional[str] = None
+
+
+class DummyProductRepository:
+    def __init__(self) -> None:
+        self.products = []
+
+    def get_all(self):
+        return list(self.products)
+
+    def get_by_id(self, product_id: int):
+        for product in self.products:
+            if product.product_id == product_id:
+                return product
+        return None
+
+    def create(self, name: str, description: Optional[str] = None):
+        product = DummyProduct(
+            product_id=len(self.products) + 1,
+            name=name,
+            description=description,
+        )
+        self.products.append(product)
+        return product
+
+
+class DummyWorkflowService:
+    def __init__(self) -> None:
+        self.states: Dict[str, Dict[str, object]] = {}
+
+    async def initialize_session(self, session_id: Optional[str] = None) -> str:
+        sid = str(session_id or "generated")
+        self.states[sid] = {"fsm_state": "SETUP_REQUIRED"}
+        return sid
+
+    def get_session_status(self, session_id: str):
+        return dict(self.states.get(str(session_id), {}))
+
+    def update_session_status(self, session_id: str, partial_update):
+        sid = str(session_id)
+        current = dict(self.states.get(sid, {}))
+        current.update(partial_update)
+        self.states[sid] = current
+
+    def migrate_legacy_setup_state(self) -> int:
+        return 0
+
+
+def _build_client(monkeypatch):
+    repo = DummyProductRepository()
+    workflow = DummyWorkflowService()
+
+    monkeypatch.setattr(api_module, "product_repo", repo)
+    monkeypatch.setattr(api_module, "workflow_service", workflow)
+
+    def fake_select_project(product_id: int, context):
+        product = repo.get_by_id(product_id)
+        if not product:
+            return {"success": False, "error": "missing"}
+        context.state["active_project"] = {
+            "product_id": product_id,
+            "name": product.name,
+            "vision": product.vision,
+            "spec_file_path": product.spec_file_path,
+        }
+        context.state.setdefault("pending_spec_content", "SPEC")
+        context.state.setdefault("compiled_authority_cached", '{"ok": true}')
+        return {"success": True}
+
+    monkeypatch.setattr(api_module, "select_project", fake_select_project)
+
+    async def fake_run_vision_agent_from_state(state, *, user_input):
+        normalized = (user_input or "").lower().strip()
+        if normalized == "force-runtime-error":
+            return {
+                "success": False,
+                "input_context": {
+                    "user_raw_text": user_input or "",
+                    "prior_vision_state": "NO_HISTORY",
+                    "specification_content": state.get("pending_spec_content", "SPEC"),
+                    "compiled_authority": state.get("compiled_authority_cached", '{"ok": true}'),
+                },
+                "output_artifact": {
+                    "error": "VISION_GENERATION_FAILED",
+                    "message": "provider timeout",
+                    "is_complete": False,
+                    "clarifying_questions": [],
+                },
+                "is_complete": None,
+                "error": "provider timeout",
+            }
+
+        is_complete = normalized.startswith("complete")
+        return {
+            "success": True,
+            "input_context": {
+                "user_raw_text": user_input or "",
+                "prior_vision_state": "NO_HISTORY",
+                "specification_content": state.get("pending_spec_content", "SPEC"),
+                "compiled_authority": state.get("compiled_authority_cached", '{"ok": true}'),
+            },
+            "output_artifact": {
+                "updated_components": {
+                    "project_name": "Vision Project",
+                    "target_user": "Users",
+                    "problem": "Problem",
+                    "product_category": "App",
+                    "key_benefit": "Benefit",
+                    "competitors": "Competitors",
+                    "differentiator": "Diff",
+                },
+                "product_vision_statement": f"Statement for: {user_input}",
+                "is_complete": is_complete,
+                "clarifying_questions": [] if is_complete else ["Need more detail"],
+            },
+            "is_complete": is_complete,
+            "error": None,
+        }
+
+    monkeypatch.setattr(api_module, "run_vision_agent_from_state", fake_run_vision_agent_from_state)
+
+    def fake_save_vision_tool(vision_input, tool_context):
+        return {
+            "success": True,
+            "product_id": vision_input.product_id,
+            "project_name": vision_input.project_name,
+            "message": "saved",
+        }
+
+    monkeypatch.setattr(api_module, "save_vision_tool", fake_save_vision_tool)
+
+    return TestClient(api_module.app), repo, workflow
+
+
+def _seed_setup_passed_project(repo: DummyProductRepository, workflow: DummyWorkflowService) -> int:
+    product = repo.create("Vision Project")
+    product.spec_file_path = __file__
+    product.compiled_authority_json = '{"ok": true}'
+    workflow.states[str(product.product_id)] = {
+        "fsm_state": "VISION_INTERVIEW",
+        "setup_status": "passed",
+        "pending_spec_content": "SPEC",
+        "compiled_authority_cached": '{"ok": true}',
+    }
+    return product.product_id
+
+
+def test_generate_first_attempt_allows_empty_input(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_setup_passed_project(repo, workflow)
+
+    response = client.post(
+        f"/api/projects/{project_id}/vision/generate",
+        json={},
+    )
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert payload["data"]["trigger"] == "manual_refine"
+    assert payload["data"]["is_complete"] is False
+    assert payload["data"]["fsm_state"] == "VISION_INTERVIEW"
+
+    history = workflow.states[str(project_id)]["vision_attempts"]
+    assert isinstance(history, list)
+    assert len(history) == 1
+    assert history[0]["trigger"] == "manual_refine"
+
+
+def test_generate_refine_requires_feedback_after_first_attempt(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_setup_passed_project(repo, workflow)
+
+    first_response = client.post(
+        f"/api/projects/{project_id}/vision/generate",
+        json={},
+    )
+    assert first_response.status_code == 200
+
+    second_response = client.post(
+        f"/api/projects/{project_id}/vision/generate",
+        json={},
+    )
+    assert second_response.status_code == 409
+    assert "Feedback is required" in second_response.json()["detail"]
+
+
+def test_generate_incomplete_stays_in_interview_and_records_history(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_setup_passed_project(repo, workflow)
+
+    response = client.post(
+        f"/api/projects/{project_id}/vision/generate",
+        json={"user_input": "needs refinement"},
+    )
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["data"]["is_complete"] is False
+    assert payload["data"]["fsm_state"] == "VISION_INTERVIEW"
+
+    history = workflow.states[str(project_id)]["vision_attempts"]
+    assert isinstance(history, list)
+    assert len(history) == 1
+    assert history[0]["trigger"] == "manual_refine"
+
+
+def test_generate_complete_moves_to_review(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_setup_passed_project(repo, workflow)
+
+    response = client.post(
+        f"/api/projects/{project_id}/vision/generate",
+        json={"user_input": "complete this vision"},
+    )
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["data"]["is_complete"] is True
+    assert payload["data"]["fsm_state"] == "VISION_REVIEW"
+
+
+def test_generate_error_records_attempt_and_stays_interview(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_setup_passed_project(repo, workflow)
+
+    response = client.post(
+        f"/api/projects/{project_id}/vision/generate",
+        json={"user_input": "force-runtime-error"},
+    )
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["data"]["vision_run_success"] is False
+    assert payload["data"]["is_complete"] is False
+    assert payload["data"]["fsm_state"] == "VISION_INTERVIEW"
+
+    history = workflow.states[str(project_id)]["vision_attempts"]
+    assert len(history) == 1
+    assert history[0]["is_complete"] is False
+
+
+def test_vision_history_endpoint_returns_attempts(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_setup_passed_project(repo, workflow)
+
+    client.post(
+        f"/api/projects/{project_id}/vision/generate",
+        json={},
+    )
+    client.post(
+        f"/api/projects/{project_id}/vision/generate",
+        json={"user_input": "complete pass"},
+    )
+
+    response = client.get(f"/api/projects/{project_id}/vision/history")
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert payload["data"]["count"] == 2
+    items = payload["data"]["items"]
+    assert all(item.get("trigger") == "manual_refine" for item in items)
+
+
+def test_save_vision_rejects_when_latest_is_incomplete(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_setup_passed_project(repo, workflow)
+
+    client.post(
+        f"/api/projects/{project_id}/vision/generate",
+        json={"user_input": "still incomplete"},
+    )
+
+    response = client.post(f"/api/projects/{project_id}/vision/save")
+    assert response.status_code == 409
+
+
+def test_save_vision_succeeds_when_complete(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_setup_passed_project(repo, workflow)
+
+    client.post(
+        f"/api/projects/{project_id}/vision/generate",
+        json={"user_input": "complete this now"},
+    )
+
+    response = client.post(f"/api/projects/{project_id}/vision/save")
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert payload["data"]["fsm_state"] == "VISION_PERSISTENCE"
+    assert workflow.states[str(project_id)]["fsm_state"] == "VISION_PERSISTENCE"
