@@ -2684,6 +2684,12 @@ def validate_story_with_spec_authority(
             "spec_version_id": parsed.spec_version_id,
             "mode": parsed.mode,
             "failures": [failure.model_dump() for failure in failures],
+            "alignment_failures": [
+                finding.model_dump(mode="json") for finding in alignment_failures
+            ],
+            "alignment_warnings": [
+                finding.model_dump(mode="json") for finding in alignment_warnings
+            ],
             "warnings": warnings,
             "input_hash": input_hash,
             "message": (

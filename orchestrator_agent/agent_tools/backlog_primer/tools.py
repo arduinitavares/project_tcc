@@ -28,12 +28,32 @@ class SaveBacklogInput(BaseModel):
     backlog_items: Annotated[
         List[Dict[str, Any]],
         Field(
+            default_factory=list,
             description=(
                 "List of approved backlog items from backlog_primer_tool output. "
                 "Each must have: priority, requirement, value_driver, justification, estimated_effort."
             )
         ),
     ]
+
+
+def _resolve_backlog_items_from_state(tool_context: ToolContext) -> List[Dict[str, Any]]:
+    """Fallback loader for approved backlog items stored in volatile state."""
+    state = tool_context.state or {}
+
+    approved_backlog = state.get("approved_backlog")
+    if isinstance(approved_backlog, dict):
+        items = approved_backlog.get("items")
+        if isinstance(items, list):
+            return items
+
+    product_backlog = state.get("product_backlog")
+    if isinstance(product_backlog, dict):
+        items = product_backlog.get("backlog_items")
+        if isinstance(items, list):
+            return items
+
+    return []
 
 
 async def save_backlog_tool(
@@ -55,11 +75,18 @@ async def save_backlog_tool(
             "error": "ToolContext required for session state storage.",
         }
 
+    normalized_input = save_input
+    if not normalized_input.backlog_items:
+        normalized_input = SaveBacklogInput(
+            product_id=normalized_input.product_id,
+            backlog_items=_resolve_backlog_items_from_state(tool_context),
+        )
+
     # Validate backlog items using BacklogItem schema
     validated_items: List[BacklogItem] = []
     validation_errors: List[str] = []
 
-    for idx, item in enumerate(save_input.backlog_items):
+    for idx, item in enumerate(normalized_input.backlog_items):
         try:
             validated = BacklogItem.model_validate(item)
             validated_items.append(validated)
@@ -77,7 +104,7 @@ async def save_backlog_tool(
 
     # 1. Update Session State (Legacy/Fallback support)
     tool_context.state["approved_backlog"] = {
-        "product_id": save_input.product_id,
+        "product_id": normalized_input.product_id,
         "items": [item.model_dump() for item in validated_items],
         "item_count": len(validated_items),
     }
@@ -96,7 +123,7 @@ async def save_backlog_tool(
             # (Simple check: same title, same product, same status=TO_DO)
             existing = session.exec(
                 select(UserStory)
-                .where(UserStory.product_id == save_input.product_id)
+                .where(UserStory.product_id == normalized_input.product_id)
                 .where(UserStory.title == item.requirement)
                 .where(UserStory.status == StoryStatus.TO_DO)
             ).first()
@@ -107,7 +134,7 @@ async def save_backlog_tool(
             # Strong deterministic duplicate guard after refinement exists.
             existing_by_linkage = session.exec(
                 select(UserStory)
-                .where(UserStory.product_id == save_input.product_id)
+                .where(UserStory.product_id == normalized_input.product_id)
                 .where(UserStory.source_requirement == normalized_requirement)
                 .where(UserStory.refinement_slot == slot)
                 .where(UserStory.is_superseded == False)  # noqa: E712
@@ -138,7 +165,7 @@ async def save_backlog_tool(
 
             new_story = UserStory(
                 title=item.requirement,
-                product_id=save_input.product_id,
+                product_id=normalized_input.product_id,
                 status=StoryStatus.TO_DO,
                 rank=str(item.priority), # Storing priority as rank
                 story_points=points,
@@ -156,7 +183,8 @@ async def save_backlog_tool(
         duration_seconds = tool_context.state.get("backlog_generation_duration")
         if duration_seconds is None:
             duration_seconds = round(time.perf_counter() - start_ts, 3)
-        session_id = getattr(tool_context, "session_id", None)
+        raw_session_id = getattr(tool_context, "session_id", None)
+        session_id = raw_session_id if isinstance(raw_session_id, str) else None
         event_metadata = json.dumps(
             {
                 "processed_count": len(validated_items),
@@ -166,7 +194,7 @@ async def save_backlog_tool(
         session.add(
             WorkflowEvent(
                 event_type=WorkflowEventType.BACKLOG_SAVED,
-                product_id=save_input.product_id,
+                product_id=normalized_input.product_id,
                 session_id=session_id,
                 duration_seconds=float(duration_seconds),
                 event_metadata=event_metadata,
@@ -178,7 +206,7 @@ async def save_backlog_tool(
 
     return {
         "success": True,
-        "product_id": save_input.product_id,
+        "product_id": normalized_input.product_id,
         "saved_count": created_count,
         "total_items": len(validated_items),
         "message": f"Backlog saved. {created_count} new stories created in database.",

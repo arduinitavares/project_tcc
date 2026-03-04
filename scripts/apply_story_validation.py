@@ -109,7 +109,11 @@ def apply_validation(product_id: int, mode: str | None = None):
             else:
                 print("FAIL")
                 failures = res.get("failures", []) or []
+                alignment_failures = res.get("alignment_failures", []) or []
+                printed_any_reason = False
+
                 if failures:
+                    printed_any_reason = True
                     for failure in failures[:3]:
                         rule = failure.get("rule", "UNKNOWN_RULE")
                         actual = failure.get("actual", "")
@@ -131,6 +135,24 @@ def apply_validation(product_id: int, mode: str | None = None):
                                 print(f"    -> {inv_id} [{inv_type}]")
                     if len(failures) > 3:
                         print(f"  - ... and {len(failures) - 3} more failure(s)")
+
+                if alignment_failures:
+                    printed_any_reason = True
+                    for finding in alignment_failures[:3]:
+                        code = finding.get("code", "ALIGNMENT_FAILURE")
+                        message = finding.get("message", "")
+                        invariant = finding.get("invariant")
+                        if invariant:
+                            print(f"  - {code} ({invariant}): {message}")
+                        else:
+                            print(f"  - {code}: {message}")
+                    if len(alignment_failures) > 3:
+                        print(
+                            f"  - ... and {len(alignment_failures) - 3} more alignment failure(s)"
+                        )
+
+                if not printed_any_reason:
+                    print(f"  - {res.get('message', 'Validation failed without details')}")
         except Exception as e:
             print(f"ERROR: {e}")
 

@@ -53,6 +53,50 @@ def save_vision_tool(
         with Session(get_engine()) as session:
             p_id = vision_input.product_id
 
+            # Defensive normalization: treat non-positive IDs as "create new".
+            if isinstance(p_id, int) and p_id <= 0:
+                p_id = None
+            is_create_mode = p_id is None
+
+            # Defensive guard: only allow updates when an active project is selected
+            # and the requested product_id matches that selection.
+            active_project = tool_context.state.get("active_project", {})
+            active_project_id = None
+            if isinstance(active_project, dict):
+                active_project_id = active_project.get("product_id")
+            if (
+                p_id is not None
+                and active_project_id is not None
+                and int(active_project_id) != int(p_id)
+            ):
+                return {
+                    "success": False,
+                    "error": (
+                        "Unsafe update blocked: product_id does not match the active project. "
+                        "Select the target project first, or pass product_id=None to create a new project."
+                    ),
+                }
+            if p_id is not None and active_project_id is None:
+                existing_by_id = session.get(Product, p_id)
+                if not existing_by_id:
+                    return {
+                        "success": False,
+                        "error": (
+                            f"Product with ID {p_id} not found. "
+                            "Pass product_id=None to create a new project."
+                        ),
+                    }
+                # Without an active selection, only allow updates when the
+                # caller targets the same named project to reduce overwrite risk.
+                if existing_by_id.name != vision_input.project_name:
+                    return {
+                        "success": False,
+                        "error": (
+                            "Unsafe update blocked: product_id exists but project_name does not match. "
+                            "Select the target project first, or pass product_id=None to create a new project."
+                        ),
+                    }
+
             active_record: Optional[Product] = None
 
             if p_id is None:
@@ -139,7 +183,7 @@ def save_vision_tool(
             session_id = getattr(tool_context, "session_id", None)
             metadata = json.dumps(
                 {
-                    "mode": "create" if vision_input.product_id is None else "update",
+                    "mode": "create" if is_create_mode else "update",
                     "project_name": vision_input.project_name,
                 }
             )
