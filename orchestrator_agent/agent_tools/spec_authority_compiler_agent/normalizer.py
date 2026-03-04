@@ -9,6 +9,7 @@ The caller MUST use the normalized output downstream.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any, Dict, List, Optional
 
@@ -40,6 +41,49 @@ def _failure(reason: str, blocking_gaps: List[str]) -> SpecAuthorityCompilerOutp
     )
 
 
+def _strip_markdown_fence(raw_text: str) -> str:
+    text = raw_text.strip()
+    if not text.startswith("```"):
+        return text
+
+    lines = text.splitlines()
+    if not lines:
+        return text
+
+    lines = lines[1:]
+    while lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def _extract_json_candidate(raw_text: str) -> str:
+    text = _strip_markdown_fence(raw_text)
+    if not text:
+        return text
+
+    try:
+        json.loads(text)
+        return text
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end < start:
+            return text
+        return text[start:end + 1].strip()
+
+
+def _summarize_validation_error(label: str, exc: ValidationError) -> str:
+    errors = exc.errors()
+    if errors:
+        first = errors[0]
+        loc = ".".join(str(part) for part in first.get("loc", []))
+        msg = first.get("msg", "validation error")
+        if loc:
+            return f"{label}: {loc}: {msg}"
+        return f"{label}: {msg}"
+    return f"{label}: {exc}"
+
+
 def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
     """Normalize a raw agent JSON string into a deterministic compiler artifact.
 
@@ -51,40 +95,51 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
         invariant/source_map IDs are rewritten deterministically.
     """
     print("[spec_authority_compiler] normalize_compiler_output: parsing raw JSON")
-    
-    # Strip markdown code blocks if present
-    raw_json = raw_json.strip()
-    if raw_json.startswith("```"):
-        lines = raw_json.split("\n")
-        # Remove first line (fence)
-        lines = lines[1:]
-        # Remove last line if it is a fence
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        raw_json = "\n".join(lines).strip()
+
+    raw_json = _extract_json_candidate(raw_json)
 
     try:
-        parsed = SpecAuthorityCompilerOutput.model_validate_json(raw_json)
+        payload = json.loads(raw_json)
+    except json.JSONDecodeError as exc:
+        print("[spec_authority_compiler] Invalid JSON")
+        print(str(exc))
+        return _failure(
+            reason="INVALID_JSON",
+            blocking_gaps=[str(exc)],
+        )
+
+    parsed: Optional[SpecAuthorityCompilerOutput] = None
+    validation_gaps: List[str] = []
+
+    try:
+        parsed = SpecAuthorityCompilerOutput.model_validate(payload)
         print("[spec_authority_compiler] Parsed as SpecAuthorityCompilerOutput")
-    except (ValidationError, ValueError):
-        try:
-            envelope = SpecAuthorityCompilerEnvelope.model_validate_json(raw_json)
-            parsed = SpecAuthorityCompilerOutput(root=envelope.result)
-            print("[spec_authority_compiler] Parsed as SpecAuthorityCompilerEnvelope")
-        except ValidationError as exc:
-            print("[spec_authority_compiler] Envelope validation failed")
-            print(str(exc))
-            return _failure(
-                reason="JSON_VALIDATION_FAILED",
-                blocking_gaps=[str(exc)],
-            )
-        except ValueError as exc:
-            print("[spec_authority_compiler] Invalid JSON")
-            print(str(exc))
-            return _failure(
-                reason="INVALID_JSON",
-                blocking_gaps=[str(exc)],
-            )
+    except ValidationError as output_exc:
+        validation_gaps.append(_summarize_validation_error("output", output_exc))
+
+        if isinstance(payload, dict) and "result" in payload:
+            try:
+                envelope = SpecAuthorityCompilerEnvelope.model_validate(payload)
+                parsed = SpecAuthorityCompilerOutput(root=envelope.result)
+                print("[spec_authority_compiler] Parsed as SpecAuthorityCompilerEnvelope")
+            except ValidationError as envelope_exc:
+                validation_gaps.append(_summarize_validation_error("envelope", envelope_exc))
+                try:
+                    parsed = SpecAuthorityCompilerOutput.model_validate(payload.get("result"))
+                    print("[spec_authority_compiler] Parsed using envelope.result payload")
+                except ValidationError as result_exc:
+                    validation_gaps.append(
+                        _summarize_validation_error("envelope.result", result_exc)
+                    )
+
+    if parsed is None:
+        print("[spec_authority_compiler] JSON schema validation failed")
+        for gap in validation_gaps:
+            print(gap)
+        return _failure(
+            reason="JSON_VALIDATION_FAILED",
+            blocking_gaps=validation_gaps or ["No schema variant matched"],
+        )
 
     if isinstance(parsed.root, SpecAuthorityCompilationFailure):
         print("[spec_authority_compiler] Compiler returned failure")

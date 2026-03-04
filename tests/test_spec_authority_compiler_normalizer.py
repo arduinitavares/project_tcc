@@ -317,3 +317,83 @@ def test_normalize_empty_invariants_allows_empty_source_map() -> None:
     assert isinstance(normalized.root, SpecAuthorityCompilationSuccess)
     assert normalized.root.invariants == []
     assert normalized.root.source_map == []
+
+
+def test_normalizer_extracts_json_from_wrapped_text() -> None:
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+        normalize_compiler_output,
+    )
+
+    excerpt = "The payload must include project_name."
+    raw: Dict[str, Any] = {
+        "scope_themes": ["project setup"],
+        "domain": None,
+        "invariants": [
+            {
+                "id": "INV-0000000000000000",
+                "type": "REQUIRED_FIELD",
+                "parameters": {"field_name": "project_name"},
+            }
+        ],
+        "eligible_feature_rules": [],
+        "gaps": [],
+        "assumptions": [],
+        "source_map": [
+            {
+                "invariant_id": "INV-0000000000000000",
+                "excerpt": excerpt,
+                "location": "spec:line:1",
+            }
+        ],
+        "compiler_version": "1.0.0",
+        "prompt_hash": "0" * 64,
+    }
+
+    wrapped = (
+        "Here is the compiled payload.\n"
+        "```json\n"
+        f"{json.dumps(raw)}\n"
+        "```\n"
+        "Use this result."
+    )
+
+    normalized = normalize_compiler_output(wrapped)
+    assert isinstance(normalized.root, SpecAuthorityCompilationSuccess)
+    assert len(normalized.root.invariants) == 1
+
+
+def test_normalizer_accepts_enveloped_result_payload() -> None:
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+        normalize_compiler_output,
+    )
+
+    excerpt = "The system must not expose provider settings."
+    result_payload: Dict[str, Any] = {
+        "scope_themes": ["ui policy"],
+        "domain": None,
+        "invariants": [
+            {
+                "id": "INV-0000000000000000",
+                "type": "FORBIDDEN_CAPABILITY",
+                "parameters": {"capability": "provider selection"},
+            }
+        ],
+        "eligible_feature_rules": [],
+        "gaps": [],
+        "assumptions": [],
+        "source_map": [
+            {
+                "invariant_id": "INV-0000000000000000",
+                "excerpt": excerpt,
+                "location": "spec:line:2",
+            }
+        ],
+        "compiler_version": "1.0.0",
+        "prompt_hash": "0" * 64,
+    }
+
+    normalized = normalize_compiler_output(
+        json.dumps({"result": result_payload})
+    )
+    assert isinstance(normalized.root, SpecAuthorityCompilationSuccess)
+    assert len(normalized.root.source_map) == 1
