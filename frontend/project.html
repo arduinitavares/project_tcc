@@ -36,8 +36,7 @@
         class="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark/70 sticky top-0 z-50">
         <div class="flex max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 h-16 items-center justify-between">
             <div class="flex items-center gap-4">
-                <a href="/dashboard"
-                    aria-label="Back to dashboard"
+                <a href="/dashboard" aria-label="Back to dashboard"
                     class="text-slate-500 hover:text-primary transition-colors flex items-center justify-center p-2 rounded-lg bg-slate-100 dark:bg-slate-800">
                     <span class="material-symbols-outlined text-lg">arrow_back</span>
                 </a>
@@ -56,9 +55,12 @@
     <div class="flex-1 flex max-w-[1600px] w-full mx-auto bg-background-light dark:bg-background-dark">
 
         <!-- Vertical Stepper (Left Sidebar) -->
-        <aside class="hidden lg:flex flex-col w-64 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 flex-shrink-0 sticky top-16" style="height: calc(100vh - 4rem);">
+        <aside
+            class="hidden lg:flex flex-col w-64 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 flex-shrink-0 sticky top-16"
+            style="height: calc(100vh - 4rem);">
             <div class="p-6 border-b border-slate-200 dark:border-slate-800">
-                <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Project Phases</h3>
+                <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Project Phases
+                </h3>
             </div>
             <div class="flex-1 overflow-y-auto p-6 relative">
                 <!-- Vertical Line -->
@@ -73,8 +75,8 @@
                         </div>
                         <div class="pt-1">
                             <div data-role="label" class="text-sm font-bold text-primary">Project Setup</div>
-                            <div data-role="status"
-                                class="text-[10px] text-primary/80 uppercase font-black">Active</div>
+                            <div data-role="status" class="text-[10px] text-primary/80 uppercase font-black">Active
+                            </div>
                         </div>
                     </div>
 
@@ -85,8 +87,8 @@
                             <span class="material-symbols-outlined text-xl">lock</span>
                         </div>
                         <div class="pt-1">
-                            <div data-role="label"
-                                class="text-sm font-medium text-slate-500 transition-colors">Vision</div>
+                            <div data-role="label" class="text-sm font-medium text-slate-500 transition-colors">Vision
+                            </div>
                             <div data-role="status"
                                 class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</div>
                         </div>
@@ -99,8 +101,8 @@
                             <span class="material-symbols-outlined text-xl">lock</span>
                         </div>
                         <div class="pt-1">
-                            <div data-role="label"
-                                class="text-sm font-medium text-slate-500 transition-colors">Backlog</div>
+                            <div data-role="label" class="text-sm font-medium text-slate-500 transition-colors">Backlog
+                            </div>
                             <div data-role="status"
                                 class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</div>
                         </div>
@@ -113,8 +115,8 @@
                             <span class="material-symbols-outlined text-xl">lock</span>
                         </div>
                         <div class="pt-1">
-                            <div data-role="label"
-                                class="text-sm font-medium text-slate-500 transition-colors">Roadmap</div>
+                            <div data-role="label" class="text-sm font-medium text-slate-500 transition-colors">Roadmap
+                            </div>
                             <div data-role="status"
                                 class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</div>
                         </div>
@@ -127,8 +129,8 @@
                             <span class="material-symbols-outlined text-xl">lock</span>
                         </div>
                         <div class="pt-1">
-                            <div data-role="label"
-                                class="text-sm font-medium text-slate-500 transition-colors">Stories</div>
+                            <div data-role="label" class="text-sm font-medium text-slate-500 transition-colors">Stories
+                            </div>
                             <div data-role="status"
                                 class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</div>
                         </div>
@@ -141,8 +143,8 @@
                             <span class="material-symbols-outlined text-xl">lock</span>
                         </div>
                         <div class="pt-1">
-                            <div data-role="label"
-                                class="text-sm font-medium text-slate-500 transition-colors">Sprint</div>
+                            <div data-role="label" class="text-sm font-medium text-slate-500 transition-colors">Sprint
+                            </div>
                             <div data-role="status"
                                 class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</div>
                         </div>
@@ -163,650 +165,638 @@
 
             <div class="flex flex-col lg:flex-row gap-8 items-start">
                 <div class="flex-1 space-y-6 min-w-0">
-                <!-- Setup & Pipeline Panel -->
-                <div id="setup-panel"
-                    class="bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm">
-                    <div
-                        class="border-b border-slate-200 dark:border-slate-700 px-6 py-4 bg-slate-50/50 dark:bg-slate-800/50">
-                        <h3 id="setup-panel-title" class="text-lg font-bold">Project Setup</h3>
-                    </div>
-
-                    <div class="p-6 space-y-8">
-                        <!-- Data Fields -->
+                    <!-- Setup & Pipeline Panel -->
+                    <div id="setup-panel"
+                        class="bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm">
                         <div
-                            class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-900/40 p-5 rounded-lg border border-slate-200 dark:border-slate-700">
-                            <div class="space-y-2">
-                                <label for="setup-project-name" class="text-sm font-semibold text-slate-700 dark:text-slate-300">Project
-                                    Name</label>
-                                <input id="setup-project-name" type="text" readonly
-                                    class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 text-slate-600 dark:text-slate-400 cursor-not-allowed" />
-                            </div>
-                            <div class="space-y-2">
-                                <label for="setup-spec-path" class="text-sm font-semibold text-slate-700 dark:text-slate-300">Specification
-                                    File Path</label>
-                                <input id="setup-spec-path" type="text" placeholder="C:\\path\\to\\spec.md" readonly
-                                    class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 transition-colors focus:ring-2 focus:ring-primary" />
-                            </div>
+                            class="border-b border-slate-200 dark:border-slate-700 px-6 py-4 bg-slate-50/50 dark:bg-slate-800/50">
+                            <h3 id="setup-panel-title" class="text-lg font-bold">Project Setup</h3>
                         </div>
 
-                        <div id="setup-status-banner" class="hidden text-sm rounded-lg border px-4 py-3"></div>
-
-                        <!-- Main Content Panels -->
-                        <div id="phase-content" class="space-y-3">
-                            <section id="phase-section-setup"
-                                class="phase-section bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg p-5">
-                                <h4 class="text-base font-bold">Project Setup Required</h4>
-                                <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">Project setup requires a
-                                    valid specification file path and successful authority compile before proceeding.
-                                </p>
-                            </section>
-
-                            <section id="phase-section-vision"
-                                class="phase-section hidden bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg p-5 space-y-5">
-                                <div class="border-b border-slate-200 dark:border-slate-700 pb-3">
-                                    <h4 class="text-base font-bold flex items-center gap-2">
-                                        <span class="material-symbols-outlined text-primary">visibility</span>
-                                        Vision Interview
-                                    </h4>
-                                    <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">Iterate with feedback
-                                        until the artifact is complete. Save is allowed only when
-                                        <code>is_complete=true</code>.
-                                    </p>
-                                </div>
-
+                        <div class="p-6 space-y-8">
+                            <!-- Data Fields -->
+                            <div
+                                class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-900/40 p-5 rounded-lg border border-slate-200 dark:border-slate-700">
                                 <div class="space-y-2">
-                                    <label for="vision-user-input" class="text-sm font-semibold text-slate-700 dark:text-slate-300">Your
-                                        Feedback to Agent</label>
-                                    <textarea id="vision-user-input" rows="3"
-                                        class="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-3 shadow-sm focus:ring-2 focus:ring-primary"
-                                        placeholder="Refine target user, differentiator, etc."></textarea>
-                                    <button id="btn-generate-vision" onclick="generateVisionDraft()"
-                                        class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-white font-bold transition-all shadow-sm">
-                                        <span class="material-symbols-outlined text-sm">cycle</span> Generate / Refine
-                                    </button>
+                                    <label for="setup-project-name"
+                                        class="text-sm font-semibold text-slate-700 dark:text-slate-300">Project
+                                        Name</label>
+                                    <input id="setup-project-name" type="text" readonly
+                                        class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 text-slate-600 dark:text-slate-400 cursor-not-allowed" />
                                 </div>
-
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div
-                                        class="border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-950 p-4 shadow-sm flex flex-col h-[300px]">
-                                        <h5
-                                            class="text-xs uppercase tracking-wider font-bold text-slate-500 mb-3 pb-2 border-b border-slate-100 dark:border-slate-800">
-                                            Agent Input Context</h5>
-                                        <pre id="vision-input-context"
-                                            class="flex-1 text-xs whitespace-pre-wrap break-words overflow-y-auto text-slate-700 dark:text-slate-300 font-mono">No vision run yet.</pre>
-                                    </div>
-                                    <div
-                                        class="border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-950 p-4 shadow-sm flex flex-col h-[300px]">
-                                        <h5
-                                            class="text-xs uppercase tracking-wider font-bold text-slate-500 mb-3 pb-2 border-b border-slate-100 dark:border-slate-800">
-                                            Agent Output Artifact</h5>
-                                        <div id="vision-output-artifact"
-                                            class="flex-1 overflow-y-auto custom-scrollbar pr-2">
-                                            <div class="text-xs text-slate-500">No vision run yet.</div>
-                                        </div>
-                                    </div>
+                                <div class="space-y-2">
+                                    <label for="setup-spec-path"
+                                        class="text-sm font-semibold text-slate-700 dark:text-slate-300">Specification
+                                        File Path</label>
+                                    <input id="setup-spec-path" type="text" placeholder="C:\\path\\to\\spec.md" readonly
+                                        class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 transition-colors focus:ring-2 focus:ring-primary" />
                                 </div>
+                            </div>
 
-                                <div
-                                    class="border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-950 p-5 shadow-sm">
-                                    <div
-                                        class="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
-                                        <div>
-                                            <h5 class="text-sm font-bold flex items-center gap-2 text-slate-800 dark:text-slate-200">
-                                                <span class="material-symbols-outlined text-slate-400">history</span>
-                                                Attempt History & Persistence
-                                            </h5>
-                                            <p id="vision-save-hint" class="text-sm font-bold text-slate-600 dark:text-slate-400 mt-1.5">Run Vision
-                                                interview. Save unlocks only when complete.</p>
-                                        </div>
-                                        <button id="btn-save-vision" onclick="saveVisionDraft()"
-                                            class="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all text-sm"
-                                            disabled>
-                                            <span class="material-symbols-outlined text-base">save</span> Save Vision
+                            <div id="setup-status-banner" class="hidden text-sm rounded-lg border px-4 py-3"></div>
+
+                            <!-- Main Content Panels -->
+                            <div id="phase-content" class="space-y-3">
+                                <section id="phase-section-setup"
+                                    class="phase-section bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg p-5">
+                                    <h4 class="text-base font-bold">Project Setup Required</h4>
+                                    <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">Project setup requires a
+                                        valid specification file path and successful authority compile before
+                                        proceeding.
+                                    </p>
+                                </section>
+
+                                <section id="phase-section-vision"
+                                    class="phase-section hidden bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg p-5 space-y-5">
+                                    <div class="border-b border-slate-200 dark:border-slate-700 pb-3">
+                                        <h4 class="text-base font-bold flex items-center gap-2">
+                                            <span class="material-symbols-outlined text-primary">visibility</span>
+                                            Vision Interview
+                                        </h4>
+                                        <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">Iterate with feedback
+                                            until the artifact is complete. Save is allowed only when
+                                            <code>is_complete=true</code>.
+                                        </p>
+                                    </div>
+
+                                    <div class="space-y-2">
+                                        <label for="vision-user-input"
+                                            class="text-sm font-semibold text-slate-700 dark:text-slate-300">Your
+                                            Feedback to Agent</label>
+                                        <textarea id="vision-user-input" rows="3"
+                                            class="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-3 shadow-sm focus:ring-2 focus:ring-primary"
+                                            placeholder="Refine target user, differentiator, etc."></textarea>
+                                        <button id="btn-generate-vision" onclick="generateVisionDraft()"
+                                            class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-white font-bold transition-all shadow-sm">
+                                            <span class="material-symbols-outlined text-sm">cycle</span> Generate /
+                                            Refine
                                         </button>
                                     </div>
-                                    <div id="vision-history-list"
-                                        class="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar"></div>
-                                </div>
-                            </section>
 
-                            <section id="phase-section-backlog"
-                                class="hidden animate-fade-in flex flex-col h-full bg-slate-50 dark:bg-slate-900 rounded-lg overflow-hidden">
-                                <!-- Header -->
-                                <div
-                                    class="p-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 shrink-0">
-                                    <div class="flex items-center gap-3 mb-2">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div
-                                            class="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-900/50 flex items-center justify-center text-orange-600 dark:text-orange-400">
-                                            <span
-                                                class="material-symbols-outlined font-bold">format_list_bulleted</span>
+                                            class="border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-950 p-4 shadow-sm flex flex-col h-[300px]">
+                                            <h5
+                                                class="text-xs uppercase tracking-wider font-bold text-slate-500 mb-3 pb-2 border-b border-slate-100 dark:border-slate-800">
+                                                Agent Input Context</h5>
+                                            <pre id="vision-input-context"
+                                                class="flex-1 text-xs whitespace-pre-wrap break-words overflow-y-auto text-slate-700 dark:text-slate-300 font-mono">No vision run yet.</pre>
                                         </div>
-                                        <div>
-                                            <h2 class="text-xl font-black text-slate-800 dark:text-white">Product
-                                                Backlog</h2>
-                                            <p class="text-xs text-slate-500 font-medium">Prioritize features based on
-                                                your Product Vision.</p>
+                                        <div
+                                            class="border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-950 p-4 shadow-sm flex flex-col h-[300px]">
+                                            <h5
+                                                class="text-xs uppercase tracking-wider font-bold text-slate-500 mb-3 pb-2 border-b border-slate-100 dark:border-slate-800">
+                                                Agent Output Artifact</h5>
+                                            <div id="vision-output-artifact"
+                                                class="flex-1 overflow-y-auto custom-scrollbar pr-2">
+                                                <div class="text-xs text-slate-500">No vision run yet.</div>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
 
-                                <div class="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-2">
-                                    <!-- Left Panel: Input -->
                                     <div
-                                        class="flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/30">
-                                        <!-- History Bar -->
+                                        class="border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-950 p-5 shadow-sm">
                                         <div
-                                            class="h-48 overflow-y-auto p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
-                                            <h3 class="text-xs uppercase tracking-wider font-bold text-slate-500 mb-3">
-                                                Generation History</h3>
-                                            <div id="backlog-history-list" class="space-y-2">
-                                                <p class="text-xs text-slate-500">No attempts yet.</p>
+                                            class="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
+                                            <div>
+                                                <h5
+                                                    class="text-sm font-bold flex items-center gap-2 text-slate-800 dark:text-slate-200">
+                                                    <span
+                                                        class="material-symbols-outlined text-slate-400">history</span>
+                                                    Attempt History & Persistence
+                                                </h5>
+                                                <p id="vision-save-hint"
+                                                    class="text-sm font-bold text-slate-600 dark:text-slate-400 mt-1.5">
+                                                    Run Vision
+                                                    interview. Save unlocks only when complete.</p>
+                                            </div>
+                                            <button id="btn-save-vision" onclick="saveVisionDraft()"
+                                                class="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all text-sm"
+                                                disabled>
+                                                <span class="material-symbols-outlined text-base">save</span> Save
+                                                Vision
+                                            </button>
+                                        </div>
+                                        <div id="vision-history-list"
+                                            class="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar"></div>
+                                    </div>
+                                </section>
+
+                                <section id="phase-section-backlog"
+                                    class="hidden animate-fade-in flex flex-col h-full bg-slate-50 dark:bg-slate-900 rounded-lg overflow-hidden">
+                                    <!-- Header -->
+                                    <div
+                                        class="p-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 shrink-0">
+                                        <div class="flex items-center gap-3 mb-2">
+                                            <div
+                                                class="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-900/50 flex items-center justify-center text-orange-600 dark:text-orange-400">
+                                                <span
+                                                    class="material-symbols-outlined font-bold">format_list_bulleted</span>
+                                            </div>
+                                            <div>
+                                                <h2 class="text-xl font-black text-slate-800 dark:text-white">Product
+                                                    Backlog</h2>
+                                                <p class="text-xs text-slate-500 font-medium">Prioritize features based
+                                                    on
+                                                    your Product Vision.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-2">
+                                        <!-- Left Panel: Input -->
+                                        <div
+                                            class="flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/30">
+                                            <!-- History Bar -->
+                                            <div
+                                                class="h-48 overflow-y-auto p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+                                                <h3
+                                                    class="text-xs uppercase tracking-wider font-bold text-slate-500 mb-3">
+                                                    Generation History</h3>
+                                                <div id="backlog-history-list" class="space-y-2">
+                                                    <p class="text-xs text-slate-500">No attempts yet.</p>
+                                                </div>
+                                            </div>
+
+                                            <!-- Input Form -->
+                                            <div class="flex-1 p-5 overflow-y-auto custom-scrollbar">
+                                                <label for="backlog-user-input"
+                                                    class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Refinement
+                                                    Constraints & Guidance</label>
+                                                <p class="text-[11px] text-slate-500 mb-3 leading-relaxed">
+                                                    Provide instructions to the agent on how to prioritize the backlog.
+                                                    For
+                                                    example, "Focus entirely on the mobile checkout flow for the first
+                                                    iteration" or "Prioritize revenue-generating features over technical
+                                                    debt."
+                                                </p>
+                                                <textarea id="backlog-user-input" rows="8"
+                                                    class="w-full text-sm rounded-xl border border-slate-300 dark:border-slate-600 px-4 py-3 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all placeholder:text-slate-400 resize-none shadow-inner"
+                                                    placeholder="Enter context, constraints, or feedback to iterate on the resulting backlog list..."></textarea>
+                                            </div>
+
+                                            <!-- Actions -->
+                                            <div
+                                                class="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 flex items-center justify-between shrink-0">
+                                                <div class="flex gap-3">
+                                                    <button id="btn-generate-backlog" onclick="generateBacklogDraft()"
+                                                        class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold transition-all shadow-sm">
+                                                        <span class="material-symbols-outlined text-sm">cycle</span>
+                                                        Generate / Refine
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
 
-                                        <!-- Input Form -->
-                                        <div class="flex-1 p-5 overflow-y-auto custom-scrollbar">
-                                            <label for="backlog-user-input"
-                                                class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Refinement
-                                                Constraints & Guidance</label>
-                                            <p class="text-[11px] text-slate-500 mb-3 leading-relaxed">
-                                                Provide instructions to the agent on how to prioritize the backlog. For
-                                                example, "Focus entirely on the mobile checkout flow for the first
-                                                iteration" or "Prioritize revenue-generating features over technical
-                                                debt."
-                                            </p>
-                                            <textarea id="backlog-user-input" rows="8"
-                                                class="w-full text-sm rounded-xl border border-slate-300 dark:border-slate-600 px-4 py-3 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all placeholder:text-slate-400 resize-none shadow-inner"
-                                                placeholder="Enter context, constraints, or feedback to iterate on the resulting backlog list..."></textarea>
-                                        </div>
-
-                                        <!-- Actions -->
+                                        <!-- Right Panel: Artifact Viewing -->
                                         <div
-                                            class="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 flex items-center justify-between shrink-0">
-                                            <div class="flex gap-3">
-                                                <button id="btn-generate-backlog" onclick="generateBacklogDraft()"
-                                                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold transition-all shadow-sm">
-                                                    <span class="material-symbols-outlined text-sm">cycle</span>
-                                                    Generate / Refine
+                                            class="flex flex-col bg-slate-50 dark:bg-slate-900 overflow-hidden relative">
+                                            <div
+                                                class="absolute inset-0 bg-grid-slate-200 dark:bg-grid-slate-800 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] dark:[mask-image:linear-gradient(0deg,rgba(0,0,0,1),rgba(0,0,0,0.4))] pointer-events-none opacity-50">
+                                            </div>
+
+                                            <div class="relative flex-1 flex flex-col p-5 overflow-hidden">
+                                                <div
+                                                    class="flex items-center justify-between mb-4 border-b border-slate-200 dark:border-slate-700 pb-3">
+                                                    <h5
+                                                        class="text-xs uppercase tracking-wider font-bold text-slate-600 dark:text-slate-400">
+                                                        Agent Output Artifact</h5>
+                                                    <div class="flex gap-2">
+                                                        <span
+                                                            class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                                                            <span
+                                                                class="material-symbols-outlined text-[12px]">code</span>
+                                                            JSON Schema: BacklogPrimer
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Output Canvas -->
+                                                <div id="backlog-output-artifact"
+                                                    class="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-4">
+                                                    <div
+                                                        class="text-xs text-slate-500 flex flex-col items-center justify-center h-full gap-3 opacity-60">
+                                                        <span
+                                                            class="material-symbols-outlined text-4xl">view_kanban</span>
+                                                        <p>No backlog run yet.</p>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Setup Context (Accordion) -->
+                                                <div class="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+                                                    <details class="group">
+                                                        <summary
+                                                            class="flex items-center gap-2 text-xs font-bold text-slate-500 cursor-pointer select-none">
+                                                            <span
+                                                                class="material-symbols-outlined transition-transform group-open:rotate-90">chevron_right</span>
+                                                            View Input Context Dump
+                                                        </summary>
+                                                        <div
+                                                            class="mt-3 p-3 bg-slate-100 dark:bg-slate-800/80 rounded border border-slate-200 dark:border-slate-700 h-32 overflow-y-auto">
+                                                            <pre id="backlog-input-context"
+                                                                class="text-[10px] text-slate-600 dark:text-slate-400 font-mono whitespace-pre-wrap break-words">Context dump will appear here.</pre>
+                                                        </div>
+                                                    </details>
+                                                </div>
+                                            </div>
+
+                                            <!-- Persistence actions -->
+                                            <div
+                                                class="p-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 flex items-center justify-between shrink-0 relative z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                                                <p id="backlog-save-hint"
+                                                    class="text-sm font-bold text-slate-600 dark:text-slate-400">Run
+                                                    Generation to create a draft before saving.</p>
+                                                <button id="btn-save-backlog" disabled onclick="saveBacklogDraft()"
+                                                    class="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm text-sm">
+                                                    <span class="material-symbols-outlined text-base">save</span> Save
+                                                    Backlog
                                                 </button>
                                             </div>
                                         </div>
                                     </div>
+                                </section>
 
-                                    <!-- Right Panel: Artifact Viewing -->
-                                    <div class="flex flex-col bg-slate-50 dark:bg-slate-900 overflow-hidden relative">
-                                        <div
-                                            class="absolute inset-0 bg-grid-slate-200 dark:bg-grid-slate-800 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] dark:[mask-image:linear-gradient(0deg,rgba(0,0,0,1),rgba(0,0,0,0.4))] pointer-events-none opacity-50">
-                                        </div>
-
-                                        <div class="relative flex-1 flex flex-col p-5 overflow-hidden">
-                                            <div
-                                                class="flex items-center justify-between mb-4 border-b border-slate-200 dark:border-slate-700 pb-3">
-                                                <h5
-                                                    class="text-xs uppercase tracking-wider font-bold text-slate-600 dark:text-slate-400">
-                                                    Agent Output Artifact</h5>
-                                                <div class="flex gap-2">
-                                                    <span
-                                                        class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                                                        <span class="material-symbols-outlined text-[12px]">code</span>
-                                                        JSON Schema: BacklogPrimer
-                                                    </span>
-                                                </div>
-                                            </div>
-
-                                            <!-- Output Canvas -->
-                                            <div id="backlog-output-artifact"
-                                                class="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-4">
-                                                <div
-                                                    class="text-xs text-slate-500 flex flex-col items-center justify-center h-full gap-3 opacity-60">
-                                                    <span class="material-symbols-outlined text-4xl">view_kanban</span>
-                                                    <p>No backlog run yet.</p>
-                                                </div>
-                                            </div>
-
-                                            <!-- Setup Context (Accordion) -->
-                                            <div class="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
-                                                <details class="group">
-                                                    <summary
-                                                        class="flex items-center gap-2 text-xs font-bold text-slate-500 cursor-pointer select-none">
-                                                        <span
-                                                            class="material-symbols-outlined transition-transform group-open:rotate-90">chevron_right</span>
-                                                        View Input Context Dump
-                                                    </summary>
-                                                    <div
-                                                        class="mt-3 p-3 bg-slate-100 dark:bg-slate-800/80 rounded border border-slate-200 dark:border-slate-700 h-32 overflow-y-auto">
-                                                        <pre id="backlog-input-context"
-                                                            class="text-[10px] text-slate-600 dark:text-slate-400 font-mono whitespace-pre-wrap break-words">Context dump will appear here.</pre>
-                                                    </div>
-                                                </details>
-                                            </div>
-                                        </div>
-
-                                        <!-- Persistence actions -->
-                                        <div
-                                            class="p-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 flex items-center justify-between shrink-0 relative z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-                                            <p id="backlog-save-hint" class="text-sm font-bold text-slate-600 dark:text-slate-400">Run
-                                                Generation to create a draft before saving.</p>
-                                            <button id="btn-save-backlog" disabled onclick="saveBacklogDraft()"
-                                                class="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm text-sm">
-                                                <span class="material-symbols-outlined text-base">save</span> Save Backlog
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </section>
-
-                            <section id="phase-section-roadmap"
-                                class="hidden animate-fade-in flex flex-col h-full bg-slate-50 dark:bg-slate-900 rounded-lg overflow-hidden">
-                                <!-- Header -->
-                                <div
-                                    class="p-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 shrink-0">
-                                    <div class="flex items-center gap-3 mb-2">
-                                        <div
-                                            class="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center text-purple-600 dark:text-purple-400">
-                                            <span class="material-symbols-outlined font-bold">timeline</span>
-                                        </div>
-                                        <div>
-                                            <h2 class="text-xl font-black text-slate-800 dark:text-white">Product
-                                                Roadmap</h2>
-                                            <p class="text-xs text-slate-500 font-medium">Group backlog items into
-                                                logical milestones and product releases.</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-2">
-                                    <!-- Left Panel: Input -->
+                                <section id="phase-section-roadmap"
+                                    class="hidden animate-fade-in flex flex-col h-full bg-slate-50 dark:bg-slate-900 rounded-lg overflow-hidden">
+                                    <!-- Header -->
                                     <div
-                                        class="flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/30">
-                                        <!-- History Bar -->
+                                        class="p-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 shrink-0">
+                                        <div class="flex items-center gap-3 mb-2">
+                                            <div
+                                                class="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center text-purple-600 dark:text-purple-400">
+                                                <span class="material-symbols-outlined font-bold">timeline</span>
+                                            </div>
+                                            <div>
+                                                <h2 class="text-xl font-black text-slate-800 dark:text-white">Product
+                                                    Roadmap</h2>
+                                                <p class="text-xs text-slate-500 font-medium">Group backlog items into
+                                                    logical milestones and product releases.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-2">
+                                        <!-- Left Panel: Input -->
                                         <div
-                                            class="h-48 overflow-y-auto p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
-                                            <h3 class="text-xs uppercase tracking-wider font-bold text-slate-500 mb-3">
-                                                Generation History</h3>
-                                            <div id="roadmap-history-list" class="space-y-2">
-                                                <p class="text-xs text-slate-500">No attempts yet.</p>
+                                            class="flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/30">
+                                            <!-- History Bar -->
+                                            <div
+                                                class="h-48 overflow-y-auto p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+                                                <h3
+                                                    class="text-xs uppercase tracking-wider font-bold text-slate-500 mb-3">
+                                                    Generation History</h3>
+                                                <div id="roadmap-history-list" class="space-y-2">
+                                                    <p class="text-xs text-slate-500">No attempts yet.</p>
+                                                </div>
+                                            </div>
+
+                                            <!-- Input Form -->
+                                            <div class="flex-1 p-5 overflow-y-auto custom-scrollbar">
+                                                <label for="roadmap-user-input"
+                                                    class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Refinement
+                                                    Constraints & Guidance</label>
+                                                <p class="text-[11px] text-slate-500 mb-3 leading-relaxed">
+                                                    Provide instructions to the agent on how to organize the roadmap.
+                                                    For
+                                                    example, "Target 3 distinct phases leading up to launch" or "Group
+                                                    similar features into the same release."
+                                                </p>
+                                                <textarea id="roadmap-user-input" rows="8"
+                                                    class="w-full text-sm rounded-xl border border-slate-300 dark:border-slate-600 px-4 py-3 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition-all placeholder:text-slate-400 resize-none shadow-inner"
+                                                    placeholder="Enter context, constraints, or feedback to iterate on the generated roadmap..."></textarea>
+                                            </div>
+
+                                            <!-- Actions -->
+                                            <div
+                                                class="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 flex items-center justify-between shrink-0">
+                                                <div class="flex gap-3">
+                                                    <button id="btn-generate-roadmap" onclick="generateRoadmapDraft()"
+                                                        class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold transition-all shadow-sm">
+                                                        <span class="material-symbols-outlined text-sm">cycle</span>
+                                                        Generate / Refine
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
 
-                                        <!-- Input Form -->
-                                        <div class="flex-1 p-5 overflow-y-auto custom-scrollbar">
-                                            <label for="roadmap-user-input"
-                                                class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Refinement
-                                                Constraints & Guidance</label>
-                                            <p class="text-[11px] text-slate-500 mb-3 leading-relaxed">
-                                                Provide instructions to the agent on how to organize the roadmap. For
-                                                example, "Target 3 distinct phases leading up to launch" or "Group
-                                                similar features into the same release."
-                                            </p>
-                                            <textarea id="roadmap-user-input" rows="8"
-                                                class="w-full text-sm rounded-xl border border-slate-300 dark:border-slate-600 px-4 py-3 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition-all placeholder:text-slate-400 resize-none shadow-inner"
-                                                placeholder="Enter context, constraints, or feedback to iterate on the generated roadmap..."></textarea>
-                                        </div>
-
-                                        <!-- Actions -->
+                                        <!-- Right Panel: Artifact Viewing -->
                                         <div
-                                            class="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 flex items-center justify-between shrink-0">
-                                            <div class="flex gap-3">
-                                                <button id="btn-generate-roadmap" onclick="generateRoadmapDraft()"
-                                                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold transition-all shadow-sm">
-                                                    <span class="material-symbols-outlined text-sm">cycle</span>
-                                                    Generate / Refine
+                                            class="flex flex-col bg-slate-50 dark:bg-slate-900 overflow-hidden relative">
+                                            <div
+                                                class="absolute inset-0 bg-grid-slate-200 dark:bg-grid-slate-800 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] dark:[mask-image:linear-gradient(0deg,rgba(0,0,0,1),rgba(0,0,0,0.4))] pointer-events-none opacity-50">
+                                            </div>
+
+                                            <div class="relative flex-1 flex flex-col p-5 overflow-hidden">
+                                                <div
+                                                    class="flex items-center justify-between mb-4 border-b border-slate-200 dark:border-slate-700 pb-3">
+                                                    <h5
+                                                        class="text-xs uppercase tracking-wider font-bold text-slate-600 dark:text-slate-400">
+                                                        Agent Output Artifact</h5>
+                                                    <div class="flex gap-2">
+                                                        <span
+                                                            class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                                                            <span
+                                                                class="material-symbols-outlined text-[12px]">code</span>
+                                                            JSON Schema: RoadmapBuilder
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Output Canvas -->
+                                                <div id="roadmap-output-artifact"
+                                                    class="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-4">
+                                                    <div
+                                                        class="text-xs text-slate-500 flex flex-col items-center justify-center h-full gap-3 opacity-60">
+                                                        <span
+                                                            class="material-symbols-outlined text-4xl">view_timeline</span>
+                                                        <p>No roadmap run yet.</p>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Setup Context (Accordion) -->
+                                                <div class="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+                                                    <details class="group">
+                                                        <summary
+                                                            class="flex items-center gap-2 text-xs font-bold text-slate-500 cursor-pointer select-none">
+                                                            <span
+                                                                class="material-symbols-outlined transition-transform group-open:rotate-90">chevron_right</span>
+                                                            View Input Context Dump
+                                                        </summary>
+                                                        <div
+                                                            class="mt-3 p-3 bg-slate-100 dark:bg-slate-800/80 rounded border border-slate-200 dark:border-slate-700 h-32 overflow-y-auto">
+                                                            <pre id="roadmap-input-context"
+                                                                class="text-[10px] text-slate-600 dark:text-slate-400 font-mono whitespace-pre-wrap break-words">Context dump will appear here.</pre>
+                                                        </div>
+                                                    </details>
+                                                </div>
+                                            </div>
+
+                                            <!-- Persistence actions -->
+                                            <div
+                                                class="p-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 flex items-center justify-between shrink-0 relative z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                                                <p id="roadmap-save-hint"
+                                                    class="text-sm font-bold text-slate-600 dark:text-slate-400">Run
+                                                    Generation to create a draft before saving.</p>
+                                                <button id="btn-save-roadmap" disabled onclick="saveRoadmapDraft()"
+                                                    class="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm text-sm">
+                                                    <span class="material-symbols-outlined text-base">save</span> Save
+                                                    Roadmap
                                                 </button>
                                             </div>
                                         </div>
                                     </div>
+                                </section>
 
-                                    <!-- Right Panel: Artifact Viewing -->
-                                    <div class="flex flex-col bg-slate-50 dark:bg-slate-900 overflow-hidden relative">
-                                        <div
-                                            class="absolute inset-0 bg-grid-slate-200 dark:bg-grid-slate-800 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] dark:[mask-image:linear-gradient(0deg,rgba(0,0,0,1),rgba(0,0,0,0.4))] pointer-events-none opacity-50">
-                                        </div>
+                                <section id="phase-section-story"
+                                    class="hidden animate-fade-in flex flex-col h-full bg-slate-50 dark:bg-slate-900 rounded-lg overflow-hidden">
 
-                                        <div class="relative flex-1 flex flex-col p-5 overflow-hidden">
+                                    <!-- Header -->
+                                    <div
+                                        class="p-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 shrink-0 flex justify-between items-center">
+                                        <div class="flex items-center gap-3">
                                             <div
-                                                class="flex items-center justify-between mb-4 border-b border-slate-200 dark:border-slate-700 pb-3">
-                                                <h5
-                                                    class="text-xs uppercase tracking-wider font-bold text-slate-600 dark:text-slate-400">
-                                                    Agent Output Artifact</h5>
-                                                <div class="flex gap-2">
-                                                    <span
-                                                        class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                                                        <span class="material-symbols-outlined text-[12px]">code</span>
-                                                        JSON Schema: RoadmapBuilder
-                                                    </span>
-                                                </div>
+                                                class="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-900/50 flex items-center justify-center text-orange-600 dark:text-orange-400">
+                                                <span class="material-symbols-outlined font-bold">description</span>
                                             </div>
+                                            <div>
+                                                <h2 class="text-xl font-black text-slate-800 dark:text-white">User
+                                                    Stories
+                                                </h2>
+                                                <p class="text-xs text-slate-500 font-medium">Decompose roadmap
+                                                    requirements
+                                                    into INVEST-compliant user stories.</p>
+                                            </div>
+                                        </div>
 
-                                            <!-- Output Canvas -->
-                                            <div id="roadmap-output-artifact"
-                                                class="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-4">
+                                        <button id="btn-complete-story-phase" onclick="completeStoryPhase()"
+                                            class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm"
+                                            disabled>
+                                            <span class="material-symbols-outlined text-sm">flag</span>
+                                            Complete Story Phase
+                                        </button>
+                                    </div>
+
+                                    <div class="flex-1 overflow-hidden flex flex-col lg:flex-row">
+
+                                        <!-- Sidebar: Requirement List -->
+                                        <div
+                                            class="w-full lg:w-72 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex flex-col flex-shrink-0">
+                                            <div class="p-4 border-b border-slate-200 dark:border-slate-700">
+                                                <h3
+                                                    class="text-[11px] uppercase tracking-wider font-bold text-slate-500">
+                                                    Roadmap Requirements</h3>
+                                            </div>
+                                            <div id="story-req-list"
+                                                class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
+                                                <div class="text-[11px] text-slate-500 text-center italic py-4">Loading
+                                                    requirements...</div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Main Panel: Detail View -->
+                                        <div class="flex-1 flex flex-col overflow-hidden relative">
+
+                                            <!-- Placeholder when nothing is selected -->
+                                            <div id="story-detail-placeholder"
+                                                class="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-slate-900 z-10 transition-opacity">
                                                 <div
-                                                    class="text-xs text-slate-500 flex flex-col items-center justify-center h-full gap-3 opacity-60">
-                                                    <span
-                                                        class="material-symbols-outlined text-4xl">view_timeline</span>
-                                                    <p>No roadmap run yet.</p>
+                                                    class="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-4">
+                                                    <span class="material-symbols-outlined text-3xl">touch_app</span>
+                                                </div>
+                                                <h4 class="text-slate-600 dark:text-slate-300 font-bold mb-2">Select a
+                                                    Requirement</h4>
+                                                <p class="text-sm text-slate-500 text-center max-w-sm">Choose a
+                                                    requirement
+                                                    from the sidebar to generate its user stories.</p>
+                                            </div>
+
+                                            <!-- Active Detail View -->
+                                            <div id="story-detail-active"
+                                                class="flex-1 flex flex-col w-full h-full opacity-0 pointer-events-none transition-opacity bg-white dark:bg-slate-900 overflow-hidden">
+
+                                                <!-- Detail Header (Requirement Name) -->
+                                                <div
+                                                    class="px-5 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 sticky top-0 z-10 shadow-sm shrink-0">
+                                                    <div
+                                                        class="text-[10px] uppercase font-bold text-orange-600 dark:text-orange-400 mb-1">
+                                                        Active Requirement</div>
+                                                    <h3 id="story-active-req-title"
+                                                        class="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">
+                                                        Requirement Name</h3>
+                                                </div>
+
+                                                <!-- Two-Pane inner view (like Vision/Backlog/Roadmap) -->
+                                                <div class="flex-1 overflow-hidden grid grid-cols-1 xl:grid-cols-2">
+
+                                                    <!-- Left: Form & History -->
+                                                    <div
+                                                        class="flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/30 w-full">
+
+                                                        <!-- History Bar -->
+                                                        <div
+                                                            class="h-40 overflow-y-auto p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
+                                                            <h3
+                                                                class="text-xs uppercase tracking-wider font-bold text-slate-500 mb-3">
+                                                                Generation History</h3>
+                                                            <div id="story-history-list" class="space-y-2">
+                                                                <p class="text-xs text-slate-500">No attempts yet.</p>
+                                                            </div>
+                                                        </div>
+
+                                                        <!-- Input Form -->
+                                                        <div class="flex-1 p-5 overflow-y-auto custom-scrollbar">
+                                                            <label for="story-user-input"
+                                                                class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Refinement
+                                                                Constraints & Guidance</label>
+                                                            <p class="text-[11px] text-slate-500 mb-3 leading-relaxed">
+                                                                Provide instructions to the agent on how to decompose
+                                                                this
+                                                                specific requirement into stories.
+                                                            </p>
+                                                            <textarea id="story-user-input" rows="6"
+                                                                class="w-full text-sm rounded-xl border border-slate-300 dark:border-slate-600 px-4 py-3 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all placeholder:text-slate-400 resize-none shadow-inner"
+                                                                placeholder="Enter context, constraints, or feedback to iterate on the generated stories..."></textarea>
+                                                        </div>
+
+                                                        <!-- Actions -->
+                                                        <div
+                                                            class="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 flex items-center justify-between shrink-0">
+                                                            <div class="flex gap-3">
+                                                                <button id="btn-generate-story"
+                                                                    onclick="generateStoryDraft()"
+                                                                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold transition-all shadow-sm">
+                                                                    <span
+                                                                        class="material-symbols-outlined text-sm">cycle</span>
+                                                                    Generate / Refine
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <!-- Right: Artifact Viewing -->
+                                                    <div
+                                                        class="flex flex-col bg-slate-50 dark:bg-slate-900 relative w-full h-full min-h-0">
+                                                        <div
+                                                            class="absolute inset-0 bg-grid-slate-200 dark:bg-grid-slate-800 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] dark:[mask-image:linear-gradient(0deg,rgba(0,0,0,1),rgba(0,0,0,0.4))] pointer-events-none opacity-50">
+                                                        </div>
+
+                                                        <div
+                                                            class="relative flex-1 flex flex-col p-5 h-full overflow-hidden">
+                                                            <div
+                                                                class="flex items-center justify-between mb-4 border-b border-slate-200 dark:border-slate-700 pb-3 shrink-0">
+                                                                <h5
+                                                                    class="text-xs uppercase tracking-wider font-bold text-slate-600 dark:text-slate-400">
+                                                                    Agent Output Artifact</h5>
+                                                                <div class="flex gap-2">
+                                                                    <span
+                                                                        class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                                                                        <span
+                                                                            class="material-symbols-outlined text-[12px]">code</span>
+                                                                        JSON Schema: UserStoryWriter
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+
+                                                            <!-- Output Canvas -->
+                                                            <div id="story-output-artifact"
+                                                                class="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-4 min-h-0">
+                                                                <div
+                                                                    class="text-xs text-slate-500 flex flex-col items-center justify-center h-full gap-3 opacity-60">
+                                                                    <span
+                                                                        class="material-symbols-outlined text-4xl">receipt_long</span>
+                                                                    <p>No stories generated yet.</p>
+                                                                </div>
+                                                            </div>
+
+                                                            <!-- Setup Context (Accordion) -->
+                                                            <div
+                                                                class="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 shrink-0">
+                                                                <details class="group">
+                                                                    <summary
+                                                                        class="flex items-center gap-2 text-xs font-bold text-slate-500 cursor-pointer select-none">
+                                                                        <span
+                                                                            class="material-symbols-outlined transition-transform group-open:rotate-90">chevron_right</span>
+                                                                        View Input Context Dump
+                                                                    </summary>
+                                                                    <div
+                                                                        class="mt-3 p-3 bg-slate-100 dark:bg-slate-800/80 rounded border border-slate-200 dark:border-slate-700 h-32 overflow-y-auto custom-scrollbar">
+                                                                        <pre id="story-input-context"
+                                                                            class="text-[10px] text-slate-600 dark:text-slate-400 font-mono whitespace-pre-wrap break-words">Context dump will appear here.</pre>
+                                                                    </div>
+                                                                </details>
+                                                            </div>
+                                                        </div>
+
+                                                        <!-- Persistence actions -->
+                                                        <div
+                                                            class="p-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 flex items-center justify-between shrink-0 relative z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                                                            <div class="flex items-center gap-4">
+                                                                <p id="story-save-hint"
+                                                                    class="text-sm font-bold text-slate-600 dark:text-slate-400">
+                                                                    Run
+                                                                    Generation to create a draft before saving.</p>
+                                                            </div>
+                                                            <div class="flex items-center gap-3">
+                                                                <button id="btn-delete-story"
+                                                                    onclick="deleteStoryDraft()"
+                                                                    class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-700 dark:bg-rose-900/30 dark:hover:bg-rose-900/50 dark:text-rose-400 font-bold transition-all shadow-sm hidden text-sm">
+                                                                    <span
+                                                                        class="material-symbols-outlined text-base">delete</span>
+                                                                    Delete & Restart
+                                                                </button>
+                                                                <button id="btn-save-story" disabled
+                                                                    onclick="saveStoryDraft()"
+                                                                    class="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm text-sm">
+                                                                    <span
+                                                                        class="material-symbols-outlined text-base">save</span>
+                                                                    Save Stories
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
-
-                                            <!-- Setup Context (Accordion) -->
-                                            <div class="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
-                                                <details class="group">
-                                                    <summary
-                                                        class="flex items-center gap-2 text-xs font-bold text-slate-500 cursor-pointer select-none">
-                                                        <span
-                                                            class="material-symbols-outlined transition-transform group-open:rotate-90">chevron_right</span>
-                                                        View Input Context Dump
-                                                    </summary>
-                                                    <div
-                                                        class="mt-3 p-3 bg-slate-100 dark:bg-slate-800/80 rounded border border-slate-200 dark:border-slate-700 h-32 overflow-y-auto">
-                                                        <pre id="roadmap-input-context"
-                                                            class="text-[10px] text-slate-600 dark:text-slate-400 font-mono whitespace-pre-wrap break-words">Context dump will appear here.</pre>
-                                                    </div>
-                                                </details>
-                                            </div>
-                                        </div>
-
-                                        <!-- Persistence actions -->
-                                        <div
-                                            class="p-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 flex items-center justify-between shrink-0 relative z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-                                            <p id="roadmap-save-hint" class="text-sm font-bold text-slate-600 dark:text-slate-400">Run
-                                                Generation to create a draft before saving.</p>
-                                            <button id="btn-save-roadmap" disabled onclick="saveRoadmapDraft()"
-                                                class="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm text-sm">
-                                                <span class="material-symbols-outlined text-base">save</span> Save Roadmap
-                                            </button>
                                         </div>
                                     </div>
-                                </div>
-                            </section>
+                                </section>
 
-                            <section id="phase-section-story"
-                                class="hidden animate-fade-in flex flex-col h-full bg-slate-50 dark:bg-slate-900 rounded-lg overflow-hidden">
+                                <section id="phase-section-sprint"
+                                    class="phase-section hidden bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg p-5 text-center py-12">
+                                    <span class="material-symbols-outlined text-4xl text-slate-400 mb-3">bolt</span>
+                                    <h4 class="text-lg font-bold">Sprint Phase</h4>
+                                    <p class="text-sm text-slate-600 dark:text-slate-400 mt-2 max-w-sm mx-auto">This
+                                        phase
+                                        is currently locked. Complete the story phase first to proceed.</p>
+                                </section>
+                            </div>
 
-                                <!-- Header -->
-                                <div
-                                    class="p-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 shrink-0 flex justify-between items-center">
-                                    <div class="flex items-center gap-3">
-                                        <div
-                                            class="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-900/50 flex items-center justify-center text-orange-600 dark:text-orange-400">
-                                            <span class="material-symbols-outlined font-bold">description</span>
-                                        </div>
-                                        <div>
-                                            <h2 class="text-xl font-black text-slate-800 dark:text-white">User Stories
-                                            </h2>
-                                            <p class="text-xs text-slate-500 font-medium">Decompose roadmap requirements
-                                                into INVEST-compliant user stories.</p>
-                                        </div>
-                                    </div>
-
-                                    <button id="btn-complete-story-phase" onclick="completeStoryPhase()"
-                                        class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm"
-                                        disabled>
-                                        <span class="material-symbols-outlined text-sm">flag</span>
-                                        Complete Story Phase
+                            <!-- Action Footer -->
+                            <div id="setup-selected-actions"
+                                class="flex items-center justify-between p-6 bg-slate-50 dark:bg-slate-900/40 border-t border-slate-200 dark:border-slate-700 rounded-b-xl mt-8">
+                                <div>
+                                    <button id="btn-retry-setup" onclick="retryProjectSetup()"
+                                        class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold transition-all shadow-sm hidden text-sm">
+                                        <span class="material-symbols-outlined text-base">refresh</span> Try Setup Again
                                     </button>
                                 </div>
-
-                                <div class="flex-1 overflow-hidden flex flex-col lg:flex-row">
-
-                                    <!-- Sidebar: Requirement List -->
-                                    <div
-                                        class="w-full lg:w-72 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex flex-col flex-shrink-0">
-                                        <div class="p-4 border-b border-slate-200 dark:border-slate-700">
-                                            <h3 class="text-[11px] uppercase tracking-wider font-bold text-slate-500">
-                                                Roadmap Requirements</h3>
-                                        </div>
-                                        <div id="story-req-list"
-                                            class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
-                                            <div class="text-[11px] text-slate-500 text-center italic py-4">Loading
-                                                requirements...</div>
-                                        </div>
-                                    </div>
-
-                                    <!-- Main Panel: Detail View -->
-                                    <div class="flex-1 flex flex-col overflow-hidden relative">
-
-                                        <!-- Placeholder when nothing is selected -->
-                                        <div id="story-detail-placeholder"
-                                            class="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-slate-900 z-10 transition-opacity">
-                                            <div
-                                                class="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-4">
-                                                <span class="material-symbols-outlined text-3xl">touch_app</span>
-                                            </div>
-                                            <h4 class="text-slate-600 dark:text-slate-300 font-bold mb-2">Select a
-                                                Requirement</h4>
-                                            <p class="text-sm text-slate-500 text-center max-w-sm">Choose a requirement
-                                                from the sidebar to generate its user stories.</p>
-                                        </div>
-
-                                        <!-- Active Detail View -->
-                                        <div id="story-detail-active"
-                                            class="flex-1 flex flex-col w-full h-full opacity-0 pointer-events-none transition-opacity bg-white dark:bg-slate-900 overflow-hidden">
-
-                                            <!-- Detail Header (Requirement Name) -->
-                                            <div
-                                                class="px-5 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 sticky top-0 z-10 shadow-sm shrink-0">
-                                                <div
-                                                    class="text-[10px] uppercase font-bold text-orange-600 dark:text-orange-400 mb-1">
-                                                    Active Requirement</div>
-                                                <h3 id="story-active-req-title"
-                                                    class="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">
-                                                    Requirement Name</h3>
-                                            </div>
-
-                                            <!-- Two-Pane inner view (like Vision/Backlog/Roadmap) -->
-                                            <div class="flex-1 overflow-hidden grid grid-cols-1 xl:grid-cols-2">
-
-                                                <!-- Left: Form & History -->
-                                                <div
-                                                    class="flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/30 w-full">
-
-                                                    <!-- History Bar -->
-                                                    <div
-                                                        class="h-40 overflow-y-auto p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
-                                                        <h3
-                                                            class="text-xs uppercase tracking-wider font-bold text-slate-500 mb-3">
-                                                            Generation History</h3>
-                                                        <div id="story-history-list" class="space-y-2">
-                                                            <p class="text-xs text-slate-500">No attempts yet.</p>
-                                                        </div>
-                                                    </div>
-
-                                                    <!-- Input Form -->
-                                                    <div class="flex-1 p-5 overflow-y-auto custom-scrollbar">
-                                                        <label for="story-user-input"
-                                                            class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Refinement
-                                                            Constraints & Guidance</label>
-                                                        <p class="text-[11px] text-slate-500 mb-3 leading-relaxed">
-                                                            Provide instructions to the agent on how to decompose this
-                                                            specific requirement into stories.
-                                                        </p>
-                                                        <textarea id="story-user-input" rows="6"
-                                                            class="w-full text-sm rounded-xl border border-slate-300 dark:border-slate-600 px-4 py-3 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all placeholder:text-slate-400 resize-none shadow-inner"
-                                                            placeholder="Enter context, constraints, or feedback to iterate on the generated stories..."></textarea>
-                                                    </div>
-
-                                                    <!-- Actions -->
-                                                    <div
-                                                        class="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 flex items-center justify-between shrink-0">
-                                                        <div class="flex gap-3">
-                                                            <button id="btn-generate-story"
-                                                                onclick="generateStoryDraft()"
-                                                                class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold transition-all shadow-sm">
-                                                                <span
-                                                                    class="material-symbols-outlined text-sm">cycle</span>
-                                                                Generate / Refine
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <!-- Right: Artifact Viewing -->
-                                                <div
-                                                    class="flex flex-col bg-slate-50 dark:bg-slate-900 relative w-full h-full min-h-0">
-                                                    <div
-                                                        class="absolute inset-0 bg-grid-slate-200 dark:bg-grid-slate-800 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] dark:[mask-image:linear-gradient(0deg,rgba(0,0,0,1),rgba(0,0,0,0.4))] pointer-events-none opacity-50">
-                                                    </div>
-
-                                                    <div
-                                                        class="relative flex-1 flex flex-col p-5 h-full overflow-hidden">
-                                                        <div
-                                                            class="flex items-center justify-between mb-4 border-b border-slate-200 dark:border-slate-700 pb-3 shrink-0">
-                                                            <h5
-                                                                class="text-xs uppercase tracking-wider font-bold text-slate-600 dark:text-slate-400">
-                                                                Agent Output Artifact</h5>
-                                                            <div class="flex gap-2">
-                                                                <span
-                                                                    class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                                                                    <span
-                                                                        class="material-symbols-outlined text-[12px]">code</span>
-                                                                    JSON Schema: UserStoryWriter
-                                                                </span>
-                                                            </div>
-                                                        </div>
-
-                                                        <!-- Output Canvas -->
-                                                        <div id="story-output-artifact"
-                                                            class="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-4 min-h-0">
-                                                            <div
-                                                                class="text-xs text-slate-500 flex flex-col items-center justify-center h-full gap-3 opacity-60">
-                                                                <span
-                                                                    class="material-symbols-outlined text-4xl">receipt_long</span>
-                                                                <p>No stories generated yet.</p>
-                                                            </div>
-                                                        </div>
-
-                                                        <!-- Setup Context (Accordion) -->
-                                                        <div
-                                                            class="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 shrink-0">
-                                                            <details class="group">
-                                                                <summary
-                                                                    class="flex items-center gap-2 text-xs font-bold text-slate-500 cursor-pointer select-none">
-                                                                    <span
-                                                                        class="material-symbols-outlined transition-transform group-open:rotate-90">chevron_right</span>
-                                                                    View Input Context Dump
-                                                                </summary>
-                                                                <div
-                                                                    class="mt-3 p-3 bg-slate-100 dark:bg-slate-800/80 rounded border border-slate-200 dark:border-slate-700 h-32 overflow-y-auto custom-scrollbar">
-                                                                    <pre id="story-input-context"
-                                                                        class="text-[10px] text-slate-600 dark:text-slate-400 font-mono whitespace-pre-wrap break-words">Context dump will appear here.</pre>
-                                                                </div>
-                                                            </details>
-                                                        </div>
-                                                    </div>
-
-                                                    <!-- Persistence actions -->
-                                                    <div
-                                                        class="p-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 flex items-center justify-between shrink-0 relative z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-                                                        <div class="flex items-center gap-4">
-                                                            <p id="story-save-hint"
-                                                                class="text-sm font-bold text-slate-600 dark:text-slate-400">Run
-                                                                Generation to create a draft before saving.</p>
-                                                        </div>
-                                                        <div class="flex items-center gap-3">
-                                                            <button id="btn-delete-story" onclick="deleteStoryDraft()"
-                                                                class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-700 dark:bg-rose-900/30 dark:hover:bg-rose-900/50 dark:text-rose-400 font-bold transition-all shadow-sm hidden text-sm">
-                                                                <span
-                                                                    class="material-symbols-outlined text-base">delete</span>
-                                                                Delete & Restart
-                                                            </button>
-                                                            <button id="btn-save-story" disabled
-                                                                onclick="saveStoryDraft()"
-                                                                class="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm text-sm">
-                                                                <span
-                                                                    class="material-symbols-outlined text-base">save</span>
-                                                                Save Stories
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                <div class="flex items-center gap-4 w-full justify-end">
+                                    <p id="next-phase-hint"
+                                        class="text-sm font-bold text-slate-600 dark:text-slate-400 text-right max-w-sm leading-tight">
+                                        Connecting to
+                                        project...</p>
+                                    <button id="btn-next-phase" onclick="handleNextPhase()"
+                                        class="inline-flex items-center gap-2 px-8 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-md text-base"
+                                        disabled>
+                                        Next Phase <span class="material-symbols-outlined text-lg">arrow_forward</span>
+                                    </button>
                                 </div>
-                            </section>
-
-                            <section id="phase-section-sprint"
-                                class="phase-section hidden bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg p-5 text-center py-12">
-                                <span class="material-symbols-outlined text-4xl text-slate-400 mb-3">bolt</span>
-                                <h4 class="text-lg font-bold">Sprint Phase</h4>
-                                <p class="text-sm text-slate-600 dark:text-slate-400 mt-2 max-w-sm mx-auto">This phase
-                                    is currently locked. Complete the story phase first to proceed.</p>
-                            </section>
-                        </div>
-
-                        <!-- Action Footer -->
-                        <div id="setup-selected-actions"
-                            class="flex items-center justify-between p-6 bg-slate-50 dark:bg-slate-900/40 border-t border-slate-200 dark:border-slate-700 rounded-b-xl mt-8">
-                            <div>
-                                <button id="btn-retry-setup" onclick="retryProjectSetup()"
-                                    class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold transition-all shadow-sm hidden text-sm">
-                                    <span class="material-symbols-outlined text-base">refresh</span> Try Setup Again
-                                </button>
                             </div>
-                            <div class="flex items-center gap-4 w-full justify-end">
-                                <p id="next-phase-hint"
-                                    class="text-sm font-bold text-slate-600 dark:text-slate-400 text-right max-w-sm leading-tight">Connecting to
-                                    project...</p>
-                                <button id="btn-next-phase" onclick="handleNextPhase()"
-                                    class="inline-flex items-center gap-2 px-8 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-md text-base"
-                                    disabled>
-                                    Next Phase <span class="material-symbols-outlined text-lg">arrow_forward</span>
-                                </button>
-                            </div>
+
                         </div>
-
-                    </div>
-                </div>
-            </div>
-
-            <!-- Right Information Sidebar -->
-            <div class="w-full lg:w-80 space-y-6 flex-shrink-0">
-                <!-- Status Card -->
-                <div
-                    class="bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
-                    <h4
-                        class="font-bold mb-4 flex items-center gap-2 text-slate-800 dark:text-white border-b border-slate-100 dark:border-slate-700 pb-3">
-                        <span class="material-symbols-outlined text-primary">info</span> Current FSM State
-                    </h4>
-                    <div id="fsm-status-display" class="mb-4">
-                        <span
-                            class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                            LOADING...
-                        </span>
                     </div>
                 </div>
 
-                <details
-                    class="bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm group">
-                    <summary class="font-bold flex items-center justify-between gap-2 text-slate-800 dark:text-white p-5 cursor-pointer list-none">
-                        <div class="flex items-center gap-2">
-                            <span class="material-symbols-outlined text-emerald-500">rule</span> Pipeline Rules
-                        </div>
-                        <span class="material-symbols-outlined text-slate-400 transition-transform group-open:rotate-180">expand_more</span>
-                    </summary>
-                    <div class="px-5 pb-5 pt-0">
-                        <ul class="text-sm text-slate-600 dark:text-slate-400 space-y-3">
-                            <li class="flex items-start gap-2">
-                                <span class="material-symbols-outlined text-[16px] text-slate-400 mt-0.5">adjust</span>
-                                <span><strong>Setup</strong> requires a valid file path + successfully compiled technical
-                                    authority document.</span>
-                            </li>
-                            <li class="flex items-start gap-2">
-                                <span class="material-symbols-outlined text-[16px] text-slate-400 mt-0.5">adjust</span>
-                                <span><strong>Vision</strong> persistence (saving) is only permitted when the artifact is
-                                    marked <code>is_complete=true</code>.</span>
-                            </li>
-                            <li class="flex items-start gap-2">
-                                <span class="material-symbols-outlined text-[16px] text-slate-400 mt-0.5">adjust</span>
-                                <span>The <strong>Next Phase</strong> button unlocks only when the current phase has reached
-                                    its terminal completion state.</span>
-                            </li>
-                        </ul>
-                    </div>
-                </details>
-            </div>
+
             </div>
         </main>
     </div>
