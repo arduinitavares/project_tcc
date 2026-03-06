@@ -39,7 +39,20 @@ class UserStoryItem(BaseModel):
     ]
     invest_score: Annotated[
         Literal["High", "Medium", "Low"],
-        Field(description="INVEST compliance score for this story (Page 73)."),
+        Field(description="INVEST compliance quality grade for this story (Page 73). True effort is tracked in estimated_effort."),
+    ]
+    estimated_effort: Annotated[
+        Literal["XS", "S", "M", "L", "XL"],
+        Field(
+            description="Estimated size/effort. XS = hours, S = 1 day, M = 2-3 days. Small tasks like documentation should be XS/S, never artificially split to fill larger buckets."
+        ),
+    ]
+    produced_artifacts: Annotated[
+        List[str],
+        Field(
+            description="List of specific artifacts, documents, or deliverables this story produces.",
+            default_factory=list,
+        ),
     ]
     decomposition_warning: Annotated[
         Optional[str],
@@ -57,13 +70,20 @@ class UserStoryItem(BaseModel):
     def _validate_statement_format(self):
         """Enforce 'As a ... I want ... so that ...' syntax (Page 72)."""
         stmt = self.statement or ""
-        stmt_lower = stmt.lower()
-        if not stmt_lower.startswith("as a"):
-            raise ValueError("Statement must start with 'As a ...'")
+        stmt_lower = stmt.lower().strip()
+        
+        # Strip common markdown bolding just in case the agent formats it
+        stmt_lower = stmt_lower.replace("**", "").replace("*", "")
+        
+        if not (stmt_lower.startswith("as a ") or stmt_lower.startswith("as an ") or stmt_lower.startswith("as the ")):
+            raise ValueError("Statement must precisely start with 'As a ...', 'As an ...', or 'As the ...'")
+            
         if " i want " not in stmt_lower:
             raise ValueError("Statement must contain '... I want ...'")
+            
         if " so that " not in stmt_lower:
             raise ValueError("Statement must contain '... so that ...'")
+            
         return self
 
     @model_validator(mode="after")
@@ -114,6 +134,27 @@ class UserStoryWriterInput(BaseModel):
             description="Regulatory, architectural, or organizational constraints.",
         ),
     ]
+    global_roadmap_context: Annotated[
+        str,
+        Field(
+            default="",
+            description="All roadmap milestones to provide boundaries on what NOT to implement.",
+        ),
+    ]
+    already_generated_milestone_stories: Annotated[
+        str,
+        Field(
+            default="",
+            description="Details of stories already generated for other requirements to avoid overlap.",
+        ),
+    ]
+    artifact_registry: Annotated[
+        dict[str, str],
+        Field(
+            default_factory=dict,
+            description="Mapping of artifact_key -> owner_requirement.",
+        ),
+    ]
 
 
 class UserStoryWriterOutput(BaseModel):
@@ -129,6 +170,7 @@ class UserStoryWriterOutput(BaseModel):
         List[UserStoryItem],
         Field(
             min_length=1,
+            max_length=8,
             description="List of decomposed, INVEST-compliant user stories.",
         ),
     ]

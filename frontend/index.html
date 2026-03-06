@@ -5,8 +5,11 @@
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,0..1&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+        rel="stylesheet" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+        rel="stylesheet" />
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -28,7 +31,8 @@
 </head>
 
 <body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 min-h-screen">
-    <header class="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark/70 sticky top-0 z-50">
+    <header
+        class="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark/70 sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div class="flex items-center gap-3">
                 <div class="bg-primary p-1.5 rounded-lg">
@@ -36,7 +40,7 @@
                 </div>
                 <h1 class="text-xl font-bold tracking-tight">AgenticFlow</h1>
             </div>
-            <span class="text-sm text-slate-500">Deterministic Workflow</span>
+            <span class="text-sm text-slate-500">Deterministic Workflow Dashboard</span>
         </div>
     </header>
 
@@ -44,186 +48,57 @@
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
             <div>
                 <h2 class="text-3xl font-extrabold tracking-tight">Projects</h2>
-                <p class="text-slate-500 dark:text-slate-400 mt-1">Create projects, complete setup, and run vision interview loops.</p>
+                <p class="text-slate-500 dark:text-slate-400 mt-1">Select a project to enter its workflow pipeline or
+                    create a new one.</p>
             </div>
-            <button onclick="openCreateProjectPanel()"
+            <button onclick="openCreateProjectModal()"
                 class="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 text-white font-bold py-2.5 px-5 rounded-lg transition-all shadow-lg shadow-primary/25">
                 <span class="material-symbols-outlined text-xl">add</span>
                 Create New Project
             </button>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div class="lg:col-span-2 space-y-6">
-                <div id="projects-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+        <div id="projects-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+    </main>
 
-                <div id="setup-panel" class="hidden bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
-                    <div class="border-b border-slate-200 dark:border-slate-700 px-6 py-4 bg-slate-50/50 dark:bg-slate-800/50">
-                        <h3 id="setup-panel-title" class="text-lg font-bold">Project Setup</h3>
-                    </div>
-
-                    <div class="p-6 space-y-6">
-                        <div class="relative grid grid-cols-6 gap-4">
-                            <div class="absolute top-5 left-0 w-full h-0.5 bg-slate-200 dark:bg-slate-700 -z-0"></div>
-
-                            <div id="step-setup" class="relative z-10 flex flex-col items-center gap-2">
-                                <div data-role="icon" class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center ring-4 ring-white dark:ring-background-dark shadow-md">
-                                    <span class="material-symbols-outlined text-xl">settings</span>
-                                </div>
-                                <span data-role="label" class="text-xs font-bold text-primary">Project Setup</span>
-                                <span data-role="status" class="text-[10px] text-primary/80 uppercase font-black">Active</span>
-                            </div>
-
-                            <div id="step-vision" class="relative z-10 flex flex-col items-center gap-2">
-                                <div data-role="icon" class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark">
-                                    <span class="material-symbols-outlined text-xl">lock</span>
-                                </div>
-                                <span data-role="label" class="text-xs font-medium text-slate-500">Vision</span>
-                                <span data-role="status" class="text-[10px] text-slate-400 uppercase font-black">Locked</span>
-                            </div>
-
-                            <div id="step-backlog" class="relative z-10 flex flex-col items-center gap-2">
-                                <div data-role="icon" class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark">
-                                    <span class="material-symbols-outlined text-xl">lock</span>
-                                </div>
-                                <span data-role="label" class="text-xs font-medium text-slate-500">Backlog</span>
-                                <span data-role="status" class="text-[10px] text-slate-400 uppercase font-black">Locked</span>
-                            </div>
-
-                            <div id="step-roadmap" class="relative z-10 flex flex-col items-center gap-2">
-                                <div data-role="icon" class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark">
-                                    <span class="material-symbols-outlined text-xl">lock</span>
-                                </div>
-                                <span data-role="label" class="text-xs font-medium text-slate-500">Roadmap</span>
-                                <span data-role="status" class="text-[10px] text-slate-400 uppercase font-black">Locked</span>
-                            </div>
-
-                            <div id="step-story" class="relative z-10 flex flex-col items-center gap-2">
-                                <div data-role="icon" class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark">
-                                    <span class="material-symbols-outlined text-xl">lock</span>
-                                </div>
-                                <span data-role="label" class="text-xs font-medium text-slate-500">Stories</span>
-                                <span data-role="status" class="text-[10px] text-slate-400 uppercase font-black">Locked</span>
-                            </div>
-
-                            <div id="step-sprint" class="relative z-10 flex flex-col items-center gap-2">
-                                <div data-role="icon" class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark">
-                                    <span class="material-symbols-outlined text-xl">lock</span>
-                                </div>
-                                <span data-role="label" class="text-xs font-medium text-slate-500">Sprint</span>
-                                <span data-role="status" class="text-[10px] text-slate-400 uppercase font-black">Locked</span>
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div class="space-y-2">
-                                <label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Project Name</label>
-                                <input id="setup-project-name" type="text" placeholder="e.g. Project Phoenix"
-                                    class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2.5" />
-                            </div>
-                            <div class="space-y-2">
-                                <label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Specification File Path</label>
-                                <input id="setup-spec-path" type="text" placeholder="C:\\path\\to\\spec.md"
-                                    class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2.5" />
-                            </div>
-                        </div>
-
-                        <div id="setup-status-banner" class="hidden text-sm rounded-lg border px-4 py-3"></div>
-
-                        <div id="phase-content" class="space-y-3">
-                            <section id="phase-section-setup" class="phase-section bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
-                                <h4 class="text-sm font-bold">Project Setup</h4>
-                                <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Project setup requires a valid specification file path and successful authority compile.</p>
-                            </section>
-
-                            <section id="phase-section-vision" class="phase-section hidden bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-4">
-                                <div>
-                                    <h4 class="text-sm font-bold">Vision Interview</h4>
-                                    <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Iterate with feedback until the artifact is complete. Save is allowed only when <code>is_complete=true</code>.</p>
-                                </div>
-
-                                <div class="space-y-2">
-                                    <label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Your Feedback to Agent</label>
-                                    <textarea id="vision-user-input" rows="3" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2" placeholder="Refine target user, differentiator, etc."></textarea>
-                                    <button id="btn-generate-vision" onclick="generateVisionDraft()" class="px-4 py-2 rounded-lg bg-primary text-white font-semibold hover:bg-primary/90">Generate / Refine</button>
-                                </div>
-
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <div class="border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 p-3">
-                                        <h5 class="text-xs uppercase tracking-wide font-bold text-slate-500">Agent Input Context</h5>
-                                        <pre id="vision-input-context" class="mt-2 text-xs whitespace-pre-wrap break-words">No vision run yet.</pre>
-                                    </div>
-                                    <div class="border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 p-3">
-                                        <h5 class="text-xs uppercase tracking-wide font-bold text-slate-500">Agent Output Artifact</h5>
-                                        <pre id="vision-output-artifact" class="mt-2 text-xs whitespace-pre-wrap break-words">No vision run yet.</pre>
-                                    </div>
-                                </div>
-
-                                <div class="border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 p-3">
-                                    <div class="flex items-center justify-between gap-3">
-                                        <h5 class="text-xs uppercase tracking-wide font-bold text-slate-500">Attempt History</h5>
-                                        <button id="btn-save-vision" onclick="saveVisionDraft()" class="px-3 py-1.5 rounded-lg bg-primary/40 text-white font-semibold cursor-not-allowed" disabled>Save Vision</button>
-                                    </div>
-                                    <p id="vision-save-hint" class="text-xs text-slate-500 mt-1">Run Vision interview. Save unlocks only when complete.</p>
-                                    <div id="vision-history-list" class="mt-3 space-y-2 max-h-48 overflow-y-auto"></div>
-                                </div>
-                            </section>
-
-                            <section id="phase-section-backlog" class="phase-section hidden bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
-                                <h4 class="text-sm font-bold">Backlog</h4>
-                                <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Backlog actions are in the next iteration.</p>
-                            </section>
-
-                            <section id="phase-section-roadmap" class="phase-section hidden bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
-                                <h4 class="text-sm font-bold">Roadmap</h4>
-                                <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Roadmap actions are in the next iteration.</p>
-                            </section>
-
-                            <section id="phase-section-story" class="phase-section hidden bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
-                                <h4 class="text-sm font-bold">Stories</h4>
-                                <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Story actions are in the next iteration.</p>
-                            </section>
-
-                            <section id="phase-section-sprint" class="phase-section hidden bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
-                                <h4 class="text-sm font-bold">Sprint</h4>
-                                <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Sprint actions are in the next iteration.</p>
-                            </section>
-                        </div>
-
-                        <p id="setup-mode-hint" class="text-xs text-slate-500 dark:text-slate-400">
-                            Project setup is required before Vision can proceed.
-                        </p>
-
-                        <div id="setup-create-actions" class="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-700">
-                            <button onclick="closeCreateProjectPanel()" class="px-5 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold">Cancel</button>
-                            <button id="btn-create-project-inline" onclick="submitCreateProjectInline()" class="px-6 py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-white font-bold">Create Project</button>
-                        </div>
-
-                        <div id="setup-selected-actions" class="hidden flex justify-between gap-3 pt-4 border-t border-slate-100 dark:border-slate-700">
-                            <button id="btn-retry-setup" onclick="retryProjectSetup()" class="px-5 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold hidden">Retry Setup</button>
-                            <button onclick="hideSetupPanel()" class="px-5 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold">Hide Panel</button>
-                        </div>
-
-                        <div class="flex items-center justify-between gap-3 pt-4 border-t border-slate-100 dark:border-slate-700">
-                            <p id="next-phase-hint" class="text-xs text-slate-500 dark:text-slate-400">Select or create a project to continue.</p>
-                            <button id="btn-next-phase" onclick="handleNextPhase()" class="px-5 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed" disabled>Next</button>
-                        </div>
-                    </div>
+    <!-- Create Project Modal -->
+    <div id="create-project-modal" class="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 hidden">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
+            onclick="closeCreateProjectModal()"></div>
+        <div
+            class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-lg relative z-10 flex flex-col border border-slate-200 dark:border-slate-700">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+                <h3 class="text-lg font-bold">Create New Project</h3>
+                <button onclick="closeCreateProjectModal()"
+                    class="text-slate-400 hover:text-slate-500 dark:hover:text-slate-300 transition-colors">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div class="space-y-2">
+                    <label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Project Name</label>
+                    <input id="modal-project-name" type="text" placeholder="e.g. Project Phoenix"
+                        class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-primary" />
+                </div>
+                <div class="space-y-2">
+                    <label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Specification File
+                        Path</label>
+                    <input id="modal-spec-path" type="text" placeholder="C:\\path\\to\\spec.md"
+                        class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-primary" />
+                    <p class="text-xs text-slate-500 mt-1">Provide the absolute path to your markdown specification.</p>
                 </div>
             </div>
-
-            <div class="space-y-6">
-                <div class="bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
-                    <h4 class="font-bold mb-4">Phase Rules</h4>
-                    <ul class="text-sm text-slate-600 dark:text-slate-300 space-y-2">
-                        <li>1. Setup requires valid file path + compiled authority.</li>
-                        <li>2. Vision save only when <code>is_complete=true</code>.</li>
-                        <li>3. Next unlocks only when current phase is passed.</li>
-                    </ul>
-                </div>
+            <div
+                class="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 rounded-b-xl">
+                <button onclick="closeCreateProjectModal()"
+                    class="px-5 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Cancel</button>
+                <button id="btn-submit-project" onclick="submitNewProject()"
+                    class="px-6 py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-white font-bold transition-all shadow-sm">
+                    Create Project
+                </button>
             </div>
         </div>
-    </main>
+    </div>
 
     <script src="/dashboard/app.js"></script>
 </body>

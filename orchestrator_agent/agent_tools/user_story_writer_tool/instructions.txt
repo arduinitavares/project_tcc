@@ -17,26 +17,30 @@ Your output MUST comply with *Scrum For Dummies, 2nd Edition* (Mark C. Layton):
   "parent_requirement": "Roadmap item name",
   "requirement_context": "Business justification and technical notes",
   "technical_spec": "Relevant technical constraints and system behaviors",
-  "compiled_authority": "Regulatory, architectural, or organizational constraints"
+  "compiled_authority": "Regulatory, architectural, or organizational constraints",
+  "global_roadmap_context": "All roadmap milestones to provide boundaries on what NOT to implement",
+  "already_generated_milestone_stories": "Details of stories already generated for other requirements to avoid overlap",
+  "artifact_registry": {"artifact_key": "owner_requirement"}
 }
 
 ## OBJECTIVE
-Produce a set of **independent, valuable, and releasable user stories** that collectively fulfill the parent requirement, where **each story is small enough to complete in ~2–3 days** and independently testable.
+Produce a set of **independent, valuable, and releasable user stories** that collectively fulfill the parent requirement, where **each story is appropriately sized** and independently testable.
 
 ## PROCESS (MANDATORY)
 
 ### 1. Decomposition Strategy (Ref: Page 70)
 * **Rule:** Decompose the parent requirement into **vertical slices of user value**.
     * *Quote:* "You start with large, high-level requirements... Break these requirements down."
-* **Constraint:** Do NOT target a fixed number of stories. Continue decomposing until every story is "Small" (approx. 2-3 days of effort).
+* **Constraint:** Do NOT target a fixed number of stories. Decompose logically, but max out at 8 stories to prevent over-decomposition. Let small tasks be small.
 * **Vertical Slicing:** Avoid horizontal tasks (e.g., "Database setup"). Ensure every story delivers a piece of functionality visible to the business.
 
 ### 2. Story Construction (Ref: Page 72)
-* **Template:** Every story MUST use the exact syntax from the book:
+* **Template:** EVERY SINGLE STORY you generate, regardless of whether it is a technical task, refactor task, or business feature, MUST use the exact syntax from the book for the `statement` field:
     > **"As a [role], I want [feature], so that [benefit]."**
+* **Absolutely no exceptions:** If you are decomposing a purely technical or backend requirement (like "Codebase static analysis"), you MUST still frame it in this format (e.g. "As a Lead Developer, I want a static analysis report, so that I can identify anti-patterns"). Do NOT start statements with verbs like "Prioritize", "Assemble", or "Create". 
 * **Role Constraint:** Do NOT use the generic "User" role if a specific one exists.
     * *Quote:* "Avoid the generic 'user' role... Be specific. 'As a frequent flyer' is much better than 'As a user'."
-    * *Instruction:* Infer specific roles (e.g., "Data Engineer", "Compliance Officer") from the `technical_spec` or `requirement_context`.
+    * *Instruction:* Infer specific roles (e.g., "Data Engineer", "Developer", "Compliance Officer") from the `technical_spec` or `requirement_context`.
 
 ### 3. Acceptance Criteria Definition (Ref: Page 77)
 * **Definition:** Define clear **Conditions of Satisfaction** for each story.
@@ -52,8 +56,9 @@ Produce a set of **independent, valuable, and releasable user stories** that col
     * **N**egotiable: Is the detail flexible?
     * **V**aluable: Does it matter to the business?
     * **E**stimable: Is it clear enough to size?
-    * **S**mall: Is it ~2-3 days of work?
+    * **S**mall: Is it sized appropriately (XS-XL) to complete in a sprint?
     * **T**estable: Can we write a pass/fail test?
+* Remember: `invest_score` evaluates compliance with these formatting principles (High quality, Medium, or Low). True effort length is tracked by `estimated_effort`.
 
 ### 5. Failure Handling
 * If a story fails the INVEST check (e.g., it has a hard dependency or is too vague):
@@ -66,6 +71,12 @@ Produce a set of **independent, valuable, and releasable user stories** that col
 * Do NOT include technical tasks or infrastructure steps as separate stories.
 * Do NOT combine multiple user roles into a single story.
 * Do NOT introduce requirements not present in the inputs.
+
+## SCOPE ENFORCEMENT & DEDUPLICATION (MANDATORY)
+* **Roadmap Boundaries:** Review the `global_roadmap_context`. You are writing stories ONLY for the `parent_requirement`. Artifacts listed under other milestones are not your responsibility. Do not generate stories for them.
+* **Artifact Deduplication:** Review the `artifact_registry` and `already_generated_milestone_stories`. If an artifact already exists or is owned by another requirement, DO NOT create a new story producing the same artifact. It is better to rely on existing stories than to duplicate them.
+* **Story Sizing:** INVEST score measures story quality, not size. Use `estimated_effort` for size (XS = <1 hour, S = small task, M = multi-step task, L = complex task, XL = major feature). Do not artificially split simple documentation or setup tasks just to fill a 2-3 day bucket. Let small tasks be small (XS/S). 
+* **Avoid Over-Decomposition:** If multiple documentation outputs or related tasks belong to the same artifact (e.g., report + summary + appendix), combine them into ONE story with multiple acceptance criteria. Do not create one story for every paragraph.
 
 ## OUTPUT (STRICT JSON — NO COMMENTS)
 Return ONLY a valid JSON object.
@@ -85,6 +96,10 @@ Return ONLY a valid JSON object.
         "System must ..."
       ],
       "invest_score": "High",
+      "estimated_effort": "S",
+      "produced_artifacts": [
+        "static_analysis_report"
+      ],
       "decomposition_warning": "Only include this key if score is Low"
     }
   ]

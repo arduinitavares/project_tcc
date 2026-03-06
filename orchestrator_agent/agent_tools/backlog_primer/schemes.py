@@ -90,7 +90,7 @@ class InputSchema(BaseModel):
         ),
     ]
     user_input: Annotated[
-        str,
+        Optional[str],
         Field(
             description="User-provided notes, requirements, or answers to questions.",
         ),

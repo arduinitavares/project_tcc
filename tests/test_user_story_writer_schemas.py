@@ -36,6 +36,8 @@ class TestUserStoryItem:
                 "Ensure that response time is under 500ms.",
             ],
             invest_score="High",
+            estimated_effort="S",
+            produced_artifacts=["dashboard"],
         )
         assert item.invest_score == "High"
         assert item.decomposition_warning is None
@@ -49,6 +51,8 @@ class TestUserStoryItem:
             ),
             acceptance_criteria=["Verify that the CSV downloads correctly."],
             invest_score="Medium",
+            estimated_effort="M",
+            produced_artifacts=["csv_report"],
         )
         assert item.invest_score == "Medium"
         assert item.decomposition_warning is None
@@ -62,18 +66,22 @@ class TestUserStoryItem:
             ),
             acceptance_criteria=["Verify that all records are transferred."],
             invest_score="Low",
+            estimated_effort="XL",
+            produced_artifacts=["legacy_data"],
             decomposition_warning="Hard dependency on legacy API availability.",
         )
         assert item.invest_score == "Low"
         assert "Hard dependency" in item.decomposition_warning
 
     def test_rejects_invalid_statement_missing_as_a(self) -> None:
-        with pytest.raises(ValidationError, match="Statement must start with 'As a"):
+        with pytest.raises(ValidationError, match="Statement must precisely start with"):
             UserStoryItem(
                 story_title="Bad story",
                 statement="The user wants to log in so that they can access the app.",
                 acceptance_criteria=["Verify login works."],
                 invest_score="High",
+                estimated_effort="S",
+                produced_artifacts=[],
             )
 
     def test_rejects_invalid_statement_missing_i_want(self) -> None:
@@ -83,6 +91,8 @@ class TestUserStoryItem:
                 statement="As a user, logging in, so that I can access my account.",
                 acceptance_criteria=["Verify login works."],
                 invest_score="High",
+                estimated_effort="S",
+                produced_artifacts=[],
             )
 
     def test_rejects_invalid_statement_missing_so_that(self) -> None:
@@ -92,6 +102,8 @@ class TestUserStoryItem:
                 statement="As a user, I want to log in.",
                 acceptance_criteria=["Verify login works."],
                 invest_score="High",
+                estimated_effort="S",
+                produced_artifacts=[],
             )
 
     def test_rejects_high_score_with_warning(self) -> None:
@@ -101,6 +113,8 @@ class TestUserStoryItem:
                 statement="As a user, I want feature X, so that I get benefit Y.",
                 acceptance_criteria=["Verify X works."],
                 invest_score="High",
+                estimated_effort="S",
+                produced_artifacts=[],
                 decomposition_warning="Should not be here.",
             )
 
@@ -111,6 +125,8 @@ class TestUserStoryItem:
                 statement="As a user, I want feature X, so that I get benefit Y.",
                 acceptance_criteria=["Verify X works."],
                 invest_score="Medium",
+                estimated_effort="S",
+                produced_artifacts=[],
                 decomposition_warning="Should not be here either.",
             )
 
@@ -123,6 +139,8 @@ class TestUserStoryItem:
                 statement="As a user, I want feature X, so that I get benefit Y.",
                 acceptance_criteria=["Verify X works."],
                 invest_score="Low",
+                estimated_effort="S",
+                produced_artifacts=[],
             )
 
     def test_rejects_empty_acceptance_criteria(self) -> None:
@@ -132,6 +150,8 @@ class TestUserStoryItem:
                 statement="As a user, I want feature X, so that I get benefit Y.",
                 acceptance_criteria=[],
                 invest_score="High",
+                estimated_effort="S",
+                produced_artifacts=[],
             )
 
     def test_json_round_trip(self) -> None:
@@ -146,6 +166,8 @@ class TestUserStoryItem:
                 "Ensure that upload completes within 3 seconds.",
             ],
             invest_score="Medium",
+            estimated_effort="S",
+            produced_artifacts=[],
         )
         dumped = item.model_dump_json()
         loaded = UserStoryItem.model_validate_json(dumped)
@@ -160,6 +182,8 @@ class TestUserStoryItem:
                 statement="As a user, I want feature X, so that I get benefit Y.",
                 acceptance_criteria=["Verify X."],
                 invest_score="High",
+                estimated_effort="S",
+                produced_artifacts=[],
                 unknown_field="bad",
             )
 
@@ -223,6 +247,8 @@ class TestUserStoryWriterOutput:
             ),
             "acceptance_criteria": ["Verify that CSV is parsed correctly."],
             "invest_score": "High",
+            "estimated_effort": "S",
+            "produced_artifacts": ["csv_upload"],
         }
         base.update(overrides)
         return base
@@ -249,6 +275,8 @@ class TestUserStoryWriterOutput:
                     ),
                     acceptance_criteria=["Verify chart renders."],
                     invest_score="High",
+                    estimated_effort="S",
+                    produced_artifacts=["sales_chart"],
                 ),
             ],
             is_complete=False,
@@ -286,6 +314,8 @@ class TestUserStoryWriterOutput:
                     ),
                     acceptance_criteria=["Verify login succeeds."],
                     invest_score="High",
+                    estimated_effort="S",
+                    produced_artifacts=[],
                 ),
             ],
             is_complete=True,

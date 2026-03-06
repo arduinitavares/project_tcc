@@ -12,14 +12,31 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from sqlmodel import Session, select
+from agile_sqlmodel import get_engine, UserStory, SprintStory, StoryCompletionLog
 
 from orchestrator_agent.agent_tools.product_vision_tool.tools import (
     SaveVisionInput,
     save_vision_tool,
 )
+from orchestrator_agent.agent_tools.backlog_primer.tools import (
+    SaveBacklogInput,
+    save_backlog_tool,
+)
+from orchestrator_agent.agent_tools.roadmap_builder.tools import (
+    SaveRoadmapToolInput,
+    save_roadmap_tool,
+)
+from orchestrator_agent.agent_tools.user_story_writer_tool.tools import (
+    SaveStoriesInput,
+    save_stories_tool,
+)
 from orchestrator_agent.fsm.states import OrchestratorState
 from repositories.product import ProductRepository
 from services.vision_runtime import run_vision_agent_from_state
+from services.backlog_runtime import run_backlog_agent_from_state
+from services.roadmap_runtime import run_roadmap_agent_from_state
+from services.story_runtime import run_story_agent_from_state
 from services.workflow import WorkflowService
 from tools.orchestrator_tools import select_project
 from tools.spec_tools import link_spec_to_product
@@ -54,6 +71,18 @@ class RetrySetupRequest(BaseModel):
 
 
 class VisionGenerateRequest(BaseModel):
+    user_input: Optional[str] = None
+
+
+class BacklogGenerateRequest(BaseModel):
+    user_input: Optional[str] = None
+
+
+class RoadmapGenerateRequest(BaseModel):
+    user_input: Optional[str] = None
+
+
+class StoryGenerateRequest(BaseModel):
     user_input: Optional[str] = None
 
 
@@ -548,6 +577,750 @@ async def save_project_vision(project_id: int):
             "fsm_state": OrchestratorState.VISION_PERSISTENCE.value,
             "save_result": result,
         },
+    }
+
+
+def _backlog_state_from_complete(is_complete: bool) -> str:
+    return (
+        OrchestratorState.BACKLOG_REVIEW.value
+        if is_complete
+        else OrchestratorState.BACKLOG_INTERVIEW.value
+    )
+
+
+def _ensure_backlog_attempts(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    attempts = state.get("backlog_attempts")
+    if not isinstance(attempts, list):
+        attempts = []
+    return attempts
+
+
+def _record_backlog_attempt(
+    state: Dict[str, Any],
+    *,
+    trigger: str,
+    input_context: Dict[str, Any],
+    output_artifact: Dict[str, Any],
+    is_complete: bool,
+) -> int:
+    attempts = _ensure_backlog_attempts(state)
+    attempts.append(
+        {
+            "created_at": _now_iso(),
+            "trigger": trigger,
+            "input_context": input_context,
+            "output_artifact": output_artifact,
+            "is_complete": is_complete,
+        }
+    )
+    state["backlog_attempts"] = attempts
+    state["backlog_last_input_context"] = input_context
+    state["product_backlog_assessment"] = output_artifact
+    if isinstance(output_artifact.get("backlog_items"), list):
+        state["backlog_items"] = output_artifact["backlog_items"]
+    return len(attempts)
+
+
+def _set_backlog_fsm_state(state: Dict[str, Any], *, is_complete: bool) -> str:
+    next_state = _backlog_state_from_complete(is_complete)
+    state["fsm_state"] = next_state
+    state["fsm_state_entered_at"] = _now_iso()
+    return next_state
+
+
+@app.post("/api/projects/{project_id}/backlog/generate")
+async def generate_project_backlog(project_id: int, req: BacklogGenerateRequest):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    session_id = str(project_id)
+    context = await _hydrate_context(session_id, project_id)
+
+    if context.state.get("fsm_state") in [OrchestratorState.SETUP_REQUIRED.value]:
+         raise HTTPException(status_code=409, detail="Setup required before backlog")
+         
+    if context.state.get("fsm_state") not in [
+        OrchestratorState.VISION_PERSISTENCE.value,
+        OrchestratorState.BACKLOG_INTERVIEW.value,
+        OrchestratorState.BACKLOG_REVIEW.value,
+        OrchestratorState.BACKLOG_PERSISTENCE.value,
+        OrchestratorState.ROADMAP_INTERVIEW.value, 
+    ]:
+         raise HTTPException(status_code=409, detail=f"Invalid FSM State for backlog: {context.state.get('fsm_state')}")
+
+    attempts = _ensure_backlog_attempts(context.state)
+    has_attempts = len(attempts) > 0
+    user_input = (req.user_input or "").strip()
+    if has_attempts and not user_input:
+        raise HTTPException(
+            status_code=409,
+            detail="Feedback is required for Backlog refinement attempts",
+        )
+
+    backlog_result = await run_backlog_agent_from_state(
+        context.state,
+        user_input=user_input,
+    )
+    is_complete = bool(backlog_result.get("is_complete")) if backlog_result.get("success") else False
+
+    attempt_count = _record_backlog_attempt(
+        context.state,
+        trigger="manual_refine" if has_attempts else "auto_transition",
+        input_context=backlog_result.get("input_context") or {},
+        output_artifact=backlog_result.get("output_artifact") or {},
+        is_complete=is_complete,
+    )
+    next_state = _set_backlog_fsm_state(
+        context.state,
+        is_complete=is_complete,
+    )
+
+    _save_session_state(session_id, context.state)
+
+    return {
+        "status": "success",
+        "data": {
+            "fsm_state": next_state,
+            "is_complete": is_complete,
+            "backlog_run_success": bool(backlog_result.get("success")),
+            "error": backlog_result.get("error"),
+            "trigger": "manual_refine" if has_attempts else "auto_transition",
+            "input_context": backlog_result.get("input_context"),
+            "output_artifact": backlog_result.get("output_artifact"),
+            "attempt_count": attempt_count,
+        },
+    }
+
+
+@app.get("/api/projects/{project_id}/backlog/history")
+async def get_project_backlog_history(project_id: int):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+    attempts = state.get("backlog_attempts")
+    if not isinstance(attempts, list):
+        attempts = []
+
+    return {
+        "status": "success",
+        "data": {
+            "items": attempts,
+            "count": len(attempts),
+        },
+    }
+
+
+@app.post("/api/projects/{project_id}/backlog/save")
+async def save_project_backlog(project_id: int):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+
+    assessment = state.get("product_backlog_assessment")
+    if not isinstance(assessment, dict):
+        raise HTTPException(status_code=409, detail="No backlog draft available to save")
+
+    if not bool(assessment.get("is_complete", False)):
+        raise HTTPException(
+            status_code=409,
+            detail="Backlog cannot be saved until is_complete is true",
+        )
+
+    items = assessment.get("backlog_items")
+    if not isinstance(items, list) or len(items) == 0:
+        raise HTTPException(status_code=409, detail="Backlog items are empty")
+
+    context = await _hydrate_context(session_id, project_id)
+    result = await save_backlog_tool(
+        SaveBacklogInput(
+            product_id=project_id,
+            backlog_items=items,
+        ),
+        context,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to save backlog"))
+
+    context.state["fsm_state"] = OrchestratorState.BACKLOG_PERSISTENCE.value
+    context.state["fsm_state_entered_at"] = _now_iso()
+    context.state["backlog_saved_at"] = _now_iso()
+
+    _save_session_state(session_id, context.state)
+
+    return {
+        "status": "success",
+        "data": {
+            "fsm_state": OrchestratorState.BACKLOG_PERSISTENCE.value,
+            "save_result": result,
+        },
+    }
+
+
+def _roadmap_state_from_complete(is_complete: bool) -> str:
+    return (
+        OrchestratorState.ROADMAP_REVIEW.value
+        if is_complete
+        else OrchestratorState.ROADMAP_INTERVIEW.value
+    )
+
+
+def _ensure_roadmap_attempts(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    attempts = state.get("roadmap_attempts")
+    if not isinstance(attempts, list):
+        attempts = []
+    return attempts
+
+
+def _record_roadmap_attempt(
+    state: Dict[str, Any],
+    *,
+    trigger: str,
+    input_context: Dict[str, Any],
+    output_artifact: Dict[str, Any],
+    is_complete: bool,
+) -> int:
+    attempts = _ensure_roadmap_attempts(state)
+    attempts.append(
+        {
+            "created_at": _now_iso(),
+            "trigger": trigger,
+            "input_context": input_context,
+            "output_artifact": output_artifact,
+            "is_complete": is_complete,
+        }
+    )
+    state["roadmap_attempts"] = attempts
+    state["roadmap_last_input_context"] = input_context
+    state["product_roadmap_assessment"] = output_artifact
+    if isinstance(output_artifact.get("roadmap_releases"), list):
+        state["roadmap_releases"] = output_artifact["roadmap_releases"]
+    return len(attempts)
+
+
+def _set_roadmap_fsm_state(state: Dict[str, Any], *, is_complete: bool) -> str:
+    current_state = _normalize_fsm_state(state.get("fsm_state"))
+    if current_state in (
+        OrchestratorState.ROADMAP_PERSISTENCE.value,
+        OrchestratorState.STORY_INTERVIEW.value,
+        OrchestratorState.STORY_REVIEW.value,
+        OrchestratorState.STORY_PERSISTENCE.value,
+        OrchestratorState.SPRINT_SETUP.value,
+        OrchestratorState.SPRINT_DRAFT.value,
+        OrchestratorState.SPRINT_PERSISTENCE.value,
+        OrchestratorState.SPRINT_COMPLETE.value,
+    ):
+        return current_state
+
+    new_state = _roadmap_state_from_complete(is_complete)
+    state["fsm_state"] = new_state
+    state["fsm_state_entered_at"] = _now_iso()
+    return new_state
+
+
+@app.post("/api/projects/{project_id}/roadmap/generate")
+async def generate_project_roadmap(project_id: int, req: RoadmapGenerateRequest):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+
+    attempts = _ensure_roadmap_attempts(state)
+    has_attempts = len(attempts) > 0
+
+    if has_attempts and not req.user_input:
+        raise HTTPException(
+            status_code=400,
+            detail="User input is required to refine an existing roadmap.",
+        )
+
+    roadmap_result = await run_roadmap_agent_from_state(state, user_input=req.user_input)
+
+    is_complete = bool(roadmap_result.get("is_complete", False))
+    attempt_count = _record_roadmap_attempt(
+        state,
+        trigger="manual_refine" if has_attempts else "auto_transition",
+        input_context=roadmap_result.get("input_context") or {},
+        output_artifact=roadmap_result.get("output_artifact") or {},
+        is_complete=is_complete,
+    )
+    next_state = _set_roadmap_fsm_state(
+        state,
+        is_complete=is_complete,
+    )
+
+    _save_session_state(session_id, state)
+
+    return {
+        "status": "success",
+        "data": {
+            "fsm_state": next_state,
+            "is_complete": is_complete,
+            "roadmap_run_success": bool(roadmap_result.get("success")),
+            "error": roadmap_result.get("error"),
+            "trigger": "manual_refine" if has_attempts else "auto_transition",
+            "input_context": roadmap_result.get("input_context"),
+            "output_artifact": roadmap_result.get("output_artifact"),
+            "attempt_count": attempt_count,
+        },
+    }
+
+
+@app.get("/api/projects/{project_id}/roadmap/history")
+async def get_project_roadmap_history(project_id: int):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+    attempts = state.get("roadmap_attempts")
+    if not isinstance(attempts, list):
+        attempts = []
+
+    return {
+        "status": "success",
+        "data": {
+            "items": attempts,
+            "count": len(attempts),
+        },
+    }
+
+
+@app.post("/api/projects/{project_id}/roadmap/save")
+async def save_project_roadmap(project_id: int):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+
+    assessment = state.get("product_roadmap_assessment")
+    if not isinstance(assessment, dict):
+        raise HTTPException(status_code=409, detail="No roadmap draft available to save")
+
+    if not bool(assessment.get("is_complete", False)):
+        raise HTTPException(
+            status_code=409,
+            detail="Roadmap cannot be saved until is_complete is true",
+        )
+
+    from orchestrator_agent.agent_tools.roadmap_builder.schemes import RoadmapBuilderOutput
+    context = await _hydrate_context(session_id, project_id)
+    
+    try:
+        roadmap_data = RoadmapBuilderOutput.model_validate(assessment)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Invalid roadmap data in session: {str(e)}")
+        
+    result = save_roadmap_tool(
+        SaveRoadmapToolInput(
+            product_id=project_id,
+            roadmap_data=roadmap_data,
+        ),
+        context,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to save roadmap"))
+
+    state["fsm_state"] = OrchestratorState.ROADMAP_PERSISTENCE.value
+    state["fsm_state_entered_at"] = _now_iso()
+    state["roadmap_saved_at"] = _now_iso()
+
+    _save_session_state(session_id, state)
+
+    return {
+        "status": "success",
+        "data": {
+            "fsm_state": OrchestratorState.ROADMAP_PERSISTENCE.value,
+            "save_result": result,
+        },
+    }
+
+
+# ==============================================================================
+# STORY ENDPOINTS
+# ==============================================================================
+
+def _get_all_roadmap_requirements(state: Dict[str, Any]) -> List[str]:
+    """Helper: extract all assigned backlog items from saved roadmap releases."""
+    releases = state.get("roadmap_releases") or []
+    reqs: List[str] = []
+    for rel in releases:
+        items = rel.get("items") or []
+        reqs.extend(items)
+    return reqs
+
+
+def _ensure_story_attempts(state: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+    attempts = state.get("story_attempts")
+    if not isinstance(attempts, dict):
+        attempts = {}
+    return attempts
+
+
+def _record_story_attempt(
+    state: Dict[str, Any],
+    *,
+    parent_requirement: str,
+    trigger: str,
+    input_context: Dict[str, Any],
+    output_artifact: Dict[str, Any],
+    is_complete: bool,
+) -> int:
+    attempts_dict = _ensure_story_attempts(state)
+    if parent_requirement not in attempts_dict:
+        attempts_dict[parent_requirement] = []
+    
+    attempts = attempts_dict[parent_requirement]
+    attempts.append(
+        {
+            "created_at": _now_iso(),
+            "trigger": trigger,
+            "input_context": input_context,
+            "output_artifact": output_artifact,
+            "is_complete": is_complete,
+        }
+    )
+    state["story_attempts"] = attempts_dict
+    
+    # Also log latest overall for the requirement
+    latest_outputs = state.get("story_outputs", {})
+    latest_outputs[parent_requirement] = output_artifact
+    state["story_outputs"] = latest_outputs
+    
+    return len(attempts)
+
+
+@app.get("/api/projects/{project_id}/story/pending")
+async def get_project_story_pending(project_id: int):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+    
+    roadmap_releases = state.get("roadmap_releases") or []
+    attempts_dict = _ensure_story_attempts(state)
+    saved_reqs_dict = state.get("story_saved", {})  # track which ones successfully saved
+
+    grouped_items = []
+    total_count = 0
+    saved_count = 0
+
+    # Build structural hierarchy
+    for release_index, rel in enumerate(roadmap_releases):
+        reqs = rel.get("items") or []
+        theme = rel.get("theme", f"Milestone Context")
+        reasoning = rel.get("reasoning", "")
+        
+        milestone_group = {
+            "group_id": f"milestone_{release_index}",
+            "theme": theme,
+            "reasoning": reasoning,
+            "requirements": []
+        }
+        
+        for req in reqs:
+            req_attempts = attempts_dict.get(req, [])
+            if saved_reqs_dict.get(req):
+                status = "Saved"
+                saved_count += 1
+            elif len(req_attempts) > 0:
+                status = "Attempted"
+            else:
+                status = "Pending"
+                
+            milestone_group["requirements"].append({
+                "requirement": req,
+                "status": status,
+                "attempt_count": len(req_attempts)
+            })
+            total_count += 1
+            
+        grouped_items.append(milestone_group)
+
+    return {
+        "status": "success",
+        "data": {
+            "grouped_items": grouped_items,
+            "total_count": total_count,
+            "saved_count": saved_count,
+        },
+    }
+
+
+@app.post("/api/projects/{project_id}/story/generate")
+async def generate_project_story(project_id: int, parent_requirement: str, req: StoryGenerateRequest):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+
+    # Validate parent_requirement exists in roadmap
+    req_names = _get_all_roadmap_requirements(state)
+    if parent_requirement not in req_names:
+        if parent_requirement.strip() in [r.strip() for r in req_names]:
+            # handle minor whitespace
+            for r in req_names:
+                if r.strip() == parent_requirement.strip():
+                    parent_requirement = r
+                    break
+        else:
+            raise HTTPException(status_code=400, detail=f"Requirement '{parent_requirement}' not found in saved roadmap.")
+
+    attempts_dict = _ensure_story_attempts(state)
+    req_attempts = attempts_dict.get(parent_requirement, [])
+    has_attempts = len(req_attempts) > 0
+
+    if has_attempts and not req.user_input:
+        raise HTTPException(
+            status_code=400,
+            detail="User input is required to refine an existing story.",
+        )
+
+    story_result = await run_story_agent_from_state(
+        state, 
+        parent_requirement=parent_requirement,
+        user_input=req.user_input
+    )
+
+    is_complete = bool(story_result.get("is_complete", False))
+    attempt_count = _record_story_attempt(
+        state,
+        parent_requirement=parent_requirement,
+        trigger="manual_refine" if has_attempts else "auto_transition",
+        input_context=story_result.get("input_context") or {},
+        output_artifact=story_result.get("output_artifact") or {},
+        is_complete=is_complete,
+    )
+
+    _save_session_state(session_id, state)
+
+    return {
+        "status": "success",
+        "parent_requirement": parent_requirement,
+        "data": {
+            "is_complete": is_complete,
+            "story_run_success": bool(story_result.get("success")),
+            "error": story_result.get("error"),
+            "trigger": "manual_refine" if has_attempts else "auto_transition",
+            "input_context": story_result.get("input_context"),
+            "output_artifact": story_result.get("output_artifact"),
+            "attempt_count": attempt_count,
+        },
+    }
+
+
+@app.get("/api/projects/{project_id}/story/history")
+async def get_project_story_history(project_id: int, parent_requirement: str):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+    
+    attempts_dict = _ensure_story_attempts(state)
+    req_attempts = attempts_dict.get(parent_requirement, [])
+
+    return {
+        "status": "success",
+        "parent_requirement": parent_requirement,
+        "data": {
+            "items": req_attempts,
+            "count": len(req_attempts),
+        },
+    }
+
+
+@app.post("/api/projects/{project_id}/story/save")
+async def save_project_story(project_id: int, parent_requirement: str):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+
+    outputs_dict = state.get("story_outputs", {})
+    assessment = outputs_dict.get(parent_requirement)
+    
+    if not assessment:
+        raise HTTPException(status_code=409, detail=f"No story draft available for '{parent_requirement}'")
+
+    if not assessment.get("is_complete"):
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot persist stories because the latest output indicates it is incomplete.",
+        )
+
+    stories = assessment.get("user_stories")
+    if not isinstance(stories, list) or len(stories) == 0:
+        raise HTTPException(status_code=409, detail="Stories are empty")
+
+    context = await _hydrate_context(session_id, project_id)
+    result = save_stories_tool(
+        SaveStoriesInput(
+            product_id=project_id,
+            parent_requirement=parent_requirement,
+            stories=stories,
+        ),
+        context,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to save stories"))
+
+    # Record that this specific requirement was saved successfully
+    saved_reqs_dict = context.state.get("story_saved", {})
+    saved_reqs_dict[parent_requirement] = True
+    context.state["story_saved"] = saved_reqs_dict
+    
+    _save_session_state(session_id, context.state)
+
+    return {
+        "status": "success",
+        "parent_requirement": parent_requirement,
+        "data": {
+            "save_result": result,
+        },
+    }
+
+
+@app.delete("/api/projects/{project_id}/story")
+async def delete_project_story(project_id: int, parent_requirement: str):
+    """
+    Deletes all generated stories for a specific requirement and resets its state.
+    """
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    engine = get_engine()
+    with Session(engine) as session:
+        # Find all stories for this requirement in this product
+        stmt = select(UserStory).where(
+            UserStory.product_id == project_id,
+            UserStory.source_requirement == parent_requirement
+        )
+        stories = session.exec(stmt).all()
+        
+        deleted_count = 0
+        for story in stories:
+            # Delete sprint mappings
+            sprint_mappings = session.exec(select(SprintStory).where(SprintStory.story_id == story.story_id)).all()
+            for sm in sprint_mappings:
+                session.delete(sm)
+                
+            # Delete completion logs
+            logs = session.exec(select(StoryCompletionLog).where(StoryCompletionLog.story_id == story.story_id)).all()
+            for log in logs:
+                session.delete(log)
+                
+            # Delete the story (cascades to Tasks per schema)
+            session.delete(story)
+            deleted_count += 1
+            
+        session.commit()
+
+    # Clean up session state
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+    state_modified = False
+
+    # 1. Remove from saved list
+    if "story_saved" in state and parent_requirement in state["story_saved"]:
+        del state["story_saved"][parent_requirement]
+        state_modified = True
+        
+    # 2. Remove latest output artifact
+    if "story_outputs" in state and parent_requirement in state["story_outputs"]:
+        del state["story_outputs"][parent_requirement]
+        state_modified = True
+
+    # 3. Add a soft "reset" marker to the history if there are attempts
+    if "story_attempts" in state and parent_requirement in state["story_attempts"]:
+        state["story_attempts"][parent_requirement].append({
+            "is_complete": False,
+            "trigger": "manual_refine",
+            "input_context": {"system_message": "Stories deleted and state reset by user."},
+            "output_artifact": None,
+            "created_at": _now_iso(),
+        })
+        state_modified = True
+
+    if state_modified:
+        _save_session_state(session_id, state)
+
+    return {
+        "status": "success",
+        "parent_requirement": parent_requirement,
+        "data": {
+            "deleted_count": deleted_count,
+            "message": "Stories deleted successfully"
+        }
+    }
+
+
+@app.post("/api/projects/{project_id}/story/complete_phase")
+async def complete_story_phase(project_id: int):
+    """
+    Called when the user has verified/saved all requirements and wants to advance
+    to the Sprint phase.
+    """
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+    
+    req_names = _get_all_roadmap_requirements(state)
+    saved_reqs_dict = state.get("story_saved", {})
+    
+    missing = [r for r in req_names if not saved_reqs_dict.get(r)]
+    
+    if len(missing) > 0:
+        raise HTTPException(
+            status_code=409, 
+            detail=f"Cannot complete phase. Missing {len(missing)} requirements."
+        )
+
+    # All pass, update FSM state to STORY_PERSISTENCE
+    current_state = _normalize_fsm_state(state.get("fsm_state"))
+    # Only update if we aren't already past it
+    if current_state not in (
+        OrchestratorState.STORY_PERSISTENCE.value,
+        OrchestratorState.SPRINT_SETUP.value,
+        OrchestratorState.SPRINT_DRAFT.value,
+        OrchestratorState.SPRINT_PERSISTENCE.value,
+        OrchestratorState.SPRINT_COMPLETE.value,
+    ):
+        state["fsm_state"] = OrchestratorState.STORY_PERSISTENCE.value
+        state["fsm_state_entered_at"] = _now_iso()
+        state["story_phase_completed_at"] = _now_iso()
+        _save_session_state(session_id, state)
+    
+    return {
+        "status": "success",
+        "data": {
+            "fsm_state": state.get("fsm_state")
+        }
     }
 
 
