@@ -264,13 +264,13 @@ function updateNextButton() {
 
     const model = getNextButtonModel();
     // Inner text and HTML must be cleanly inserted with icon
-    button.innerHTML = `${model.label} <span class="material-symbols-outlined text-sm">arrow_forward</span>`;
+    button.innerHTML = `${model.label} <span class="material-symbols-outlined text-lg">arrow_forward</span>`;
     button.disabled = !model.enabled;
     hint.innerText = model.hint;
 
     button.className = model.enabled
-        ? 'inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-white font-bold transition-all shadow-sm'
-        : 'inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm';
+        ? 'inline-flex items-center gap-2 px-8 py-3 rounded-lg bg-primary hover:bg-primary/90 text-white font-bold transition-all shadow-md text-base'
+        : 'inline-flex items-center gap-2 px-8 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-md text-base';
 }
 
 function handleNextPhase() {
@@ -575,8 +575,8 @@ function updateVisionSaveButton() {
     const canSave = Boolean(selectedProjectId) && latestVisionIsComplete;
     button.disabled = !canSave;
     button.className = canSave
-        ? 'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all shadow-sm'
-        : 'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all';
+        ? 'inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all shadow-sm text-sm'
+        : 'inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all text-sm';
 
     hint.innerText = canSave
         ? 'Vision is complete. Proceed to save and advance to Backlog.'
@@ -714,8 +714,8 @@ async function saveVisionDraft() {
         await fetchProjectFSMState(selectedProjectId);
 
         if (button) {
-            button.innerHTML = '<span class="material-symbols-outlined text-sm">check_circle</span> Saved Successfully!';
-            button.className = 'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-500 text-white font-bold transition-all shadow-md scale-105 ring-2 ring-emerald-200';
+            button.innerHTML = '<span class="material-symbols-outlined text-base">check_circle</span> Saved Successfully!';
+            button.className = 'inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-emerald-500 text-white font-bold transition-all shadow-md scale-105 ring-2 ring-emerald-200 text-sm';
             setTimeout(() => {
                 updateVisionSaveButton();
             }, 3000);
@@ -871,8 +871,8 @@ function updateBacklogSaveButton() {
     const canSave = Boolean(selectedProjectId) && latestBacklogIsComplete;
     button.disabled = !canSave;
     button.className = canSave
-        ? 'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all shadow-sm'
-        : 'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all';
+        ? 'inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all shadow-sm text-sm'
+        : 'inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all text-sm';
 
     hint.innerText = canSave
         ? 'Backlog is complete. Proceed to save and advance to Roadmap.'
@@ -1010,8 +1010,8 @@ async function saveBacklogDraft() {
         await fetchProjectFSMState(selectedProjectId);
 
         if (button) {
-            button.innerHTML = '<span class="material-symbols-outlined text-sm">check_circle</span> Saved Successfully!';
-            button.className = 'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-500 text-white font-bold transition-all shadow-md scale-105 ring-2 ring-emerald-200';
+            button.innerHTML = '<span class="material-symbols-outlined text-base">check_circle</span> Saved Successfully!';
+            button.className = 'inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-emerald-500 text-white font-bold transition-all shadow-md scale-105 ring-2 ring-emerald-200 text-sm';
             setTimeout(() => {
                 updateBacklogSaveButton();
             }, 3000);
@@ -1187,8 +1187,8 @@ function updateRoadmapSaveButton() {
     const canSave = Boolean(selectedProjectId) && latestRoadmapIsComplete;
     button.disabled = !canSave;
     button.className = canSave
-        ? 'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all shadow-sm'
-        : 'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all';
+        ? 'inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all shadow-sm text-sm'
+        : 'inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all text-sm';
 
     hint.innerText = canSave
         ? 'Roadmap is complete. Proceed to save and advance to Stories.'
@@ -1326,8 +1326,8 @@ async function saveRoadmapDraft() {
         await fetchProjectFSMState(selectedProjectId);
 
         if (button) {
-            button.innerHTML = '<span class="material-symbols-outlined text-sm">check_circle</span> Saved Successfully!';
-            button.className = 'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-500 text-white font-bold transition-all shadow-md scale-105 ring-2 ring-emerald-200';
+            button.innerHTML = '<span class="material-symbols-outlined text-base">check_circle</span> Saved Successfully!';
+            button.className = 'inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-emerald-500 text-white font-bold transition-all shadow-md scale-105 ring-2 ring-emerald-200 text-sm';
             setTimeout(() => {
                 updateRoadmapSaveButton();
             }, 3000);
@@ -1696,14 +1696,14 @@ function updateStorySaveButton() {
     }
 
     button.className = canSave
-        ? 'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all shadow-sm'
-        : 'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all';
+        ? 'inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all shadow-sm text-sm'
+        : 'inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all text-sm';
 
     if (isSaved) {
-        button.innerHTML = '<span class="material-symbols-outlined text-sm">check</span> Saved';
+        button.innerHTML = '<span class="material-symbols-outlined text-base">check</span> Saved';
         hint.innerText = 'Stories for this requirement are already saved. You can generate again to overwrite.';
     } else {
-        button.innerHTML = '<span class="material-symbols-outlined text-sm">save</span> Save Stories';
+        button.innerHTML = '<span class="material-symbols-outlined text-base">save</span> Save Stories';
         hint.innerText = canSave
             ? 'Output is complete. Proceed to save.'
             : 'Save disabled until latest output has is_complete=true.';
@@ -1796,8 +1796,8 @@ async function saveStoryDraft() {
 
         // Success effect
         if (button) {
-            button.innerHTML = '<span class="material-symbols-outlined text-sm">check_circle</span> Saved!';
-            button.className = 'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-500 text-white font-bold transition-all shadow-md scale-105 ring-2 ring-emerald-200';
+            button.innerHTML = '<span class="material-symbols-outlined text-base">check_circle</span> Saved!';
+            button.className = 'inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-emerald-500 text-white font-bold transition-all shadow-md scale-105 ring-2 ring-emerald-200 text-sm';
             setTimeout(() => { updateStorySaveButton(); }, 2000);
         }
 
