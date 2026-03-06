@@ -1,0 +1,3 @@
+## 2024-03-06 - Missing ARIA Labels on Icon-Only Controls
+**Learning:** Found that multiple critical interactive elements in the frontend (such as the modal close button in `index.html` and the back link in `project.html`) rely solely on Material Symbols icons without any accessible name or `aria-label`. This makes them completely invisible or confusing to screen reader users.
+**Action:** Ensure that anytime a `<button>` or `<a>` contains only an icon (`<span class="material-symbols-outlined">...</span>`), it must have a descriptive `aria-label` attribute added to provide context.
