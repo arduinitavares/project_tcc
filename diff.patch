@@ -1,0 +1,70 @@
+diff --git a/.Jules/palette.md b/.Jules/palette.md
+new file mode 100644
+index 0000000..b9854b9
+--- /dev/null
++++ b/.Jules/palette.md
+@@ -0,0 +1 @@
++## 2026-03-06 - Missing aria-label on icon-only buttons\n**Learning:** Found that several icon-only interactive elements (like the close modal button and back to dashboard link) lacked `aria-label`s. This is a common pattern in this app's components, where Google Material Symbols are used standalone.\n**Action:** Add `aria-label`s to all icon-only buttons to ensure they are screen-reader accessible.
+diff --git a/frontend/index.html b/frontend/index.html
+index 95e6f23..8082f68 100644
+--- a/frontend/index.html
++++ b/frontend/index.html
+@@ -70,18 +70,19 @@
+             <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+                 <h3 class="text-lg font-bold">Create New Project</h3>
+                 <button onclick="closeCreateProjectModal()"
++                    aria-label="Close modal"
+                     class="text-slate-400 hover:text-slate-500 dark:hover:text-slate-300 transition-colors">
+                     <span class="material-symbols-outlined">close</span>
+                 </button>
+             </div>
+             <div class="p-6 space-y-4">
+                 <div class="space-y-2">
+-                    <label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Project Name</label>
++                    <label for="modal-project-name" class="text-sm font-semibold text-slate-700 dark:text-slate-300">Project Name</label>
+                     <input id="modal-project-name" type="text" placeholder="e.g. Project Phoenix"
+                         class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-primary" />
+                 </div>
+                 <div class="space-y-2">
+-                    <label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Specification File
++                    <label for="modal-spec-path" class="text-sm font-semibold text-slate-700 dark:text-slate-300">Specification File
+                         Path</label>
+                     <input id="modal-spec-path" type="text" placeholder="C:\\path\\to\\spec.md"
+                         class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-primary" />
+diff --git a/frontend/project.html b/frontend/project.html
+index b1473d0..eb197b9 100644
+--- a/frontend/project.html
++++ b/frontend/project.html
+@@ -37,6 +37,7 @@
+         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+             <div class="flex items-center gap-4">
+                 <a href="/dashboard"
++                    aria-label="Back to dashboard"
+                     class="text-slate-500 hover:text-primary transition-colors flex items-center justify-center p-2 rounded-lg bg-slate-100 dark:bg-slate-800">
+                     <span class="material-symbols-outlined text-lg">arrow_back</span>
+                 </a>
+@@ -148,13 +149,13 @@
+                         <div
+                             class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-900/40 p-5 rounded-lg border border-slate-200 dark:border-slate-700">
+                             <div class="space-y-2">
+-                                <label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Project
++                                <label for="setup-project-name" class="text-sm font-semibold text-slate-700 dark:text-slate-300">Project
+                                     Name</label>
+                                 <input id="setup-project-name" type="text" readonly
+                                     class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 text-slate-600 dark:text-slate-400 cursor-not-allowed" />
+                             </div>
+                             <div class="space-y-2">
+-                                <label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Specification
++                                <label for="setup-spec-path" class="text-sm font-semibold text-slate-700 dark:text-slate-300">Specification
+                                     File Path</label>
+                                 <input id="setup-spec-path" type="text" placeholder="C:\\path\\to\\spec.md" readonly
+                                     class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 transition-colors focus:ring-2 focus:ring-primary" />
+@@ -187,7 +188,7 @@
+                                 </div>
+ 
+                                 <div class="space-y-2">
+-                                    <label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Your
++                                    <label for="vision-user-input" class="text-sm font-semibold text-slate-700 dark:text-slate-300">Your
+                                         Feedback to Agent</label>
+                                     <textarea id="vision-user-input" rows="3"
+                                         class="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-3 shadow-sm focus:ring-2 focus:ring-primary"
