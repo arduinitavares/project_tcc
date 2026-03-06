@@ -34,7 +34,7 @@
     class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 min-h-screen flex flex-col">
     <header
         class="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark/70 sticky top-0 z-50">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div class="flex max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 h-16 items-center justify-between">
             <div class="flex items-center gap-4">
                 <a href="/dashboard"
                     aria-label="Back to dashboard"
@@ -52,17 +52,117 @@
         </div>
     </header>
 
-    <main class="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 flex-1 py-8">
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-            <div>
-                <h2 id="project-page-title" class="text-3xl font-extrabold tracking-tight">Loading Project...</h2>
-                <p class="text-slate-500 dark:text-slate-400 mt-1">Navigate phases, refine vision, and advance the
-                    state.</p>
-            </div>
-        </div>
+    <!-- Layout wrapper for Sidebar and Main Content -->
+    <div class="flex-1 flex max-w-[1600px] w-full mx-auto bg-background-light dark:bg-background-dark">
 
-        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
-            <div class="lg:col-span-3 space-y-6">
+        <!-- Vertical Stepper (Left Sidebar) -->
+        <aside class="hidden lg:flex flex-col w-64 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 flex-shrink-0 sticky top-16" style="height: calc(100vh - 4rem);">
+            <div class="p-6 border-b border-slate-200 dark:border-slate-800">
+                <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Project Phases</h3>
+            </div>
+            <div class="flex-1 overflow-y-auto p-6 relative">
+                <!-- Vertical Line -->
+                <div class="absolute left-[2.375rem] top-10 bottom-10 w-0.5 bg-slate-200 dark:bg-slate-700 -z-0"></div>
+
+                <div class="flex flex-col gap-8 relative z-10">
+                    <!-- Setup -->
+                    <div id="step-setup" class="flex items-start gap-4">
+                        <div data-role="icon"
+                            class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center ring-4 ring-white dark:ring-slate-900 shadow-md flex-shrink-0">
+                            <span class="material-symbols-outlined text-xl">settings</span>
+                        </div>
+                        <div class="pt-1">
+                            <div data-role="label" class="text-sm font-bold text-primary">Project Setup</div>
+                            <div data-role="status"
+                                class="text-[10px] text-primary/80 uppercase font-black">Active</div>
+                        </div>
+                    </div>
+
+                    <!-- Vision -->
+                    <div id="step-vision" class="flex items-start gap-4">
+                        <div data-role="icon"
+                            class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-slate-900 transition-all flex-shrink-0">
+                            <span class="material-symbols-outlined text-xl">lock</span>
+                        </div>
+                        <div class="pt-1">
+                            <div data-role="label"
+                                class="text-sm font-medium text-slate-500 transition-colors">Vision</div>
+                            <div data-role="status"
+                                class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</div>
+                        </div>
+                    </div>
+
+                    <!-- Backlog -->
+                    <div id="step-backlog" class="flex items-start gap-4">
+                        <div data-role="icon"
+                            class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-slate-900 transition-all flex-shrink-0">
+                            <span class="material-symbols-outlined text-xl">lock</span>
+                        </div>
+                        <div class="pt-1">
+                            <div data-role="label"
+                                class="text-sm font-medium text-slate-500 transition-colors">Backlog</div>
+                            <div data-role="status"
+                                class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</div>
+                        </div>
+                    </div>
+
+                    <!-- Roadmap -->
+                    <div id="step-roadmap" class="flex items-start gap-4">
+                        <div data-role="icon"
+                            class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-slate-900 transition-all flex-shrink-0">
+                            <span class="material-symbols-outlined text-xl">lock</span>
+                        </div>
+                        <div class="pt-1">
+                            <div data-role="label"
+                                class="text-sm font-medium text-slate-500 transition-colors">Roadmap</div>
+                            <div data-role="status"
+                                class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</div>
+                        </div>
+                    </div>
+
+                    <!-- Stories -->
+                    <div id="step-story" class="flex items-start gap-4">
+                        <div data-role="icon"
+                            class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-slate-900 transition-all flex-shrink-0">
+                            <span class="material-symbols-outlined text-xl">lock</span>
+                        </div>
+                        <div class="pt-1">
+                            <div data-role="label"
+                                class="text-sm font-medium text-slate-500 transition-colors">Stories</div>
+                            <div data-role="status"
+                                class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</div>
+                        </div>
+                    </div>
+
+                    <!-- Sprint -->
+                    <div id="step-sprint" class="flex items-start gap-4">
+                        <div data-role="icon"
+                            class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-slate-900 transition-all flex-shrink-0">
+                            <span class="material-symbols-outlined text-xl">lock</span>
+                        </div>
+                        <div class="pt-1">
+                            <div data-role="label"
+                                class="text-sm font-medium text-slate-500 transition-colors">Sprint</div>
+                            <div data-role="status"
+                                class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 w-full px-4 sm:px-6 lg:px-8 py-8 overflow-y-auto">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+                <div>
+                    <h2 id="project-page-title" class="text-3xl font-extrabold tracking-tight">Loading Project...</h2>
+                    <p class="text-slate-500 dark:text-slate-400 mt-1">Navigate phases, refine vision, and advance the
+                        state.</p>
+                </div>
+            </div>
+
+            <div class="flex flex-col lg:flex-row gap-8 items-start">
+                <div class="flex-1 space-y-6 min-w-0">
                 <!-- Setup & Pipeline Panel -->
                 <div id="setup-panel"
                     class="bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm">
@@ -72,79 +172,6 @@
                     </div>
 
                     <div class="p-6 space-y-8">
-                        <!-- Stepper UI -->
-                        <div class="px-2">
-                            <div class="relative grid grid-cols-6 gap-4">
-                                <div class="absolute top-5 left-0 w-full h-0.5 bg-slate-200 dark:bg-slate-700 -z-0">
-                                </div>
-
-                                <div id="step-setup" class="relative z-10 flex flex-col items-center gap-2">
-                                    <div data-role="icon"
-                                        class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center ring-4 ring-white dark:ring-background-dark shadow-md">
-                                        <span class="material-symbols-outlined text-xl">settings</span>
-                                    </div>
-                                    <span data-role="label" class="text-xs font-bold text-primary">Project Setup</span>
-                                    <span data-role="status"
-                                        class="text-[10px] text-primary/80 uppercase font-black">Active</span>
-                                </div>
-
-                                <div id="step-vision" class="relative z-10 flex flex-col items-center gap-2">
-                                    <div data-role="icon"
-                                        class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all">
-                                        <span class="material-symbols-outlined text-xl">lock</span>
-                                    </div>
-                                    <span data-role="label"
-                                        class="text-xs font-medium text-slate-500 transition-colors">Vision</span>
-                                    <span data-role="status"
-                                        class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</span>
-                                </div>
-
-                                <div id="step-backlog" class="relative z-10 flex flex-col items-center gap-2">
-                                    <div data-role="icon"
-                                        class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all">
-                                        <span class="material-symbols-outlined text-xl">lock</span>
-                                    </div>
-                                    <span data-role="label"
-                                        class="text-xs font-medium text-slate-500 transition-colors">Backlog</span>
-                                    <span data-role="status"
-                                        class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</span>
-                                </div>
-
-                                <div id="step-roadmap" class="relative z-10 flex flex-col items-center gap-2">
-                                    <div data-role="icon"
-                                        class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all">
-                                        <span class="material-symbols-outlined text-xl">lock</span>
-                                    </div>
-                                    <span data-role="label"
-                                        class="text-xs font-medium text-slate-500 transition-colors">Roadmap</span>
-                                    <span data-role="status"
-                                        class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</span>
-                                </div>
-
-                                <div id="step-story" class="relative z-10 flex flex-col items-center gap-2">
-                                    <div data-role="icon"
-                                        class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all">
-                                        <span class="material-symbols-outlined text-xl">lock</span>
-                                    </div>
-                                    <span data-role="label"
-                                        class="text-xs font-medium text-slate-500 transition-colors">Stories</span>
-                                    <span data-role="status"
-                                        class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</span>
-                                </div>
-
-                                <div id="step-sprint" class="relative z-10 flex flex-col items-center gap-2">
-                                    <div data-role="icon"
-                                        class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all">
-                                        <span class="material-symbols-outlined text-xl">lock</span>
-                                    </div>
-                                    <span data-role="label"
-                                        class="text-xs font-medium text-slate-500 transition-colors">Sprint</span>
-                                    <span data-role="status"
-                                        class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</span>
-                                </div>
-                            </div>
-                        </div>
-
                         <!-- Data Fields -->
                         <div
                             class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-900/40 p-5 rounded-lg border border-slate-200 dark:border-slate-700">
@@ -223,19 +250,19 @@
                                 <div
                                     class="border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-950 p-5 shadow-sm">
                                     <div
-                                        class="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3 mb-3">
+                                        class="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
                                         <div>
-                                            <h5 class="text-sm font-bold flex items-center gap-2">
+                                            <h5 class="text-sm font-bold flex items-center gap-2 text-slate-800 dark:text-slate-200">
                                                 <span class="material-symbols-outlined text-slate-400">history</span>
-                                                Attempt History
+                                                Attempt History & Persistence
                                             </h5>
-                                            <p id="vision-save-hint" class="text-xs text-slate-500 mt-1">Run Vision
+                                            <p id="vision-save-hint" class="text-sm font-bold text-slate-600 dark:text-slate-400 mt-1.5">Run Vision
                                                 interview. Save unlocks only when complete.</p>
                                         </div>
                                         <button id="btn-save-vision" onclick="saveVisionDraft()"
-                                            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all"
+                                            class="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all text-sm"
                                             disabled>
-                                            <span class="material-symbols-outlined text-sm">save</span> Save Vision
+                                            <span class="material-symbols-outlined text-base">save</span> Save Vision
                                         </button>
                                     </div>
                                     <div id="vision-history-list"
@@ -357,12 +384,12 @@
 
                                         <!-- Persistence actions -->
                                         <div
-                                            class="p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 flex items-center justify-between shrink-0 relative z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-                                            <p id="backlog-save-hint" class="text-[11px] text-slate-500 font-medium">Run
+                                            class="p-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 flex items-center justify-between shrink-0 relative z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                                            <p id="backlog-save-hint" class="text-sm font-bold text-slate-600 dark:text-slate-400">Run
                                                 Generation to create a draft before saving.</p>
                                             <button id="btn-save-backlog" disabled onclick="saveBacklogDraft()"
-                                                class="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm">
-                                                <span class="material-symbols-outlined text-sm">save</span> Save Backlog
+                                                class="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm text-sm">
+                                                <span class="material-symbols-outlined text-base">save</span> Save Backlog
                                             </button>
                                         </div>
                                     </div>
@@ -482,12 +509,12 @@
 
                                         <!-- Persistence actions -->
                                         <div
-                                            class="p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 flex items-center justify-between shrink-0 relative z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-                                            <p id="roadmap-save-hint" class="text-[11px] text-slate-500 font-medium">Run
+                                            class="p-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 flex items-center justify-between shrink-0 relative z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                                            <p id="roadmap-save-hint" class="text-sm font-bold text-slate-600 dark:text-slate-400">Run
                                                 Generation to create a draft before saving.</p>
                                             <button id="btn-save-roadmap" disabled onclick="saveRoadmapDraft()"
-                                                class="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm">
-                                                <span class="material-symbols-outlined text-sm">save</span> Save Roadmap
+                                                class="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm text-sm">
+                                                <span class="material-symbols-outlined text-base">save</span> Save Roadmap
                                             </button>
                                         </div>
                                     </div>
@@ -671,24 +698,24 @@
 
                                                     <!-- Persistence actions -->
                                                     <div
-                                                        class="p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 flex items-center justify-between shrink-0 relative z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                                                        class="p-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 flex items-center justify-between shrink-0 relative z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
                                                         <div class="flex items-center gap-4">
                                                             <p id="story-save-hint"
-                                                                class="text-[11px] text-slate-500 font-medium">Run
+                                                                class="text-sm font-bold text-slate-600 dark:text-slate-400">Run
                                                                 Generation to create a draft before saving.</p>
                                                         </div>
                                                         <div class="flex items-center gap-3">
                                                             <button id="btn-delete-story" onclick="deleteStoryDraft()"
-                                                                class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-700 dark:bg-rose-900/30 dark:hover:bg-rose-900/50 dark:text-rose-400 font-bold transition-all shadow-sm hidden">
+                                                                class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-700 dark:bg-rose-900/30 dark:hover:bg-rose-900/50 dark:text-rose-400 font-bold transition-all shadow-sm hidden text-sm">
                                                                 <span
-                                                                    class="material-symbols-outlined text-sm">delete</span>
+                                                                    class="material-symbols-outlined text-base">delete</span>
                                                                 Delete & Restart
                                                             </button>
                                                             <button id="btn-save-story" disabled
                                                                 onclick="saveStoryDraft()"
-                                                                class="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm">
+                                                                class="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm text-sm">
                                                                 <span
-                                                                    class="material-symbols-outlined text-sm">save</span>
+                                                                    class="material-symbols-outlined text-base">save</span>
                                                                 Save Stories
                                                             </button>
                                                         </div>
@@ -711,21 +738,21 @@
 
                         <!-- Action Footer -->
                         <div id="setup-selected-actions"
-                            class="flex items-center justify-between pt-6 border-t border-slate-200 dark:border-slate-700">
+                            class="flex items-center justify-between p-6 bg-slate-50 dark:bg-slate-900/40 border-t border-slate-200 dark:border-slate-700 rounded-b-xl mt-8">
                             <div>
                                 <button id="btn-retry-setup" onclick="retryProjectSetup()"
-                                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold transition-all shadow-sm hidden">
-                                    <span class="material-symbols-outlined text-sm">refresh</span> Try Setup Again
+                                    class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold transition-all shadow-sm hidden text-sm">
+                                    <span class="material-symbols-outlined text-base">refresh</span> Try Setup Again
                                 </button>
                             </div>
-                            <div class="flex items-center gap-4">
+                            <div class="flex items-center gap-4 w-full justify-end">
                                 <p id="next-phase-hint"
-                                    class="text-xs text-slate-500 dark:text-slate-400 text-right max-w-xs">Connecting to
+                                    class="text-sm font-bold text-slate-600 dark:text-slate-400 text-right max-w-sm leading-tight">Connecting to
                                     project...</p>
                                 <button id="btn-next-phase" onclick="handleNextPhase()"
-                                    class="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm"
+                                    class="inline-flex items-center gap-2 px-8 py-3 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-md text-base"
                                     disabled>
-                                    Next Phase <span class="material-symbols-outlined text-sm">arrow_forward</span>
+                                    Next Phase <span class="material-symbols-outlined text-lg">arrow_forward</span>
                                 </button>
                             </div>
                         </div>
@@ -734,8 +761,8 @@
                 </div>
             </div>
 
-            <!-- Sidebar Rules -->
-            <div class="lg:col-span-1 space-y-6">
+            <!-- Right Information Sidebar -->
+            <div class="w-full lg:w-80 space-y-6 flex-shrink-0">
                 <!-- Status Card -->
                 <div
                     class="bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
@@ -751,32 +778,38 @@
                     </div>
                 </div>
 
-                <div
-                    class="bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
-                    <h4 class="font-bold mb-3 flex items-center gap-2 text-slate-800 dark:text-white">
-                        <span class="material-symbols-outlined text-emerald-500">rule</span> Pipeline Rules
-                    </h4>
-                    <ul class="text-sm text-slate-600 dark:text-slate-400 space-y-3">
-                        <li class="flex items-start gap-2">
-                            <span class="material-symbols-outlined text-[16px] text-slate-400 mt-0.5">adjust</span>
-                            <span><strong>Setup</strong> requires a valid file path + successfully compiled technical
-                                authority document.</span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <span class="material-symbols-outlined text-[16px] text-slate-400 mt-0.5">adjust</span>
-                            <span><strong>Vision</strong> persistence (saving) is only permitted when the artifact is
-                                marked <code>is_complete=true</code>.</span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <span class="material-symbols-outlined text-[16px] text-slate-400 mt-0.5">adjust</span>
-                            <span>The <strong>Next Phase</strong> button unlocks only when the current phase has reached
-                                its terminal completion state.</span>
-                        </li>
-                    </ul>
-                </div>
+                <details
+                    class="bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm group">
+                    <summary class="font-bold flex items-center justify-between gap-2 text-slate-800 dark:text-white p-5 cursor-pointer list-none">
+                        <div class="flex items-center gap-2">
+                            <span class="material-symbols-outlined text-emerald-500">rule</span> Pipeline Rules
+                        </div>
+                        <span class="material-symbols-outlined text-slate-400 transition-transform group-open:rotate-180">expand_more</span>
+                    </summary>
+                    <div class="px-5 pb-5 pt-0">
+                        <ul class="text-sm text-slate-600 dark:text-slate-400 space-y-3">
+                            <li class="flex items-start gap-2">
+                                <span class="material-symbols-outlined text-[16px] text-slate-400 mt-0.5">adjust</span>
+                                <span><strong>Setup</strong> requires a valid file path + successfully compiled technical
+                                    authority document.</span>
+                            </li>
+                            <li class="flex items-start gap-2">
+                                <span class="material-symbols-outlined text-[16px] text-slate-400 mt-0.5">adjust</span>
+                                <span><strong>Vision</strong> persistence (saving) is only permitted when the artifact is
+                                    marked <code>is_complete=true</code>.</span>
+                            </li>
+                            <li class="flex items-start gap-2">
+                                <span class="material-symbols-outlined text-[16px] text-slate-400 mt-0.5">adjust</span>
+                                <span>The <strong>Next Phase</strong> button unlocks only when the current phase has reached
+                                    its terminal completion state.</span>
+                            </li>
+                        </ul>
+                    </div>
+                </details>
             </div>
-        </div>
-    </main>
+            </div>
+        </main>
+    </div>
 
     <script src="/dashboard/project.js?v=2"></script>
     <style>
