@@ -407,6 +407,8 @@ function updateStepperUI(fsmState) {
         const stepEl = document.getElementById(`step-${step.id}`);
         if (!stepEl) return;
 
+        stepEl.removeAttribute('aria-current');
+
         const iconContainer = stepEl.querySelector('[data-role="icon"]');
         const labelSpan = stepEl.querySelector('[data-role="label"]');
         const statusSpan = stepEl.querySelector('[data-role="status"]');
@@ -422,6 +424,7 @@ function updateStepperUI(fsmState) {
         }
 
         if (index === activeIndex) {
+            stepEl.setAttribute('aria-current', 'step');
             const icon = STEP_ICONS[step.id] || 'play_circle';
             iconContainer.className = 'w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center ring-4 ring-white dark:ring-background-dark shadow-md transition-all';
             iconContainer.innerHTML = `<span class="material-symbols-outlined text-xl">${icon}</span>`;
