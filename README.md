@@ -92,19 +92,17 @@ pip install -e .
 poetry install
 
 # Set up environment variables
-cp .env.example .env
-# Edit .env with your OPENROUTER_API_KEY
+# Export the OpenRouter key expected by the current codebase
+export OPEN_ROUTER_API_KEY="your_openrouter_key"
 ```
 
 ### Running the Application
 
 ```bash
-# Start the interactive orchestrator (recommended)
-python main.py
+# Start the deterministic FastAPI interface
+python api.py
 
-# This launches ADK Web with:
-# - Session persistence via DatabaseSessionService
-# - All agents and tools available
+# Open the dashboard at http://localhost:8000/dashboard
 ```
 
 ---
@@ -155,7 +153,7 @@ Agent: ✅ Story #35 updated: IN_PROGRESS → DONE
 
 ```
 project_tcc/
-├── main.py                          # Entry point, ADK Web bootstrap
+├── api.py                           # Deterministic FastAPI entry point
 ├── agile_sqlmodel.py                # Database schema (SQLModel/SQLAlchemy)
 ├── PLANNING_WORKFLOW.md             # Detailed workflow documentation
 ├── SPEC_DRIVEN_ARCHITECTURE_PLAN.md # Spec Authority Architecture

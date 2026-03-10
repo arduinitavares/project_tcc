@@ -4,6 +4,8 @@
 > **Analysis date:** 2026-02-09  
 > **Analyst scope:** Static code analysis, repository structure, dependency signals, documentation  
 
+> **Legacy note:** This report analyzes the pre-FastAPI CLI architecture. The current supported runtime entrypoint is [api.py](api.py), and references to `main.py` below are historical.
+
 ---
 
 ## Repository & Context Summary

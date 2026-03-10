@@ -14,60 +14,48 @@ flowchart TD
     classDef guardrail fill:#ffebee,stroke:#c62828,stroke-width:2px;
 
     %% ==========================================
-    %% Runtime Entry + Main Loop (main.py)
+    %% Runtime Entry + FastAPI Request Flow (api.py)
     %% ==========================================
-    subgraph Runtime[Runtime: main.py]
+    subgraph Runtime[Runtime: api.py]
         User((User)):::actor
-        Init["Process start / env setup"]:::process
-        GetBusinessState["get_real_business_state()"]:::process
+        Request["HTTP request"]:::process
+        Route["FastAPI route handler"]:::process
+        EnsureSession["_ensure_session() / _hydrate_context()"]:::process
         SessionDB[("SQLite sessions table\n(DatabaseSessionService)")]:::data
         BusinessDB[("Business DB\nProducts/Themes/Epics/Features/Stories/Sprints/etc")]:::data
-        RunnerInit["Runner(agent=root_agent)"]:::process
-        InputLoop["while True: get_user_input()"]:::process
-        ExitCheck{"user_input in [exit, quit]?"}:::decision
-        RunTurn["run_agent_turn()"]:::process
-        ZdrRetry{"OpenRouter privacy routing error?"}:::decision
-        Backoff["Retry w/ backoff (ZDR_MAX_RETRIES)"]:::process
-        SysTriggerLoop["evaluate_workflow_triggers() loop"]:::process
-        TriggerDecision{"system_instruction?"}:::decision
-        RunSysTurn["run_agent_turn(is_system_trigger=True)"]:::process
-        End["Exit program"]:::process
+        DeterministicRuntime["run_*_agent_from_state()"]:::process
+        PersistState["workflow_service.update_session_status()"]:::process
+        Response["JSON response"]:::process
 
-        User --> InputLoop
-        Init --> GetBusinessState --> BusinessDB
-        GetBusinessState --> SessionDB
-        SessionDB --> RunnerInit
-        RunnerInit --> InputLoop
-        InputLoop --> ExitCheck
-        ExitCheck -->|Yes| End
-        ExitCheck -->|No| RunTurn
-        RunTurn --> ZdrRetry
-        ZdrRetry -->|Yes| Backoff --> RunTurn
-        ZdrRetry -->|No| SysTriggerLoop
-        SysTriggerLoop --> TriggerDecision
-        TriggerDecision -->|Yes| RunSysTurn --> SysTriggerLoop
-        TriggerDecision -->|No| InputLoop
+        User --> Request --> Route
+        Route --> EnsureSession
+        EnsureSession --> SessionDB
+        EnsureSession --> BusinessDB
+        Route --> DeterministicRuntime
+        DeterministicRuntime --> PersistState --> SessionDB
+        DeterministicRuntime --> BusinessDB
+        PersistState --> Response
+        DeterministicRuntime --> Response
     end
 
     %% ==========================================
-    %% run_agent_turn() internals (main.py)
+    %% Deterministic runtime internals (services/*_runtime.py)
     %% ==========================================
-    subgraph RunTurnDetails["run_agent_turn internals"]
-        BuildPrompt["Build prompt w/ prior_vision_state\n(from sessions table)"]:::process
-        CallRunner["runner.run_async(...)"]:::process
-        ToolEvents["Capture tool calls/responses + text"]:::process
-        ExtractData["data_to_save = tool response OR extract_json_from_response"]:::process
-        PersistDecision{"PERSIST_LLM_OUTPUT == 1?"}:::decision
-        UpdateState["update_state_in_db()\n(vision_components / roadmap_draft / sprint_plan)"]:::process
+    subgraph RunTurnDetails["Deterministic runtime internals"]
+        BuildPrompt["Build structured runtime input\n(from session state + request body)"]:::process
+        CallAgent["run_*_agent_from_state(...)"]:::process
+        ToolEvents["Capture tool calls/responses + structured outputs"]:::process
+        ExtractData["Normalize artifact payload + completion flags"]:::process
+        PersistDecision{"FSM transition required?"}:::decision
+        UpdateState["update_session_status()\n(vision/backlog/roadmap/story state)"]:::process
         StateDB[("SQLite sessions state")]:::data
 
-        BuildPrompt --> CallRunner --> ToolEvents --> ExtractData --> PersistDecision
+        BuildPrompt --> CallAgent --> ToolEvents --> ExtractData --> PersistDecision
         PersistDecision -->|Yes| UpdateState --> StateDB
         PersistDecision -->|No| StateDB
     end
 
-    RunTurn --> BuildPrompt
-    RunSysTurn --> BuildPrompt
+    DeterministicRuntime --> BuildPrompt
     SessionDB -.-> BuildPrompt
     StateDB -.-> SessionDB
 
@@ -85,7 +73,7 @@ flowchart TD
         RootAgent --> ModeConfig
     end
 
-    CallRunner --> RootAgent
+    CallAgent --> RootAgent
 
     %% ==========================================
     %% Orchestrator Instruction-Driven State Machine (instructions.txt)

@@ -163,6 +163,15 @@ def test_get_dashboard_config_returns_setup_state(monkeypatch):
     assert steps[0]["states"] == ["SETUP_REQUIRED"]
 
 
+def test_root_redirects_to_dashboard(monkeypatch):
+    client, _, _ = _build_client(monkeypatch)
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/dashboard"
+
+
 def test_create_project_requires_spec_file_path(monkeypatch):
     client, _, _ = _build_client(monkeypatch)
 

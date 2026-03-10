@@ -51,20 +51,30 @@ def _normalize_params(params: Any) -> Dict[str, Any]:
         if isinstance(wrapped, str):
             try:
                 parsed = json.loads(wrapped)
-                return cast(Dict[str, Any], parsed) if isinstance(parsed, dict) else {}
+                return (
+                    cast(Dict[str, Any], parsed)
+                    if isinstance(parsed, dict)
+                    else {}
+                )
             except json.JSONDecodeError:
                 return {}
         return params_dict
     if isinstance(params, str):
         try:
             parsed = json.loads(params)
-            return cast(Dict[str, Any], parsed) if isinstance(parsed, dict) else {}
+            return (
+                cast(Dict[str, Any], parsed)
+                if isinstance(parsed, dict)
+                else {}
+            )
         except json.JSONDecodeError:
             return {}
     return {}
 
 
-def _is_fresh(state: Dict[str, Any], ttl_minutes: int = CACHE_TTL_MINUTES) -> bool:
+def _is_fresh(
+    state: Dict[str, Any], ttl_minutes: int = CACHE_TTL_MINUTES
+) -> bool:
     """Return True if state['projects_last_refreshed_utc'] is within TTL."""
     ts = state.get("projects_last_refreshed_utc")
     if not ts:
@@ -117,14 +127,20 @@ def _build_projects_payload(
                 "name": product.name,
                 "vision": product.vision or "(No vision set)",
                 "roadmap": product.roadmap or "(No roadmap set)",
-                "user_stories_count": story_counts.get(cast(int, product.product_id), 0),
-                "sprint_count": sprint_counts.get(cast(int, product.product_id), 0),
+                "user_stories_count": story_counts.get(
+                    cast(int, product.product_id), 0
+                ),
+                "sprint_count": sprint_counts.get(
+                    cast(int, product.product_id), 0
+                ),
             }
         )
     return len(projects), projects
 
 
-def _refresh_projects_cache(state: Dict[str, Any]) -> Tuple[int, List[Dict[str, Any]]]:
+def _refresh_projects_cache(
+    state: Dict[str, Any],
+) -> Tuple[int, List[Dict[str, Any]]]:
     """Hit the DB and update the persistent cache in `state`."""
     print("   [Cache] Cache miss or expired. Querying Database...")
     with Session(get_engine()) as session:
@@ -195,7 +211,9 @@ def list_projects(params: Any, tool_context: ToolContext) -> Dict[str, Any]:
     parsed = ListProjectsInput.model_validate(_normalize_params(params))
     should_refresh = bool(parsed.force_refresh)
 
-    print(f"\n[Tool: list_projects] Request received. Force Refresh: {should_refresh}")
+    print(
+        f"\n[Tool: list_projects] Request received. Force Refresh: {should_refresh}"
+    )
 
     state: Dict[str, Any] = cast(Dict[str, Any], tool_context.state)
 
@@ -228,7 +246,10 @@ def get_project_details(product_id: int) -> Dict[str, Any]:
         product = session.get(Product, product_id)
         if not product:
             print("   [DB] Product not found.")
-            return {"success": False, "error": f"Product {product_id} not found"}
+            return {
+                "success": False,
+                "error": f"Product {product_id} not found",
+            }
 
         # Optimized count queries using aggregations
         theme_count = session.exec(
@@ -267,7 +288,10 @@ def get_project_details(product_id: int) -> Dict[str, Any]:
                 SpecRegistry.product_id == product_id,
                 SpecRegistry.status == "approved",
             )
-            .order_by(SpecRegistry.approved_at.desc(), SpecRegistry.spec_version_id.desc())
+            .order_by(
+                SpecRegistry.approved_at.desc(),
+                SpecRegistry.spec_version_id.desc(),
+            )
             .limit(1)
         ).first()
 
@@ -283,7 +307,11 @@ def get_project_details(product_id: int) -> Dict[str, Any]:
                 "technical_spec": product.technical_spec,
                 "compiled_authority_json": product.compiled_authority_json,
                 "spec_file_path": product.spec_file_path,
-                "spec_loaded_at": product.spec_loaded_at.isoformat() if product.spec_loaded_at else None,
+                "spec_loaded_at": (
+                    product.spec_loaded_at.isoformat()
+                    if product.spec_loaded_at
+                    else None
+                ),
                 "latest_spec_version_id": latest_spec_version_id,
             },
             "structure": {
@@ -305,10 +333,15 @@ def get_project_by_name(project_name: str) -> Dict[str, Any]:
     """Agent tool: Find a project by name."""
     print(f"\n[Tool: get_project_by_name] Searching for: '{project_name}'")
     with Session(get_engine()) as session:
-        product = session.exec(select(Product).where(Product.name == project_name)).first()
+        product = session.exec(
+            select(Product).where(Product.name == project_name)
+        ).first()
         if not product:
             print("   [DB] Not found.")
-            return {"success": False, "error": f"Project '{project_name}' not found"}
+            return {
+                "success": False,
+                "error": f"Project '{project_name}' not found",
+            }
 
         print(f"   [DB] Found ID: {product.product_id}")
         return {
@@ -346,43 +379,52 @@ def fetch_product_backlog(product_id: int) -> Dict[str, Any]:
     Fetch all 'To Do' user stories for a product.
     Returns a list of stories with basic details for inspection/diagnostics.
     """
-    print(f"\n[Tool: fetch_product_backlog] Fetching backlog for product ID: {product_id}")
+    print(
+        f"\n[Tool: fetch_product_backlog] Fetching backlog for product ID: {product_id}"
+    )
     with Session(get_engine()) as session:
         stories = list(
             session.exec(
-            select(UserStory)
-            .where(UserStory.product_id == product_id)
-            .where(UserStory.status == StoryStatus.TO_DO)
-            .order_by(UserStory.rank, UserStory.story_id)
+                select(UserStory)
+                .where(UserStory.product_id == product_id)
+                .where(UserStory.status == StoryStatus.TO_DO)
+                .order_by(UserStory.rank, UserStory.story_id)
             ).all()
         )
         stories.sort(key=_story_order_key)
 
         if not stories:
             print("   [DB] No stories found.")
-            return {"success": True, "count": 0, "stories": [], "message": "No stories found in backlog."}
+            return {
+                "success": True,
+                "count": 0,
+                "stories": [],
+                "message": "No stories found in backlog.",
+            }
 
         story_list = []
         for s in stories:
             priority = _priority_to_int(s.rank)
-            story_list.append({
-                "story_id": s.story_id,
-                "title": s.title,
-                "story_points": s.story_points,
-                "priority": s.rank,
-                "priority_numeric": priority,
-                "persona": s.persona,
-                "story_origin": s.story_origin,
-                "is_refined": bool(s.is_refined),
-                "is_superseded": bool(s.is_superseded),
-            })
+            story_list.append(
+                {
+                    "story_id": s.story_id,
+                    "title": s.title,
+                    "story_points": s.story_points,
+                    "priority": s.rank,
+                    "priority_numeric": priority,
+                    "persona": s.persona,
+                    "story_origin": s.story_origin,
+                    "is_refined": bool(s.is_refined),
+                    "is_superseded": bool(s.is_superseded),
+                }
+            )
 
         print(f"   [DB] Found {len(stories)} stories.")
         return {
             "success": True,
             "count": len(stories),
             "stories": story_list,
-            "message": f"Found {len(stories)} stories in backlog."
+            "message": f"Found {len(stories)} stories in backlog.",
         }
 
 
@@ -512,7 +554,7 @@ def load_specification_from_file(
 
     # Read content
     try:
-        content = path.read_text(encoding='utf-8')
+        content = path.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError(
             f"File encoding error. Please ensure {file_path} is UTF-8 text."
@@ -525,7 +567,9 @@ def load_specification_from_file(
         state["pending_spec_path"] = str(path.absolute())
         state["pending_spec_content"] = content
 
-    print(f"[Tool: load_specification_from_file] Loaded {file_size_kb:.1f}KB from {path.name}")
+    print(
+        f"[Tool: load_specification_from_file] Loaded {file_size_kb:.1f}KB from {path.name}"
+    )
 
     return content
 
@@ -533,7 +577,7 @@ def load_specification_from_file(
 def get_real_business_state() -> Dict[str, Any]:
     """
     Hydrates the initial session state by querying the Business DB.
-    Used by main.py to seed the Orchestrator's memory before the session starts.
+    Used by the FastAPI workflow service to seed session state before processing.
     """
     print("[*] Hydrating Session State from Business Database...")
     with Session(get_engine()) as session:
@@ -550,7 +594,9 @@ def get_real_business_state() -> Dict[str, Any]:
     }
 
 
-def select_project(product_id: int, tool_context: ToolContext) -> Dict[str, Any]:
+def select_project(
+    product_id: int, tool_context: ToolContext
+) -> Dict[str, Any]:
     """
     Agent tool: Select a project as the active context and load its full details
     into volatile memory. This sets the working context for subsequent operations.
@@ -567,7 +613,9 @@ def select_project(product_id: int, tool_context: ToolContext) -> Dict[str, Any]
         - spec_persisted          (True when a spec is already linked)
         - current_context         ("project_selected")
     """
-    print(f"\n[Tool: select_project] Setting project ID {product_id} as active...")
+    print(
+        f"\n[Tool: select_project] Setting project ID {product_id} as active..."
+    )
 
     # Get full project details
     details = get_project_details(product_id)
@@ -588,10 +636,14 @@ def select_project(product_id: int, tool_context: ToolContext) -> Dict[str, Any]
         "vision": product_details.get("vision"),
         "roadmap": product_details.get("roadmap"),
         "technical_spec": product_details.get("technical_spec"),
-        "compiled_authority_json": product_details.get("compiled_authority_json"),
+        "compiled_authority_json": product_details.get(
+            "compiled_authority_json"
+        ),
         "spec_file_path": product_details.get("spec_file_path"),
         "spec_loaded_at": product_details.get("spec_loaded_at"),
-        "latest_spec_version_id": product_details.get("latest_spec_version_id"),
+        "latest_spec_version_id": product_details.get(
+            "latest_spec_version_id"
+        ),
         "structure": details["structure"],
     }
     state["current_project_name"] = product_details["name"]
@@ -603,7 +655,9 @@ def select_project(product_id: int, tool_context: ToolContext) -> Dict[str, Any]
     authority_json = product_details.get("compiled_authority_json")
     # Fallback: if Product column is null but a compiled authority exists in the
     # dedicated table, load it from there and backfill the Product column.
-    if authority_json is None and product_details.get("latest_spec_version_id"):
+    if authority_json is None and product_details.get(
+        "latest_spec_version_id"
+    ):
         authority_json = _load_authority_fallback(
             product_id, product_details["latest_spec_version_id"]
         )
@@ -613,10 +667,16 @@ def select_project(product_id: int, tool_context: ToolContext) -> Dict[str, Any]
     _set_or_clear(state, "compiled_authority_cached", authority_json)
 
     # --- Spec version ---
-    _set_or_clear(state, "latest_spec_version_id", product_details.get("latest_spec_version_id"))
+    _set_or_clear(
+        state,
+        "latest_spec_version_id",
+        product_details.get("latest_spec_version_id"),
+    )
 
     # --- Guard: mark spec as already linked when applicable ---
-    if product_details.get("spec_file_path") or product_details.get("technical_spec"):
+    if product_details.get("spec_file_path") or product_details.get(
+        "technical_spec"
+    ):
         state["spec_persisted"] = True
 
     state["current_context"] = "project_selected"
@@ -634,6 +694,7 @@ def select_project(product_id: int, tool_context: ToolContext) -> Dict[str, Any]
 # Internal helpers for select_project state hydration
 # ------------------------------------------------------------------
 
+
 def _set_or_clear(state: Dict[str, Any], key: str, value: Any) -> None:
     """Set *key* in state when *value* is not None, otherwise delete it."""
     if value is not None:
@@ -642,12 +703,16 @@ def _set_or_clear(state: Dict[str, Any], key: str, value: Any) -> None:
         del state[key]
 
 
-def _hydrate_spec_state(state: Dict[str, Any], product_details: Dict[str, Any]) -> None:
+def _hydrate_spec_state(
+    state: Dict[str, Any], product_details: Dict[str, Any]
+) -> None:
     """Populate pending_spec_content and pending_spec_path from DB or disk."""
     # 1. Inline blob takes precedence
     if product_details.get("technical_spec") is not None:
         state["pending_spec_content"] = product_details["technical_spec"]
-        _set_or_clear(state, "pending_spec_path", product_details.get("spec_file_path"))
+        _set_or_clear(
+            state, "pending_spec_path", product_details.get("spec_file_path")
+        )
         return
 
     # 2. File-linked spec: read from disk
@@ -657,7 +722,9 @@ def _hydrate_spec_state(state: Dict[str, Any], product_details: Dict[str, Any]) 
         state["pending_spec_path"] = spec_file
         if _spec_path.exists():
             try:
-                state["pending_spec_content"] = _spec_path.read_text(encoding="utf-8")
+                state["pending_spec_content"] = _spec_path.read_text(
+                    encoding="utf-8"
+                )
                 return
             except (OSError, UnicodeDecodeError):
                 pass  # fall through to clear
@@ -673,7 +740,9 @@ def _hydrate_spec_state(state: Dict[str, Any], product_details: Dict[str, Any]) 
         del state["pending_spec_path"]
 
 
-def _load_authority_fallback(product_id: int, spec_version_id: int) -> Optional[str]:
+def _load_authority_fallback(
+    product_id: int, spec_version_id: int
+) -> Optional[str]:
     """
     Query CompiledSpecAuthority for the given spec version.  If none exists
     but the spec version is approved, trigger an on-demand compilation.
@@ -691,16 +760,26 @@ def _load_authority_fallback(product_id: int, spec_version_id: int) -> Optional[
             # Backfill the Product column
             product = session.get(Product, product_id)
             if product:
-                product.compiled_authority_json = authority.compiled_artifact_json
+                product.compiled_authority_json = (
+                    authority.compiled_artifact_json
+                )
                 session.add(product)
                 session.commit()
-                print("   [Context] Backfilled compiled_authority_json from authority table")
+                print(
+                    "   [Context] Backfilled compiled_authority_json from authority table"
+                )
             return authority.compiled_artifact_json
 
     # 2. No compiled authority exists — try to compile on demand
     try:
-        from tools.spec_tools import compile_spec_authority_for_version, CompileSpecAuthorityForVersionInput
-        print(f"   [Context] No compiled authority found — compiling spec version {spec_version_id}...")
+        from tools.spec_tools import (
+            CompileSpecAuthorityForVersionInput,
+            compile_spec_authority_for_version,
+        )
+
+        print(
+            f"   [Context] No compiled authority found — compiling spec version {spec_version_id}..."
+        )
         result = compile_spec_authority_for_version(
             CompileSpecAuthorityForVersionInput(
                 spec_version_id=spec_version_id, force_recompile=False
@@ -712,7 +791,9 @@ def _load_authority_fallback(product_id: int, spec_version_id: int) -> Optional[
             with Session(get_engine()) as session:
                 product = session.get(Product, product_id)
                 if product and product.compiled_authority_json:
-                    print("   [Context] Compiled and cached authority on demand")
+                    print(
+                        "   [Context] Compiled and cached authority on demand"
+                    )
                     return product.compiled_authority_json
     except Exception as exc:
         print(f"   [Context] On-demand authority compilation failed: {exc}")

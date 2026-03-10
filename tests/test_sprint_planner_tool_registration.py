@@ -8,8 +8,8 @@ Validates:
 5. Simulated tools_dict build includes sprint_planner_tool
 """
 
-import sys
 import os
+import sys
 
 # Ensure project root is on the path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -37,9 +37,8 @@ def _build_tools_dict(tools: list) -> dict:
     return tools_dict
 
 
-# --- Import main.py's _dedupe_tools without running the whole module ---
 def _dedupe_tools(tools):
-    """Exact copy of the _dedupe_tools from main.py."""
+    """Deduplicate tools by ADK-visible name."""
     seen: set = set()
     deduped: list = []
     for tool in tools:
@@ -69,9 +68,9 @@ class TestSprintPlannerToolRegistration:
             getattr(t, "name", None) or getattr(t, "__name__", None)
             for t in state_def.tools
         ]
-        assert "sprint_planner_tool" in names, (
-            f"sprint_planner_tool not in SETUP_REQUIRED tools: {names}"
-        )
+        assert (
+            "sprint_planner_tool" in names
+        ), f"sprint_planner_tool not in SETUP_REQUIRED tools: {names}"
 
     def test_sprint_planner_survives_dedupe(self):
         state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
@@ -80,26 +79,30 @@ class TestSprintPlannerToolRegistration:
             getattr(t, "name", None) or getattr(t, "__name__", None)
             for t in deduped
         ]
-        assert "sprint_planner_tool" in names, (
-            f"sprint_planner_tool lost after _dedupe_tools: {names}"
-        )
+        assert (
+            "sprint_planner_tool" in names
+        ), f"sprint_planner_tool lost after _dedupe_tools: {names}"
 
     def test_sprint_planner_declaration_valid(self):
         state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         for tool in state_def.tools:
-            name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
+            name = getattr(tool, "name", None) or getattr(
+                tool, "__name__", None
+            )
             if name == "sprint_planner_tool":
                 if isinstance(tool, BaseTool):
                     decl = tool._get_declaration()
                 else:
-                    assert callable(tool), (
-                        f"sprint_planner_tool should be callable or BaseTool, got {type(tool)}"
-                    )
+                    assert callable(
+                        tool
+                    ), f"sprint_planner_tool should be callable or BaseTool, got {type(tool)}"
                     decl = FunctionTool(func=tool)._get_declaration()
-                assert decl is not None, "sprint_planner_tool declaration is None"
-                assert decl.name == "sprint_planner_tool", (
-                    f"Declaration name mismatch: {decl.name}"
-                )
+                assert (
+                    decl is not None
+                ), "sprint_planner_tool declaration is None"
+                assert (
+                    decl.name == "sprint_planner_tool"
+                ), f"Declaration name mismatch: {decl.name}"
                 return
         assert False, "sprint_planner_tool not found in SETUP_REQUIRED tools"
 
@@ -130,9 +133,10 @@ class TestSprintPlannerToolRegistration:
         state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         names = []
         for tool in state_def.tools:
-            name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
+            name = getattr(tool, "name", None) or getattr(
+                tool, "__name__", None
+            )
             names.append(name)
         seen = set()
         dupes = [n for n in names if n in seen or seen.add(n)]
         assert not dupes, f"Duplicate tool names: {dupes}"
-

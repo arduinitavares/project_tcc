@@ -3,16 +3,14 @@ config:
   theme: redux
 ---
 flowchart TD
-  %% High-Level Lifecycle (macro phases derived from main.py + instructions.txt)
+  %% High-Level Lifecycle (macro phases served through api.py + workflow services)
 
-  Start([Start]) --> Init[Session Init & State Load]
-  Init --> MainLoop[Main Loop: User Input]
-  MainLoop --> ExitCheck{User types exit/quit?}
-  ExitCheck -->|Yes| End([End])
-  ExitCheck -->|No| UserTurn["User Turn: run_agent_turn()"]
+  Start([Start]) --> Request[HTTP Request]
+  Request --> Session[Session Init / State Load]
+  Session --> Route[Deterministic API Route]
 
   %% Macro phase routing (instruction-driven)
-  UserTurn --> Routing[Project Routing & Selection]
+  Route --> Routing[Project Routing & Selection]
   Routing -->|New/modify vision| Vision[Vision Capture → Review → Save]
   Routing -->|Create/modify roadmap| Roadmap[Roadmap Capture → Review → Save]
   Routing -->|Create stories| Stories[Story Pipeline Setup → Generate/Validate → Save]
@@ -21,16 +19,10 @@ flowchart TD
   Routing -->|View story details| StoryDetails[Story Details View]
 
   %% Optional/conditional branches inside macro phases (kept high-level)
-  Vision --> Routing
-  Roadmap --> Routing
-  Stories --> Routing
-  Sprint --> Routing
-  SpecAuthority --> Routing
-  StoryDetails --> Routing
-
-  %% System-trigger loop after user turn
-  UserTurn --> TriggerLoop[System Trigger Loop]
-  TriggerLoop --> TriggerDecision{Workflow trigger?}
-  TriggerDecision -->|Yes| SystemTurn["System-trigger Turn: run_agent_turn(is_system_trigger=True)"]
-  SystemTurn --> TriggerLoop
-  TriggerDecision -->|No| MainLoop
+  Vision --> Response[HTTP Response]
+  Roadmap --> Response
+  Stories --> Response
+  Sprint --> Response
+  SpecAuthority --> Response
+  StoryDetails --> Response
+  Response --> End([End])
