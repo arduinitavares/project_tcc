@@ -1,1 +1,5 @@
-## 2026-03-06 - Missing aria-label on icon-only buttons\n**Learning:** Found that several icon-only interactive elements (like the close modal button and back to dashboard link) lacked `aria-label`s. This is a common pattern in this app's components, where Google Material Symbols are used standalone.\n**Action:** Add `aria-label`s to all icon-only buttons to ensure they are screen-reader accessible.
+## 2024-05-24 - Workflow Stepper Accessibility
+
+**Learning:** When implementing or updating multi-step components (steppers) built with `div`s, ensure the container has `role="list"` with an `aria-label`, each step has `role="listitem"`, and the active phase dynamically receives `aria-current="step"` for screen reader accessibility.
+
+**Action:** Update the workflow stepper in `frontend/project.html` and `frontend/project.js` to dynamically apply these ARIA attributes based on the FSM state.
