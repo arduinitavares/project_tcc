@@ -413,6 +413,7 @@ function updateStepperUI(fsmState) {
         if (!iconContainer || !labelSpan || !statusSpan) return;
 
         if (index < activeIndex) {
+            stepEl.removeAttribute('aria-current');
             iconContainer.className = 'w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center ring-4 ring-white dark:ring-background-dark shadow-md transition-all';
             iconContainer.innerHTML = '<span class="material-symbols-outlined text-xl">check</span>';
             labelSpan.className = 'text-xs font-bold text-emerald-600 dark:text-emerald-400 transition-colors';
@@ -422,6 +423,7 @@ function updateStepperUI(fsmState) {
         }
 
         if (index === activeIndex) {
+            stepEl.setAttribute('aria-current', 'step');
             const icon = STEP_ICONS[step.id] || 'play_circle';
             iconContainer.className = 'w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center ring-4 ring-white dark:ring-background-dark shadow-md transition-all';
             iconContainer.innerHTML = `<span class="material-symbols-outlined text-xl">${icon}</span>`;
@@ -431,6 +433,7 @@ function updateStepperUI(fsmState) {
             return;
         }
 
+        stepEl.removeAttribute('aria-current');
         iconContainer.className = 'w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all';
         iconContainer.innerHTML = '<span class="material-symbols-outlined text-xl">lock</span>';
         labelSpan.className = 'text-xs font-medium text-slate-500 transition-colors';
