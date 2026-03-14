@@ -37,12 +37,17 @@ from orchestrator_agent.agent_tools.user_story_writer_tool.tools import (
     SaveStoriesInput,
     save_stories_tool,
 )
+from orchestrator_agent.agent_tools.sprint_planner_tool.tools import (
+    SaveSprintPlanInput,
+    save_sprint_plan_tool,
+)
 from orchestrator_agent.fsm.states import OrchestratorState
 from repositories.product import ProductRepository
 from services.vision_runtime import run_vision_agent_from_state
 from services.backlog_runtime import run_backlog_agent_from_state
 from services.roadmap_runtime import run_roadmap_agent_from_state
 from services.story_runtime import run_story_agent_from_state
+from services.sprint_runtime import run_sprint_agent_from_state
 from services.workflow import WorkflowService
 from tools.orchestrator_tools import select_project
 from tools.spec_tools import link_spec_to_product
@@ -95,6 +100,14 @@ class RoadmapGenerateRequest(BaseModel):
 
 class StoryGenerateRequest(BaseModel):
     user_input: Optional[str] = None
+
+
+class SprintGenerateRequest(BaseModel):
+    user_input: Optional[str] = None
+    team_velocity_assumption: int = 40
+    sprint_duration_days: int = 14
+    max_story_points: int = 8
+    include_task_decomposition: bool = True
 
 
 WORKFLOW_STEPS: List[Dict[str, Any]] = [
@@ -1437,12 +1450,12 @@ async def complete_story_phase(project_id: int):
     req_names = _get_all_roadmap_requirements(state)
     saved_reqs_dict = state.get("story_saved", {})
     
-    missing = [r for r in req_names if not saved_reqs_dict.get(r)]
+    saved = [r for r in req_names if saved_reqs_dict.get(r)]
     
-    if len(missing) > 0:
+    if len(saved) == 0:
         raise HTTPException(
             status_code=409, 
-            detail=f"Cannot complete phase. Missing {len(missing)} requirements."
+            detail="Cannot complete phase. No requirements have saved stories."
         )
 
     # All pass, update FSM state to STORY_PERSISTENCE
@@ -1465,6 +1478,179 @@ async def complete_story_phase(project_id: int):
         "data": {
             "fsm_state": state.get("fsm_state")
         }
+    }
+
+
+# ==============================================================================
+# SPRINT ENDPOINTS
+# ==============================================================================
+
+def _ensure_sprint_attempts(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    attempts = state.get("sprint_attempts")
+    if not isinstance(attempts, list):
+        attempts = []
+    return attempts
+
+
+def _record_sprint_attempt(
+    state: Dict[str, Any],
+    *,
+    trigger: str,
+    input_context: Dict[str, Any],
+    output_artifact: Dict[str, Any],
+    is_complete: bool,
+    failure_meta: Optional[Dict[str, Any]] = None,
+) -> int:
+    attempts = _ensure_sprint_attempts(state)
+    normalized_failure = _failure_meta(failure_meta)
+    attempts.append(
+        {
+            "created_at": _now_iso(),
+            "trigger": trigger,
+            "input_context": input_context,
+            "output_artifact": output_artifact,
+            "is_complete": is_complete,
+            **normalized_failure,
+        }
+    )
+    state["sprint_attempts"] = attempts
+    state["sprint_last_input_context"] = input_context
+    state["sprint_plan_assessment"] = output_artifact
+    return len(attempts)
+
+
+@app.post("/api/projects/{project_id}/sprint/generate")
+async def generate_project_sprint(project_id: int, req: SprintGenerateRequest):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+
+    # Validate valid FSM state to allow sprint planning
+    valid_states = [
+        OrchestratorState.STORY_PERSISTENCE.value,
+        OrchestratorState.SPRINT_SETUP.value,
+        OrchestratorState.SPRINT_DRAFT.value,
+        OrchestratorState.SPRINT_PERSISTENCE.value,
+    ]
+    if state.get("fsm_state") not in valid_states:
+        raise HTTPException(status_code=409, detail=f"Invalid phase for sprint generation (state: {state.get('fsm_state')})")
+
+    attempts = _ensure_sprint_attempts(state)
+    has_attempts = len(attempts) > 0
+
+    sprint_result = await run_sprint_agent_from_state(
+        state,
+        project_id=project_id,
+        team_velocity_assumption=req.team_velocity_assumption,
+        sprint_duration_days=req.sprint_duration_days,
+        max_story_points=req.max_story_points,
+        include_task_decomposition=req.include_task_decomposition,
+        user_input=req.user_input,
+    )
+
+    is_complete = bool(sprint_result.get("is_complete", False))
+    attempt_count = _record_sprint_attempt(
+        state,
+        trigger="manual_refine" if has_attempts else "auto_transition",
+        input_context=sprint_result.get("input_context") or {},
+        output_artifact=sprint_result.get("output_artifact") or {},
+        is_complete=is_complete,
+        failure_meta=sprint_result,
+    )
+
+    state["fsm_state"] = OrchestratorState.SPRINT_DRAFT.value
+    state["fsm_state_entered_at"] = _now_iso()
+
+    _save_session_state(session_id, state)
+
+    return {
+        "status": "success",
+        "data": {
+            "is_complete": is_complete,
+            "sprint_run_success": bool(sprint_result.get("success")),
+            "error": sprint_result.get("error"),
+            "trigger": "manual_refine" if has_attempts else "auto_transition",
+            "input_context": sprint_result.get("input_context"),
+            "output_artifact": sprint_result.get("output_artifact"),
+            "attempt_count": attempt_count,
+            **_failure_meta(sprint_result, fallback_summary=sprint_result.get("error")),
+            "fsm_state": state.get("fsm_state"),
+        },
+    }
+
+
+@app.get("/api/projects/{project_id}/sprint/history")
+async def get_project_sprint_history(project_id: int):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+    attempts = _ensure_sprint_attempts(state)
+
+    return {
+        "status": "success",
+        "data": {
+            "items": attempts,
+            "count": len(attempts),
+        },
+    }
+
+
+@app.post("/api/projects/{project_id}/sprint/save")
+async def save_project_sprint(project_id: int):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+
+    assessment = state.get("sprint_plan_assessment")
+    if not isinstance(assessment, dict):
+        raise HTTPException(status_code=409, detail="No sprint draft available to save")
+
+    if not bool(assessment.get("is_complete", False)):
+        raise HTTPException(
+            status_code=409,
+            detail="Sprint cannot be saved until is_complete is true",
+        )
+
+    from orchestrator_agent.agent_tools.sprint_planner_tool.schemes import SprintPlannerOutput
+    context = await _hydrate_context(session_id, project_id)
+
+    try:
+        sprint_data = SprintPlannerOutput.model_validate(assessment)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Invalid sprint data in session: {str(e)}")
+
+    result = save_sprint_plan_tool(
+        SaveSprintPlanInput(
+            product_id=project_id,
+            sprint_plan_data=sprint_data,
+        ),
+        context,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to save sprint plan"))
+
+    state["fsm_state"] = OrchestratorState.SPRINT_PERSISTENCE.value
+    state["fsm_state_entered_at"] = _now_iso()
+    state["sprint_saved_at"] = _now_iso()
+
+    _save_session_state(session_id, state)
+
+    return {
+        "status": "success",
+        "data": {
+            "fsm_state": OrchestratorState.SPRINT_PERSISTENCE.value,
+            "save_result": result,
+        },
     }
 
 

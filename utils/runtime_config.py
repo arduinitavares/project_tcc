@@ -64,6 +64,10 @@ STORY_RUNNER_IDENTITY = RunnerIdentity(
     app_name="user_story_writer",
     user_id="dashboard_story",
 )
+SPRINT_RUNNER_IDENTITY = RunnerIdentity(
+    app_name="sprint_planner",
+    user_id="dashboard_sprint",
+)
 SPEC_AUTHORITY_COMPILER_IDENTITY = RunnerIdentity(
     app_name="spec_authority_compiler",
     user_id="spec_compiler",
@@ -228,6 +232,11 @@ def get_roadmap_builder_max_tokens(default: int = 8192) -> int:
 def get_story_writer_max_tokens(default: int = 16384) -> int:
     """Return the max token budget for the user story writer."""
     return get_int_env("STORY_WRITER_MAX_TOKENS", default)
+
+
+def get_sprint_planner_max_tokens(default: int = 8192) -> int:
+    """Return the max token budget for the sprint planner."""
+    return get_int_env("SPRINT_PLANNER_MAX_TOKENS", default)
 
 
 def is_spec_compiler_schema_disabled() -> bool:

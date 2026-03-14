@@ -808,11 +808,142 @@
                             </section>
 
                             <section id="phase-section-sprint"
-                                class="phase-section hidden bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg p-5 text-center py-12">
-                                <span class="material-symbols-outlined text-4xl text-slate-400 mb-3">bolt</span>
-                                <h4 class="text-lg font-bold">Sprint Phase</h4>
-                                <p class="text-sm text-slate-600 dark:text-slate-400 mt-2 max-w-sm mx-auto">This phase
-                                    is currently locked. Complete the story phase first to proceed.</p>
+                                class="hidden animate-fade-in flex flex-col h-full bg-slate-50 dark:bg-slate-900 rounded-lg overflow-hidden">
+                                <!-- Header -->
+                                <div
+                                    class="p-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 shrink-0">
+                                    <div class="flex items-center gap-3 mb-2">
+                                        <div
+                                            class="w-10 h-10 rounded-xl bg-teal-100 dark:bg-teal-900/50 flex items-center justify-center text-teal-600 dark:text-teal-400">
+                                            <span class="material-symbols-outlined font-bold">bolt</span>
+                                        </div>
+                                        <div>
+                                            <h2 class="text-xl font-black text-slate-800 dark:text-white">Sprint
+                                                Planning</h2>
+                                            <p class="text-xs text-slate-500 font-medium">Commit User Stories to a Sprint Backlog with capacity planning.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-2">
+                                    <!-- Left Panel: Input -->
+                                    <div
+                                        class="flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/30">
+                                        <!-- History Bar -->
+                                        <div
+                                            class="h-48 overflow-y-auto p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+                                            <h3 class="text-xs uppercase tracking-wider font-bold text-slate-500 mb-3">
+                                                Generation History</h3>
+                                            <div id="sprint-history-list" class="space-y-2">
+                                                <p class="text-xs text-slate-500">No attempts yet.</p>
+                                            </div>
+                                        </div>
+
+                                        <!-- Input Form -->
+                                        <div class="flex-1 p-5 overflow-y-auto custom-scrollbar space-y-4">
+                                            <div>
+                                                <label for="sprint-velocity" class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Team Velocity (Story Points)</label>
+                                                <input id="sprint-velocity" type="number" min="1" max="100" value="40" class="w-full text-sm rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+                                            </div>
+                                            <div>
+                                                <label for="sprint-duration" class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Sprint Duration (Days)</label>
+                                                <input id="sprint-duration" type="number" min="1" max="30" value="14" class="w-full text-sm rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+                                            </div>
+                                            <div>
+                                                <label for="sprint-max-story-points" class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Max Story Points</label>
+                                                <input id="sprint-max-story-points" type="number" min="1" max="21" value="8" class="w-full text-sm rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+                                            </div>
+                                            <div class="flex items-center gap-2">
+                                                <input id="sprint-decompose" type="checkbox" checked class="rounded dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-teal-600 focus:ring-teal-500">
+                                                <label for="sprint-decompose" class="text-sm font-bold text-slate-700 dark:text-slate-300">Include Task Decomposition</label>
+                                            </div>
+                                            <div>
+                                                <label for="sprint-user-input"
+                                                    class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2 mt-4">Refinement Guidelines</label>
+                                                <textarea id="sprint-user-input" rows="3"
+                                                    class="w-full text-sm rounded-xl border border-slate-300 dark:border-slate-600 px-4 py-3 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none transition-all placeholder:text-slate-400 resize-none shadow-inner"
+                                                    placeholder="Enter any specific sprint goals or constraints..."></textarea>
+                                            </div>
+                                        </div>
+
+                                        <!-- Actions -->
+                                        <div
+                                            class="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 flex items-center justify-between shrink-0">
+                                            <div class="flex gap-3">
+                                                <button id="btn-generate-sprint" onclick="generateSprintDraft()"
+                                                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold transition-all shadow-sm">
+                                                    <span class="material-symbols-outlined text-sm">cycle</span>
+                                                    Plan Sprint
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Right Panel: Artifact Viewing -->
+                                    <div class="flex flex-col bg-slate-50 dark:bg-slate-900 overflow-hidden relative">
+                                        <div
+                                            class="absolute inset-0 bg-grid-slate-200 dark:bg-grid-slate-800 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] dark:[mask-image:linear-gradient(0deg,rgba(0,0,0,1),rgba(0,0,0,0.4))] pointer-events-none opacity-50">
+                                        </div>
+
+                                        <div class="relative flex-1 flex flex-col p-5 overflow-hidden">
+                                            <div
+                                                class="flex items-center justify-between mb-4 border-b border-slate-200 dark:border-slate-700 pb-3">
+                                                <h5
+                                                    class="text-xs uppercase tracking-wider font-bold text-slate-600 dark:text-slate-400">
+                                                    Agent Output Artifact</h5>
+                                                <div class="flex gap-2 items-center">
+                                                    <button id="btn-copy-sprint-output" onclick="copyArtifactToClipboard('sprint')"
+                                                        class="hidden inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800">
+                                                        <span class="material-symbols-outlined text-[12px]">content_copy</span>
+                                                        Copy JSON
+                                                    </button>
+                                                    <span
+                                                        class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                                                        <span class="material-symbols-outlined text-[12px]">code</span>
+                                                        JSON Schema: SprintPlanner
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            <!-- Output Canvas -->
+                                            <div id="sprint-output-artifact"
+                                                class="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-4">
+                                                <div
+                                                    class="text-xs text-slate-500 flex flex-col items-center justify-center h-full gap-3 opacity-60">
+                                                    <span class="material-symbols-outlined text-4xl">bolt</span>
+                                                    <p>No sprint run yet.</p>
+                                                </div>
+                                            </div>
+
+                                            <!-- Setup Context (Accordion) -->
+                                            <div class="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+                                                <details class="group">
+                                                    <summary
+                                                        class="flex items-center gap-2 text-xs font-bold text-slate-500 cursor-pointer select-none">
+                                                        <span
+                                                            class="material-symbols-outlined transition-transform group-open:rotate-90">chevron_right</span>
+                                                        View Input Context Dump
+                                                    </summary>
+                                                    <div
+                                                        class="mt-3 p-3 bg-slate-100 dark:bg-slate-800/80 rounded border border-slate-200 dark:border-slate-700 h-32 overflow-y-auto w-full max-w-full">
+                                                        <pre id="sprint-input-context"
+                                                            class="text-[10px] text-slate-600 dark:text-slate-400 font-mono whitespace-pre-wrap break-words w-full">Context dump will appear here.</pre>
+                                                    </div>
+                                                </details>
+                                            </div>
+                                        </div>
+
+                                        <!-- Persistence actions -->
+                                        <div
+                                            class="p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 flex items-center justify-between shrink-0 relative z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                                            <p id="sprint-save-hint" class="text-[11px] text-slate-500 font-medium">Plan Sprint to create a draft before saving.</p>
+                                            <button id="btn-save-sprint" disabled onclick="saveSprintDraft()"
+                                                class="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm">
+                                                <span class="material-symbols-outlined text-sm">save</span> Confirm Sprint
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             </section>
                         </div>
 
