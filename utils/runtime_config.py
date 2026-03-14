@@ -210,6 +210,26 @@ def get_spec_validator_max_tokens(default: int = 4096) -> int:
     return get_int_env("SPEC_VALIDATOR_MAX_TOKENS", default)
 
 
+def get_vision_interviewer_max_tokens(default: int = 4096) -> int:
+    """Return the max token budget for the vision interviewer."""
+    return get_int_env("VISION_INTERVIEWER_MAX_TOKENS", default)
+
+
+def get_backlog_primer_max_tokens(default: int = 8192) -> int:
+    """Return the max token budget for the backlog primer."""
+    return get_int_env("BACKLOG_PRIMER_MAX_TOKENS", default)
+
+
+def get_roadmap_builder_max_tokens(default: int = 8192) -> int:
+    """Return the max token budget for the roadmap builder."""
+    return get_int_env("ROADMAP_BUILDER_MAX_TOKENS", default)
+
+
+def get_story_writer_max_tokens(default: int = 16384) -> int:
+    """Return the max token budget for the user story writer."""
+    return get_int_env("STORY_WRITER_MAX_TOKENS", default)
+
+
 def is_spec_compiler_schema_disabled() -> bool:
     """Return whether the spec compiler should skip output schema enforcement."""
     return get_bool_env("SPEC_COMPILER_DISABLE_SCHEMA", default=False)

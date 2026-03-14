@@ -45,6 +45,7 @@ def _valid_story() -> dict:
             "Verify that persistence is blocked when attestation is false."
         ],
         "invest_score": "High",
+        "estimated_effort": "M",
     }
 
 
@@ -60,6 +61,7 @@ def _story_missing_so_that() -> dict:
             "Verify that persisted snapshots do not contain user confirmation fields."
         ],
         "invest_score": "High",
+        "estimated_effort": "M",
     }
 
 
@@ -114,7 +116,7 @@ class TestSaveStoriesTool:
         )
         result = save_stories_tool(input_data=payload, tool_context=None)
 
-        assert result["success"] is True
+        assert result["success"] == True, result.get("error")
         assert result["saved_count"] == 1
         assert len(result["story_ids"]) == 1
 
@@ -188,7 +190,7 @@ class TestSaveStoriesTool:
         )
         result = save_stories_tool(input_data=payload, tool_context=None)
 
-        assert result["success"] is True
+        assert result["success"] == True, result.get("error")
         assert result["updated_count"] == 1
         assert result["created_count"] == 0
         assert result["updated_story_ids"] == [seed_id]
@@ -257,5 +259,5 @@ class TestSaveStoriesTool:
             stories=[_valid_story()],
         )
         result = save_stories_tool(input_data=payload, tool_context=None)
-        assert result["success"] is True
+        assert result["success"] == True, result.get("error")
         assert result["updated_story_ids"] == [seed.story_id]

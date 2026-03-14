@@ -70,6 +70,12 @@ let activeStoryReq = null;
 let activeStoryAttemptCount = 0;
 let activeStoryIsComplete = false;
 
+// Variables to hold raw JSON data for the copy feature
+let currentVisionArtifactJSON = null;
+let currentBacklogArtifactJSON = null;
+let currentRoadmapArtifactJSON = null;
+let currentStoryArtifactJSON = null;
+
 window.addEventListener('DOMContentLoaded', async () => {
     // 1. Get Project ID from URL
     const urlParams = new URLSearchParams(window.location.search);
@@ -525,6 +531,7 @@ function renderVisionArtifactHtml(artifact) {
 function renderVisionAttemptPanels(inputContext, outputArtifact) {
     const inputEl = document.getElementById('vision-input-context');
     const outputEl = document.getElementById('vision-output-artifact');
+    const copyBtn = document.getElementById('btn-copy-vision-output');
 
     if (inputEl) {
         inputEl.innerText = inputContext ? JSON.stringify(inputContext, null, 2) : 'No vision run yet.';
@@ -532,6 +539,15 @@ function renderVisionAttemptPanels(inputContext, outputArtifact) {
 
     if (outputEl) {
         outputEl.innerHTML = renderVisionArtifactHtml(outputArtifact);
+    }
+    
+    currentVisionArtifactJSON = outputArtifact || null;
+    if (copyBtn) {
+        if (currentVisionArtifactJSON) {
+            copyBtn.classList.remove('hidden');
+        } else {
+            copyBtn.classList.add('hidden');
+        }
     }
 }
 
@@ -824,6 +840,7 @@ function renderBacklogArtifactHtml(artifact) {
 function renderBacklogAttemptPanels(inputContext, outputArtifact) {
     const inputEl = document.getElementById('backlog-input-context');
     const outputEl = document.getElementById('backlog-output-artifact');
+    const copyBtn = document.getElementById('btn-copy-backlog-output');
 
     if (inputEl) {
         inputEl.innerText = inputContext ? JSON.stringify(inputContext, null, 2) : 'No backlog run yet.';
@@ -831,6 +848,15 @@ function renderBacklogAttemptPanels(inputContext, outputArtifact) {
 
     if (outputEl) {
         outputEl.innerHTML = renderBacklogArtifactHtml(outputArtifact);
+    }
+    
+    currentBacklogArtifactJSON = outputArtifact || null;
+    if (copyBtn) {
+        if (currentBacklogArtifactJSON) {
+            copyBtn.classList.remove('hidden');
+        } else {
+            copyBtn.classList.add('hidden');
+        }
     }
 }
 
@@ -1140,6 +1166,7 @@ function renderRoadmapArtifactHtml(artifact) {
 function renderRoadmapAttemptPanels(inputContext, outputArtifact) {
     const inputEl = document.getElementById('roadmap-input-context');
     const outputEl = document.getElementById('roadmap-output-artifact');
+    const copyBtn = document.getElementById('btn-copy-roadmap-output');
 
     if (inputEl) {
         inputEl.innerText = inputContext ? JSON.stringify(inputContext, null, 2) : 'No roadmap run yet.';
@@ -1147,6 +1174,15 @@ function renderRoadmapAttemptPanels(inputContext, outputArtifact) {
 
     if (outputEl) {
         outputEl.innerHTML = renderRoadmapArtifactHtml(outputArtifact);
+    }
+    
+    currentRoadmapArtifactJSON = outputArtifact || null;
+    if (copyBtn) {
+        if (currentRoadmapArtifactJSON) {
+            copyBtn.classList.remove('hidden');
+        } else {
+            copyBtn.classList.add('hidden');
+        }
     }
 }
 
@@ -1539,6 +1575,7 @@ function renderStoryHistory(items) {
 function renderStoryAttemptPanels(inputContext, outputArtifact) {
     const inputCanvas = document.getElementById('story-input-context');
     const outputCanvas = document.getElementById('story-output-artifact');
+    const copyBtn = document.getElementById('btn-copy-story-output');
 
     if (!inputCanvas || !outputCanvas) return;
 
@@ -1559,6 +1596,15 @@ function renderStoryAttemptPanels(inputContext, outputArtifact) {
     }
 
     outputCanvas.innerHTML = renderStoryArtifactHtml(outputArtifact);
+    
+    currentStoryArtifactJSON = outputArtifact || null;
+    if (copyBtn) {
+        if (currentStoryArtifactJSON) {
+            copyBtn.classList.remove('hidden');
+        } else {
+            copyBtn.classList.add('hidden');
+        }
+    }
 }
 
 function renderStoryArtifactHtml(artifact) {
@@ -1929,12 +1975,69 @@ async function deleteCurrentProject() {
 }
 
 
+function formatSafeDate(dateString) {
+    if (!dateString) return '-';
+    try {
+        const d = new Date(dateString);
+        return isNaN(d) ? dateString : d.toLocaleDateString();
+    } catch {
+        return dateString;
+    }
+}
+
+async function copyArtifactToClipboard(phase) {
+    let payload = null;
+    let btnId = null;
+
+    if (phase === 'vision') {
+        payload = currentVisionArtifactJSON;
+        btnId = 'btn-copy-vision-output';
+    } else if (phase === 'backlog') {
+        payload = currentBacklogArtifactJSON;
+        btnId = 'btn-copy-backlog-output';
+    } else if (phase === 'roadmap') {
+        payload = currentRoadmapArtifactJSON;
+        btnId = 'btn-copy-roadmap-output';
+    } else if (phase === 'story') {
+        payload = currentStoryArtifactJSON;
+        btnId = 'btn-copy-story-output';
+    }
+
+    if (!payload) {
+        console.warn(`No artifact payload available for phase: ${phase}`);
+        return;
+    }
+
+    try {
+        const jsonString = JSON.stringify(payload, null, 2);
+        await navigator.clipboard.writeText(jsonString);
+
+        const btn = document.getElementById(btnId);
+        if (btn) {
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = `<span class="material-symbols-outlined text-[12px]">check</span> Copied!`;
+            btn.classList.add('bg-emerald-100', 'text-emerald-700', 'border-emerald-200');
+            btn.classList.remove('bg-white', 'text-slate-600', 'border-slate-200', 'dark:bg-slate-900', 'dark:text-slate-400');
+
+            setTimeout(() => {
+                btn.innerHTML = originalHtml;
+                btn.classList.remove('bg-emerald-100', 'text-emerald-700', 'border-emerald-200');
+                btn.classList.add('bg-white', 'text-slate-600', 'border-slate-200', 'dark:bg-slate-900', 'dark:text-slate-400');
+            }, 2000);
+        }
+    } catch (err) {
+        console.error('Failed to copy to clipboard', err);
+        alert('Failed to copy to clipboard. Ensure you are using HTTPS or localhost.');
+    }
+}
+
 // Assign globally for inline onclick handlers attached in project.html
 window.retryProjectSetup = retryProjectSetup;
 window.handleNextPhase = handleNextPhase;
 window.generateVisionDraft = generateVisionDraft;
 window.saveVisionDraft = saveVisionDraft;
 window.generateBacklogDraft = generateBacklogDraft;
+window.copyArtifactToClipboard = copyArtifactToClipboard;
 window.saveBacklogDraft = saveBacklogDraft;
 window.generateRoadmapDraft = generateRoadmapDraft;
 window.saveRoadmapDraft = saveRoadmapDraft;

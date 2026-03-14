@@ -296,9 +296,15 @@
                                     </div>
                                     <div
                                         class="border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-950 p-4 shadow-sm flex flex-col h-[300px]">
-                                        <h5
-                                            class="text-xs uppercase tracking-wider font-bold text-slate-500 mb-3 pb-2 border-b border-slate-100 dark:border-slate-800">
-                                            Agent Output Artifact</h5>
+                                        <div class="flex items-center justify-between mb-3 pb-2 border-b border-slate-100 dark:border-slate-800">
+                                            <h5 class="text-xs uppercase tracking-wider font-bold text-slate-500">
+                                                Agent Output Artifact</h5>
+                                            <button id="btn-copy-vision-output" onclick="copyArtifactToClipboard('vision')"
+                                                class="hidden inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800">
+                                                <span class="material-symbols-outlined text-[12px]">content_copy</span>
+                                                Copy JSON
+                                            </button>
+                                        </div>
                                         <div id="vision-output-artifact"
                                             class="flex-1 overflow-y-auto custom-scrollbar pr-2">
                                             <div class="text-xs text-slate-500">No vision run yet.</div>
@@ -404,7 +410,12 @@
                                                 <h5
                                                     class="text-xs uppercase tracking-wider font-bold text-slate-600 dark:text-slate-400">
                                                     Agent Output Artifact</h5>
-                                                <div class="flex gap-2">
+                                                <div class="flex gap-2 items-center">
+                                                    <button id="btn-copy-backlog-output" onclick="copyArtifactToClipboard('backlog')"
+                                                        class="hidden inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800">
+                                                        <span class="material-symbols-outlined text-[12px]">content_copy</span>
+                                                        Copy JSON
+                                                    </button>
                                                     <span
                                                         class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
                                                         <span class="material-symbols-outlined text-[12px]">code</span>
@@ -528,7 +539,12 @@
                                                 <h5
                                                     class="text-xs uppercase tracking-wider font-bold text-slate-600 dark:text-slate-400">
                                                     Agent Output Artifact</h5>
-                                                <div class="flex gap-2">
+                                                <div class="flex gap-2 items-center">
+                                                    <button id="btn-copy-roadmap-output" onclick="copyArtifactToClipboard('roadmap')"
+                                                        class="hidden inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800">
+                                                        <span class="material-symbols-outlined text-[12px]">content_copy</span>
+                                                        Copy JSON
+                                                    </button>
                                                     <span
                                                         class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
                                                         <span class="material-symbols-outlined text-[12px]">code</span>
@@ -715,7 +731,12 @@
                                                             <h5
                                                                 class="text-xs uppercase tracking-wider font-bold text-slate-600 dark:text-slate-400">
                                                                 Agent Output Artifact</h5>
-                                                            <div class="flex gap-2">
+                                                            <div class="flex gap-2 items-center">
+                                                                <button id="btn-copy-story-output" onclick="copyArtifactToClipboard('story')"
+                                                                    class="hidden inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800">
+                                                                    <span class="material-symbols-outlined text-[12px]">content_copy</span>
+                                                                    Copy JSON
+                                                                </button>
                                                                 <span
                                                                     class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
                                                                     <span

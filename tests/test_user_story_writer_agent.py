@@ -21,11 +21,11 @@ def test_agent_has_input_schema() -> None:
 
 
 def test_agent_has_output_schema() -> None:
-    assert root_agent.output_schema is None
+    assert root_agent.output_schema is UserStoryWriterOutput
 
 
 def test_agent_has_output_key() -> None:
-    assert root_agent.output_key is None
+    assert root_agent.output_key == "story_output"
 
 
 def test_factory_returns_new_instance() -> None:

@@ -7,7 +7,7 @@ from google.adk.models.lite_llm import LiteLlm
 
 from utils.helper import load_instruction
 from utils.model_config import get_model_id, get_openrouter_extra_body
-from utils.runtime_config import get_openrouter_api_key
+from utils.runtime_config import get_openrouter_api_key, get_story_writer_max_tokens
 from .schemes import UserStoryWriterInput, UserStoryWriterOutput
 
 # Load instruction text
@@ -17,11 +17,13 @@ USER_STORY_WRITER_INSTRUCTIONS = load_instruction(INSTRUCTIONS_PATH)
 
 def create_user_story_writer_agent() -> Agent:
     """Factory: create a fresh User Story Writer agent instance."""
+    _max_tokens = get_story_writer_max_tokens()
     model: LiteLlm = LiteLlm(
         model=get_model_id("user_story_writer"),
         api_key=get_openrouter_api_key(),
         drop_params=True,
         extra_body=get_openrouter_extra_body(),
+        max_tokens=_max_tokens,
     )
     return Agent(
         name="user_story_writer_tool",
@@ -31,8 +33,8 @@ def create_user_story_writer_agent() -> Agent:
         ),
         model=model,
         input_schema=UserStoryWriterInput,
-        output_schema=None,
-        output_key=None,
+        output_schema=UserStoryWriterOutput,
+        output_key="story_output",
         instruction=USER_STORY_WRITER_INSTRUCTIONS,
         disallow_transfer_to_parent=True,
         disallow_transfer_to_peers=True,
