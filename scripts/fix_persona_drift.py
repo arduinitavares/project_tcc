@@ -25,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlmodel import Session, select
-from agile_sqlmodel import UserStory, Product, Feature, engine
+from agile_sqlmodel import UserStory, Product, Feature, get_engine
 from orchestrator_agent.agent_tools.story_pipeline.steps.persona_checker import (
     extract_persona_from_story,
     validate_persona,
@@ -60,7 +60,7 @@ def analyze_product_personas(product_id: int) -> dict:
     Returns:
         Dict with persona statistics
     """
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         product = session.get(Product, product_id)
         if not product:
             raise ValueError(f"Product {product_id} not found")
@@ -112,7 +112,7 @@ def fix_story_personas(
     Returns:
         Dict with fix statistics
     """
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         product = session.get(Product, product_id)
         if not product:
             raise ValueError(f"Product {product_id} not found")
@@ -214,7 +214,7 @@ def generate_review_report(product_id: int, output_file: str = "persona_review.c
         product_id: Product ID to report on
         output_file: Output CSV filename
     """
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         product = session.get(Product, product_id)
         if not product:
             raise ValueError(f"Product {product_id} not found")

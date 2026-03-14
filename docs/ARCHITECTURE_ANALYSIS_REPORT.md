@@ -161,8 +161,8 @@ This is the architecture that the codebase already implements. The recommendatio
 - There is **no explicit Repository abstraction** — tools directly import models and `get_engine()`.
 
 **[Fact]** Two distinct data stores coexist:
-1. **Business DB** (`agile_simple.db`): Product, spec, story, sprint data via SQLModel. Created by `agile_sqlmodel.create_db_and_tables()`.
-2. **Session/Volatile State DB** (`agile_sqlmodel.db`): ADK's `DatabaseSessionService` stores transient agent session state. Created by ADK framework.
+1. **Business DB** (configured by `PROJECT_TCC_DB_URL`, for example `db/spec_authority_dev.db`): Product, spec, story, sprint data via SQLModel. Created by `agile_sqlmodel.create_db_and_tables()`.
+2. **Session/Volatile State DB** (configured by `PROJECT_TCC_SESSION_DB_URL`, for example `db/spec_authority_session_dev.db`): ADK's `DatabaseSessionService` stores transient agent session state.
 
 **[Fact]** Schema evolution uses **hand-written idempotent migrations** in [db/migrations.py](db/migrations.py) — `ALTER TABLE ADD COLUMN` only, no `DROP`, no data destructive operations.
 
@@ -376,7 +376,7 @@ This is the correct presentation architecture for the system's context:
 ### Accidental Architecture
 
 1. **Legacy `engine` module-level variable:** A non-guarded `engine = create_engine(...)` exists at module level alongside the safer `get_engine()` function ([agile_sqlmodel.py](agile_sqlmodel.py#L799-L804)). The `export_snapshot.py` imports this legacy variable directly.
-2. **Dual DB file names:** `agile_simple.db` (business) and `agile_sqlmodel.db` (session) have confusing naming that doesn't reflect their purpose.
+2. **Configuration sprawl risk:** database locations must remain env-driven (`PROJECT_TCC_DB_URL`, `PROJECT_TCC_SESSION_DB_URL`) to avoid reintroducing confusing legacy filenames or split-brain local setups.
 3. **`PERSIST_LLM_OUTPUT` flag** (ARCH-004) creates two fundamentally different runtime behaviors controlled by a hidden environment variable.
 
 ---

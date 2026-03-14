@@ -6,16 +6,15 @@ product vision statement. If information is missing, it returns a
 draft and clarifying questions.
 """
 
-import os
 from pathlib import Path
 
-import dotenv
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
 
 from utils.helper import load_instruction
 from .schemes import InputSchema, OutputSchema
 from utils.model_config import get_model_id, get_openrouter_extra_body
+from utils.runtime_config import get_openrouter_api_key
 
 # --- Load Instruction ---
 INSTRUCTIONS_PATH: Path = Path(
@@ -23,13 +22,10 @@ INSTRUCTIONS_PATH: Path = Path(
 )
 instructions = load_instruction(INSTRUCTIONS_PATH)
 
-# --- Load Environment Variables ---
-dotenv.load_dotenv()
-
 # --- Initialize Model with drop_params to prevent logging issues ---
 model: LiteLlm = LiteLlm(
     model=get_model_id("product_vision"),
-    api_key=os.getenv("OPEN_ROUTER_API_KEY"),
+    api_key=get_openrouter_api_key(),
     drop_params=True,  # Prevent passing unsupported params that trigger logging
     extra_body=get_openrouter_extra_body(),
 )

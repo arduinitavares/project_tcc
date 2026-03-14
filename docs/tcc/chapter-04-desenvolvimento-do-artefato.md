@@ -129,7 +129,7 @@ SQLite foi adotado por ser um banco embarcado, replicável e suficiente para uma
 
 ## 4.6 Cenário de uso e demonstração (execução do pipeline)
 
-Como demonstração do artefato, foi executado um projeto de teste (Produto ID 1) que percorre o pipeline até o planejamento de sprint. O conjunto de métricas extraído do banco (`db/spec_authority_dev.db`) e consolidado por script de extração (`scripts/extract_tcc_metrics.py`) registra os seguintes resultados do estado atual:
+Como demonstração do artefato, foi executado um projeto de teste (Produto ID 1) que percorre o pipeline até o planejamento de sprint. O conjunto de métricas extraído do banco (`db/spec_authority_dev.db`) e consolidado pelo comando `python -m scripts.extract_tcc_metrics` registra os seguintes resultados do estado atual:
 
 - **Histórias e tarefas:** 23 histórias de usuário persistidas e 30 tarefas persistidas.
 - **Sprint:** 1 sprint persistido, com 5 histórias associadas.

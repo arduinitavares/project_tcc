@@ -189,12 +189,6 @@ function setPhaseState(fsmState, desiredViewPhase = null) {
     activePhaseId = getPhaseIdForState(activeFsmState);
     viewPhaseId = desiredViewPhase || activePhaseId;
 
-    // Update FSM Status Card Sidebar
-    const statusDisplay = document.getElementById("fsm-status-display");
-    if (statusDisplay) {
-        statusDisplay.innerHTML = `<span class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-bold ring-1 ring-inset bg-primary/10 text-primary ring-primary/20">${activeFsmState.replace(/_/g, ' ')}</span>`;
-    }
-
     updateStepperUI(activeFsmState);
     renderPhaseSection();
     updateNextButton();
@@ -377,6 +371,7 @@ async function retryProjectSetup() {
         const data = await response.json();
         if (data.status === 'success') {
             await fetchProjectFSMState(selectedProjectId);
+            await loadVisionHistory();
         } else {
             alert(data.detail || 'Setup retry failed.');
         }
@@ -404,41 +399,43 @@ function updateStepperUI(fsmState) {
     }
 
     steps.forEach((step, index) => {
-        const stepEl = document.getElementById(`step-${step.id}`);
-        if (!stepEl) return;
+        const stepEls = document.querySelectorAll(`[data-step-id="${step.id}"]`);
+        if (stepEls.length === 0) return;
 
-        const iconContainer = stepEl.querySelector('[data-role="icon"]');
-        const labelSpan = stepEl.querySelector('[data-role="label"]');
-        const statusSpan = stepEl.querySelector('[data-role="status"]');
-        if (!iconContainer || !labelSpan || !statusSpan) return;
+        stepEls.forEach((stepEl) => {
+            const iconContainer = stepEl.querySelector('[data-role="icon"]');
+            const labelSpan = stepEl.querySelector('[data-role="label"]');
+            const statusSpan = stepEl.querySelector('[data-role="status"]');
+            if (!iconContainer || !labelSpan || !statusSpan) return;
 
-        if (index < activeIndex) {
+            if (index < activeIndex) {
+                stepEl.removeAttribute('aria-current');
+                iconContainer.className = 'w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center ring-4 ring-white dark:ring-background-dark shadow-md transition-all';
+                iconContainer.innerHTML = '<span class="material-symbols-outlined text-xl">check</span>';
+                labelSpan.className = 'text-xs font-bold text-emerald-600 dark:text-emerald-400 transition-colors';
+                statusSpan.className = 'text-[10px] text-emerald-500 uppercase font-black transition-colors';
+                statusSpan.innerText = 'Completed';
+                return;
+            }
+
+            if (index === activeIndex) {
+                stepEl.setAttribute('aria-current', 'step');
+                const icon = STEP_ICONS[step.id] || 'play_circle';
+                iconContainer.className = 'w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center ring-4 ring-white dark:ring-background-dark shadow-md transition-all';
+                iconContainer.innerHTML = `<span class="material-symbols-outlined text-xl">${icon}</span>`;
+                labelSpan.className = 'text-xs font-bold text-primary transition-colors';
+                statusSpan.className = 'text-[10px] text-primary/80 uppercase font-black transition-colors';
+                statusSpan.innerText = 'Active';
+                return;
+            }
+
             stepEl.removeAttribute('aria-current');
-            iconContainer.className = 'w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center ring-4 ring-white dark:ring-background-dark shadow-md transition-all';
-            iconContainer.innerHTML = '<span class="material-symbols-outlined text-xl">check</span>';
-            labelSpan.className = 'text-xs font-bold text-emerald-600 dark:text-emerald-400 transition-colors';
-            statusSpan.className = 'text-[10px] text-emerald-500 uppercase font-black transition-colors';
-            statusSpan.innerText = 'Completed';
-            return;
-        }
-
-        if (index === activeIndex) {
-            stepEl.setAttribute('aria-current', 'step');
-            const icon = STEP_ICONS[step.id] || 'play_circle';
-            iconContainer.className = 'w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center ring-4 ring-white dark:ring-background-dark shadow-md transition-all';
-            iconContainer.innerHTML = `<span class="material-symbols-outlined text-xl">${icon}</span>`;
-            labelSpan.className = 'text-xs font-bold text-primary transition-colors';
-            statusSpan.className = 'text-[10px] text-primary/80 uppercase font-black transition-colors';
-            statusSpan.innerText = 'Active';
-            return;
-        }
-
-        stepEl.removeAttribute('aria-current');
-        iconContainer.className = 'w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all';
-        iconContainer.innerHTML = '<span class="material-symbols-outlined text-xl">lock</span>';
-        labelSpan.className = 'text-xs font-medium text-slate-500 transition-colors';
-        statusSpan.className = 'text-[10px] text-slate-400 uppercase font-black transition-colors';
-        statusSpan.innerText = 'Locked';
+            iconContainer.className = 'w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all';
+            iconContainer.innerHTML = '<span class="material-symbols-outlined text-xl">lock</span>';
+            labelSpan.className = 'text-xs font-medium text-slate-500 transition-colors';
+            statusSpan.className = 'text-[10px] text-slate-400 uppercase font-black transition-colors';
+            statusSpan.innerText = 'Locked';
+        });
     });
 }
 
@@ -632,6 +629,9 @@ async function generateVisionDraft() {
 
     const input = document.getElementById('vision-user-input');
     const userInput = input?.value?.trim() || '';
+    if (!userInput && visionAttemptCount === 0) {
+        await loadVisionHistory();
+    }
     if (visionAttemptCount > 0 && !userInput) {
         alert('Please provide feedback to refine Vision.');
         return;

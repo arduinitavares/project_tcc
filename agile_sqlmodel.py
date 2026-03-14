@@ -12,7 +12,6 @@ This version fixes the 'utcnow' deprecation warning and the
 """
 
 import enum
-import os
 from datetime import date, datetime, timezone  # Import timezone
 from pathlib import Path
 from typing import List, Optional
@@ -23,19 +22,11 @@ from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.types import Date, Text
 from sqlmodel import Field, Relationship, SQLModel, create_engine
 from db.migrations import ensure_schema_current
-import os
 import sys
-
-
-# Load .env file if it exists
-try:
-    from dotenv import load_dotenv
-    env_path = Path(__file__).parent / ".env"
-    if env_path.exists():
-        load_dotenv(env_path)
-except ImportError:
-    # python-dotenv not installed, skip
-    pass
+from utils.runtime_config import (
+    get_business_db_target,
+    get_database_echo,
+)
 
 # --- 1. Enums for Status Fields ---
 
@@ -758,22 +749,8 @@ def _is_pytest_running() -> bool:
 
 
 def get_database_url() -> str:
-    """Return database URL from environment variable or default.
-    
-    Environment variables:
-        PROJECT_TCC_DB_URL: Full database URL (default: sqlite:///./agile_simple.db)
-    """
-    return os.environ.get("PROJECT_TCC_DB_URL", "sqlite:///./agile_simple.db")
-
-
-def get_database_echo() -> bool:
-    """Return whether to echo SQL statements.
-    
-    Environment variables:
-        PROJECT_TCC_DB_ECHO: Set to 'true' to enable SQL logging (default: True)
-    """
-    echo_env = os.environ.get("PROJECT_TCC_DB_ECHO", "true").lower()
-    return echo_env in ("true", "1", "yes")
+    """Return the configured business database URL."""
+    return get_business_db_target().sqlite_url
 
 
 # Create the production engine (lazy singleton)
@@ -827,8 +804,9 @@ def get_engine():
 
 # Legacy: Keep 'engine' as module-level variable for backwards compatibility
 # New code should use get_engine() for test safety
+DB_URL = get_database_url()
 engine = create_engine(
-    get_database_url(),
+    DB_URL,
     echo=get_database_echo(),
     connect_args={"check_same_thread": False},
 )
@@ -845,14 +823,17 @@ def set_sqlite_pragma(dbapi_connection, _connection_record):
 def create_db_and_tables():
     """Create the database and all tables, then run migrations."""
     print("Creating tables...")
-    SQLModel.metadata.create_all(engine)
+    ensure_business_db_ready()
     print("Tables created successfully.")
-    
-    # Run idempotent migrations to handle schema drift
-    ensure_schema_current(engine)
+
+
+def ensure_business_db_ready(engine_override: Optional[Engine] = None) -> None:
+    """Create core business tables and apply idempotent migrations."""
+    target_engine = engine_override or engine
+    SQLModel.metadata.create_all(target_engine)
+    ensure_schema_current(target_engine)
 
 
 if __name__ == "__main__":
-    # This makes the script runnable
-    # It will create the 'agile_simple.db' file in your directory
+    # This makes the script runnable with explicit environment configuration.
     create_db_and_tables()

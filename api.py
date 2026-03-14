@@ -13,7 +13,13 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
-from agile_sqlmodel import get_engine, UserStory, SprintStory, StoryCompletionLog
+from agile_sqlmodel import (
+    StoryCompletionLog,
+    SprintStory,
+    UserStory,
+    ensure_business_db_ready,
+    get_engine,
+)
 
 from orchestrator_agent.agent_tools.product_vision_tool.tools import (
     SaveVisionInput,
@@ -40,8 +46,11 @@ from services.story_runtime import run_story_agent_from_state
 from services.workflow import WorkflowService
 from tools.orchestrator_tools import select_project
 from tools.spec_tools import link_spec_to_product
+from utils.failure_artifacts import read_failure_artifact
+from utils.logging_config import configure_logging
+from utils.runtime_config import get_api_host, get_api_port, get_api_reload
 
-logging.basicConfig(level=logging.INFO)
+configure_logging()
 logger = logging.getLogger(__name__)
 
 product_repo = ProductRepository()
@@ -50,6 +59,8 @@ workflow_service = WorkflowService()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    configure_logging()
+    ensure_business_db_ready()
     migrated = workflow_service.migrate_legacy_setup_state()
     if migrated:
         logger.info("Migrated %s legacy sessions from ROUTING_MODE to SETUP_REQUIRED", migrated)
@@ -144,6 +155,13 @@ WORKFLOW_STEPS: List[Dict[str, Any]] = [
     },
 ]
 VALID_FSM_STATES = {state.value for state in OrchestratorState}
+FAILURE_META_FIELDS = (
+    "failure_artifact_id",
+    "failure_stage",
+    "failure_summary",
+    "raw_output_preview",
+    "has_full_artifact",
+)
 
 
 def _now_iso() -> str:
@@ -157,6 +175,44 @@ def _normalize_fsm_state(value: Optional[str]) -> str:
         if normalized in VALID_FSM_STATES:
             return normalized
     return OrchestratorState.SETUP_REQUIRED.value
+
+
+def _failure_meta(
+    source: Optional[Dict[str, Any]],
+    *,
+    fallback_summary: Optional[str] = None,
+) -> Dict[str, Any]:
+    payload = source or {}
+    return {
+        "failure_artifact_id": payload.get("failure_artifact_id"),
+        "failure_stage": payload.get("failure_stage"),
+        "failure_summary": payload.get("failure_summary") or fallback_summary,
+        "raw_output_preview": payload.get("raw_output_preview"),
+        "has_full_artifact": bool(payload.get("has_full_artifact", False)),
+    }
+
+
+def _set_setup_failure_meta(
+    state: Dict[str, Any],
+    source: Optional[Dict[str, Any]],
+    *,
+    error_message: Optional[str],
+) -> Dict[str, Any]:
+    metadata = _failure_meta(source, fallback_summary=error_message)
+    state["setup_failure_artifact_id"] = metadata["failure_artifact_id"]
+    state["setup_failure_stage"] = metadata["failure_stage"]
+    state["setup_failure_summary"] = metadata["failure_summary"]
+    state["setup_raw_output_preview"] = metadata["raw_output_preview"]
+    state["setup_has_full_artifact"] = metadata["has_full_artifact"]
+    return metadata
+
+
+def _clear_setup_failure_meta(state: Dict[str, Any]) -> None:
+    state["setup_failure_artifact_id"] = None
+    state["setup_failure_stage"] = None
+    state["setup_failure_summary"] = None
+    state["setup_raw_output_preview"] = None
+    state["setup_has_full_artifact"] = False
 
 
 def _setup_blocker(product: Any) -> Optional[str]:
@@ -218,8 +274,10 @@ def _record_vision_attempt(
     input_context: Dict[str, Any],
     output_artifact: Dict[str, Any],
     is_complete: bool,
+    failure_meta: Optional[Dict[str, Any]] = None,
 ) -> int:
     attempts = _ensure_vision_attempts(state)
+    normalized_failure = _failure_meta(failure_meta)
     attempts.append(
         {
             "created_at": _now_iso(),
@@ -227,6 +285,7 @@ def _record_vision_attempt(
             "input_context": input_context,
             "output_artifact": output_artifact,
             "is_complete": is_complete,
+            **normalized_failure,
         }
     )
     state["vision_attempts"] = attempts
@@ -267,6 +326,7 @@ async def _run_setup(session_id: str, project_id: int, spec_file_path: str) -> D
         "is_complete": None,
         "error": None,
         "trigger": "auto_setup_transition",
+        **_failure_meta(None),
     }
 
     if not setup_passed:
@@ -280,6 +340,7 @@ async def _run_setup(session_id: str, project_id: int, spec_file_path: str) -> D
         else:
             vision_result = await run_vision_agent_from_state(
                 context.state,
+                project_id=project_id,
                 user_input="",
             )
             attempt_is_complete = bool(vision_result.get("is_complete")) if vision_result.get("success") else False
@@ -289,6 +350,7 @@ async def _run_setup(session_id: str, project_id: int, spec_file_path: str) -> D
                 input_context=vision_result.get("input_context") or {},
                 output_artifact=vision_result.get("output_artifact") or {},
                 is_complete=attempt_is_complete,
+                failure_meta=vision_result,
             )
             next_state = _set_vision_fsm_state(
                 context.state,
@@ -300,12 +362,21 @@ async def _run_setup(session_id: str, project_id: int, spec_file_path: str) -> D
                 "is_complete": vision_result.get("is_complete") if vision_result.get("success") else None,
                 "error": vision_result.get("error"),
                 "trigger": "auto_setup_transition",
+                **_failure_meta(vision_result, fallback_summary=vision_result.get("error")),
             }
 
     if not setup_passed:
         context.state["fsm_state"] = OrchestratorState.SETUP_REQUIRED.value
         context.state["fsm_state_entered_at"] = _now_iso()
         next_state = OrchestratorState.SETUP_REQUIRED.value
+        setup_failure_meta = _set_setup_failure_meta(
+            context.state,
+            result,
+            error_message=error_message,
+        )
+    else:
+        _clear_setup_failure_meta(context.state)
+        setup_failure_meta = _failure_meta(None)
     context.state["setup_status"] = "passed" if setup_passed else "failed"
     context.state["setup_error"] = error_message
     context.state["setup_spec_file_path"] = spec_file_path
@@ -318,6 +389,7 @@ async def _run_setup(session_id: str, project_id: int, spec_file_path: str) -> D
         "detail": result,
         "fsm_state": next_state,
         "vision_auto_run": vision_auto_run,
+        **setup_failure_meta,
     }
 
 
@@ -329,11 +401,17 @@ def _effective_project_state(project: Any, raw_state: Dict[str, Any]) -> Dict[st
     if blocker:
         state["fsm_state"] = OrchestratorState.SETUP_REQUIRED.value
         state["setup_status"] = "failed"
-        state["setup_error"] = blocker
+        existing_error = state.get("setup_error")
+        state["setup_error"] = existing_error or blocker
     else:
         state["fsm_state"] = _normalize_fsm_state(state.get("fsm_state"))
         state.setdefault("setup_status", "passed")
         state.setdefault("setup_error", None)
+    state.setdefault("setup_failure_artifact_id", None)
+    state.setdefault("setup_failure_stage", None)
+    state.setdefault("setup_failure_summary", state.get("setup_error"))
+    state.setdefault("setup_raw_output_preview", None)
+    state.setdefault("setup_has_full_artifact", False)
     if spec_path:
         state["setup_spec_file_path"] = spec_path
 
@@ -372,10 +450,15 @@ def get_projects():
                     "name": product.name,
                     "summary": product.description or "No description provided",
                     "fsm_state": effective_state.get("fsm_state", OrchestratorState.SETUP_REQUIRED.value),
-                    "setup_status": effective_state.get("setup_status", "failed"),
-                    "setup_error": effective_state.get("setup_error"),
-                }
-            )
+                "setup_status": effective_state.get("setup_status", "failed"),
+                "setup_error": effective_state.get("setup_error"),
+                "setup_failure_artifact_id": effective_state.get("setup_failure_artifact_id"),
+                "setup_failure_stage": effective_state.get("setup_failure_stage"),
+                "setup_failure_summary": effective_state.get("setup_failure_summary"),
+                "setup_raw_output_preview": effective_state.get("setup_raw_output_preview"),
+                "setup_has_full_artifact": effective_state.get("setup_has_full_artifact", False),
+            }
+        )
 
         return {"status": "success", "data": payload}
     except Exception as exc:
@@ -401,6 +484,7 @@ async def create_project(req: CreateProjectRequest):
                 "setup_error": setup_result["error"],
                 "fsm_state": setup_result["fsm_state"],
                 "vision_auto_run": setup_result.get("vision_auto_run"),
+                **_failure_meta(setup_result, fallback_summary=setup_result["error"]),
             },
         }
     except Exception as exc:
@@ -424,11 +508,12 @@ async def retry_project_setup(project_id: int, req: RetrySetupRequest):
             "id": project_id,
             "name": product.name,
             "setup_status": "passed" if setup_result["passed"] else "failed",
-            "setup_error": setup_result["error"],
-            "fsm_state": setup_result["fsm_state"],
-            "vision_auto_run": setup_result.get("vision_auto_run"),
-        },
-    }
+                "setup_error": setup_result["error"],
+                "fsm_state": setup_result["fsm_state"],
+                "vision_auto_run": setup_result.get("vision_auto_run"),
+                **_failure_meta(setup_result, fallback_summary=setup_result["error"]),
+            },
+        }
 
 
 @app.get("/api/projects/{project_id}/state")
@@ -444,6 +529,22 @@ async def get_project_state(project_id: int):
     _save_session_state(session_id, effective_state)
 
     return {"status": "success", "data": effective_state}
+
+
+@app.get("/api/projects/{project_id}/debug/failures/{artifact_id}")
+async def get_project_failure_artifact(project_id: int, artifact_id: str):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    artifact = read_failure_artifact(artifact_id)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Failure artifact not found")
+
+    if artifact.get("project_id") != project_id:
+        raise HTTPException(status_code=404, detail="Failure artifact not found for project")
+
+    return {"status": "success", "data": artifact}
 
 
 @app.post("/api/projects/{project_id}/vision/generate")
@@ -470,6 +571,7 @@ async def generate_project_vision(project_id: int, req: VisionGenerateRequest):
 
     vision_result = await run_vision_agent_from_state(
         context.state,
+        project_id=project_id,
         user_input=user_input,
     )
     is_complete = bool(vision_result.get("is_complete")) if vision_result.get("success") else False
@@ -480,6 +582,7 @@ async def generate_project_vision(project_id: int, req: VisionGenerateRequest):
         input_context=vision_result.get("input_context") or {},
         output_artifact=vision_result.get("output_artifact") or {},
         is_complete=is_complete,
+        failure_meta=vision_result,
     )
     next_state = _set_vision_fsm_state(
         context.state,
@@ -499,6 +602,7 @@ async def generate_project_vision(project_id: int, req: VisionGenerateRequest):
             "input_context": vision_result.get("input_context"),
             "output_artifact": vision_result.get("output_artifact"),
             "attempt_count": attempt_count,
+            **_failure_meta(vision_result, fallback_summary=vision_result.get("error")),
         },
     }
 
@@ -602,8 +706,10 @@ def _record_backlog_attempt(
     input_context: Dict[str, Any],
     output_artifact: Dict[str, Any],
     is_complete: bool,
+    failure_meta: Optional[Dict[str, Any]] = None,
 ) -> int:
     attempts = _ensure_backlog_attempts(state)
+    normalized_failure = _failure_meta(failure_meta)
     attempts.append(
         {
             "created_at": _now_iso(),
@@ -611,6 +717,7 @@ def _record_backlog_attempt(
             "input_context": input_context,
             "output_artifact": output_artifact,
             "is_complete": is_complete,
+            **normalized_failure,
         }
     )
     state["backlog_attempts"] = attempts
@@ -660,6 +767,7 @@ async def generate_project_backlog(project_id: int, req: BacklogGenerateRequest)
 
     backlog_result = await run_backlog_agent_from_state(
         context.state,
+        project_id=project_id,
         user_input=user_input,
     )
     is_complete = bool(backlog_result.get("is_complete")) if backlog_result.get("success") else False
@@ -670,6 +778,7 @@ async def generate_project_backlog(project_id: int, req: BacklogGenerateRequest)
         input_context=backlog_result.get("input_context") or {},
         output_artifact=backlog_result.get("output_artifact") or {},
         is_complete=is_complete,
+        failure_meta=backlog_result,
     )
     next_state = _set_backlog_fsm_state(
         context.state,
@@ -689,6 +798,7 @@ async def generate_project_backlog(project_id: int, req: BacklogGenerateRequest)
             "input_context": backlog_result.get("input_context"),
             "output_artifact": backlog_result.get("output_artifact"),
             "attempt_count": attempt_count,
+            **_failure_meta(backlog_result, fallback_summary=backlog_result.get("error")),
         },
     }
 
@@ -786,8 +896,10 @@ def _record_roadmap_attempt(
     input_context: Dict[str, Any],
     output_artifact: Dict[str, Any],
     is_complete: bool,
+    failure_meta: Optional[Dict[str, Any]] = None,
 ) -> int:
     attempts = _ensure_roadmap_attempts(state)
+    normalized_failure = _failure_meta(failure_meta)
     attempts.append(
         {
             "created_at": _now_iso(),
@@ -795,6 +907,7 @@ def _record_roadmap_attempt(
             "input_context": input_context,
             "output_artifact": output_artifact,
             "is_complete": is_complete,
+            **normalized_failure,
         }
     )
     state["roadmap_attempts"] = attempts
@@ -843,7 +956,11 @@ async def generate_project_roadmap(project_id: int, req: RoadmapGenerateRequest)
             detail="User input is required to refine an existing roadmap.",
         )
 
-    roadmap_result = await run_roadmap_agent_from_state(state, user_input=req.user_input)
+    roadmap_result = await run_roadmap_agent_from_state(
+        state,
+        project_id=project_id,
+        user_input=req.user_input,
+    )
 
     is_complete = bool(roadmap_result.get("is_complete", False))
     attempt_count = _record_roadmap_attempt(
@@ -852,6 +969,7 @@ async def generate_project_roadmap(project_id: int, req: RoadmapGenerateRequest)
         input_context=roadmap_result.get("input_context") or {},
         output_artifact=roadmap_result.get("output_artifact") or {},
         is_complete=is_complete,
+        failure_meta=roadmap_result,
     )
     next_state = _set_roadmap_fsm_state(
         state,
@@ -871,6 +989,7 @@ async def generate_project_roadmap(project_id: int, req: RoadmapGenerateRequest)
             "input_context": roadmap_result.get("input_context"),
             "output_artifact": roadmap_result.get("output_artifact"),
             "attempt_count": attempt_count,
+            **_failure_meta(roadmap_result, fallback_summary=roadmap_result.get("error")),
         },
     }
 
@@ -978,12 +1097,14 @@ def _record_story_attempt(
     input_context: Dict[str, Any],
     output_artifact: Dict[str, Any],
     is_complete: bool,
+    failure_meta: Optional[Dict[str, Any]] = None,
 ) -> int:
     attempts_dict = _ensure_story_attempts(state)
     if parent_requirement not in attempts_dict:
         attempts_dict[parent_requirement] = []
     
     attempts = attempts_dict[parent_requirement]
+    normalized_failure = _failure_meta(failure_meta)
     attempts.append(
         {
             "created_at": _now_iso(),
@@ -991,6 +1112,7 @@ def _record_story_attempt(
             "input_context": input_context,
             "output_artifact": output_artifact,
             "is_complete": is_complete,
+            **normalized_failure,
         }
     )
     state["story_attempts"] = attempts_dict
@@ -1095,6 +1217,7 @@ async def generate_project_story(project_id: int, parent_requirement: str, req: 
 
     story_result = await run_story_agent_from_state(
         state, 
+        project_id=project_id,
         parent_requirement=parent_requirement,
         user_input=req.user_input
     )
@@ -1107,6 +1230,7 @@ async def generate_project_story(project_id: int, parent_requirement: str, req: 
         input_context=story_result.get("input_context") or {},
         output_artifact=story_result.get("output_artifact") or {},
         is_complete=is_complete,
+        failure_meta=story_result,
     )
 
     _save_session_state(session_id, state)
@@ -1122,6 +1246,7 @@ async def generate_project_story(project_id: int, parent_requirement: str, req: 
             "input_context": story_result.get("input_context"),
             "output_artifact": story_result.get("output_artifact"),
             "attempt_count": attempt_count,
+            **_failure_meta(story_result, fallback_summary=story_result.get("error")),
         },
     }
 
@@ -1325,5 +1450,8 @@ async def complete_story_phase(project_id: int):
 
 
 if __name__ == "__main__":
-    print("Starting AgenticFlow Dashboard on http://localhost:8000")
-    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+    host = get_api_host()
+    port = get_api_port()
+    reload_enabled = get_api_reload()
+    print(f"Starting AgenticFlow Dashboard on http://{host}:{port}")
+    uvicorn.run("api:app", host=host, port=port, reload=reload_enabled)

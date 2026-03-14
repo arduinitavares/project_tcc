@@ -34,7 +34,7 @@
     class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 min-h-screen flex flex-col">
     <header
         class="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark/70 sticky top-0 z-50">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div class="flex max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 h-16 items-center justify-between">
             <div class="flex items-center gap-4">
                 <a href="/dashboard"
                     aria-label="Back to dashboard"
@@ -52,18 +52,97 @@
         </div>
     </header>
 
-    <main class="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 flex-1 py-8">
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-            <div>
-                <h2 id="project-page-title" class="text-3xl font-extrabold tracking-tight">Loading Project...</h2>
-                <p class="text-slate-500 dark:text-slate-400 mt-1">Navigate phases, refine vision, and advance the
-                    state.</p>
+    <div class="flex-1 flex max-w-[1600px] w-full mx-auto bg-background-light dark:bg-background-dark">
+        <aside
+            class="hidden lg:flex flex-col w-64 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 flex-shrink-0 sticky top-16"
+            style="height: calc(100vh - 4rem);">
+            <div class="p-6 border-b border-slate-200 dark:border-slate-800">
+                <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Project Phases</h3>
             </div>
-        </div>
+            <div class="flex-1 overflow-y-auto p-6 relative">
+                <div class="absolute left-[1.25rem] top-10 bottom-10 w-0.5 bg-slate-200 dark:bg-slate-700 -z-0" aria-hidden="true">
+                </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
-            <div class="lg:col-span-3 space-y-6">
-                <!-- Setup & Pipeline Panel -->
+                <div class="flex flex-col gap-8 relative z-10" role="list" aria-label="Project Workflow Steps">
+                    <div data-step-id="setup" class="flex items-start gap-4" role="listitem">
+                        <div data-role="icon"
+                            class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center ring-4 ring-white dark:ring-background-dark shadow-md">
+                            <span class="material-symbols-outlined text-xl">settings</span>
+                        </div>
+                        <div class="pt-1">
+                            <div data-role="label" class="text-xs font-bold text-primary">Project Setup</div>
+                            <div data-role="status" class="text-[10px] text-primary/80 uppercase font-black">Active</div>
+                        </div>
+                    </div>
+
+                    <div data-step-id="vision" class="flex items-start gap-4" role="listitem">
+                        <div data-role="icon"
+                            class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all">
+                            <span class="material-symbols-outlined text-xl">lock</span>
+                        </div>
+                        <div class="pt-1">
+                            <div data-role="label" class="text-xs font-medium text-slate-500 transition-colors">Vision</div>
+                            <div data-role="status" class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</div>
+                        </div>
+                    </div>
+
+                    <div data-step-id="backlog" class="flex items-start gap-4" role="listitem">
+                        <div data-role="icon"
+                            class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all">
+                            <span class="material-symbols-outlined text-xl">lock</span>
+                        </div>
+                        <div class="pt-1">
+                            <div data-role="label" class="text-xs font-medium text-slate-500 transition-colors">Backlog</div>
+                            <div data-role="status" class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</div>
+                        </div>
+                    </div>
+
+                    <div data-step-id="roadmap" class="flex items-start gap-4" role="listitem">
+                        <div data-role="icon"
+                            class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all">
+                            <span class="material-symbols-outlined text-xl">lock</span>
+                        </div>
+                        <div class="pt-1">
+                            <div data-role="label" class="text-xs font-medium text-slate-500 transition-colors">Roadmap</div>
+                            <div data-role="status" class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</div>
+                        </div>
+                    </div>
+
+                    <div data-step-id="story" class="flex items-start gap-4" role="listitem">
+                        <div data-role="icon"
+                            class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all">
+                            <span class="material-symbols-outlined text-xl">lock</span>
+                        </div>
+                        <div class="pt-1">
+                            <div data-role="label" class="text-xs font-medium text-slate-500 transition-colors">Stories</div>
+                            <div data-role="status" class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</div>
+                        </div>
+                    </div>
+
+                    <div data-step-id="sprint" class="flex items-start gap-4" role="listitem">
+                        <div data-role="icon"
+                            class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all">
+                            <span class="material-symbols-outlined text-xl">lock</span>
+                        </div>
+                        <div class="pt-1">
+                            <div data-role="label" class="text-xs font-medium text-slate-500 transition-colors">Sprint</div>
+                            <div data-role="status" class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex-1 w-full px-4 sm:px-6 lg:px-8 py-8 overflow-y-auto">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+                <div>
+                    <h2 id="project-page-title" class="text-3xl font-extrabold tracking-tight">Loading Project...</h2>
+                    <p class="text-slate-500 dark:text-slate-400 mt-1">Navigate phases, refine vision, and advance the
+                        state.</p>
+                </div>
+            </div>
+
+            <div class="space-y-6 min-w-0">
                 <div id="setup-panel"
                     class="bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm">
                     <div
@@ -73,12 +152,12 @@
 
                     <div class="p-6 space-y-8">
                         <!-- Stepper UI -->
-                        <div class="px-2">
-                            <div class="relative grid grid-cols-6 gap-4" role="list" aria-label="Project Workflow Steps">
+                        <div class="px-2 lg:hidden overflow-x-auto">
+                            <div class="relative grid grid-cols-6 gap-4 min-w-[40rem]" role="list" aria-label="Project Workflow Steps">
                                 <div class="absolute top-5 left-0 w-full h-0.5 bg-slate-200 dark:bg-slate-700 -z-0" aria-hidden="true">
                                 </div>
 
-                                <div id="step-setup" class="relative z-10 flex flex-col items-center gap-2" role="listitem">
+                                <div data-step-id="setup" class="relative z-10 flex flex-col items-center gap-2" role="listitem">
                                     <div data-role="icon"
                                         class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center ring-4 ring-white dark:ring-background-dark shadow-md">
                                         <span class="material-symbols-outlined text-xl">settings</span>
@@ -88,7 +167,7 @@
                                         class="text-[10px] text-primary/80 uppercase font-black">Active</span>
                                 </div>
 
-                                <div id="step-vision" class="relative z-10 flex flex-col items-center gap-2" role="listitem">
+                                <div data-step-id="vision" class="relative z-10 flex flex-col items-center gap-2" role="listitem">
                                     <div data-role="icon"
                                         class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all">
                                         <span class="material-symbols-outlined text-xl">lock</span>
@@ -99,7 +178,7 @@
                                         class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</span>
                                 </div>
 
-                                <div id="step-backlog" class="relative z-10 flex flex-col items-center gap-2" role="listitem">
+                                <div data-step-id="backlog" class="relative z-10 flex flex-col items-center gap-2" role="listitem">
                                     <div data-role="icon"
                                         class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all">
                                         <span class="material-symbols-outlined text-xl">lock</span>
@@ -110,7 +189,7 @@
                                         class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</span>
                                 </div>
 
-                                <div id="step-roadmap" class="relative z-10 flex flex-col items-center gap-2" role="listitem">
+                                <div data-step-id="roadmap" class="relative z-10 flex flex-col items-center gap-2" role="listitem">
                                     <div data-role="icon"
                                         class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all">
                                         <span class="material-symbols-outlined text-xl">lock</span>
@@ -121,7 +200,7 @@
                                         class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</span>
                                 </div>
 
-                                <div id="step-story" class="relative z-10 flex flex-col items-center gap-2" role="listitem">
+                                <div data-step-id="story" class="relative z-10 flex flex-col items-center gap-2" role="listitem">
                                     <div data-role="icon"
                                         class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all">
                                         <span class="material-symbols-outlined text-xl">lock</span>
@@ -132,7 +211,7 @@
                                         class="text-[10px] text-slate-400 uppercase font-black transition-colors">Locked</span>
                                 </div>
 
-                                <div id="step-sprint" class="relative z-10 flex flex-col items-center gap-2" role="listitem">
+                                <div data-step-id="sprint" class="relative z-10 flex flex-col items-center gap-2" role="listitem">
                                     <div data-role="icon"
                                         class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center ring-4 ring-white dark:ring-background-dark transition-all">
                                         <span class="material-symbols-outlined text-xl">lock</span>
@@ -733,50 +812,8 @@
                     </div>
                 </div>
             </div>
-
-            <!-- Sidebar Rules -->
-            <div class="lg:col-span-1 space-y-6">
-                <!-- Status Card -->
-                <div
-                    class="bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
-                    <h4
-                        class="font-bold mb-4 flex items-center gap-2 text-slate-800 dark:text-white border-b border-slate-100 dark:border-slate-700 pb-3">
-                        <span class="material-symbols-outlined text-primary">info</span> Current FSM State
-                    </h4>
-                    <div id="fsm-status-display" class="mb-4">
-                        <span
-                            class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                            LOADING...
-                        </span>
-                    </div>
-                </div>
-
-                <div
-                    class="bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
-                    <h4 class="font-bold mb-3 flex items-center gap-2 text-slate-800 dark:text-white">
-                        <span class="material-symbols-outlined text-emerald-500">rule</span> Pipeline Rules
-                    </h4>
-                    <ul class="text-sm text-slate-600 dark:text-slate-400 space-y-3">
-                        <li class="flex items-start gap-2">
-                            <span class="material-symbols-outlined text-[16px] text-slate-400 mt-0.5">adjust</span>
-                            <span><strong>Setup</strong> requires a valid file path + successfully compiled technical
-                                authority document.</span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <span class="material-symbols-outlined text-[16px] text-slate-400 mt-0.5">adjust</span>
-                            <span><strong>Vision</strong> persistence (saving) is only permitted when the artifact is
-                                marked <code>is_complete=true</code>.</span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <span class="material-symbols-outlined text-[16px] text-slate-400 mt-0.5">adjust</span>
-                            <span>The <strong>Next Phase</strong> button unlocks only when the current phase has reached
-                                its terminal completion state.</span>
-                        </li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-    </main>
+        </main>
+    </div>
 
     <script src="/dashboard/project.js?v=2"></script>
     <style>

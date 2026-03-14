@@ -10,6 +10,7 @@ The caller MUST use the normalized output downstream.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any, Dict, List, Optional
 
@@ -29,6 +30,8 @@ from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_s
     SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
     SPEC_AUTHORITY_COMPILER_VERSION,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _failure(reason: str, blocking_gaps: List[str]) -> SpecAuthorityCompilerOutput:
@@ -94,15 +97,14 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
         SpecAuthorityCompilerOutput (success or failure). On success, prompt_hash and
         invariant/source_map IDs are rewritten deterministically.
     """
-    print("[spec_authority_compiler] normalize_compiler_output: parsing raw JSON")
+    logger.info("Normalizing spec authority compiler output")
 
     raw_json = _extract_json_candidate(raw_json)
 
     try:
         payload = json.loads(raw_json)
     except json.JSONDecodeError as exc:
-        print("[spec_authority_compiler] Invalid JSON")
-        print(str(exc))
+        logger.error("Spec authority compiler returned invalid JSON: %s", exc)
         return _failure(
             reason="INVALID_JSON",
             blocking_gaps=[str(exc)],
@@ -113,7 +115,7 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
 
     try:
         parsed = SpecAuthorityCompilerOutput.model_validate(payload)
-        print("[spec_authority_compiler] Parsed as SpecAuthorityCompilerOutput")
+        logger.info("Parsed compiler output as SpecAuthorityCompilerOutput")
     except ValidationError as output_exc:
         validation_gaps.append(_summarize_validation_error("output", output_exc))
 
@@ -121,29 +123,28 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
             try:
                 envelope = SpecAuthorityCompilerEnvelope.model_validate(payload)
                 parsed = SpecAuthorityCompilerOutput(root=envelope.result)
-                print("[spec_authority_compiler] Parsed as SpecAuthorityCompilerEnvelope")
+                logger.info("Parsed compiler output as SpecAuthorityCompilerEnvelope")
             except ValidationError as envelope_exc:
                 validation_gaps.append(_summarize_validation_error("envelope", envelope_exc))
                 try:
                     parsed = SpecAuthorityCompilerOutput.model_validate(payload.get("result"))
-                    print("[spec_authority_compiler] Parsed using envelope.result payload")
+                    logger.info("Parsed compiler output using envelope.result payload")
                 except ValidationError as result_exc:
                     validation_gaps.append(
                         _summarize_validation_error("envelope.result", result_exc)
                     )
 
     if parsed is None:
-        print("[spec_authority_compiler] JSON schema validation failed")
+        logger.error("Spec authority compiler JSON schema validation failed")
         for gap in validation_gaps:
-            print(gap)
+            logger.error("%s", gap)
         return _failure(
             reason="JSON_VALIDATION_FAILED",
             blocking_gaps=validation_gaps or ["No schema variant matched"],
         )
 
     if isinstance(parsed.root, SpecAuthorityCompilationFailure):
-        print("[spec_authority_compiler] Compiler returned failure")
-        print(parsed.root.model_dump())
+        logger.error("Spec authority compiler returned failure: %s", parsed.root.model_dump())
         return parsed
 
     success: SpecAuthorityCompilationSuccess = parsed.root
@@ -156,16 +157,13 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
     success.compiler_version = SPEC_AUTHORITY_COMPILER_VERSION
 
     if not success.invariants:
-        print(
-            "[spec_authority_compiler] No invariants extracted "
-            "(spec has no normative requirements)"
-        )
+        logger.warning("No invariants extracted from spec authority compiler output")
         if "No invariants extracted from spec" not in success.gaps:
             success.gaps.append("No invariants extracted from spec")
         return SpecAuthorityCompilerOutput(root=success)
 
     if not success.source_map:
-        print("[spec_authority_compiler] Missing source_map")
+        logger.error("Spec authority compiler output is missing source_map")
         return _failure(
             reason="MISSING_SOURCE_MAP",
             blocking_gaps=["Missing source_map required for deterministic IDs"],
@@ -220,7 +218,7 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
     for idx, inv in enumerate(success.invariants):
         excerpt = choose_excerpt(idx, inv.id)
         if not excerpt or not excerpt.strip():
-            print("[spec_authority_compiler] Invariant/source_map mismatch")
+            logger.error("Spec authority compiler invariant/source_map mismatch")
             return _failure(
                 reason="SOURCE_MAP_INVARIANT_MISMATCH",
                 blocking_gaps=[
@@ -239,7 +237,7 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
     for entry_index, entry in enumerate(success.source_map):
         excerpt = (entry.excerpt or "").strip()
         if not excerpt:
-            print("[spec_authority_compiler] Empty source_map excerpt")
+            logger.error("Spec authority compiler source_map entry has empty excerpt")
             return _failure(
                 reason="SOURCE_MAP_INVARIANT_MISMATCH",
                 blocking_gaps=["source_map entry has empty excerpt"],
@@ -285,7 +283,7 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
                 elif len(success.source_map) == len(original_invariants):
                     inv_type = original_invariants[entry_index].type
                 else:
-                    print("[spec_authority_compiler] Cannot match source_map entry to invariant type")
+                    logger.error("Cannot match source_map entry to invariant type")
                     return _failure(
                         reason="SOURCE_MAP_INVARIANT_MISMATCH",
                         blocking_gaps=[
@@ -301,13 +299,10 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
     source_map_ids = {entry.invariant_id for entry in success.source_map}
     missing = sorted(normalized_ids - source_map_ids)
     if missing:
-        # When source_map has fewer entries than invariants, some invariants
-        # genuinely lack traceability.  Log a warning but allow compilation
-        # to proceed — hard failure here blocks the entire vision save for
-        # an LLM output quality issue that doesn't affect invariant content.
-        print(
-            f"[spec_authority_compiler] WARNING: {len(missing)} invariant(s) "
-            f"without source_map coverage: {missing}"
+        logger.warning(
+            "Spec authority compiler output has %s invariant(s) without source_map coverage: %s",
+            len(missing),
+            missing,
         )
 
     return SpecAuthorityCompilerOutput(root=success)

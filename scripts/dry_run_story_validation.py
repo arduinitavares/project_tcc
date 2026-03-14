@@ -3,29 +3,34 @@
 Dry-run script to validate stories against spec authority without persisting changes.
 """
 
-import sys
 import argparse
-from pathlib import Path
-from typing import List, Dict, Any
-from sqlmodel import Session, select, create_engine, SQLModel
 import json
 
-# Add project root to path so we can import models/tools
-project_root = Path(__file__).parent.parent
-sys.path.append(str(project_root))
+from sqlmodel import Session, create_engine, select
 
-from agile_sqlmodel import UserStory, SpecRegistry, CompiledSpecAuthority
-from utils.schemes import ValidationEvidence
-from tools.spec_tools import validate_story_with_spec_authority, ValidateStoryInput
+from utils.runtime_config import resolve_database_target
 
-# Initialize engine relative to script execution
-db_path = project_root / "db" / "spec_authority_dev.db"
-# Use check_same_thread=False for sqlite compatibility scripts
-engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
 
-def dry_run_validation(product_id: int):
-    print(f"Connecting to DB: {db_path}")
-    
+def resolve_db_target(explicit_db: str | None = None):
+    """Resolve the business DB target for dry-run validation."""
+    return resolve_database_target(explicit_db, env_name="PROJECT_TCC_DB_URL")
+
+
+def dry_run_validation(product_id: int, db: str | None = None):
+    from agile_sqlmodel import CompiledSpecAuthority, SpecRegistry, UserStory
+
+    db_target = resolve_db_target(db)
+    if db_target.sqlite_path is None or not db_target.sqlite_path.exists():
+        raise FileNotFoundError(
+            f"Database file not found: {db_target.sqlite_connect_target}"
+        )
+    engine = create_engine(
+        db_target.sqlite_url,
+        connect_args={"check_same_thread": False},
+    )
+
+    print(f"Connecting to DB: {db_target.sqlite_connect_target}")
+
     with Session(engine) as session:
         # 1. Get the APPROVED spec version for this product
         statement = select(SpecRegistry).where(
@@ -119,4 +124,13 @@ def dry_run_validation(product_id: int):
         print("Real validation would be stricter but this confirms data shape.")
 
 if __name__ == "__main__":
-    dry_run_validation(7)
+    parser = argparse.ArgumentParser(
+        description="Dry-run story validation against compiled spec authority.",
+    )
+    parser.add_argument("product_id", type=int, help="Product ID to inspect.")
+    parser.add_argument(
+        "--db",
+        help="Optional SQLite database path or sqlite:/// URL. Defaults to PROJECT_TCC_DB_URL.",
+    )
+    args = parser.parse_args()
+    dry_run_validation(args.product_id, db=args.db)

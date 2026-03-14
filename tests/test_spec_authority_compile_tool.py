@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 
 from agile_sqlmodel import CompiledSpecAuthority, Product
 import tools.spec_tools as spec_tools
+import utils.failure_artifacts as failure_artifacts
 from tools.spec_tools import (
     approve_spec_version,
     compile_spec_authority_for_version,
@@ -23,6 +24,7 @@ from utils.schemes import (
     InvariantType,
     RequiredFieldParams,
 )
+from utils.failure_artifacts import AgentInvocationError
 from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (
     SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
     SPEC_AUTHORITY_COMPILER_VERSION,
@@ -397,3 +399,83 @@ def test_compile_cache_hit_does_not_change_compiled_artifact(
     ).first()
     assert authority is not None
     assert authority.compiled_artifact_json != artifact_first
+
+
+def test_compile_persists_invocation_failure_artifact(
+    session: Session,
+    sample_product: Product,
+    sample_spec_content: str,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    reg_result = register_spec_version(
+        {"product_id": sample_product.product_id, "content": sample_spec_content},
+        tool_context=None,
+    )
+    spec_version_id = reg_result["spec_version_id"]
+    approve_spec_version(
+        {"spec_version_id": spec_version_id, "approved_by": "tester"},
+        tool_context=None,
+    )
+
+    monkeypatch.setattr(failure_artifacts, "LOGS_DIR", tmp_path / "logs")
+    monkeypatch.setattr(failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures")
+    monkeypatch.setattr(
+        spec_tools,
+        "_invoke_spec_authority_compiler",
+        lambda **_: (_ for _ in ()).throw(
+            AgentInvocationError("provider timeout", partial_output='{"partial": true}')
+        ),
+    )
+
+    result = compile_spec_authority_for_version(
+        {"spec_version_id": spec_version_id},
+        tool_context=None,
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "SPEC_COMPILER_INVOCATION_FAILED"
+    assert result["failure_stage"] == "invocation_exception"
+    artifact = failure_artifacts.read_failure_artifact(result["failure_artifact_id"])
+    assert artifact is not None
+    assert artifact["project_id"] == sample_product.product_id
+    assert artifact["raw_output"] == '{"partial": true}'
+
+
+def test_compile_persists_normalizer_failure_artifact(
+    session: Session,
+    sample_product: Product,
+    sample_spec_content: str,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    reg_result = register_spec_version(
+        {"product_id": sample_product.product_id, "content": sample_spec_content},
+        tool_context=None,
+    )
+    spec_version_id = reg_result["spec_version_id"]
+    approve_spec_version(
+        {"spec_version_id": spec_version_id, "approved_by": "tester"},
+        tool_context=None,
+    )
+
+    monkeypatch.setattr(failure_artifacts, "LOGS_DIR", tmp_path / "logs")
+    monkeypatch.setattr(failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures")
+    monkeypatch.setattr(
+        spec_tools,
+        "_invoke_spec_authority_compiler",
+        lambda **_: "{}",
+    )
+
+    result = compile_spec_authority_for_version(
+        {"spec_version_id": spec_version_id},
+        tool_context=None,
+    )
+
+    assert result["success"] is False
+    assert result["failure_stage"] == "output_validation"
+    artifact = failure_artifacts.read_failure_artifact(result["failure_artifact_id"])
+    assert artifact is not None
+    assert artifact["project_id"] == sample_product.product_id
+    assert artifact["raw_output"] == "{}"
+    assert artifact["validation_errors"]

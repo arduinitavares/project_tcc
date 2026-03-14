@@ -15,8 +15,9 @@ This directory contains extracted evaluation metrics for Chapter 6 (Resultados) 
    1. Review-First Human-in-the-Loop Extraction Pipeline (2 stories)
    2. HashbrownVision Phase 1 (5 stories, 1 sprint)
 
-### ADK Session Database: `agile_sqlmodel.db`
-- **Location:** `<project_root>/agile_sqlmodel.db`
+### ADK Session Database: `db/spec_authority_session_dev.db` (example)
+- **Location:** `<project_root>/db/spec_authority_session_dev.db`
+- **Configured via:** `.env` → `PROJECT_TCC_SESSION_DB_URL=sqlite:///./db/spec_authority_session_dev.db`
 - **Size:** ~52 KB (session storage only)
 - **Contains:** Google ADK session data (app_states, events, sessions, user_states)
 - **Note:** NOT used for evaluation metrics; contains conversation history only
@@ -99,7 +100,7 @@ The following evaluation data was collected externally and must be included manu
 cd c:\Users\mjnrc\projects\project_tcc
 
 # Extract from PRODUCTION database (configured in .env)
-python scripts/extract_tcc_metrics.py db/spec_authority_dev.db
+python -m scripts.extract_tcc_metrics db/spec_authority_dev.db
 
 # Run individual SQL queries
 # (Requires sqlite3 CLI or DB browser)

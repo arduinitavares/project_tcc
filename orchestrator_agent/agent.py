@@ -1,10 +1,8 @@
 # agent.py
 """Orchestrator agent definition."""
 
-import os
 from pathlib import Path
 
-import dotenv
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.agent_tool import AgentTool
@@ -63,9 +61,9 @@ from utils.model_config import (
     get_model_id,
     get_openrouter_extra_body,
 )
+from utils.runtime_config import get_openrouter_api_key
 
 # --- Load environment and instruction ---
-dotenv.load_dotenv()
 INSTRUCTIONS_PATH = Path("orchestrator_agent/instructions.txt")
 instruction_text = load_instruction(INSTRUCTIONS_PATH)
 
@@ -73,7 +71,7 @@ instruction_text = load_instruction(INSTRUCTIONS_PATH)
 # --- Initialize model ---
 model = LiteLlm(
     model=get_model_id("orchestrator"),
-    api_key=os.getenv("OPEN_ROUTER_API_KEY"),
+    api_key=get_openrouter_api_key(),
     drop_params=True,  # Prevent passing unsupported params that trigger logging
     extra_body=get_openrouter_extra_body(),
 )

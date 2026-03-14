@@ -1,37 +1,28 @@
 """Script to delete a project and all its related data from the database.
-Usage: python scripts/delete_project.py <product_id> [db_path]
+Usage: python -m scripts.delete_project <product_id> [db_path]
 """
-import sys
+import argparse
 import sqlite3
-import os
+from contextlib import closing
 from pathlib import Path
 
-# Try to match the logic from inspect_db_schema.py for DB discovery
-def _get_db_path(explicit_path=None) -> str:
-    if explicit_path:
-        return explicit_path
-    
-    # Check env var
-    db_url = os.environ.get("PROJECT_TCC_DB_URL")
-    if db_url and db_url.startswith("sqlite:///"):
-        # Handle relative paths from the perspective of the script execution or project root
-        p = db_url.replace("sqlite:///", "")
-        return str(Path(p).resolve())
-    
-    # Fallback to the one we know works in this environment if not specified
-    default_dev = Path(__file__).resolve().parents[1] / "db" / "spec_authority_dev.db"
-    if default_dev.exists():
-        return str(default_dev)
-        
-    return "sqlite:///./agile_simple.db".replace("sqlite:///", "") # Default fallback
+from utils.runtime_config import resolve_database_target
+
+
+def resolve_db_path(explicit_path: str | None = None) -> str:
+    """Resolve a database path from CLI input or required runtime config."""
+    return resolve_database_target(
+        explicit_path,
+        env_name="PROJECT_TCC_DB_URL",
+    ).sqlite_connect_target
 
 def delete_project(product_id: int, db_path: str):
     print(f"Connecting to database at: {db_path}")
-    conn = sqlite3.connect(db_path)
-    conn.execute("PRAGMA foreign_keys = ON;")
-    cur = conn.cursor()
-
-    try:
+    if db_path != ":memory:" and not Path(db_path).exists():
+        raise FileNotFoundError(f"Database file not found: {db_path}")
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.execute("PRAGMA foreign_keys = ON;")
+        cur = conn.cursor()
         # Verify project exists
         cur.execute("SELECT name FROM products WHERE product_id=?", (product_id,))
         res = cur.fetchone()
@@ -177,19 +168,19 @@ def delete_project(product_id: int, db_path: str):
         else:
             print(f"WARNING: Product {product_id} still exists.")
 
-    except Exception as e:
-        print(f"Error during deletion: {e}")
-        conn.rollback()
-    finally:
-        conn.close()
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Delete a project and all related records from the configured business database.",
+    )
+    parser.add_argument("product_id", type=int, help="Product ID to delete.")
+    parser.add_argument(
+        "db",
+        nargs="?",
+        help="Optional SQLite database path or sqlite:/// URL. Defaults to PROJECT_TCC_DB_URL.",
+    )
+    args = parser.parse_args()
+    delete_project(args.product_id, resolve_db_path(args.db))
+
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python scripts/delete_project.py <product_id> [db_path]")
-        sys.exit(1)
-        
-    p_id = int(sys.argv[1])
-    d_path = sys.argv[2] if len(sys.argv) > 2 else None
-    
-    resolved_db_path = _get_db_path(d_path)
-    delete_project(p_id, resolved_db_path)
+    main()

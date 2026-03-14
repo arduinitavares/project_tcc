@@ -22,7 +22,6 @@ Usage:
 from pathlib import Path
 from typing import Any, Dict, Optional, List, Union, Literal
 from datetime import datetime, timezone
-import os
 import re
 import hashlib
 import json
@@ -72,6 +71,13 @@ from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_s
 from orchestrator_agent.agent_tools.spec_authority_compiler_agent.compiler_contract import (
     compute_prompt_hash,
 )
+from utils.runtime_config import (
+    SPEC_AUTHORITY_COMPILER_IDENTITY,
+    SPEC_VALIDATOR_IDENTITY,
+    get_default_validation_mode,
+)
+from utils.adk_runner import get_agent_model_info, invoke_agent_to_text
+from utils.failure_artifacts import AgentInvocationError, write_failure_artifact
 
 logger = logging.getLogger(__name__)
 
@@ -444,6 +450,11 @@ def link_spec_to_product(
                 f"Specification {action} ({file_size_kb:.1f}KB) "
                 "but authority compilation failed."
             ),
+            "failure_artifact_id": compile_result.get("failure_artifact_id"),
+            "failure_stage": compile_result.get("failure_stage"),
+            "failure_summary": compile_result.get("failure_summary"),
+            "raw_output_preview": compile_result.get("raw_output_preview"),
+            "has_full_artifact": compile_result.get("has_full_artifact", False),
         }
 
     return {
@@ -709,35 +720,12 @@ async def _invoke_spec_authority_compiler_async(
     input_payload: SpecAuthorityCompilerInput,
 ) -> str:
     """Invoke the spec authority compiler agent and return raw JSON text."""
-    session_service = InMemorySessionService()
-    runner = Runner(
+    return await invoke_agent_to_text(
         agent=spec_authority_compiler_agent,
-        app_name="spec_authority_compiler",
-        session_service=session_service,
+        runner_identity=SPEC_AUTHORITY_COMPILER_IDENTITY,
+        payload_json=input_payload.model_dump_json(),
+        no_text_error="Compiler agent returned no text response",
     )
-
-    session = await session_service.create_session(
-        app_name="spec_authority_compiler",
-        user_id="spec_compiler",
-    )
-
-    events: List[Any] = []
-    new_message = types.Content(
-        role="user",
-        parts=[types.Part.from_text(text=input_payload.model_dump_json())],
-    )
-
-    async for event in runner.run_async(
-        user_id="spec_compiler",
-        session_id=session.id,
-        new_message=new_message,
-    ):
-        events.append(event)
-
-    response_text = _extract_compiler_response_text(events)
-    if not response_text:
-        raise ValueError("Compiler agent returned no text response")
-    return response_text
 
 
 def _invoke_spec_authority_compiler(
@@ -759,6 +747,67 @@ def _invoke_spec_authority_compiler(
         spec_version_id=spec_version_id,
     )
     return _run_async_task(_invoke_spec_authority_compiler_async(input_payload))
+
+
+def _compiler_failure_result(
+    *,
+    product_id: Optional[int],
+    spec_version_id: Optional[int],
+    content_ref: Optional[str],
+    failure_stage: str,
+    error: str,
+    reason: str,
+    raw_output: Optional[str] = None,
+    blocking_gaps: Optional[List[str]] = None,
+    exception: Optional[BaseException] = None,
+) -> Dict[str, Any]:
+    summary = f"{error}: {reason}" if reason else error
+    artifact_result = write_failure_artifact(
+        phase="spec_authority",
+        project_id=product_id,
+        failure_stage=failure_stage,
+        failure_summary=summary,
+        raw_output=raw_output,
+        context={
+            "product_id": product_id,
+            "spec_version_id": spec_version_id,
+            "content_ref": content_ref,
+        },
+        model_info={
+            **get_agent_model_info(spec_authority_compiler_agent),
+            "app_name": SPEC_AUTHORITY_COMPILER_IDENTITY.app_name,
+            "user_id": SPEC_AUTHORITY_COMPILER_IDENTITY.user_id,
+        },
+        validation_errors=blocking_gaps,
+        exception=exception,
+        extra={
+            "error": error,
+            "reason": reason,
+            "blocking_gaps": blocking_gaps or [],
+        },
+    )
+    metadata = artifact_result["metadata"]
+    if exception is not None:
+        logger.exception(
+            "Spec authority compilation failed [artifact_id=%s stage=%s]: %s",
+            metadata["failure_artifact_id"],
+            failure_stage,
+            summary,
+        )
+    else:
+        logger.error(
+            "Spec authority compilation failed [artifact_id=%s stage=%s]: %s",
+            metadata["failure_artifact_id"],
+            failure_stage,
+            summary,
+        )
+    return {
+        "success": False,
+        "error": error,
+        "reason": reason,
+        "blocking_gaps": blocking_gaps or [],
+        **metadata,
+    }
 
 
 def _render_invariant_summary(invariant: Invariant) -> str:
@@ -1305,24 +1354,48 @@ def compile_spec_authority_for_version(
                 product_id=spec_version.product_id,
                 spec_version_id=spec_version.spec_version_id,
             )
+        except AgentInvocationError as exc:
+            return _compiler_failure_result(
+                product_id=spec_version.product_id,
+                spec_version_id=spec_version.spec_version_id,
+                content_ref=spec_version.content_ref,
+                failure_stage="invocation_exception",
+                error="SPEC_COMPILER_INVOCATION_FAILED",
+                reason=str(exc),
+                raw_output=exc.partial_output,
+                exception=exc,
+            )
         except Exception as exc:  # pylint: disable=broad-except
-            return {
-                "success": False,
-                "error": "SPEC_COMPILER_INVOCATION_FAILED",
-                "reason": str(exc),
-            }
+            return _compiler_failure_result(
+                product_id=spec_version.product_id,
+                spec_version_id=spec_version.spec_version_id,
+                content_ref=spec_version.content_ref,
+                failure_stage="invocation_exception",
+                error="SPEC_COMPILER_INVOCATION_FAILED",
+                reason=str(exc),
+                exception=exc,
+            )
 
         # print("[spec_authority_compiler] Normalizing output...")
         # print(f"[spec_authority_compiler] Raw JSON length: {len(raw_json)}")
 
         normalized = normalize_compiler_output(raw_json)
         if isinstance(normalized.root, SpecAuthorityCompilationFailure):
-            return {
-                "success": False,
-                "error": normalized.root.error,
-                "reason": normalized.root.reason,
-                "blocking_gaps": normalized.root.blocking_gaps,
-            }
+            failure_stage = (
+                "invalid_json"
+                if normalized.root.reason == "INVALID_JSON"
+                else "output_validation"
+            )
+            return _compiler_failure_result(
+                product_id=spec_version.product_id,
+                spec_version_id=spec_version.spec_version_id,
+                content_ref=spec_version.content_ref,
+                failure_stage=failure_stage,
+                error=normalized.root.error,
+                reason=normalized.root.reason,
+                raw_output=raw_json,
+                blocking_gaps=normalized.root.blocking_gaps,
+            )
 
         success = normalized.root
         compiled_artifact_json = success.model_dump_json()
@@ -2024,7 +2097,7 @@ _VALIDATION_MODES = {"deterministic", "llm", "hybrid"}
 
 def _resolve_default_validation_mode() -> str:
     """Resolve default validation mode from environment with safe fallback."""
-    raw_value = os.getenv(DEFAULT_VALIDATION_MODE_ENV, "deterministic").strip().lower()
+    raw_value = get_default_validation_mode("deterministic").strip().lower()
     if raw_value in _VALIDATION_MODES:
         return raw_value
     logger.warning(
@@ -2267,12 +2340,12 @@ async def _invoke_spec_validator_async(payload_text: str) -> str:
     session_service = InMemorySessionService()
     runner = Runner(
         agent=spec_validator_agent,
-        app_name="spec_validator_agent",
+        app_name=SPEC_VALIDATOR_IDENTITY.app_name,
         session_service=session_service,
     )
     session = await session_service.create_session(
-        app_name="spec_validator_agent",
-        user_id="spec_validator",
+        app_name=SPEC_VALIDATOR_IDENTITY.app_name,
+        user_id=SPEC_VALIDATOR_IDENTITY.user_id,
     )
 
     events: List[Any] = []
@@ -2282,7 +2355,7 @@ async def _invoke_spec_validator_async(payload_text: str) -> str:
     )
 
     async for event in runner.run_async(
-        user_id="spec_validator",
+        user_id=SPEC_VALIDATOR_IDENTITY.user_id,
         session_id=session.id,
         new_message=new_message,
     ):

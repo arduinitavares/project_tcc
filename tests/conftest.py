@@ -3,6 +3,7 @@ Pytest configuration and fixtures.
 """
 
 import os
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -15,10 +16,18 @@ from sqlmodel import Session, SQLModel, create_engine
 _TEST_MODEL_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "models.test.yaml"
 os.environ.setdefault("MODEL_CONFIG_PATH", str(_TEST_MODEL_CONFIG_PATH))
 os.environ.setdefault("RELAX_ZDR_FOR_TESTS", "true")
+os.environ.setdefault("PROJECT_TCC_DB_URL", "sqlite:///:memory:")
+_TEST_SESSION_DB_PATH = Path(tempfile.gettempdir()) / "project_tcc_test_sessions.db"
+os.environ.setdefault(
+    "PROJECT_TCC_SESSION_DB_URL",
+    f"sqlite:///{_TEST_SESSION_DB_PATH.as_posix()}",
+)
 
 from utils import model_config  # pylint: disable=wrong-import-position
+from utils.runtime_config import clear_runtime_config_cache  # pylint: disable=wrong-import-position
 
 model_config.clear_config_cache()
+clear_runtime_config_cache()
 
 
 @pytest.fixture(scope="session")

@@ -7,15 +7,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
-try:
-    from markdown import markdown as _md  # type: ignore[import-not-found]
-except ImportError:  # pragma: no cover - fallback for missing dependency
-    _md = None
+from markdown import markdown as _md
 
 def _markdown(text: str, extensions: Optional[List[str]] = None) -> str:
-    if _md is None:
-        escaped = html.escape(text)
-        return f"<pre>{escaped}</pre>"
     return _md(text, extensions=extensions or [])
 
 from sqlalchemy.engine import Engine
@@ -177,12 +171,9 @@ def _load_compiled_authority(
     if not authority or not authority.compiled_artifact_json:
         return None
 
-    try:
-        parsed = SpecAuthorityCompilerOutput.model_validate_json(
-            authority.compiled_artifact_json
-        )
-    except (ValueError, TypeError):
-        return None
+    parsed = SpecAuthorityCompilerOutput.model_validate_json(
+        authority.compiled_artifact_json
+    )
 
     if isinstance(parsed.root, SpecAuthorityCompilationFailure):
         return None

@@ -16,6 +16,7 @@ from orchestrator_agent.fsm.states import OrchestratorState
 from repositories.product import ProductRepository
 from repositories.session import WorkflowSessionRepository
 from tools.orchestrator_tools import get_real_business_state
+from utils.runtime_config import RunnerIdentity, WORKFLOW_RUNNER_IDENTITY
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +28,11 @@ class WorkflowService:
 
     def __init__(
         self,
-        app_name: str = "agile_orchestrator",
-        user_id: str = "local_developer",
+        runner_identity: RunnerIdentity = WORKFLOW_RUNNER_IDENTITY,
     ):
-        self.app_name = app_name
-        self.user_id = user_id
+        self.runner_identity = runner_identity
+        self.app_name = runner_identity.app_name
+        self.user_id = runner_identity.user_id
 
         self.fsm = FSMController()
         self.session_repo = WorkflowSessionRepository()
@@ -48,7 +49,7 @@ class WorkflowService:
             datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         )
 
-        session_service = DatabaseSessionService(f"sqlite:///{self.session_repo.db_path}")
+        session_service = DatabaseSessionService(self.session_repo.db_url)
         await session_service.create_session(
             app_name=self.app_name,
             user_id=self.user_id,
@@ -80,9 +81,12 @@ class WorkflowService:
         One-time migration: convert legacy ROUTING_MODE session states
         to SETUP_REQUIRED.
         """
+        if not self.session_repo.has_sessions_table():
+            logger.debug("Session store is not initialized yet; skipping legacy migration.")
+            return 0
+
         migrated = 0
-        try:
-            conn = sqlite3.connect(self.session_repo.db_path)
+        with sqlite3.connect(self.session_repo.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT id, state FROM sessions WHERE app_name=? AND user_id=?",
@@ -112,9 +116,6 @@ class WorkflowService:
                 migrated += 1
 
             conn.commit()
-            conn.close()
-        except sqlite3.Error as exc:
-            logger.error("Failed migrating legacy setup states: %s", exc)
 
         return migrated
 
@@ -161,7 +162,7 @@ class WorkflowService:
         Legacy generic agent turn entrypoint.
         Kept for non-dashboard callers.
         """
-        session_service = DatabaseSessionService(f"sqlite:///{self.session_repo.db_path}")
+        session_service = DatabaseSessionService(self.session_repo.db_url)
         runner = Runner(
             agent=root_agent,
             app_name=self.app_name,

@@ -4,11 +4,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlmodel import Session, select
-from agile_sqlmodel import engine, UserStory
+from agile_sqlmodel import UserStory, get_engine
 
 def inspect_session_stories():
     """Find all stories with 'Story from session' or 'session state fallback' in them."""
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         # Find stories with the placeholder text
         all_stories = session.exec(select(UserStory)).all()
         

@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 from fastapi.testclient import TestClient
 
 import api as api_module
+import utils.failure_artifacts as failure_artifacts
 
 
 @dataclass
@@ -86,7 +87,7 @@ def _build_client(monkeypatch):
 
     monkeypatch.setattr(api_module, "select_project", fake_select_project)
 
-    async def fake_run_vision_agent_from_state(state, *, user_input):
+    async def fake_run_vision_agent_from_state(state, *, project_id, user_input):
         normalized = (user_input or "").lower().strip()
         if normalized == "force-runtime-error":
             return {
@@ -105,6 +106,11 @@ def _build_client(monkeypatch):
                 },
                 "is_complete": None,
                 "error": "provider timeout",
+                "failure_artifact_id": "vision-failure-1",
+                "failure_stage": "invocation_exception",
+                "failure_summary": "provider timeout",
+                "raw_output_preview": '{"partial": true}',
+                "has_full_artifact": True,
             }
 
         is_complete = normalized.startswith("complete")
@@ -132,6 +138,11 @@ def _build_client(monkeypatch):
             },
             "is_complete": is_complete,
             "error": None,
+            "failure_artifact_id": None,
+            "failure_stage": None,
+            "failure_summary": None,
+            "raw_output_preview": None,
+            "has_full_artifact": False,
         }
 
     monkeypatch.setattr(api_module, "run_vision_agent_from_state", fake_run_vision_agent_from_state)
@@ -255,6 +266,30 @@ def test_generate_error_records_attempt_and_stays_interview(monkeypatch):
     history = workflow.states[str(project_id)]["vision_attempts"]
     assert len(history) == 1
     assert history[0]["is_complete"] is False
+    assert history[0]["failure_artifact_id"] == "vision-failure-1"
+    assert history[0]["raw_output_preview"] == '{"partial": true}'
+
+
+def test_generate_error_history_stays_compact(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_setup_passed_project(repo, workflow)
+
+    response = client.post(
+        f"/api/projects/{project_id}/vision/generate",
+        json={"user_input": "force-runtime-error"},
+    )
+    assert response.status_code == 200
+
+    history_response = client.get(f"/api/projects/{project_id}/vision/history")
+    assert history_response.status_code == 200
+
+    item = history_response.json()["data"]["items"][0]
+    assert item["failure_artifact_id"] == "vision-failure-1"
+    assert item["failure_stage"] == "invocation_exception"
+    assert item["failure_summary"] == "provider timeout"
+    assert item["raw_output_preview"] == '{"partial": true}'
+    assert item["has_full_artifact"] is True
+    assert "raw_output" not in item["output_artifact"]
 
 
 def test_vision_history_endpoint_returns_attempts(monkeypatch):
@@ -309,3 +344,51 @@ def test_save_vision_succeeds_when_complete(monkeypatch):
     assert payload["status"] == "success"
     assert payload["data"]["fsm_state"] == "VISION_PERSISTENCE"
     assert workflow.states[str(project_id)]["fsm_state"] == "VISION_PERSISTENCE"
+
+
+def test_debug_failure_endpoint_returns_full_artifact(monkeypatch, tmp_path):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_setup_passed_project(repo, workflow)
+    monkeypatch.setattr(failure_artifacts, "LOGS_DIR", tmp_path / "logs")
+    monkeypatch.setattr(failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures")
+
+    persisted = failure_artifacts.write_failure_artifact(
+        phase="vision",
+        project_id=project_id,
+        failure_stage="invalid_json",
+        failure_summary="Vision response is not valid JSON",
+        raw_output='{"broken": ',
+        context={"input_context": {"user_raw_text": ""}},
+        model_info={"model_id": "openai/gpt-5-mini"},
+    )
+
+    artifact_id = persisted["metadata"]["failure_artifact_id"]
+    response = client.get(f"/api/projects/{project_id}/debug/failures/{artifact_id}")
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["artifact_id"] == artifact_id
+    assert payload["raw_output"] == '{"broken": '
+
+
+def test_debug_failure_endpoint_rejects_other_project_artifact(monkeypatch, tmp_path):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_setup_passed_project(repo, workflow)
+    other_project = repo.create("Other")
+    workflow.states[str(other_project.product_id)] = {
+        "fsm_state": "VISION_INTERVIEW",
+        "setup_status": "passed",
+    }
+
+    monkeypatch.setattr(failure_artifacts, "LOGS_DIR", tmp_path / "logs")
+    monkeypatch.setattr(failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures")
+    persisted = failure_artifacts.write_failure_artifact(
+        phase="vision",
+        project_id=other_project.product_id,
+        failure_stage="invalid_json",
+        failure_summary="Vision response is not valid JSON",
+        raw_output='{"broken": ',
+    )
+
+    artifact_id = persisted["metadata"]["failure_artifact_id"]
+    response = client.get(f"/api/projects/{project_id}/debug/failures/{artifact_id}")
+    assert response.status_code == 404

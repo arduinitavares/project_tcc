@@ -265,6 +265,17 @@ class SourceMapEntry(BaseModel):
     ]
 
 
+class EligibleFeatureRule(BaseModel):
+    """Closed schema for optional feature eligibility notes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rule: Annotated[
+        str,
+        Field(description="Short eligibility rule or note tied to a candidate feature."),
+    ]
+
+
 class SpecAuthorityCompilationSuccess(BaseModel):
     """Successful spec authority compilation output."""
 
@@ -283,7 +294,7 @@ class SpecAuthorityCompilationSuccess(BaseModel):
         Field(description="Structured invariants extracted from the spec."),
     ]
     eligible_feature_rules: Annotated[
-        List[Dict[str, Any]],
+        List[EligibleFeatureRule],
         Field(description="Optional feature eligibility rules (may be empty)."),
     ]
     gaps: Annotated[

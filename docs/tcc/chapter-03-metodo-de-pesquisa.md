@@ -86,7 +86,7 @@ Para permitir reexecução do estudo e auditoria dos números apresentados nos r
 Exemplo de extração de métricas:
 
 ```bash
-python .\\scripts\\extract_tcc_metrics.py db\\spec_authority_dev.db
+python -m scripts.extract_tcc_metrics db/spec_authority_dev.db
 ```
 
 O script gera, no mínimo, os arquivos `artifacts/metrics_summary.json` e `artifacts/metrics_summary.csv`, além de resultados de consultas em `artifacts/query_results/`.

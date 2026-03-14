@@ -9,11 +9,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlalchemy import create_engine, text
-from agile_sqlmodel import DB_URL, ProductPersona, SQLModel
+from agile_sqlmodel import ProductPersona, SQLModel, get_database_url
 
 def migrate_add_product_personas():
     """Add product_personas table to existing database."""
-    engine = create_engine(DB_URL, echo=True)
+    engine = create_engine(get_database_url(), echo=True)
     
     # Check if table already exists
     with engine.connect() as conn:

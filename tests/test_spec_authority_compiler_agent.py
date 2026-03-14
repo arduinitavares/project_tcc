@@ -85,6 +85,18 @@ class TestSpecAuthorityCompilerInput:
 class TestCompilerOutputSchema:
     """Schema / contract tests for compiler output."""
 
+    def test_schema_closes_eligible_feature_rule_items(self) -> None:
+        schema = SpecAuthorityCompilerEnvelope.model_json_schema()
+        items = schema["$defs"]["SpecAuthorityCompilationSuccess"]["properties"][
+            "eligible_feature_rules"
+        ]["items"]
+        if "$ref" in items:
+            ref_name = items["$ref"].split("/")[-1]
+            items = schema["$defs"][ref_name]
+
+        assert items["additionalProperties"] is False
+        assert "rule" in items["properties"]
+
     def test_success_payload_valid_json(self) -> None:
         payload: Dict[str, Any] = {
             "scope_themes": ["API"],

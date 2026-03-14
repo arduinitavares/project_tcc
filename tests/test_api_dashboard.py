@@ -98,6 +98,11 @@ def _build_client(monkeypatch):
                 "success": True,
                 "compile_success": False,
                 "compile_error": "invalid spec path",
+                "failure_artifact_id": "setup-artifact-1",
+                "failure_stage": "output_validation",
+                "failure_summary": "SPEC_COMPILATION_FAILED: invalid spec path",
+                "raw_output_preview": '{"invalid": true}',
+                "has_full_artifact": True,
             }
 
         product.spec_file_path = spec_path
@@ -117,7 +122,7 @@ def _build_client(monkeypatch):
     monkeypatch.setattr(api_module, "select_project", fake_select_project)
     monkeypatch.setattr(api_module, "link_spec_to_product", fake_link_spec_to_product)
     
-    async def fake_run_vision_agent_from_state(state, *, user_input):
+    async def fake_run_vision_agent_from_state(state, *, project_id, user_input):
         return {
             "success": True,
             "input_context": {
@@ -142,6 +147,11 @@ def _build_client(monkeypatch):
             },
             "is_complete": False,
             "error": None,
+            "failure_artifact_id": None,
+            "failure_stage": None,
+            "failure_summary": None,
+            "raw_output_preview": None,
+            "has_full_artifact": False,
         }
 
     monkeypatch.setattr(api_module, "run_vision_agent_from_state", fake_run_vision_agent_from_state)
@@ -225,8 +235,28 @@ def test_create_project_setup_fail_and_retry_same_project(monkeypatch):
     retry_payload = retry_response.json()
     assert retry_payload["data"]["setup_status"] == "passed"
     assert retry_payload["data"]["fsm_state"] == "VISION_INTERVIEW"
-    assert retry_payload["data"]["vision_auto_run"]["attempted"] is True
-    assert workflow.states[str(product.product_id)]["fsm_state"] == "VISION_INTERVIEW"
+
+
+def test_get_project_state_preserves_specific_setup_error(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+
+    create_response = client.post(
+        "/api/projects",
+        json={"name": "Project Retry", "spec_file_path": "invalid/path.md"},
+    )
+    assert create_response.status_code == 200
+
+    project_id = create_response.json()["data"]["id"]
+
+    state_response = client.get(f"/api/projects/{project_id}/state")
+    assert state_response.status_code == 200
+
+    payload = state_response.json()
+    assert payload["data"]["setup_status"] == "failed"
+    assert payload["data"]["setup_error"] == "invalid spec path"
+    assert payload["data"]["setup_failure_artifact_id"] == "setup-artifact-1"
+    assert payload["data"]["setup_failure_stage"] == "output_validation"
+    assert payload["data"]["setup_has_full_artifact"] is True
 
 
 def test_state_forces_setup_required_when_product_missing_spec(monkeypatch):
@@ -250,7 +280,7 @@ def test_state_forces_setup_required_when_product_missing_spec(monkeypatch):
 def test_create_project_auto_vision_failure_is_recorded(monkeypatch):
     client, _, workflow = _build_client(monkeypatch)
 
-    async def failing_auto_vision(state, *, user_input):
+    async def failing_auto_vision(state, *, project_id, user_input):
         return {
             "success": False,
             "input_context": {
@@ -267,6 +297,11 @@ def test_create_project_auto_vision_failure_is_recorded(monkeypatch):
             },
             "is_complete": None,
             "error": "provider error",
+            "failure_artifact_id": "vision-auto-failure",
+            "failure_stage": "invocation_exception",
+            "failure_summary": "provider error",
+            "raw_output_preview": '{"partial": true}',
+            "has_full_artifact": True,
         }
 
     monkeypatch.setattr(api_module, "run_vision_agent_from_state", failing_auto_vision)
@@ -283,9 +318,28 @@ def test_create_project_auto_vision_failure_is_recorded(monkeypatch):
     assert payload["data"]["vision_auto_run"]["attempted"] is True
     assert payload["data"]["vision_auto_run"]["success"] is False
     assert payload["data"]["vision_auto_run"]["is_complete"] is None
+    assert payload["data"]["vision_auto_run"]["failure_artifact_id"] == "vision-auto-failure"
 
     history = workflow.states["1"]["vision_attempts"]
     assert isinstance(history, list)
     assert len(history) == 1
     assert history[0]["trigger"] == "auto_setup_transition"
     assert history[0]["is_complete"] is False
+    assert history[0]["failure_artifact_id"] == "vision-auto-failure"
+
+
+def test_create_project_setup_failure_exposes_failure_metadata(monkeypatch):
+    client, _, workflow = _build_client(monkeypatch)
+
+    response = client.post(
+        "/api/projects",
+        json={"name": "Project Retry", "spec_file_path": "invalid/path.md"},
+    )
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["data"]["setup_status"] == "failed"
+    assert payload["data"]["failure_artifact_id"] == "setup-artifact-1"
+    assert payload["data"]["failure_stage"] == "output_validation"
+    assert payload["data"]["has_full_artifact"] is True
+    assert workflow.states["1"]["setup_failure_artifact_id"] == "setup-artifact-1"

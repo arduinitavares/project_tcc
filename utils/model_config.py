@@ -9,9 +9,13 @@ from typing import Any, Dict
 
 import yaml
 
+from utils.runtime_config import get_bool_env, load_runtime_env
+
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _DEFAULT_CONFIG_PATH = _REPO_ROOT / "config" / "models.yaml"
+
+load_runtime_env()
 
 OPENROUTER_PROVIDER: Dict[str, Any] = {
     "data_collection": "deny",
@@ -93,12 +97,7 @@ def get_model_id(key: str) -> str:
 
 
 def _get_provider_config() -> Dict[str, Any]:
-    relax_privacy = os.getenv("RELAX_ZDR_FOR_TESTS", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    relax_privacy = get_bool_env("RELAX_ZDR_FOR_TESTS", default=False)
     if not relax_privacy:
         return dict(OPENROUTER_PROVIDER)
 

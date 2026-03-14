@@ -6,9 +6,9 @@ Extracts evaluation metrics from the project's SQLite database(s) for
 Chapter 6 (Resultados) of the thesis. Produces reproducible, auditable outputs.
 
 Usage:
-    python scripts/extract_tcc_metrics.py <db_path>
-    python scripts/extract_tcc_metrics.py agile_simple.db
-    python scripts/extract_tcc_metrics.py db/spec_authority_dev.db
+    python -m scripts.extract_tcc_metrics <db_path>
+    python -m scripts.extract_tcc_metrics db/spec_authority_dev.db
+    python -m scripts.extract_tcc_metrics  # uses PROJECT_TCC_DB_URL
 
 Outputs:
     - artifacts/metrics_summary.csv
@@ -24,7 +24,6 @@ import argparse
 import csv
 import hashlib
 import json
-import os
 import sqlite3
 import subprocess
 import sys
@@ -32,6 +31,8 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+from utils.runtime_config import resolve_database_target
 
 
 # ============================================================================
@@ -137,17 +138,15 @@ class ExtractionResult:
 
 def get_git_commit_hash() -> Optional[str]:
     """Get current git commit hash, or None if not in a git repo."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()[:12]  # Short hash
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    if result.returncode == 0:
+        return result.stdout.strip()[:12]
     return None
 
 
@@ -427,10 +426,7 @@ def extract_state_dwell_summary(cursor: sqlite3.Cursor) -> dict:
     for metadata_raw, duration in cursor.fetchall():
         if duration is None:
             continue
-        try:
-            payload = json.loads(metadata_raw) if metadata_raw else {}
-        except json.JSONDecodeError:
-            payload = {}
+        payload = json.loads(metadata_raw) if metadata_raw else {}
         from_state = payload.get("from_state")
         if not isinstance(from_state, str) or not from_state:
             from_state = "UNKNOWN"
@@ -463,42 +459,38 @@ def extract_smoke_run_metrics(artifacts_dir: Path) -> Optional[SmokeRunMetrics]:
         for line in f:
             if not line.strip():
                 continue
-            try:
-                run = json.loads(line)
-                metrics.total_runs += 1
-                
-                # Stage counts
-                stage = run.get("METRICS", {}).get("stage", "")
-                if stage == "pipeline_ran":
-                    metrics.pipeline_ran_count += 1
-                elif stage == "alignment_rejected":
-                    metrics.alignment_rejected_count += 1
-                elif stage == "acceptance_blocked":
-                    metrics.acceptance_blocked_count += 1
-                
-                # Contract passed
-                if run.get("METRICS", {}).get("contract_passed") is True:
-                    metrics.contract_passed_count += 1
-                
-                # Spec version ID match
-                if run.get("SPEC_VERSION_ID_MATCH") is True:
-                    metrics.spec_version_id_match_count += 1
-                elif run.get("SPEC_VERSION_ID_MATCH") is False:
-                    metrics.spec_version_id_mismatch_count += 1
-                
-                # Timing
-                timing = run.get("TIMING_MS", {})
-                if timing.get("total_ms") is not None:
-                    total_ms_list.append(timing["total_ms"])
-                if timing.get("compile_ms") is not None:
-                    compile_ms_list.append(timing["compile_ms"])
-                if timing.get("pipeline_ms") is not None:
-                    pipeline_ms_list.append(timing["pipeline_ms"])
-                if timing.get("validation_ms") is not None:
-                    validation_ms_list.append(timing["validation_ms"])
-                    
-            except json.JSONDecodeError:
-                continue
+            run = json.loads(line)
+            metrics.total_runs += 1
+
+            # Stage counts
+            stage = run.get("METRICS", {}).get("stage", "")
+            if stage == "pipeline_ran":
+                metrics.pipeline_ran_count += 1
+            elif stage == "alignment_rejected":
+                metrics.alignment_rejected_count += 1
+            elif stage == "acceptance_blocked":
+                metrics.acceptance_blocked_count += 1
+
+            # Contract passed
+            if run.get("METRICS", {}).get("contract_passed") is True:
+                metrics.contract_passed_count += 1
+
+            # Spec version ID match
+            if run.get("SPEC_VERSION_ID_MATCH") is True:
+                metrics.spec_version_id_match_count += 1
+            elif run.get("SPEC_VERSION_ID_MATCH") is False:
+                metrics.spec_version_id_mismatch_count += 1
+
+            # Timing
+            timing = run.get("TIMING_MS", {})
+            if timing.get("total_ms") is not None:
+                total_ms_list.append(timing["total_ms"])
+            if timing.get("compile_ms") is not None:
+                compile_ms_list.append(timing["compile_ms"])
+            if timing.get("pipeline_ms") is not None:
+                pipeline_ms_list.append(timing["pipeline_ms"])
+            if timing.get("validation_ms") is not None:
+                validation_ms_list.append(timing["validation_ms"])
     
     # Calculate averages
     if total_ms_list:
@@ -776,7 +768,8 @@ def main():
     )
     parser.add_argument(
         "db_path",
-        help="Path to SQLite database file (e.g., agile_simple.db)"
+        nargs="?",
+        help="Optional SQLite database path or sqlite:/// URL. Defaults to PROJECT_TCC_DB_URL.",
     )
     parser.add_argument(
         "--output-dir",
@@ -785,15 +778,17 @@ def main():
     )
     args = parser.parse_args()
     
-    # Resolve paths
-    db_path = Path(args.db_path).resolve()
+    db_target = resolve_database_target(args.db_path, env_name="PROJECT_TCC_DB_URL")
+    if db_target.sqlite_path is None:
+        print("ERROR: Metrics extraction requires a file-backed SQLite database.", file=sys.stderr)
+        sys.exit(1)
+
+    db_path = db_target.sqlite_path
     if not db_path.exists():
-        # Try relative to project root
-        project_root = Path(__file__).parent.parent
-        db_path = (project_root / args.db_path).resolve()
-    
-    if not db_path.exists():
-        print(f"ERROR: Database file not found: {args.db_path}", file=sys.stderr)
+        print(
+            f"ERROR: Database file not found: {db_target.sqlite_connect_target}",
+            file=sys.stderr,
+        )
         sys.exit(1)
     
     output_dir = Path(args.output_dir)

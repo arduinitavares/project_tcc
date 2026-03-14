@@ -13,6 +13,7 @@ wheels/
 # Environment variable files
 .env
 .env.*
+!.env.example
 
 # Add .DS_Store files
 .DS_Store
@@ -23,8 +24,6 @@ wheels/
 # Add database files / .db files
 *.db
 *.sqlite3
-agile_simple.db
-agile_sqlmodel.db
 
 # Add log files
 logs/

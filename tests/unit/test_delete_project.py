@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from pathlib import Path
 
+import pytest
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -25,7 +26,8 @@ from agile_sqlmodel import (
     Theme,
     UserStory,
 )
-from scripts.delete_project import delete_project
+from scripts.delete_project import delete_project, resolve_db_path
+from utils.runtime_config import RuntimeConfigError, clear_runtime_config_cache
 
 
 def _create_sqlite_engine(db_path: Path) -> Engine:
@@ -41,6 +43,13 @@ def _create_sqlite_engine(db_path: Path) -> Engine:
 
     SQLModel.metadata.create_all(engine)
     return engine
+
+
+@pytest.fixture(autouse=True)
+def _clear_runtime_cache() -> None:
+    clear_runtime_config_cache()
+    yield
+    clear_runtime_config_cache()
 
 
 def test_delete_project_removes_sprints_and_story_logs(tmp_path: Path) -> None:
@@ -158,3 +167,19 @@ def test_delete_project_removes_compiled_spec_authority(tmp_path: Path) -> None:
     with Session(engine) as session:
         assert session.exec(select(CompiledSpecAuthority)).first() is None
         assert session.exec(select(SpecRegistry)).first() is None
+
+
+def test_resolve_db_path_prefers_explicit_argument(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    explicit_path = tmp_path / "explicit.db"
+    monkeypatch.setenv("PROJECT_TCC_DB_URL", "sqlite:///./db/from-env.db")
+    resolved = resolve_db_path(str(explicit_path))
+    assert resolved == str(explicit_path.resolve())
+
+
+def test_resolve_db_path_requires_config_when_missing(monkeypatch) -> None:
+    monkeypatch.delenv("PROJECT_TCC_DB_URL", raising=False)
+    with pytest.raises(RuntimeConfigError, match="PROJECT_TCC_DB_URL"):
+        resolve_db_path(None)

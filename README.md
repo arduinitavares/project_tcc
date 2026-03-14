@@ -92,15 +92,18 @@ pip install -e .
 poetry install
 
 # Set up environment variables
-# Export the OpenRouter key expected by the current codebase
-export OPEN_ROUTER_API_KEY="your_openrouter_key"
+cp .env.example .env
+# Then edit .env and set:
+# - OPEN_ROUTER_API_KEY
+# - PROJECT_TCC_DB_URL
+# - PROJECT_TCC_SESSION_DB_URL
 ```
 
 ### Running the Application
 
 ```bash
 # Start the deterministic FastAPI interface
-python api.py
+uvicorn api:app --reload
 
 # Open the dashboard at http://localhost:8000/dashboard
 ```

@@ -7,11 +7,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlalchemy import create_engine, text
-from agile_sqlmodel import DB_URL
+from agile_sqlmodel import get_database_url
 
 def migrate_add_persona_column():
     """Add persona column to user_stories table."""
-    engine = create_engine(DB_URL, echo=True)
+    engine = create_engine(get_database_url(), echo=True)
     
     with engine.connect() as conn:
         # Check if column already exists
