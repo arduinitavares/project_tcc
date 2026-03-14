@@ -10,6 +10,7 @@ from utils.runtime_config import (
     RuntimeConfigError,
     clear_runtime_config_cache,
     get_business_db_target,
+    get_database_echo,
     get_session_db_target,
     resolve_database_target,
 )
@@ -97,3 +98,15 @@ def test_explicit_database_target_overrides_environment(
 
     assert target.sqlite_path == explicit_path.resolve()
     assert target.sqlite_connect_target == str(explicit_path.resolve())
+
+
+def test_database_echo_defaults_to_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PROJECT_TCC_DB_ECHO", raising=False)
+
+    assert get_database_echo() is False
+
+
+def test_database_echo_honors_true_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROJECT_TCC_DB_ECHO", "true")
+
+    assert get_database_echo() is True

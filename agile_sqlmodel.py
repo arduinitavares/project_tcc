@@ -13,6 +13,7 @@ This version fixes the 'utcnow' deprecation warning and the
 
 import enum
 from datetime import date, datetime, timezone  # Import timezone
+import os
 from pathlib import Path
 from typing import List, Optional
 

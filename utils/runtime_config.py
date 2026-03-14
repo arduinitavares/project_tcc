@@ -206,7 +206,7 @@ def get_openrouter_api_key() -> Optional[str]:
 @lru_cache(maxsize=1)
 def get_database_echo() -> bool:
     """Return whether SQLAlchemy echo logging is enabled."""
-    return get_bool_env("PROJECT_TCC_DB_ECHO", default=True)
+    return get_bool_env("PROJECT_TCC_DB_ECHO", default=False)
 
 
 def get_spec_validator_max_tokens(default: int = 4096) -> int:

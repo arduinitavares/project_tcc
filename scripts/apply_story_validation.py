@@ -1,39 +1,103 @@
 #!/usr/bin/env python3
 """
-Applies validation to all stories against the approved spec authority.
-Persists results to the database using the official tool.
+Apply spec-authority validation to refined stories for a product.
 """
-import sys
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
 import os
 import re
+import sys
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
+
 from sqlmodel import Session, select
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-from agile_sqlmodel import Product, UserStory, SpecRegistry, CompiledSpecAuthority, get_engine
-from tools.spec_tools import validate_story_with_spec_authority
+from agile_sqlmodel import (  # noqa: E402
+    CompiledSpecAuthority,
+    Product,
+    SpecRegistry,
+    UserStory,
+    get_engine,
+)
+from tools.spec_tools import validate_story_with_spec_authority  # noqa: E402
+from utils.logging_config import configure_logging  # noqa: E402
 
+
+LOGGER_NAME = "scripts.apply_story_validation"
+logger = logging.getLogger(LOGGER_NAME)
 engine = get_engine()
+
+
+@dataclass
+class StoryValidationOutcome:
+    """Structured result for a single story validation run."""
+
+    story_id: int
+    passed: bool = False
+    detail_messages: list[str] = field(default_factory=list)
+    error_message: str | None = None
+
+
+@dataclass
+class ValidationRunResult:
+    """Aggregate result for a script invocation."""
+
+    product_id: int
+    product_name: str = ""
+    mode: str = "deterministic"
+    status: Literal["success", "noop", "error"] = "success"
+    spec_version_id: int | None = None
+    eligible_story_count: int = 0
+    outcomes: list[StoryValidationOutcome] = field(default_factory=list)
+    message: str | None = None
+
+    @property
+    def passed_count(self) -> int:
+        return sum(1 for outcome in self.outcomes if outcome.passed)
+
+    @property
+    def failed_count(self) -> int:
+        return sum(
+            1 for outcome in self.outcomes if not outcome.passed and not outcome.error_message
+        )
+
+    @property
+    def error_count(self) -> int:
+        return sum(1 for outcome in self.outcomes if outcome.error_message)
+
+
+def _log_info(message: str, *, console_visible: bool = True) -> None:
+    logger.info(message, extra={"console_visible": console_visible})
+
 
 def _effective_mode(explicit_mode: str | None) -> str:
     if explicit_mode:
         return explicit_mode
-    return os.getenv("SPEC_VALIDATION_DEFAULT_MODE", "deterministic").strip().lower() or "deterministic"
+    return (
+        os.getenv("SPEC_VALIDATION_DEFAULT_MODE", "deterministic").strip().lower()
+        or "deterministic"
+    )
 
 
 def _load_invariant_map(spec_version_id: int) -> dict[str, dict]:
     with Session(engine) as session:
         auth = session.exec(
-            select(CompiledSpecAuthority).where(CompiledSpecAuthority.spec_version_id == spec_version_id)
+            select(CompiledSpecAuthority).where(
+                CompiledSpecAuthority.spec_version_id == spec_version_id
+            )
         ).first()
     if not auth or not auth.compiled_artifact_json:
         return {}
     try:
-        import json
-
         artifact = json.loads(auth.compiled_artifact_json)
         invariants = artifact.get("invariants", []) if isinstance(artifact, dict) else []
         return {
@@ -41,7 +105,7 @@ def _load_invariant_map(spec_version_id: int) -> dict[str, dict]:
             for inv in invariants
             if isinstance(inv, dict) and isinstance(inv.get("id"), str)
         }
-    except Exception:
+    except Exception:  # pragma: no cover - defensive parsing fallback
         return {}
 
 
@@ -50,37 +114,102 @@ def _extract_invariant_ids(*texts: str) -> list[str]:
     for txt in texts:
         for match in re.findall(r"INV-[a-f0-9]{16}", txt or "", flags=re.IGNORECASE):
             ids.append("INV-" + match[4:].lower())
-    # stable de-duplication
+
     seen = set()
     ordered: list[str] = []
-    for i in ids:
-        if i in seen:
+    for invariant_id in ids:
+        if invariant_id in seen:
             continue
-        seen.add(i)
-        ordered.append(i)
+        seen.add(invariant_id)
+        ordered.append(invariant_id)
     return ordered
 
 
-def apply_validation(product_id: int, mode: str | None = None):
-    active_mode = _effective_mode(mode)
-    print(f"Applying validation to Product {product_id}...")
-    print(f"Validation mode: {active_mode}")
-    with Session(engine) as session:
-        # Get approved spec
-        spec = session.exec(select(SpecRegistry).where(
-            SpecRegistry.product_id == product_id,
-            SpecRegistry.status == "approved"
-        ).order_by(SpecRegistry.spec_version_id.desc())).first()
-        
-        if not spec:
-            print("No approved spec found.")
-            return
+def _summarize_response(
+    response: dict,
+    *,
+    invariant_map: dict[str, dict],
+) -> list[str]:
+    messages: list[str] = []
+    failures = response.get("failures", []) or []
+    alignment_failures = response.get("alignment_failures", []) or []
 
-        spec_id = spec.spec_version_id
-        print(f"Using Spec Version {spec_id}")
-        invariant_map = _load_invariant_map(spec_id)
-        
-        # Validate only canonical refined stories.
+    if failures:
+        for failure in failures[:3]:
+            rule = failure.get("rule", "UNKNOWN_RULE")
+            actual = failure.get("actual", "")
+            messages.append(f"{rule}: {actual}")
+            inv_ids = _extract_invariant_ids(actual, failure.get("message", ""))
+            for inv_id in inv_ids:
+                invariant = invariant_map.get(inv_id)
+                if not invariant:
+                    continue
+                inv_type = invariant.get("type", "UNKNOWN")
+                params = (
+                    invariant.get("parameters", {})
+                    if isinstance(invariant.get("parameters"), dict)
+                    else {}
+                )
+                field_name = params.get("field_name")
+                capability = params.get("capability")
+                if field_name:
+                    messages.append(f"{inv_id} [{inv_type}] field_name={field_name}")
+                elif capability:
+                    messages.append(f"{inv_id} [{inv_type}] capability={capability}")
+                else:
+                    messages.append(f"{inv_id} [{inv_type}]")
+        if len(failures) > 3:
+            messages.append(f"... and {len(failures) - 3} more failure(s)")
+
+    if alignment_failures:
+        for finding in alignment_failures[:3]:
+            code = finding.get("code", "ALIGNMENT_FAILURE")
+            message = finding.get("message", "")
+            invariant = finding.get("invariant")
+            if invariant:
+                messages.append(f"{code} ({invariant}): {message}")
+            else:
+                messages.append(f"{code}: {message}")
+        if len(alignment_failures) > 3:
+            messages.append(
+                f"... and {len(alignment_failures) - 3} more alignment failure(s)"
+            )
+
+    if not messages:
+        fallback_message = response.get("message", "Validation failed without details")
+        messages.append(fallback_message)
+    return messages
+
+
+def apply_validation(product_id: int, mode: str | None = None) -> ValidationRunResult:
+    """Validate all canonical refined stories for a product and return structured results."""
+    active_mode = _effective_mode(mode)
+    result = ValidationRunResult(product_id=product_id, mode=active_mode)
+
+    with Session(engine) as session:
+        product = session.get(Product, product_id)
+        if not product:
+            result.status = "error"
+            result.message = f"Product {product_id} not found."
+            return result
+
+        result.product_name = product.name
+        spec = session.exec(
+            select(SpecRegistry)
+            .where(
+                SpecRegistry.product_id == product_id,
+                SpecRegistry.status == "approved",
+            )
+            .order_by(SpecRegistry.spec_version_id.desc())
+        ).first()
+
+        if not spec:
+            result.status = "error"
+            result.message = f"No approved spec found for product {product_id}."
+            return result
+
+        result.spec_version_id = spec.spec_version_id
+        invariant_map = _load_invariant_map(spec.spec_version_id)
         stories = session.exec(
             select(UserStory)
             .where(UserStory.product_id == product_id)
@@ -88,79 +217,126 @@ def apply_validation(product_id: int, mode: str | None = None):
             .where(UserStory.is_superseded == False)  # noqa: E712
             .order_by(UserStory.story_id.asc())
         ).all()
-        ids = [s.story_id for s in stories]
 
-    if not ids:
-        print("No refined stories found for this product. Nothing to validate.")
+    result.eligible_story_count = len(stories)
+    if not stories:
+        result.status = "noop"
+        result.message = (
+            f"No refined stories found for product {product_id}. Nothing to validate."
+        )
+        return result
+
+    assert result.spec_version_id is not None
+    for story in stories:
+        if story.story_id is None:
+            continue
+        try:
+            response = validate_story_with_spec_authority(
+                {
+                    "story_id": story.story_id,
+                    "spec_version_id": result.spec_version_id,
+                    "mode": active_mode,
+                }
+            )
+        except Exception as exc:  # pragma: no cover - defensive runtime guard
+            result.outcomes.append(
+                StoryValidationOutcome(
+                    story_id=story.story_id,
+                    error_message=str(exc),
+                )
+            )
+            continue
+
+        if not response.get("success", True):
+            result.outcomes.append(
+                StoryValidationOutcome(
+                    story_id=story.story_id,
+                    error_message=(
+                        response.get("error")
+                        or response.get("message")
+                        or "Validation execution failed"
+                    ),
+                )
+            )
+            continue
+
+        passed = bool(response.get("passed", False))
+        result.outcomes.append(
+            StoryValidationOutcome(
+                story_id=story.story_id,
+                passed=passed,
+                detail_messages=(
+                    []
+                    if passed
+                    else _summarize_response(response, invariant_map=invariant_map)
+                ),
+            )
+        )
+
+    if result.error_count:
+        result.status = "error"
+        result.message = (
+            f"Validation encountered {result.error_count} execution error(s)."
+        )
+        return result
+
+    result.status = "success"
+    result.message = (
+        f"Validated {result.eligible_story_count} stories: "
+        f"{result.passed_count} passed, {result.failed_count} failed"
+    )
+    return result
+
+
+def _emit_run_logs(
+    result: ValidationRunResult,
+    *,
+    verbose: bool,
+    quiet: bool,
+    selected_latest_message: str | None = None,
+) -> None:
+    if selected_latest_message and not quiet:
+        _log_info(selected_latest_message)
+
+    if not quiet:
+        label = f"Product {result.product_id}"
+        if result.product_name:
+            label += f" '{result.product_name}'"
+        _log_info(f"Applying validation to {label}.")
+        _log_info(f"Validation mode: {result.mode}")
+        if result.spec_version_id is not None:
+            _log_info(f"Using Spec Version {result.spec_version_id}")
+        if result.eligible_story_count:
+            _log_info(
+                f"Found {result.eligible_story_count} eligible refined stories."
+            )
+
+    for outcome in result.outcomes:
+        if outcome.error_message:
+            logger.error(
+                "Story %s validation error: %s",
+                outcome.story_id,
+                outcome.error_message,
+            )
+            continue
+
+        status_label = "PASS" if outcome.passed else "FAIL"
+        _log_info(
+            f"Story {outcome.story_id}: {status_label}",
+            console_visible=verbose,
+        )
+        for detail in outcome.detail_messages:
+            _log_info(f"  - {detail}", console_visible=verbose)
+
+    if result.status == "error":
+        logger.error(result.message or "Validation failed.")
         return
 
-    # Validate
-    passed_count = 0
-    for sid in ids:
-        print(f"Validating {sid}...", end=" ")
-        try:
-            # Tool handles commit
-            res = validate_story_with_spec_authority(
-                {"story_id": sid, "spec_version_id": spec_id, "mode": active_mode}
-            )
-            if res.get("passed"):
-                print("PASS")
-                passed_count += 1
-            else:
-                print("FAIL")
-                failures = res.get("failures", []) or []
-                alignment_failures = res.get("alignment_failures", []) or []
-                printed_any_reason = False
+    if result.message:
+        _log_info(result.message)
 
-                if failures:
-                    printed_any_reason = True
-                    for failure in failures[:3]:
-                        rule = failure.get("rule", "UNKNOWN_RULE")
-                        actual = failure.get("actual", "")
-                        print(f"  - {rule}: {actual}")
-                        inv_ids = _extract_invariant_ids(actual, failure.get("message", ""))
-                        for inv_id in inv_ids:
-                            inv = invariant_map.get(inv_id)
-                            if not inv:
-                                continue
-                            inv_type = inv.get("type", "UNKNOWN")
-                            params = inv.get("parameters", {}) if isinstance(inv.get("parameters"), dict) else {}
-                            field_name = params.get("field_name")
-                            capability = params.get("capability")
-                            if field_name:
-                                print(f"    -> {inv_id} [{inv_type}] field_name={field_name}")
-                            elif capability:
-                                print(f"    -> {inv_id} [{inv_type}] capability={capability}")
-                            else:
-                                print(f"    -> {inv_id} [{inv_type}]")
-                    if len(failures) > 3:
-                        print(f"  - ... and {len(failures) - 3} more failure(s)")
 
-                if alignment_failures:
-                    printed_any_reason = True
-                    for finding in alignment_failures[:3]:
-                        code = finding.get("code", "ALIGNMENT_FAILURE")
-                        message = finding.get("message", "")
-                        invariant = finding.get("invariant")
-                        if invariant:
-                            print(f"  - {code} ({invariant}): {message}")
-                        else:
-                            print(f"  - {code}: {message}")
-                    if len(alignment_failures) > 3:
-                        print(
-                            f"  - ... and {len(alignment_failures) - 3} more alignment failure(s)"
-                        )
-
-                if not printed_any_reason:
-                    print(f"  - {res.get('message', 'Validation failed without details')}")
-        except Exception as e:
-            print(f"ERROR: {e}")
-
-    print(f"Done. Passed: {passed_count}/{len(ids)}")
-
-if __name__ == "__main__":
-    import argparse
-
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Apply spec-authority validation to all stories for a product."
     )
@@ -180,20 +356,44 @@ if __name__ == "__main__":
             "SPEC_VALIDATION_DEFAULT_MODE from environment (fallback: deterministic)."
         ),
     )
-    args = parser.parse_args()
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show per-story PASS/FAIL results and top validation reasons in console output.",
+    )
+    output_group.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Show only warnings, errors, and the final summary in console output.",
+    )
+    args = parser.parse_args(argv)
 
+    configure_logging(console=True, console_logger_names=(LOGGER_NAME,))
+
+    selected_latest_message = None
     if args.product_id is None:
-        with Session(engine) as _s:
-            latest = _s.exec(
-                select(Product)
-                .order_by(Product.product_id.desc())
-            ).first()
-        if not latest:
-            print("No products found in DB.")
-            sys.exit(1)
-        pid = latest.product_id
-        print(f"(No product_id given — using latest: {pid} '{latest.name}')")
+        with Session(engine) as session:
+            latest = session.exec(select(Product).order_by(Product.product_id.desc())).first()
+        if not latest or latest.product_id is None:
+            logger.error("No products found in DB.")
+            return 1
+        product_id = latest.product_id
+        selected_latest_message = (
+            f"(No product_id given - using latest: {product_id} '{latest.name}')"
+        )
     else:
-        pid = args.product_id
+        product_id = args.product_id
 
-    apply_validation(pid, mode=args.mode)
+    result = apply_validation(product_id, mode=args.mode)
+    _emit_run_logs(
+        result,
+        verbose=args.verbose,
+        quiet=args.quiet,
+        selected_latest_message=selected_latest_message,
+    )
+    return 0 if result.status in {"success", "noop"} else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
