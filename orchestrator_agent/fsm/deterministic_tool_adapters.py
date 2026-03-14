@@ -27,6 +27,7 @@ from orchestrator_agent.agent_tools.sprint_planner_tool.agent import (
 from orchestrator_agent.agent_tools.user_story_writer_tool.agent import (
     root_agent as story_writer_agent,
 )
+from services.sprint_input import prepare_sprint_input_context
 from tools.orchestrator_tools import fetch_sprint_candidates
 
 
@@ -400,73 +401,39 @@ async def sprint_planner_tool(
             guidance="Select an active project, then retry sprint planning.",
         )
 
-    candidate_result = fetch_sprint_candidates(product_id=product_id)
-    if not candidate_result.get("success"):
+    prepared = prepare_sprint_input_context(
+        product_id=product_id,
+        team_velocity_assumption=team_velocity_assumption,
+        sprint_duration_days=sprint_duration_days,
+        user_context=user_context,
+        max_story_points=max_story_points,
+        include_task_decomposition=include_task_decomposition,
+        selected_story_ids=selected_story_ids,
+        fetch_candidates=fetch_sprint_candidates,
+    )
+
+    if not prepared.get("success"):
+        error_code = prepared.get("error_code")
+        if error_code == "SPRINT_SELECTION_INVALID":
+            return _selection_error(prepared.get("invalid_selected_ids") or [])
         return _missing_context_error(
-            code="SPRINT_CANDIDATE_FETCH_FAILED",
-            missing_context=["sprint candidates"],
-            guidance="Retry fetching the backlog after selecting the active project.",
+            code=str(error_code or "SPRINT_CONTEXT_MISSING"),
+            missing_context=[
+                "sprint candidates"
+                if error_code == "SPRINT_CANDIDATE_FETCH_FAILED"
+                else "refined TO_DO stories"
+            ],
+            guidance=(
+                "Retry fetching the backlog after selecting the active project."
+                if error_code == "SPRINT_CANDIDATE_FETCH_FAILED"
+                else "Only refined stories are sprint-eligible. Refine stories first."
+            ),
         )
 
-    candidate_rows = candidate_result.get("stories")
-    if not isinstance(candidate_rows, list) or not candidate_rows:
-        return _missing_context_error(
-            code="SPRINT_CANDIDATES_MISSING",
-            missing_context=["refined TO_DO stories"],
-            guidance="Only refined stories are sprint-eligible. Refine stories first.",
-        )
-
-    selected_ids = _normalize_selected_story_ids(selected_story_ids)
-    selected_rows = candidate_rows
-    if selected_ids:
-        by_id: Dict[int, Dict[str, Any]] = {}
-        for row in candidate_rows:
-            if isinstance(row, dict):
-                story_id = _normalize_positive_int(row.get("story_id"))
-                if story_id is not None:
-                    by_id[story_id] = row
-        invalid_ids = [story_id for story_id in selected_ids if story_id not in by_id]
-        if invalid_ids:
-            return _selection_error(invalid_ids)
-        selected_rows = [by_id[story_id] for story_id in selected_ids]
-
-    available_stories: List[Dict[str, Any]] = []
-    for idx, row in enumerate(selected_rows, start=1):
-        if not isinstance(row, dict):
-            continue
-        story_id = _normalize_positive_int(row.get("story_id"))
-        if story_id is None:
-            continue
-        story_title = _as_text(row.get("story_title") or row.get("title")).strip()
-        if not story_title:
-            story_title = f"Story {story_id}"
-
-        available_stories.append(
-            {
-                "story_id": story_id,
-                "story_title": story_title,
-                "priority": _coerce_priority(row.get("priority"), idx),
-                "story_points": _normalize_positive_int(row.get("story_points")),
-            }
-        )
-
-    if not available_stories:
-        return _missing_context_error(
-            code="SPRINT_CANDIDATES_MISSING",
-            missing_context=["sprint-eligible stories with valid IDs"],
-            guidance="Refine stories first, then retry sprint planning.",
-        )
-
-    args = {
-        "available_stories": available_stories,
-        "team_velocity_assumption": _normalize_velocity(team_velocity_assumption),
-        "sprint_duration_days": _normalize_duration_days(sprint_duration_days),
-        "user_context": _as_text(user_context).strip() or None,
-        "max_story_points": _normalize_positive_int(max_story_points),
-        "include_task_decomposition": bool(include_task_decomposition),
-    }
-
-    result = await _SPRINT_PLANNER_TOOL.run_async(args=args, tool_context=tool_context)
+    result = await _SPRINT_PLANNER_TOOL.run_async(
+        args=cast(Dict[str, Any], prepared["input_context"]),
+        tool_context=tool_context,
+    )
     return cast(Dict[str, Any], result)
 
 

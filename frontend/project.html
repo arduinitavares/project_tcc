@@ -842,16 +842,40 @@
                                         <!-- Input Form -->
                                         <div class="flex-1 p-5 overflow-y-auto custom-scrollbar space-y-4">
                                             <div>
-                                                <label for="sprint-velocity" class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Team Velocity (Story Points)</label>
-                                                <input id="sprint-velocity" type="number" min="1" max="100" value="40" class="w-full text-sm rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+                                                <label for="sprint-velocity" class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Velocity Assumption</label>
+                                                <select id="sprint-velocity" class="w-full text-sm rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+                                                    <option value="Low">Low</option>
+                                                    <option value="Medium" selected>Medium</option>
+                                                    <option value="High">High</option>
+                                                </select>
+                                                <p class="mt-1 text-[11px] text-slate-500">Heuristic bands: Low ~ 2-3 stories, Medium ~ 4-5, High ~ 6-7.</p>
                                             </div>
                                             <div>
                                                 <label for="sprint-duration" class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Sprint Duration (Days)</label>
                                                 <input id="sprint-duration" type="number" min="1" max="30" value="14" class="w-full text-sm rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
                                             </div>
                                             <div>
-                                                <label for="sprint-max-story-points" class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Max Story Points</label>
-                                                <input id="sprint-max-story-points" type="number" min="1" max="21" value="8" class="w-full text-sm rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+                                                <label for="sprint-max-story-points" class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Max Story Points (Optional)</label>
+                                                <input id="sprint-max-story-points" type="number" min="1" max="21" placeholder="Leave blank to use only the velocity band" class="w-full text-sm rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+                                            </div>
+                                            <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
+                                                <div class="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-700 px-4 py-3">
+                                                    <div>
+                                                        <h4 class="text-sm font-black text-slate-800 dark:text-slate-200">Sprint Candidates</h4>
+                                                        <p class="text-[11px] text-slate-500">Optional manual pull. Leave all unchecked to let the planner choose from all eligible stories.</p>
+                                                    </div>
+                                                    <button id="btn-clear-sprint-selection" type="button" onclick="clearSprintSelection()" class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800">
+                                                        <span class="material-symbols-outlined text-[12px]">filter_alt_off</span>
+                                                        Clear
+                                                    </button>
+                                                </div>
+                                                <div class="px-4 pt-3">
+                                                    <p id="sprint-selection-summary" class="text-[11px] text-slate-500">Loading sprint candidates...</p>
+                                                </div>
+                                                <div id="sprint-capacity-warning" class="mx-4 mt-3 hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300"></div>
+                                                <div id="sprint-candidate-list" class="max-h-64 space-y-2 overflow-y-auto px-4 py-4 custom-scrollbar">
+                                                    <p class="text-xs text-slate-500">Loading sprint candidates...</p>
+                                                </div>
                                             </div>
                                             <div class="flex items-center gap-2">
                                                 <input id="sprint-decompose" type="checkbox" checked class="rounded dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-teal-600 focus:ring-teal-500">
@@ -859,10 +883,10 @@
                                             </div>
                                             <div>
                                                 <label for="sprint-user-input"
-                                                    class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2 mt-4">Refinement Guidelines</label>
+                                                    class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2 mt-4">Planning Notes</label>
                                                 <textarea id="sprint-user-input" rows="3"
                                                     class="w-full text-sm rounded-xl border border-slate-300 dark:border-slate-600 px-4 py-3 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none transition-all placeholder:text-slate-400 resize-none shadow-inner"
-                                                    placeholder="Enter any specific sprint goals or constraints..."></textarea>
+                                                    placeholder="Optional focus, dependency, or sequencing guidance for this sprint..."></textarea>
                                             </div>
                                         </div>
 
@@ -935,12 +959,29 @@
 
                                         <!-- Persistence actions -->
                                         <div
-                                            class="p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 flex items-center justify-between shrink-0 relative z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-                                            <p id="sprint-save-hint" class="text-[11px] text-slate-500 font-medium">Plan Sprint to create a draft before saving.</p>
-                                            <button id="btn-save-sprint" disabled onclick="saveSprintDraft()"
-                                                class="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm">
-                                                <span class="material-symbols-outlined text-sm">save</span> Confirm Sprint
-                                            </button>
+                                            class="p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 shrink-0 relative z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                                            <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                                                <div class="grid flex-1 gap-3 sm:grid-cols-2">
+                                                    <div>
+                                                        <label for="sprint-team-name" class="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-500">Team Name</label>
+                                                        <input id="sprint-team-name" type="text" disabled
+                                                            class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/30 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:disabled:bg-slate-800 dark:disabled:text-slate-500"
+                                                            placeholder="Team Alpha">
+                                                    </div>
+                                                    <div>
+                                                        <label for="sprint-start-date" class="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-500">Sprint Start Date</label>
+                                                        <input id="sprint-start-date" type="date" disabled
+                                                            class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-500/30 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:disabled:bg-slate-800 dark:disabled:text-slate-500">
+                                                    </div>
+                                                </div>
+                                                <div class="flex flex-col items-start gap-3 lg:items-end">
+                                                    <p id="sprint-save-hint" class="text-[11px] text-slate-500 font-medium">Plan Sprint to create a draft before saving.</p>
+                                                    <button id="btn-save-sprint" disabled onclick="saveSprintDraft()"
+                                                        class="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm">
+                                                        <span class="material-symbols-outlined text-sm">save</span> Confirm Sprint
+                                                    </button>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

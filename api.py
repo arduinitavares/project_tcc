@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -47,6 +47,7 @@ from services.vision_runtime import run_vision_agent_from_state
 from services.backlog_runtime import run_backlog_agent_from_state
 from services.roadmap_runtime import run_roadmap_agent_from_state
 from services.story_runtime import run_story_agent_from_state
+from services.sprint_input import load_sprint_candidates
 from services.sprint_runtime import run_sprint_agent_from_state
 from services.workflow import WorkflowService
 from tools.orchestrator_tools import select_project
@@ -104,10 +105,16 @@ class StoryGenerateRequest(BaseModel):
 
 class SprintGenerateRequest(BaseModel):
     user_input: Optional[str] = None
-    team_velocity_assumption: int = 40
+    team_velocity_assumption: Literal["Low", "Medium", "High"] = "Medium"
     sprint_duration_days: int = 14
-    max_story_points: int = 8
+    max_story_points: Optional[int] = None
     include_task_decomposition: bool = True
+    selected_story_ids: Optional[List[int]] = None
+
+
+class SprintSaveRequest(BaseModel):
+    team_name: str = Field(min_length=1)
+    sprint_start_date: str = Field(min_length=1)
 
 
 WORKFLOW_STEPS: List[Dict[str, Any]] = [
@@ -1458,17 +1465,16 @@ async def complete_story_phase(project_id: int):
             detail="Cannot complete phase. No requirements have saved stories."
         )
 
-    # All pass, update FSM state to STORY_PERSISTENCE
+    # All pass, transition into Sprint Setup for explicit planning inputs.
     current_state = _normalize_fsm_state(state.get("fsm_state"))
     # Only update if we aren't already past it
     if current_state not in (
-        OrchestratorState.STORY_PERSISTENCE.value,
         OrchestratorState.SPRINT_SETUP.value,
         OrchestratorState.SPRINT_DRAFT.value,
         OrchestratorState.SPRINT_PERSISTENCE.value,
         OrchestratorState.SPRINT_COMPLETE.value,
     ):
-        state["fsm_state"] = OrchestratorState.STORY_PERSISTENCE.value
+        state["fsm_state"] = OrchestratorState.SPRINT_SETUP.value
         state["fsm_state_entered_at"] = _now_iso()
         state["story_phase_completed_at"] = _now_iso()
         _save_session_state(session_id, state)
@@ -1519,6 +1525,30 @@ def _record_sprint_attempt(
     return len(attempts)
 
 
+@app.get("/api/projects/{project_id}/sprint/candidates")
+async def get_project_sprint_candidates(project_id: int):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    result = load_sprint_candidates(project_id)
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("message") or "Failed to load sprint candidates",
+        )
+
+    return {
+        "status": "success",
+        "data": {
+            "items": result.get("stories", []),
+            "count": result.get("count", 0),
+            "excluded_counts": result.get("excluded_counts", {}),
+            "message": result.get("message"),
+        },
+    }
+
+
 @app.post("/api/projects/{project_id}/sprint/generate")
 async def generate_project_sprint(project_id: int, req: SprintGenerateRequest):
     product = product_repo.get_by_id(project_id)
@@ -1548,6 +1578,7 @@ async def generate_project_sprint(project_id: int, req: SprintGenerateRequest):
         sprint_duration_days=req.sprint_duration_days,
         max_story_points=req.max_story_points,
         include_task_decomposition=req.include_task_decomposition,
+        selected_story_ids=req.selected_story_ids,
         user_input=req.user_input,
     )
 
@@ -1561,7 +1592,11 @@ async def generate_project_sprint(project_id: int, req: SprintGenerateRequest):
         failure_meta=sprint_result,
     )
 
-    state["fsm_state"] = OrchestratorState.SPRINT_DRAFT.value
+    state["fsm_state"] = (
+        OrchestratorState.SPRINT_DRAFT.value
+        if is_complete
+        else OrchestratorState.SPRINT_SETUP.value
+    )
     state["fsm_state_entered_at"] = _now_iso()
 
     _save_session_state(session_id, state)
@@ -1602,7 +1637,7 @@ async def get_project_sprint_history(project_id: int):
 
 
 @app.post("/api/projects/{project_id}/sprint/save")
-async def save_project_sprint(project_id: int):
+async def save_project_sprint(project_id: int, req: SprintSaveRequest):
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1621,17 +1656,31 @@ async def save_project_sprint(project_id: int):
         )
 
     from orchestrator_agent.agent_tools.sprint_planner_tool.schemes import SprintPlannerOutput
-    context = await _hydrate_context(session_id, project_id)
+
+    team_name = req.team_name.strip()
+    sprint_start_date = req.sprint_start_date.strip()
+    if not team_name:
+        raise HTTPException(status_code=422, detail="team_name is required")
+    if not sprint_start_date:
+        raise HTTPException(status_code=422, detail="sprint_start_date is required")
+
+    assessment_payload = dict(assessment)
+    assessment_payload.pop("is_complete", None)
 
     try:
-        sprint_data = SprintPlannerOutput.model_validate(assessment)
+        sprint_data = SprintPlannerOutput.model_validate(assessment_payload)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Invalid sprint data in session: {str(e)}")
+
+    context = await _hydrate_context(session_id, project_id)
+    context.state["sprint_plan"] = sprint_data.model_dump(exclude_none=True)
 
     result = save_sprint_plan_tool(
         SaveSprintPlanInput(
             product_id=project_id,
-            sprint_plan_data=sprint_data,
+            team_name=team_name,
+            sprint_start_date=sprint_start_date,
+            sprint_duration_days=sprint_data.duration_days,
         ),
         context,
     )

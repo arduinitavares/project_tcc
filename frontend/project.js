@@ -76,9 +76,18 @@ let currentBacklogArtifactJSON = null;
 let currentRoadmapArtifactJSON = null;
 let currentStoryArtifactJSON = null;
 let currentSprintArtifactJSON = null;
+let currentSprintInputContextJSON = null;
 
 let latestSprintIsComplete = false;
 let sprintAttemptCount = 0;
+let sprintCandidates = [];
+let selectedSprintStoryIds = new Set();
+
+const SPRINT_VELOCITY_LIMITS = {
+    Low: 3,
+    Medium: 5,
+    High: 7,
+};
 
 window.addEventListener('DOMContentLoaded', async () => {
     // 1. Get Project ID from URL
@@ -105,6 +114,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     await loadBacklogHistory();
     await loadRoadmapHistory();
     await loadStoryRequirements();
+    attachSprintInputListeners();
     await loadSprintHistory();
 });
 
@@ -296,8 +306,8 @@ function handleNextPhase() {
         generateRoadmapDraft();
     } else if (viewPhaseId === 'story') {
         loadStoryRequirements();
-    } else if (viewPhaseId === 'sprint' && sprintAttemptCount === 0) {
-        generateSprintDraft();
+    } else if (viewPhaseId === 'sprint') {
+        loadSprintCandidates();
     }
 }
 
@@ -341,8 +351,8 @@ async function fetchProjectFSMState(projectId) {
                     generateBacklogDraft();
                 } else if (viewPhaseId === 'roadmap' && roadmapAttemptCount === 0) {
                     generateRoadmapDraft();
-                } else if (viewPhaseId === 'sprint' && sprintAttemptCount === 0) {
-                    generateSprintDraft();
+                } else if (viewPhaseId === 'sprint') {
+                    loadSprintCandidates();
                 }
             }, 500);
         }
@@ -1424,6 +1434,7 @@ async function loadStoryRequirements() {
 
             renderStoryRequirementsList();
             updateCompleteStoryPhaseButton();
+            await loadSprintCandidates();
 
             // Auto-select first if none selected
             if (!activeStoryReq && storyRequirements.length > 0) {
@@ -1937,13 +1948,21 @@ async function completeStoryPhase() {
             throw new Error(body.detail || 'Failed to complete phase.');
         }
 
-        // Refresh global state so "Next Phase" unlocks to move to Sprint
+        if (btn) {
+            btn.innerHTML = original || '<span class="material-symbols-outlined text-sm">flag</span> Complete Refining Phase';
+            btn.disabled = false;
+        }
+
         await fetchProjectFSMState(selectedProjectId);
+        await loadSprintCandidates();
 
     } catch (e) {
         alert(e.message || "Failed to complete phase.");
-        if (btn) btn.innerHTML = original;
     } finally {
+        if (btn) {
+            btn.innerHTML = original || '<span class="material-symbols-outlined text-sm">flag</span> Complete Refining Phase';
+            btn.disabled = false;
+        }
         updateCompleteStoryPhaseButton();
     }
 }
@@ -1951,6 +1970,182 @@ async function completeStoryPhase() {
 // ==========================================
 // SPRINT PHASE LOGIC
 // ==========================================
+
+function attachSprintInputListeners() {
+    const velocityInput = document.getElementById('sprint-velocity');
+    const maxPointsInput = document.getElementById('sprint-max-story-points');
+    const teamNameInput = document.getElementById('sprint-team-name');
+    const startDateInput = document.getElementById('sprint-start-date');
+
+    velocityInput?.addEventListener('change', updateSprintCapacityWarning);
+    maxPointsInput?.addEventListener('input', updateSprintCapacityWarning);
+    teamNameInput?.addEventListener('input', updateSprintSaveButton);
+    startDateInput?.addEventListener('change', updateSprintSaveButton);
+
+    initializeSprintSaveForm();
+}
+
+function getTodayLocalDateValue() {
+    const now = new Date();
+    const timezoneOffsetMs = now.getTimezoneOffset() * 60 * 1000;
+    return new Date(now.getTime() - timezoneOffsetMs).toISOString().slice(0, 10);
+}
+
+function initializeSprintSaveForm() {
+    const startDateInput = document.getElementById('sprint-start-date');
+    if (startDateInput && !startDateInput.value) {
+        startDateInput.value = getTodayLocalDateValue();
+    }
+}
+
+function clearSprintSelection() {
+    selectedSprintStoryIds = new Set();
+    renderSprintCandidates();
+    updateSprintCapacityWarning();
+}
+
+function getSelectedSprintCandidates() {
+    return sprintCandidates.filter(candidate => selectedSprintStoryIds.has(candidate.story_id));
+}
+
+function updateSprintSelectionSummary() {
+    const summary = document.getElementById('sprint-selection-summary');
+    if (!summary) return;
+
+    if (sprintCandidates.length === 0) {
+        summary.innerText = 'No sprint-eligible stories are available yet.';
+        return;
+    }
+
+    const selected = getSelectedSprintCandidates();
+    if (selected.length === 0) {
+        summary.innerText = `${sprintCandidates.length} eligible stories available. Leave all unchecked to let the planner choose from the full candidate pool.`;
+        return;
+    }
+
+    const estimatedPoints = selected
+        .map(item => Number.isFinite(item.story_points) ? item.story_points : null)
+        .filter(value => value !== null);
+    const pointsText = estimatedPoints.length === selected.length
+        ? `${estimatedPoints.reduce((sum, value) => sum + value, 0)} estimated points`
+        : 'partial point estimates';
+
+    summary.innerText = `${selected.length} stories manually selected (${pointsText}).`;
+}
+
+function renderSprintCandidates() {
+    const container = document.getElementById('sprint-candidate-list');
+    if (!container) return;
+
+    container.innerHTML = '';
+    if (!sprintCandidates || sprintCandidates.length === 0) {
+        container.innerHTML = '<p class="text-xs text-slate-500">No refined TO_DO stories are available for sprint planning yet.</p>';
+        updateSprintSelectionSummary();
+        updateSprintCapacityWarning();
+        return;
+    }
+
+    sprintCandidates.forEach((story) => {
+        const checked = selectedSprintStoryIds.has(story.story_id);
+        const points = Number.isFinite(story.story_points) ? `${story.story_points} pts` : 'Unestimated';
+        const persona = story.persona ? `Persona: ${story.persona}` : 'Persona not set';
+        const origin = story.story_origin ? `Origin: ${story.story_origin}` : 'Origin unknown';
+
+        const row = document.createElement('label');
+        row.className = 'flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-white p-3 transition-colors hover:border-teal-300 dark:border-slate-700 dark:bg-slate-800/60 dark:hover:border-teal-700';
+        row.innerHTML = `
+            <input type="checkbox" class="mt-0.5 rounded border-slate-300 text-teal-600 focus:ring-teal-500" ${checked ? 'checked' : ''}>
+            <div class="min-w-0 flex-1">
+                <div class="flex items-center justify-between gap-3">
+                    <p class="text-sm font-bold text-slate-800 dark:text-slate-200">${story.story_title}</p>
+                    <span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black uppercase text-slate-600 dark:bg-slate-700 dark:text-slate-300">#${story.priority}</span>
+                </div>
+                <div class="mt-1 flex flex-wrap gap-2 text-[10px] text-slate-500">
+                    <span>${points}</span>
+                    <span>${persona}</span>
+                    <span>${origin}</span>
+                </div>
+            </div>
+        `;
+
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        checkbox?.addEventListener('change', (event) => {
+            if (event.target.checked) {
+                selectedSprintStoryIds.add(story.story_id);
+            } else {
+                selectedSprintStoryIds.delete(story.story_id);
+            }
+            updateSprintSelectionSummary();
+            updateSprintCapacityWarning();
+        });
+
+        container.appendChild(row);
+    });
+
+    updateSprintSelectionSummary();
+    updateSprintCapacityWarning();
+}
+
+function updateSprintCapacityWarning() {
+    const warning = document.getElementById('sprint-capacity-warning');
+    if (!warning) return;
+
+    const selected = getSelectedSprintCandidates();
+    if (selected.length === 0) {
+        warning.classList.add('hidden');
+        warning.innerHTML = '';
+        return;
+    }
+
+    const velocity = document.getElementById('sprint-velocity')?.value || 'Medium';
+    const maxStoryPointsText = document.getElementById('sprint-max-story-points')?.value?.trim() || '';
+    const maxStoryPoints = maxStoryPointsText ? parseInt(maxStoryPointsText, 10) : null;
+    const messages = [];
+
+    const storyLimit = SPRINT_VELOCITY_LIMITS[velocity] || SPRINT_VELOCITY_LIMITS.Medium;
+    if (selected.length > storyLimit) {
+        messages.push(`Capacity Overload: ${selected.length} manually selected stories exceed the ${velocity} heuristic limit of ${storyLimit}.`);
+    }
+
+    const allSelectedHavePoints = selected.every(item => Number.isFinite(item.story_points));
+    if (maxStoryPoints && allSelectedHavePoints) {
+        const totalPoints = selected.reduce((sum, item) => sum + item.story_points, 0);
+        if (totalPoints > maxStoryPoints) {
+            messages.push(`Capacity Overload: ${totalPoints} selected story points exceed the optional cap of ${maxStoryPoints}.`);
+        }
+    }
+
+    if (messages.length === 0) {
+        warning.classList.add('hidden');
+        warning.innerHTML = '';
+        return;
+    }
+
+    warning.classList.remove('hidden');
+    warning.innerHTML = messages.join(' ');
+}
+
+async function loadSprintCandidates() {
+    if (!selectedProjectId) return;
+    try {
+        const response = await fetch(`/api/projects/${selectedProjectId}/sprint/candidates`);
+        const data = await response.json();
+        if (data.status !== 'success') throw new Error('Failed to load sprint candidates');
+
+        const items = Array.isArray(data.data?.items) ? data.data.items : [];
+        const validIds = new Set(items.map(item => item.story_id));
+        selectedSprintStoryIds = new Set(
+            Array.from(selectedSprintStoryIds).filter(storyId => validIds.has(storyId))
+        );
+        sprintCandidates = items;
+        renderSprintCandidates();
+    } catch (e) {
+        console.error('Failed to load sprint candidates:', e);
+        sprintCandidates = [];
+        selectedSprintStoryIds = new Set();
+        renderSprintCandidates();
+    }
+}
 
 async function loadSprintHistory() {
     if (!selectedProjectId) return;
@@ -1982,15 +2177,11 @@ async function generateSprintDraft() {
     if (!selectedProjectId) return;
 
     const userInput = document.getElementById('sprint-user-input')?.value?.trim() || '';
-    if (sprintAttemptCount > 0 && !userInput) {
-        alert('Please provide feedback to refine the Sprint Plan.');
-        return;
-    }
-
-    const velocityInput = document.getElementById('sprint-velocity')?.value || 40;
+    const velocityInput = document.getElementById('sprint-velocity')?.value || 'Medium';
     const durationInput = document.getElementById('sprint-duration')?.value || 14;
-    const maxPointsInput = document.getElementById('sprint-max-story-points')?.value || 8;
+    const maxPointsInput = document.getElementById('sprint-max-story-points')?.value?.trim() || '';
     const decomposeInput = document.getElementById('sprint-decompose')?.checked ?? true;
+    const selectedStoryIds = Array.from(selectedSprintStoryIds);
 
     const button = document.getElementById('btn-generate-sprint');
     const original = button?.innerHTML;
@@ -2002,11 +2193,14 @@ async function generateSprintDraft() {
     try {
         const payload = {
             user_input: userInput,
-            team_velocity_assumption: parseInt(velocityInput, 10),
+            team_velocity_assumption: velocityInput,
             sprint_duration_days: parseInt(durationInput, 10),
-            max_story_points: parseInt(maxPointsInput, 10),
+            max_story_points: maxPointsInput ? parseInt(maxPointsInput, 10) : null,
             include_task_decomposition: decomposeInput
         };
+        if (selectedStoryIds.length > 0) {
+            payload.selected_story_ids = selectedStoryIds;
+        }
 
         const response = await fetch(`/api/projects/${selectedProjectId}/sprint/generate`, {
             method: 'POST',
@@ -2024,12 +2218,13 @@ async function generateSprintDraft() {
 
         latestSprintIsComplete = Boolean(data.data?.is_complete);
         renderSprintAttemptPanels(data.data?.input_context || null, data.data?.output_artifact || null);
-        setPhaseState(data.data?.fsm_state || 'SPRINT_DRAFT', 'sprint');
+        setPhaseState(data.data?.fsm_state || 'SPRINT_SETUP', 'sprint');
 
         await loadSprintHistory();
     } catch (error) {
         console.error(error);
-        alert(error.message || 'Sprint generation failed.');
+        const message = error?.message || 'Sprint generation failed.';
+        alert(message);
     } finally {
         if (button) {
             button.innerHTML = original || '<span class="material-symbols-outlined text-sm">cycle</span> Plan Sprint';
@@ -2042,6 +2237,25 @@ async function generateSprintDraft() {
 async function saveSprintDraft() {
     if (!selectedProjectId) return;
 
+    const teamNameInput = document.getElementById('sprint-team-name');
+    const startDateInput = document.getElementById('sprint-start-date');
+    const teamName = teamNameInput?.value?.trim() || '';
+    const sprintStartDate = startDateInput?.value || '';
+
+    if (!teamName) {
+        alert('Team name is required before saving the sprint.');
+        teamNameInput?.focus();
+        updateSprintSaveButton();
+        return;
+    }
+
+    if (!sprintStartDate) {
+        alert('Sprint start date is required before saving the sprint.');
+        startDateInput?.focus();
+        updateSprintSaveButton();
+        return;
+    }
+
     const button = document.getElementById('btn-save-sprint');
     const original = button?.innerHTML;
     if (button) {
@@ -2053,19 +2267,28 @@ async function saveSprintDraft() {
     try {
         const response = await fetch(`/api/projects/${selectedProjectId}/sprint/save`, {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                team_name: teamName,
+                sprint_start_date: sprintStartDate,
+            }),
         });
 
-        if (response.status === 409) {
-            const body = await response.json();
-            throw new Error(body.detail || 'Sprint is not complete yet.');
+        if (response.status >= 400) {
+            const body = await response.json().catch(() => null);
+            const detail = Array.isArray(body?.detail)
+                ? body.detail.map(item => item?.msg || 'Validation error').join('; ')
+                : body?.detail;
+            throw new Error(detail || 'Failed to save sprint.');
         }
-        if (response.status >= 400) throw new Error('Failed to save sprint.');
 
         const data = await response.json();
         if (data.status !== 'success') throw new Error('Failed to save sprint.');
 
         setPhaseState('SPRINT_PERSISTENCE', 'sprint');
         latestSprintIsComplete = true;
+        if (teamNameInput) teamNameInput.disabled = true;
+        if (startDateInput) startDateInput.disabled = true;
         success = true;
 
         await fetchProjectFSMState(selectedProjectId);
@@ -2121,6 +2344,7 @@ function renderSprintAttemptPanels(inputContext, outputArtifact) {
     const outputCanvas = document.getElementById('sprint-output-artifact');
     const copyBtn = document.getElementById('btn-copy-sprint-output');
 
+    currentSprintInputContextJSON = inputContext || null;
     if (inputCanvas) {
         inputCanvas.innerText = inputContext ? JSON.stringify(inputContext, null, 2) : 'No input context available.';
     }
@@ -2134,7 +2358,7 @@ function renderSprintAttemptPanels(inputContext, outputArtifact) {
                 </div>
             `;
         } else {
-            outputCanvas.innerHTML = renderSprintArtifactHtml(outputArtifact);
+            outputCanvas.innerHTML = renderSprintArtifactHtml(outputArtifact, currentSprintInputContextJSON);
         }
     }
     
@@ -2148,10 +2372,13 @@ function renderSprintAttemptPanels(inputContext, outputArtifact) {
     }
 }
 
-function renderSprintArtifactHtml(artifact) {
+function renderSprintArtifactHtml(artifact, inputContext) {
     let html = '';
+    const availableStories = Array.isArray(inputContext?.available_stories) ? inputContext.available_stories : [];
+    const storyMetaById = new Map(availableStories.map(story => [story.story_id, story]));
 
     if (artifact.error) {
+        const rawOutput = artifact.raw_output || artifact.raw_output_preview || '';
         html += `
             <div class="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 p-4 rounded-lg mb-4">
                 <div class="flex items-center gap-2 text-red-700 dark:text-red-400 font-bold mb-2">
@@ -2159,11 +2386,11 @@ function renderSprintArtifactHtml(artifact) {
                 </div>
                 <p class="text-[11px] font-mono text-red-600 dark:text-red-300 whitespace-pre-wrap">${artifact.message || 'Unknown error'}</p>
         `;
-        if (artifact.raw_output) {
-            const safeRaw = artifact.raw_output.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        if (rawOutput) {
+            const safeRaw = rawOutput.replace(/</g, "&lt;").replace(/>/g, "&gt;");
             html += `
                 <div class="mt-4 border-t border-red-200 dark:border-red-800/50 pt-3">
-                    <p class="text-[10px] font-bold text-red-700 dark:text-red-400 mb-1 uppercase tracking-wide">Raw Agent Output:</p>
+                    <p class="text-[10px] font-bold text-red-700 dark:text-red-400 mb-1 uppercase tracking-wide">Raw Agent Output Preview:</p>
                     <pre class="text-[10px] font-mono text-red-600 dark:text-red-300 bg-white/50 dark:bg-black/20 p-2 rounded overflow-x-auto whitespace-pre-wrap">${safeRaw}</pre>
                 </div>
             `;
@@ -2183,15 +2410,22 @@ function renderSprintArtifactHtml(artifact) {
     }
 
     if (!artifact.error && artifact.sprint_goal) {
+        const capacity = artifact.capacity_analysis || {};
         html += `
             <div class="mb-5 bg-gradient-to-r from-teal-50 to-emerald-50 dark:from-teal-900/20 dark:to-emerald-900/20 border border-emerald-200 dark:border-emerald-800 p-4 rounded-xl">
                 <h4 class="text-xs font-black text-emerald-800 dark:text-emerald-400 uppercase tracking-widest mb-2 flex items-center gap-1.5"><span class="material-symbols-outlined text-[16px]">flag_circle</span> Sprint Goal</h4>
                 <p class="text-sm font-medium text-slate-800 dark:text-slate-200">${artifact.sprint_goal}</p>
                 
-                <div class="mt-3 flex items-center gap-4 text-[11px] text-slate-600 dark:text-slate-400">
-                    <div><span class="font-bold text-slate-700 dark:text-slate-300">Total Assigned Points:</span> ${artifact.total_assigned_points || 0}</div>
-                    <div><span class="font-bold text-slate-700 dark:text-slate-300">Omitted Stories:</span> ${artifact.omitted_stories?.length || 0}</div>
+                <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-600 dark:text-slate-400">
+                    <div><span class="font-bold text-slate-700 dark:text-slate-300">Sprint #:</span> ${artifact.sprint_number || '?'}</div>
+                    <div><span class="font-bold text-slate-700 dark:text-slate-300">Duration:</span> ${artifact.duration_days || '?'} days</div>
+                    <div><span class="font-bold text-slate-700 dark:text-slate-300">Velocity:</span> ${capacity.velocity_assumption || '-'}</div>
+                    <div><span class="font-bold text-slate-700 dark:text-slate-300">Capacity Band:</span> ${capacity.capacity_band || '-'}</div>
+                    <div><span class="font-bold text-slate-700 dark:text-slate-300">Selected Stories:</span> ${capacity.selected_count ?? artifact.selected_stories?.length ?? 0}</div>
+                    <div><span class="font-bold text-slate-700 dark:text-slate-300">Story Points Used:</span> ${capacity.story_points_used ?? 'N/A'}</div>
                 </div>
+                ${capacity.commitment_note ? `<p class="mt-3 text-[11px] font-medium text-emerald-800 dark:text-emerald-300">${capacity.commitment_note}</p>` : ''}
+                ${capacity.reasoning ? `<p class="mt-2 text-[11px] text-slate-600 dark:text-slate-400">${capacity.reasoning}</p>` : ''}
             </div>
         `;
     }
@@ -2202,22 +2436,24 @@ function renderSprintArtifactHtml(artifact) {
     } else {
         html += `<div class="space-y-4">`;
         stories.forEach((story, idx) => {
+            const storyMeta = storyMetaById.get(story.story_id) || {};
+            const pointsLabel = Number.isFinite(storyMeta.story_points) ? `${storyMeta.story_points} Points` : 'Points N/A';
             html += `
                 <div class="border border-slate-200 dark:border-slate-700 rounded-lg p-4 bg-white dark:bg-slate-800/60 shadow-sm relative pt-4">
                     <div class="absolute top-0 right-0 bg-slate-100 dark:bg-slate-700 text-slate-500 text-[9px] font-black px-2 py-1 rounded-bl-lg rounded-tr-lg">STORY ${idx + 1}</div>
                     
                     <div class="flex gap-2 items-start justify-between mb-2 border-b border-slate-100 dark:border-slate-700 pb-2">
                         <h4 class="font-bold text-sm text-slate-800 dark:text-slate-200 pr-12">${story.story_title}</h4>
-                        <span class="shrink-0 px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400 text-[10px] font-black uppercase">${story.story_points || '?'} Points</span>
+                        <span class="shrink-0 px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400 text-[10px] font-black uppercase">${pointsLabel}</span>
                     </div>
                     
-                    <p class="text-[11px] text-slate-600 dark:text-slate-400 italic mb-3">Parent Req: ${story.parent_requirement || 'None'}</p>
+                    <p class="text-[11px] text-slate-600 dark:text-slate-400 italic mb-3">${story.reason_for_selection || 'Selected for sprint scope.'}</p>
                     
                     <div>
                         <h5 class="text-[10px] uppercase font-bold text-slate-500 mb-1.5">Tasks (${(story.tasks || []).length})</h5>
                         ${story.tasks && story.tasks.length > 0 ? `
                         <ul class="text-[11px] text-slate-700 dark:text-slate-300 space-y-1.5 list-disc pl-4">
-                            ${story.tasks.map(t => `<li><span class="font-bold">${t.task_title}</span>: ${t.description} <span class="text-emerald-600 dark:text-emerald-400 font-medium">(${t.estimated_hours}h)</span></li>`).join('')}
+                            ${story.tasks.map(task => `<li>${task}</li>`).join('')}
                         </ul>
                         ` : '<p class="text-[11px] text-slate-400">No tasks defined.</p>'}
                     </div>
@@ -2227,17 +2463,20 @@ function renderSprintArtifactHtml(artifact) {
         html += `</div>`;
     }
 
-    if (artifact.omitted_stories && artifact.omitted_stories.length > 0) {
+    const deselectedStories = Array.isArray(artifact.deselected_stories) ? artifact.deselected_stories : [];
+    if (deselectedStories.length > 0) {
         html += `
             <div class="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
-                <h4 class="text-xs font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px]">inventory_2</span> Omitted Stories</h4>
+                <h4 class="text-xs font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px]">inventory_2</span> Deselected Stories</h4>
                 <div class="space-y-2">
         `;
-        artifact.omitted_stories.forEach(om => {
+        deselectedStories.forEach((story) => {
+            const storyMeta = storyMetaById.get(story.story_id) || {};
+            const title = storyMeta.story_title || `Story ${story.story_id}`;
             html += `
                 <div class="text-[11px] bg-slate-100 dark:bg-slate-800/80 p-2 rounded border border-slate-200 dark:border-slate-700">
-                    <span class="font-bold text-slate-700 dark:text-slate-300">${om.story_title}</span>
-                    <p class="text-slate-500 mt-0.5">${om.reasoning}</p>
+                    <span class="font-bold text-slate-700 dark:text-slate-300">${title}</span>
+                    <p class="text-slate-500 mt-0.5">${story.reason}</p>
                 </div>
             `;
         });
@@ -2250,18 +2489,42 @@ function renderSprintArtifactHtml(artifact) {
 function updateSprintSaveButton() {
     const button = document.getElementById('btn-save-sprint');
     const hint = document.getElementById('sprint-save-hint');
-    if (!button || !hint) return;
+    const teamNameInput = document.getElementById('sprint-team-name');
+    const startDateInput = document.getElementById('sprint-start-date');
+    if (!button || !hint || !teamNameInput || !startDateInput) return;
 
-    const canSave = Boolean(selectedProjectId) && latestSprintIsComplete;
+    const savePhaseReady = Boolean(selectedProjectId) && latestSprintIsComplete && activeFsmState === 'SPRINT_DRAFT';
+    const hasRequiredFields = Boolean(teamNameInput.value.trim()) && Boolean(startDateInput.value);
+    const canSave = savePhaseReady && hasRequiredFields;
     button.disabled = !canSave;
+    teamNameInput.disabled = !savePhaseReady;
+    startDateInput.disabled = !savePhaseReady;
 
     button.className = canSave
         ? 'inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all shadow-sm'
         : 'inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary/40 text-white font-bold cursor-not-allowed transition-all shadow-sm';
 
-    hint.innerText = canSave
-        ? 'Sprint plan is complete. Proceed to save.'
-        : 'Save is disabled until latest Sprint output has is_complete=true.';
+    if (activeFsmState === 'SPRINT_PERSISTENCE') {
+        hint.innerText = 'Sprint already saved for this draft.';
+        return;
+    }
+
+    if (!latestSprintIsComplete) {
+        hint.innerText = 'Save is disabled until the latest Sprint output is complete.';
+        return;
+    }
+
+    if (!teamNameInput.value.trim()) {
+        hint.innerText = 'Provide a team name to confirm this sprint.';
+        return;
+    }
+
+    if (!startDateInput.value) {
+        hint.innerText = 'Choose a sprint start date to confirm this sprint.';
+        return;
+    }
+
+    hint.innerText = 'Sprint plan is complete. Proceed to save.';
 }
 
 async function deleteCurrentProject() {
@@ -2326,6 +2589,9 @@ async function copyArtifactToClipboard(phase) {
     } else if (phase === 'story') {
         payload = currentStoryArtifactJSON;
         btnId = 'btn-copy-story-output';
+    } else if (phase === 'sprint') {
+        payload = currentSprintArtifactJSON;
+        btnId = 'btn-copy-sprint-output';
     }
 
     if (!payload) {
