@@ -259,10 +259,10 @@ pytest tests/ --cov=. --cov-report=html
 - [x] Backlog Primer (Gross Requirements Generation)
 - [x] Roadmap Builder (Now/Next/Later prioritization)
 - [x] User Story Writer ("Three Cs" & INVEST validation)
-- [x] Sprint Planner (Scope "Pull" & Task Decomposition)
 - [x] WorkflowEvent metrics capture
 
 ### 🔜 Planned (v1.2)
+- [ ] Sprint Planner (Scope "Pull" & Task Decomposition)
 - [ ] Automated Spec Updates via Feedback
 - [ ] Task breakdown from stories
 - [ ] Burndown chart visualization
