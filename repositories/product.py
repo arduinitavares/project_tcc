@@ -81,7 +81,79 @@ class ProductRepository:
                 session.add(product)
                 session.commit()
                 session.refresh(product)
-            return product
+        finally:
+            if not self._session:
+                session.close()
+
+    def delete_project(self, product_id: int) -> bool:
+        """Fully delete a product and all of its associated agile entities."""
+        from agile_sqlmodel import (
+            ProductTeam, Theme, Epic, Feature, Sprint, SprintStory, 
+            UserStory, Task, StoryCompletionLog, SpecRegistry, 
+            SpecAuthorityAcceptance, CompiledSpecAuthority, ProductPersona,
+            WorkflowEvent
+        )
+
+        session = self._get_session()
+        try:
+            product = session.get(Product, product_id)
+            if not product:
+                return False
+
+            # Delete WorkflowEvent records
+            for event in session.exec(select(WorkflowEvent).where(WorkflowEvent.product_id == product_id)).all():
+                session.delete(event)
+
+            # Delete SpecAuthorityAcceptance records
+            session.exec(
+                select(SpecAuthorityAcceptance)
+                .where(SpecAuthorityAcceptance.product_id == product_id)
+            ).all()
+            for sa in session.exec(select(SpecAuthorityAcceptance).where(SpecAuthorityAcceptance.product_id == product_id)).all():
+                session.delete(sa)
+
+            # Delete SpecRegistry (+ CompiledSpecAuthority is 1:1, but child records might need manual drop depending on FKs)
+            for spec_ver in session.exec(select(SpecRegistry).where(SpecRegistry.product_id == product_id)).all():
+                comp = session.exec(select(CompiledSpecAuthority).where(CompiledSpecAuthority.spec_version_id == spec_ver.spec_version_id)).first()
+                if comp:
+                    session.delete(comp)
+                session.delete(spec_ver)
+
+            # Delete ProductPersonas
+            for persona in session.exec(select(ProductPersona).where(ProductPersona.product_id == product_id)).all():
+                session.delete(persona)
+
+            # Handle Themes -> Epics -> Features
+            for theme in session.exec(select(Theme).where(Theme.product_id == product_id)).all():
+                for epic in session.exec(select(Epic).where(Epic.theme_id == theme.theme_id)).all():
+                    for feature in session.exec(select(Feature).where(Feature.epic_id == epic.epic_id)).all():
+                        session.delete(feature)
+                    session.delete(epic)
+                session.delete(theme)
+
+            # Handle Sprints (and mappings)
+            for sprint in session.exec(select(Sprint).where(Sprint.product_id == product_id)).all():
+                for sm in session.exec(select(SprintStory).where(SprintStory.sprint_id == sprint.sprint_id)).all():
+                    session.delete(sm)
+                session.delete(sprint)
+
+            # Handle UserStories (and tasks / logs)
+            for story in session.exec(select(UserStory).where(UserStory.product_id == product_id)).all():
+                for t in session.exec(select(Task).where(Task.story_id == story.story_id)).all():
+                    session.delete(t)
+                for log in session.exec(select(StoryCompletionLog).where(StoryCompletionLog.story_id == story.story_id)).all():
+                    session.delete(log)
+                session.delete(story)
+
+            # Handle Teams Mappings
+            for pt in session.exec(select(ProductTeam).where(ProductTeam.product_id == product_id)).all():
+                session.delete(pt)
+
+            # Finally delete the product
+            session.delete(product)
+
+            session.commit()
+            return True
         finally:
             if not self._session:
                 session.close()

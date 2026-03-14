@@ -76,6 +76,14 @@ class WorkflowService:
             partial_update=partial_update,
         )
 
+    def delete_session(self, session_id: str) -> bool:
+        """Delete a workflow session state from the database."""
+        return self.session_repo.delete_session(
+            app_name=self.app_name,
+            user_id=self.user_id,
+            session_id=session_id,
+        )
+
     def migrate_legacy_setup_state(self) -> int:
         """
         One-time migration: convert legacy ROUTING_MODE session states

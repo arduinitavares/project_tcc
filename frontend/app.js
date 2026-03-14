@@ -108,9 +108,14 @@ function renderProjects(projects) {
                 
                 <div class="flex items-center justify-between border-t border-slate-100 dark:border-slate-700/50 pt-4">
                     <span class="text-xs font-semibold text-slate-400">ID: ${project.id}</span>
-                    <span class="text-primary text-sm font-bold flex items-center gap-1">
-                        Open Pipeline <span class="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform">arrow_forward</span>
-                    </span>
+                    <div class="flex items-center gap-3">
+                        <button onclick="deleteProject(event, ${project.id})" class="text-slate-400 hover:text-red-500 transition-colors p-1 rounded-full hover:bg-red-50 dark:hover:bg-red-500/10 flex items-center justify-center" title="Delete Project">
+                            <span class="material-symbols-outlined text-[18px]">delete</span>
+                        </button>
+                        <span class="text-primary text-sm font-bold flex items-center gap-1">
+                            Open <span class="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform">arrow_forward</span>
+                        </span>
+                    </div>
                 </div>
             </a>
         `;
@@ -185,7 +190,34 @@ async function submitNewProject() {
     }
 }
 
+async function deleteProject(event, projectId) {
+    if (event) {
+        event.preventDefault(); // Prevent navigating to project.html
+        event.stopPropagation();
+    }
+
+    if (!confirm('Are you sure you want to delete this project? This will permanently delete the specification, stories, and all AI generated data.')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/projects/${projectId}`, {
+            method: 'DELETE',
+        });
+        const data = await response.json();
+        if (data.status === 'success') {
+            await fetchProjects();
+        } else {
+            alert(data.detail || 'Failed to delete project.');
+        }
+    } catch (error) {
+        console.error('Error deleting project:', error);
+        alert('Network error while deleting project.');
+    }
+}
+
 // Attach globally
 window.openCreateProjectModal = openCreateProjectModal;
 window.closeCreateProjectModal = closeCreateProjectModal;
 window.submitNewProject = submitNewProject;
+window.deleteProject = deleteProject;

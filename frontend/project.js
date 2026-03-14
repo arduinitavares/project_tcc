@@ -1893,6 +1893,41 @@ async function completeStoryPhase() {
     }
 }
 
+async function deleteCurrentProject() {
+    if (!selectedProjectId) return;
+
+    if (!confirm('Are you sure you want to delete this project? This will permanently delete the specification, stories, and all AI generated data.')) {
+        return;
+    }
+
+    const btn = document.getElementById('header-btn-delete-project');
+    const original = btn?.innerHTML;
+    if (btn) {
+        btn.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">refresh</span>';
+        btn.disabled = true;
+    }
+
+    try {
+        const response = await fetch(`/api/projects/${selectedProjectId}`, {
+            method: 'DELETE',
+        });
+        const data = await response.json();
+        if (data.status === 'success') {
+            window.location.href = '/dashboard';
+        } else {
+            alert(data.detail || 'Failed to delete project.');
+        }
+    } catch (error) {
+        console.error('Error deleting project:', error);
+        alert('Network error while deleting project.');
+    } finally {
+        if (btn) {
+            btn.innerHTML = original;
+            btn.disabled = false;
+        }
+    }
+}
+
 
 // Assign globally for inline onclick handlers attached in project.html
 window.retryProjectSetup = retryProjectSetup;
@@ -1908,3 +1943,4 @@ window.generateStoryDraft = generateStoryDraft;
 window.saveStoryDraft = saveStoryDraft;
 window.deleteStoryDraft = deleteStoryDraft;
 window.completeStoryPhase = completeStoryPhase;
+window.deleteCurrentProject = deleteCurrentProject;

@@ -492,6 +492,25 @@ async def create_project(req: CreateProjectRequest):
         raise HTTPException(status_code=500, detail="Failed to create project") from exc
 
 
+@app.delete("/api/projects/{project_id}")
+async def delete_project(project_id: int):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    try:
+        # Delete volatile session state
+        workflow_service.delete_session(str(project_id))
+        # Cascade delete products and all artifacts
+        success = product_repo.delete_project(project_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to delete project due to database error.")
+        return {"status": "success", "data": {"message": f"Project {project_id} deleted."}}
+    except Exception as exc:
+        logger.error("Error deleting project %d: %s", project_id, exc)
+        raise HTTPException(status_code=500, detail="Failed to delete project") from exc
+
+
 @app.post("/api/projects/{project_id}/setup/retry")
 async def retry_project_setup(project_id: int, req: RetrySetupRequest):
     product = product_repo.get_by_id(project_id)

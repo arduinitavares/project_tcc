@@ -61,3 +61,21 @@ class WorkflowSessionRepository:
             )
             conn.commit()
         logger.info("Session state updated successfully in DB")
+
+    def delete_session(self, app_name: str, user_id: str, session_id: str) -> bool:
+        """Deletes the session state from the volatile store."""
+        if not self.has_sessions_table():
+            return False
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM sessions WHERE app_name=? AND user_id=? AND id=?",
+                (app_name, user_id, session_id),
+            )
+            deleted = cursor.rowcount > 0
+            conn.commit()
+            
+        if deleted:
+            logger.info("Session %s deleted successfully from DB", session_id)
+        return deleted
