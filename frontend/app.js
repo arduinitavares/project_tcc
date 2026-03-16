@@ -109,7 +109,7 @@ function renderProjects(projects) {
                 <div class="flex items-center justify-between border-t border-slate-100 dark:border-slate-700/50 pt-4">
                     <span class="text-xs font-semibold text-slate-400">ID: ${project.id}</span>
                     <div class="flex items-center gap-3">
-                        <button onclick="deleteProject(event, ${project.id})" class="text-slate-400 hover:text-red-500 transition-colors p-1 rounded-full hover:bg-red-50 dark:hover:bg-red-500/10 flex items-center justify-center" title="Delete Project">
+                        <button onclick="deleteProject(event, ${project.id})" aria-label="Delete project" class="text-slate-400 hover:text-red-500 transition-colors p-1 rounded-full hover:bg-red-50 dark:hover:bg-red-500/10 flex items-center justify-center" title="Delete Project">
                             <span class="material-symbols-outlined text-[18px]">delete</span>
                         </button>
                         <span class="text-primary text-sm font-bold flex items-center gap-1">
