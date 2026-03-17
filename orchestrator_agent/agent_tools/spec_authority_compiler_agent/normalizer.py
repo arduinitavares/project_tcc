@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 _META_POLICY_LOCATION_RE = re.compile(
     r"\b("
-    r"plagiarism|academic integrity|citation|references?|bibliography|"
+    r"plagiarism|academic integrity|citation|bibliography|"
     r"rubric|grading|marking|assessment criteria|submission instructions?|"
     r"submission requirements?|deliverables?|course policy|integrity policy"
     r")\b",

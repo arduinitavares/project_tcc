@@ -87,7 +87,6 @@ _POLICY_CONTEXT_PATTERNS = (
     re.compile(r"\bcitation\b", flags=re.IGNORECASE),
     re.compile(r"\bappropriate(?:ly)? cited?\b", flags=re.IGNORECASE),
     re.compile(r"\bwithout appropriate citation\b", flags=re.IGNORECASE),
-    re.compile(r"\breference(?:s|d)?\b", flags=re.IGNORECASE),
     re.compile(r"\brubric\b", flags=re.IGNORECASE),
     re.compile(r"\bgrading\b", flags=re.IGNORECASE),
     re.compile(r"\bsubmission instructions?\b", flags=re.IGNORECASE),
