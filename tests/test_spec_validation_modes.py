@@ -539,6 +539,43 @@ def test_deterministic_forbidden_capability_still_fails_for_integrity_enforcemen
     assert any(f.code == "FORBIDDEN_CAPABILITY" for f in failures)
 
 
+def test_deterministic_forbidden_capability_not_suppressed_by_generic_references_word() -> None:
+    story = UserStory(
+        product_id=1,
+        feature_id=None,
+        title="Web dashboard references",
+        story_description="Create a report that references web dashboard metrics.",
+        acceptance_criteria=(
+            "Given a generated report, when opened, "
+            "then it references data from the web dashboard."
+        ),
+    )
+    invariant = Invariant(
+        id="INV-0000000000000006",
+        type=InvariantType.FORBIDDEN_CAPABILITY,
+        parameters=ForbiddenCapabilityParams(capability="web dashboard"),
+    )
+    authority = _build_authority_for_alignment(
+        invariants=[invariant],
+        source_map=[
+            SourceMapEntry(
+                invariant_id=invariant.id,
+                excerpt="The product must not include a web dashboard.",
+                location="Product Constraints",
+            )
+        ],
+    )
+
+    failures, warnings, messages = spec_tools._run_deterministic_alignment_checks(  # pylint: disable=protected-access
+        story,
+        authority,
+    )
+
+    assert not warnings
+    assert not messages
+    assert any(f.code == "FORBIDDEN_CAPABILITY" for f in failures)
+
+
 def test_deterministic_required_field_no_false_positive() -> None:
     story = UserStory(
         product_id=1,

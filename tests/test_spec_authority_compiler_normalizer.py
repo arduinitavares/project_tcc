@@ -477,3 +477,39 @@ def test_normalizer_preserves_real_product_forbidden_capability() -> None:
     assert len(normalized.root.invariants) == 1
     assert normalized.root.invariants[0].type == InvariantType.FORBIDDEN_CAPABILITY
     assert len(normalized.root.source_map) == 1
+
+
+def test_normalizer_does_not_filter_product_invariant_from_api_references_section() -> None:
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+        normalize_compiler_output,
+    )
+
+    raw: Dict[str, Any] = {
+        "scope_themes": ["api constraints"],
+        "domain": None,
+        "invariants": [
+            {
+                "id": "INV-0000000000000000",
+                "type": "FORBIDDEN_CAPABILITY",
+                "parameters": {"capability": "web dashboard"},
+            }
+        ],
+        "eligible_feature_rules": [],
+        "gaps": [],
+        "assumptions": [],
+        "source_map": [
+            {
+                "invariant_id": "INV-0000000000000000",
+                "excerpt": "The product must not include a web dashboard.",
+                "location": "API References",
+            }
+        ],
+        "compiler_version": "1.0.0",
+        "prompt_hash": "0" * 64,
+    }
+
+    normalized = normalize_compiler_output(json.dumps(raw))
+
+    assert isinstance(normalized.root, SpecAuthorityCompilationSuccess)
+    assert len(normalized.root.invariants) == 1
+    assert len(normalized.root.source_map) == 1
