@@ -33,6 +33,35 @@ from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_s
 
 logger = logging.getLogger(__name__)
 
+_META_POLICY_LOCATION_RE = re.compile(
+    r"\b("
+    r"plagiarism|academic integrity|citation|references?|bibliography|"
+    r"rubric|grading|marking|assessment criteria|submission instructions?|"
+    r"submission requirements?|deliverables?|course policy|integrity policy"
+    r")\b",
+    flags=re.IGNORECASE,
+)
+
+_META_POLICY_EXCERPT_PATTERNS = (
+    re.compile(r"\bplagiarism policy\b", flags=re.IGNORECASE),
+    re.compile(r"\bacademic integrity\b", flags=re.IGNORECASE),
+    re.compile(r"\bwithout appropriate citation\b", flags=re.IGNORECASE),
+    re.compile(r"\bappropriate(?:ly)? cited?\b", flags=re.IGNORECASE),
+    re.compile(r"\breferencing the work(?:s)? of others\b", flags=re.IGNORECASE),
+    re.compile(
+        r"\brepresenting the work(?:s)? of others as (?:one'?s|your) own\b",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(r"\bgrading rubric\b", flags=re.IGNORECASE),
+    re.compile(r"\bassessment criteria\b", flags=re.IGNORECASE),
+    re.compile(r"\bsubmission instructions?\b", flags=re.IGNORECASE),
+    re.compile(r"\bsubmission requirements?\b", flags=re.IGNORECASE),
+)
+
+_META_POLICY_ASSUMPTION = (
+    "Excluded non-product policy/admin excerpts from compiled invariants."
+)
+
 
 def _failure(reason: str, blocking_gaps: List[str]) -> SpecAuthorityCompilerOutput:
     return SpecAuthorityCompilerOutput(
@@ -85,6 +114,102 @@ def _summarize_validation_error(label: str, exc: ValidationError) -> str:
             return f"{label}: {loc}: {msg}"
         return f"{label}: {msg}"
     return f"{label}: {exc}"
+
+
+def _is_meta_policy_source(location: Optional[str], excerpt: str) -> bool:
+    location_text = (location or "").strip()
+    excerpt_text = (excerpt or "").strip()
+    if location_text and _META_POLICY_LOCATION_RE.search(location_text):
+        return True
+    return any(pattern.search(excerpt_text) for pattern in _META_POLICY_EXCERPT_PATTERNS)
+
+
+def _filter_meta_policy_invariants(success: SpecAuthorityCompilationSuccess) -> int:
+    """Remove invariants sourced only from non-product policy/admin excerpts."""
+    if not success.invariants or not success.source_map:
+        return 0
+
+    source_map_indexes_by_id: Dict[str, List[int]] = {}
+    for entry_index, entry in enumerate(success.source_map):
+        source_map_indexes_by_id.setdefault(entry.invariant_id, []).append(entry_index)
+
+    original_ids = [inv.id for inv in success.invariants]
+    has_duplicate_ids = len(set(original_ids)) < len(original_ids)
+    use_positional_matching = (
+        has_duplicate_ids and len(success.source_map) >= len(success.invariants)
+    )
+
+    matched_entry_indexes: Dict[int, List[int]] = {}
+    matched_source_indexes: set[int] = set()
+    for inv_index, inv in enumerate(success.invariants):
+        entry_indexes: List[int] = []
+        if use_positional_matching and inv_index < len(success.source_map):
+            entry_indexes.append(inv_index)
+        else:
+            entry_indexes.extend(source_map_indexes_by_id.get(inv.id, []))
+            if not entry_indexes and len(success.source_map) == len(success.invariants):
+                if inv_index < len(success.source_map):
+                    entry_indexes.append(inv_index)
+        if entry_indexes:
+            matched_entry_indexes[inv_index] = entry_indexes
+            matched_source_indexes.update(entry_indexes)
+
+    kept_invariants = []
+    kept_source_indexes: set[int] = set()
+    filtered_count = 0
+
+    for inv_index, inv in enumerate(success.invariants):
+        entry_indexes = matched_entry_indexes.get(inv_index, [])
+        if not entry_indexes:
+            kept_invariants.append(inv)
+            continue
+
+        matched_entries = [success.source_map[idx] for idx in entry_indexes]
+        if all(
+            _is_meta_policy_source(entry.location, entry.excerpt)
+            for entry in matched_entries
+        ):
+            filtered_count += 1
+            continue
+
+        kept_invariants.append(inv)
+        for idx in entry_indexes:
+            entry = success.source_map[idx]
+            if not _is_meta_policy_source(entry.location, entry.excerpt):
+                kept_source_indexes.add(idx)
+
+    if not filtered_count:
+        return 0
+
+    kept_invariant_ids = {inv.id for inv in kept_invariants}
+    filtered_source_map = []
+    for entry_index, entry in enumerate(success.source_map):
+        if _is_meta_policy_source(entry.location, entry.excerpt):
+            continue
+        if entry_index in kept_source_indexes:
+            filtered_source_map.append(entry)
+            continue
+        if (
+            not use_positional_matching
+            and entry_index not in matched_source_indexes
+            and entry.invariant_id in kept_invariant_ids
+        ):
+            filtered_source_map.append(entry)
+
+    success.invariants = kept_invariants
+    success.source_map = filtered_source_map
+    if _META_POLICY_ASSUMPTION not in success.assumptions:
+        success.assumptions.append(_META_POLICY_ASSUMPTION)
+    if not success.invariants:
+        gap = "No invariants extracted from spec after excluding non-product policy/admin excerpts"
+        if gap not in success.gaps:
+            success.gaps.append(gap)
+
+    logger.info(
+        "Filtered %s meta-policy/admin invariant(s) from compiler output",
+        filtered_count,
+    )
+    return filtered_count
 
 
 def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
@@ -148,6 +273,8 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
         return parsed
 
     success: SpecAuthorityCompilationSuccess = parsed.root
+
+    _filter_meta_policy_invariants(success)
 
     expected_prompt_hash = compute_prompt_hash(SPEC_AUTHORITY_COMPILER_INSTRUCTIONS)
     if not success.prompt_hash or not re.match(r"^[0-9a-f]{64}$", success.prompt_hash):

@@ -81,6 +81,33 @@ from utils.failure_artifacts import AgentInvocationError, write_failure_artifact
 
 logger = logging.getLogger(__name__)
 
+_POLICY_CONTEXT_PATTERNS = (
+    re.compile(r"\bplagiarism policy\b", flags=re.IGNORECASE),
+    re.compile(r"\bacademic integrity\b", flags=re.IGNORECASE),
+    re.compile(r"\bcitation\b", flags=re.IGNORECASE),
+    re.compile(r"\bappropriate(?:ly)? cited?\b", flags=re.IGNORECASE),
+    re.compile(r"\bwithout appropriate citation\b", flags=re.IGNORECASE),
+    re.compile(r"\breference(?:s|d)?\b", flags=re.IGNORECASE),
+    re.compile(r"\brubric\b", flags=re.IGNORECASE),
+    re.compile(r"\bgrading\b", flags=re.IGNORECASE),
+    re.compile(r"\bsubmission instructions?\b", flags=re.IGNORECASE),
+    re.compile(r"\bsubmission requirements?\b", flags=re.IGNORECASE),
+)
+
+_INTEGRITY_ENFORCEMENT_PATTERNS = (
+    re.compile(r"\bdetect(?:ion)?\b", flags=re.IGNORECASE),
+    re.compile(r"\bchecker\b", flags=re.IGNORECASE),
+    re.compile(r"\bscan(?:ning)?\b", flags=re.IGNORECASE),
+    re.compile(r"\bflag\b", flags=re.IGNORECASE),
+    re.compile(r"\bprevent\b", flags=re.IGNORECASE),
+    re.compile(r"\bblock\b", flags=re.IGNORECASE),
+    re.compile(r"\benforce\b", flags=re.IGNORECASE),
+    re.compile(r"\bmonitor(?:ing)?\b", flags=re.IGNORECASE),
+    re.compile(r"\bverify\b", flags=re.IGNORECASE),
+    re.compile(r"\bscore\b", flags=re.IGNORECASE),
+    re.compile(r"\bcompare\b", flags=re.IGNORECASE),
+)
+
 
 # --- Input Schemas ---
 
@@ -2268,18 +2295,22 @@ def _run_deterministic_alignment_checks(
         part for part in [title_text, description_text, acceptance_text] if part
     )
     normalized_acceptance = acceptance_text.replace("_", " ")
+    story_segments = [
+        segment
+        for part in [story.title or "", story.story_description or "", story.acceptance_criteria or ""]
+        for segment in _split_story_segments(part)
+    ]
 
     for invariant in artifact.invariants:
         if invariant.type == InvariantType.FORBIDDEN_CAPABILITY:
             capability = str(getattr(invariant.parameters, "capability", "") or "").strip()
             if not capability:
                 continue
-            capability_lower = capability.lower()
-            capability_variants = {
-                capability_lower,
-                capability_lower.replace("_", " "),
-            }
-            if any(variant and variant in combined_text for variant in capability_variants):
+            if _story_mentions_forbidden_capability(
+                story_segments=story_segments,
+                combined_text=combined_text,
+                capability=capability,
+            ):
                 alignment_failures.append(
                     AlignmentFinding(
                         code="FORBIDDEN_CAPABILITY",
@@ -2329,6 +2360,52 @@ def _run_deterministic_alignment_checks(
             continue
 
     return alignment_failures, alignment_warnings, warnings
+
+
+def _split_story_segments(text: str) -> List[str]:
+    normalized = re.sub(r"\s+", " ", (text or "").strip())
+    if not normalized:
+        return []
+    parts = re.split(r"(?<=[.!?;:])\s+|\n+", normalized)
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _build_capability_pattern(capability: str) -> Optional[re.Pattern[str]]:
+    tokens = [re.escape(token) for token in re.split(r"[\s_]+", capability.strip().lower()) if token]
+    if not tokens:
+        return None
+    return re.compile(r"\b" + r"[\s_-]+".join(tokens) + r"\b", flags=re.IGNORECASE)
+
+
+def _is_policy_only_capability_context(segment: str) -> bool:
+    if not segment:
+        return False
+    if not any(pattern.search(segment) for pattern in _POLICY_CONTEXT_PATTERNS):
+        return False
+    return not any(pattern.search(segment) for pattern in _INTEGRITY_ENFORCEMENT_PATTERNS)
+
+
+def _story_mentions_forbidden_capability(
+    *,
+    story_segments: List[str],
+    combined_text: str,
+    capability: str,
+) -> bool:
+    pattern = _build_capability_pattern(capability)
+    if pattern is None:
+        return False
+
+    if not pattern.search(combined_text):
+        return False
+
+    for segment in story_segments:
+        if not pattern.search(segment):
+            continue
+        if _is_policy_only_capability_context(segment):
+            continue
+        return True
+
+    return False
 
 
 async def _invoke_spec_validator_async(payload_text: str) -> str:

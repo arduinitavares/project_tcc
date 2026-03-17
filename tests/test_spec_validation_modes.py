@@ -462,6 +462,83 @@ def test_deterministic_forbidden_capability_keyword_match() -> None:
     assert any(f.code == "FORBIDDEN_CAPABILITY" for f in failures)
 
 
+def test_deterministic_forbidden_capability_ignores_policy_boilerplate_context() -> None:
+    story = UserStory(
+        product_id=1,
+        feature_id=None,
+        title="Risk-focused codebase assessment",
+        story_description="Review the current codebase and identify architectural risks.",
+        acceptance_criteria=(
+            "Given the final report, when external references are used, "
+            "then they are appropriately cited to comply with the plagiarism policy."
+        ),
+    )
+    invariant = Invariant(
+        id="INV-0000000000000003",
+        type=InvariantType.FORBIDDEN_CAPABILITY,
+        parameters=ForbiddenCapabilityParams(capability="plagiarism"),
+    )
+    authority = _build_authority_for_alignment(
+        invariants=[invariant],
+        source_map=[
+            SourceMapEntry(
+                invariant_id=invariant.id,
+                excerpt=(
+                    "Knowingly representing the works of others as one's own or "
+                    "referencing the works of others without appropriate citation is prohibited."
+                ),
+                location="Plagiarism Policy",
+            )
+        ],
+    )
+
+    failures, warnings, messages = spec_tools._run_deterministic_alignment_checks(  # pylint: disable=protected-access
+        story,
+        authority,
+    )
+
+    assert failures == []
+    assert warnings == []
+    assert messages == []
+
+
+def test_deterministic_forbidden_capability_still_fails_for_integrity_enforcement_feature() -> None:
+    story = UserStory(
+        product_id=1,
+        feature_id=None,
+        title="Plagiarism detection workflow",
+        story_description="Add automated plagiarism detection during submission review.",
+        acceptance_criteria=(
+            "Given a new submission, when plagiarism is detected, "
+            "then the system flags it for manual review."
+        ),
+    )
+    invariant = Invariant(
+        id="INV-0000000000000004",
+        type=InvariantType.FORBIDDEN_CAPABILITY,
+        parameters=ForbiddenCapabilityParams(capability="plagiarism"),
+    )
+    authority = _build_authority_for_alignment(
+        invariants=[invariant],
+        source_map=[
+            SourceMapEntry(
+                invariant_id=invariant.id,
+                excerpt="The product must not implement plagiarism detection.",
+                location="Product Constraints",
+            )
+        ],
+    )
+
+    failures, warnings, messages = spec_tools._run_deterministic_alignment_checks(  # pylint: disable=protected-access
+        story,
+        authority,
+    )
+
+    assert not warnings
+    assert not messages
+    assert any(f.code == "FORBIDDEN_CAPABILITY" for f in failures)
+
+
 def test_deterministic_required_field_no_false_positive() -> None:
     story = UserStory(
         product_id=1,
@@ -517,6 +594,106 @@ def test_deterministic_alignment_no_invariants() -> None:
     assert failures == []
     assert warnings == []
     assert messages == []
+
+
+def test_hybrid_mode_ignores_policy_boilerplate_when_llm_passes(
+    session: Session, engine, monkeypatch
+) -> None:
+    spec_tools.engine = engine
+    product = Product(name="Policy Context", vision="Test")
+    session.add(product)
+    session.commit()
+    session.refresh(product)
+
+    spec = SpecRegistry(
+        product_id=product.product_id,
+        content="# Spec",
+        content_ref=None,
+        spec_hash="b" * 64,
+        version_number=1,
+        status="approved",
+        approved_at=datetime.now(timezone.utc),
+        approved_by="tester",
+        approval_notes=None,
+    )
+    session.add(spec)
+    session.commit()
+    session.refresh(spec)
+
+    story = _create_orphan_story(session, product.product_id)
+    story.acceptance_criteria = (
+        "Given the final report, when external references are used, "
+        "then they are appropriately cited to comply with the plagiarism policy."
+    )
+    session.add(story)
+    session.commit()
+    session.refresh(story)
+
+    invariant = Invariant(
+        id="INV-0000000000000005",
+        type=InvariantType.FORBIDDEN_CAPABILITY,
+        parameters=ForbiddenCapabilityParams(capability="plagiarism"),
+    )
+    artifact = SpecAuthorityCompilationSuccess(
+        scope_themes=["assignment policy"],
+        domain="test",
+        invariants=[invariant],
+        eligible_feature_rules=[],
+        gaps=[],
+        assumptions=[],
+        source_map=[
+            SourceMapEntry(
+                invariant_id=invariant.id,
+                excerpt=(
+                    "Knowingly representing the works of others as one's own or "
+                    "referencing the works of others without appropriate citation is prohibited."
+                ),
+                location="Plagiarism Policy",
+            )
+        ],
+        compiler_version="1.0.0",
+        prompt_hash="0" * 64,
+    )
+    compiled = CompiledSpecAuthority(
+        spec_version_id=spec.spec_version_id,
+        compiler_version="1.0.0",
+        prompt_hash="0" * 64,
+        compiled_at=datetime.now(timezone.utc),
+        scope_themes=json.dumps(["assignment policy"]),
+        invariants=json.dumps(["FORBIDDEN_CAPABILITY:plagiarism"]),
+        eligible_feature_ids=json.dumps([]),
+        rejected_features=json.dumps([]),
+        spec_gaps=json.dumps([]),
+        compiled_artifact_json=SpecAuthorityCompilerOutput(root=artifact).model_dump_json(),
+    )
+    session.add(compiled)
+    session.commit()
+
+    monkeypatch.setattr(
+        spec_tools,
+        "_run_llm_spec_validation",
+        lambda *_args, **_kwargs: {
+            "passed": True,
+            "issues": [],
+            "suggestions": [],
+            "verdict": "Compliant",
+            "critical_gaps": [],
+        },
+    )
+
+    result = validate_story_with_spec_authority(
+        {
+            "story_id": story.story_id,
+            "spec_version_id": spec.spec_version_id,
+            "mode": "hybrid",
+        },
+        tool_context=None,
+    )
+
+    assert result["success"] is True
+    assert result["mode"] == "hybrid"
+    assert result["passed"] is True
+    assert not any(f["code"] == "FORBIDDEN_CAPABILITY" for f in result["alignment_failures"])
 
 
 def test_structural_rule_detects_offline_cloud_connectivity_contradiction() -> None:

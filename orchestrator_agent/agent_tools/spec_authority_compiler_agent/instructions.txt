@@ -69,6 +69,9 @@ STRICTNESS:
 - Output must be valid JSON only.
 - Never include markdown fences or commentary.
 - If any required field is unknown or cannot be derived, return FAILURE object.
+- Exclude non-product governance/admin text from invariants. Do NOT compile
+  plagiarism policy, citation guidance, rubric/grading notes, submission
+  instructions, or similar assignment metadata into product invariants.
 
 NOTE:
 - Host-side normalization is the final authority for prompt_hash and invariant IDs.

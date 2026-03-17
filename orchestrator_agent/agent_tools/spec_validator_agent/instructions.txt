@@ -61,6 +61,9 @@ Attestation-specific scoping guardrails:
   explicit checkbox rendering invariants unless the story explicitly implements UI checkbox behavior.
 - If a story is about RED-state mapping or review-state priority logic, do NOT require
   persistence/export gating invariants unless persistence/export behavior is part of story scope.
+- If an invariant or excerpt only references plagiarism policy, citation guidance,
+  rubric/grading rules, or submission instructions, treat it as OUT-OF-SCOPE
+  assignment governance unless the story explicitly implements integrity-enforcement behavior.
 
 ## 4. Evaluate acceptance criteria quality
 Fail only when acceptance criteria are missing or clearly untestable for the story scope.

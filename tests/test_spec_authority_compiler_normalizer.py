@@ -397,3 +397,83 @@ def test_normalizer_accepts_enveloped_result_payload() -> None:
     )
     assert isinstance(normalized.root, SpecAuthorityCompilationSuccess)
     assert len(normalized.root.source_map) == 1
+
+
+def test_normalizer_filters_meta_policy_invariant_from_plagiarism_section() -> None:
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+        normalize_compiler_output,
+    )
+
+    raw: Dict[str, Any] = {
+        "scope_themes": ["assignment policy"],
+        "domain": None,
+        "invariants": [
+            {
+                "id": "INV-0000000000000000",
+                "type": "FORBIDDEN_CAPABILITY",
+                "parameters": {"capability": "plagiarism"},
+            }
+        ],
+        "eligible_feature_rules": [],
+        "gaps": [],
+        "assumptions": [],
+        "source_map": [
+            {
+                "invariant_id": "INV-0000000000000000",
+                "excerpt": (
+                    "Knowingly representing the works of others as one's own or "
+                    "referencing the works of others without appropriate citation is prohibited."
+                ),
+                "location": "Plagiarism Policy",
+            }
+        ],
+        "compiler_version": "1.0.0",
+        "prompt_hash": "0" * 64,
+    }
+
+    normalized = normalize_compiler_output(json.dumps(raw))
+
+    assert isinstance(normalized.root, SpecAuthorityCompilationSuccess)
+    assert normalized.root.invariants == []
+    assert normalized.root.source_map == []
+    assert (
+        "Excluded non-product policy/admin excerpts from compiled invariants."
+        in normalized.root.assumptions
+    )
+
+
+def test_normalizer_preserves_real_product_forbidden_capability() -> None:
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+        normalize_compiler_output,
+    )
+
+    raw: Dict[str, Any] = {
+        "scope_themes": ["interface constraints"],
+        "domain": None,
+        "invariants": [
+            {
+                "id": "INV-0000000000000000",
+                "type": "FORBIDDEN_CAPABILITY",
+                "parameters": {"capability": "web dashboard"},
+            }
+        ],
+        "eligible_feature_rules": [],
+        "gaps": [],
+        "assumptions": [],
+        "source_map": [
+            {
+                "invariant_id": "INV-0000000000000000",
+                "excerpt": "The system must not include a web dashboard.",
+                "location": "Product Constraints",
+            }
+        ],
+        "compiler_version": "1.0.0",
+        "prompt_hash": "0" * 64,
+    }
+
+    normalized = normalize_compiler_output(json.dumps(raw))
+
+    assert isinstance(normalized.root, SpecAuthorityCompilationSuccess)
+    assert len(normalized.root.invariants) == 1
+    assert normalized.root.invariants[0].type == InvariantType.FORBIDDEN_CAPABILITY
+    assert len(normalized.root.source_map) == 1
