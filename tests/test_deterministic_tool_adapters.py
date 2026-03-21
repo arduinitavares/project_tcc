@@ -244,6 +244,7 @@ async def test_sprint_adapter_injects_refined_candidates_from_state(
                     "story_title": "Event Delta Persistence",
                     "priority": 2,
                     "story_points": 3,
+                    "source_requirement": "REQ-23",
                 },
             ],
         }
@@ -276,7 +277,7 @@ async def test_sprint_adapter_injects_refined_candidates_from_state(
             "story_description": "",
             "acceptance_criteria_items": [],
             "persona": None,
-            "source_requirement": None,
+            "source_requirement": "REQ-23",
             "priority": 2,
             "story_points": 3,
             "evaluated_invariant_ids": [],

@@ -138,7 +138,7 @@ def load_sprint_candidates(
         if persona:
             normalized_story["persona"] = persona
 
-        source_req = as_text(row.get("story_origin")).strip() or None
+        source_req = as_text(row.get("source_requirement")).strip() or None
         if source_req:
             normalized_story["source_requirement"] = source_req
 

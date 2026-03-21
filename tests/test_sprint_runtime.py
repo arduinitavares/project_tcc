@@ -122,6 +122,7 @@ async def test_runtime_and_adapter_build_matching_sprint_input(monkeypatch) -> N
                     "priority": 2,
                     "story_points": 3,
                     "evaluated_invariant_ids": ["INV-12"],
+                    "source_requirement": "REQ-44",
                 },
             ],
         }
@@ -172,7 +173,7 @@ async def test_runtime_and_adapter_build_matching_sprint_input(monkeypatch) -> N
                 "story_description": "",
                 "acceptance_criteria_items": [],
                 "persona": None,
-                "source_requirement": None,
+                "source_requirement": "REQ-44",
                 "priority": 2,
                 "story_points": 3,
                 "evaluated_invariant_ids": ["INV-12"],

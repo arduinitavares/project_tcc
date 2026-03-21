@@ -513,6 +513,7 @@ def fetch_sprint_candidates(product_id: int) -> Dict[str, Any]:
                 "priority": _priority_to_int(story.rank),
                 "story_points": story.story_points,
                 "persona": story.persona,
+                "source_requirement": story.source_requirement,
                 "story_origin": story.story_origin,
                 "story_description": story.story_description,
                 "acceptance_criteria": story.acceptance_criteria,
