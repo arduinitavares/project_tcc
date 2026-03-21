@@ -509,7 +509,7 @@ def _build_packet_findings(
     return findings
 
 
-def _build_relevant_invariants(
+def _build_story_compliance_boundaries(
     authority: Optional[CompiledSpecAuthority],
     evidence: Optional[ValidationEvidence],
 ) -> List[Dict[str, Any]]:
@@ -520,12 +520,14 @@ def _build_relevant_invariants(
     if not artifact:
         return []
 
-    checked_summaries = {
-        str(item).strip()
-        for item in evidence.invariants_checked
-        if str(item).strip()
-    }
-    if not checked_summaries:
+    referenced_ids = set()
+    if hasattr(evidence, "finding_invariant_ids") and evidence.finding_invariant_ids:
+        referenced_ids.update(evidence.finding_invariant_ids)
+    # Also include evaluated invariants as a baseline of what applies to this story domain
+    if hasattr(evidence, "evaluated_invariant_ids") and evidence.evaluated_invariant_ids:
+        referenced_ids.update(evidence.evaluated_invariant_ids)
+
+    if not referenced_ids:
         return []
 
     source_map: Dict[str, Any] = {}
@@ -534,8 +536,7 @@ def _build_relevant_invariants(
 
     relevant: List[Dict[str, Any]] = []
     for invariant in artifact.invariants:
-        summary = _render_invariant_summary(invariant)
-        if invariant.id not in checked_summaries and summary not in checked_summaries:
+        if invariant.id not in referenced_ids:
             continue
 
         source_entry = source_map.get(invariant.id)
@@ -711,7 +712,8 @@ def _build_task_packet(
                 "input_hash_matches": input_hash_matches,
                 "rules_checked": list(evidence.rules_checked) if evidence else [],
             },
-            "relevant_invariants": _build_relevant_invariants(authority, evidence),
+            "task_hard_constraints": [],
+            "story_compliance_boundaries": _build_story_compliance_boundaries(authority, evidence),
             "findings": _build_packet_findings(evidence),
         },
     }

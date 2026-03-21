@@ -100,7 +100,15 @@ type TaskPacket = {
       rules_checked: string[];
     };
 
-    relevant_invariants: Array<{
+    task_hard_constraints: Array<{
+      invariant_id: string;
+      type: "FORBIDDEN_CAPABILITY" | "REQUIRED_FIELD" | "MAX_VALUE";
+      parameters: Record<string, string | number>;
+      source_excerpt: string | null;
+      source_location: string | null;
+    }>;
+
+    story_compliance_boundaries: Array<{
       invariant_id: string;
       type: "FORBIDDEN_CAPABILITY" | "REQUIRED_FIELD" | "MAX_VALUE";
       parameters: Record<string, string | number>;
@@ -139,10 +147,11 @@ type TaskPacket = {
 - If `accepted_spec_version_id` is missing, the packet must set the spec binding to `unpinned`.
 - The packet must never silently fall back to the latest product authority.
 
-### Relevant invariants
-- `relevant_invariants` are drawn from the pinned compiled authority artifact.
-- They are filtered to validated scope using the story's stored validation evidence.
-- If the compiled authority artifact is unavailable or unparsable, `authority_artifact_status` becomes `missing` and `relevant_invariants` is empty.
+### Scoped Constraints
+- Task Packet v1 removes `relevant_invariants` to avoid polluting narrow task bounds with broad story-level architectural context.
+- `task_hard_constraints` handles specific execution bounds for the task. It remains explicitly empty in Phase 1 (until task metadata fields are introduced).
+- `story_compliance_boundaries` is derived from the pinned compiled authority joined to invariant IDs referenced by alignment findings (`finding_invariant_ids`).
+- If the compiled authority artifact is unavailable or unparsable, `authority_artifact_status` becomes `missing` and both constraint arrays remain empty.
 
 ### Validation freshness
 - Validation freshness is based on the recomputed current story input hash versus the stored validation evidence input hash.

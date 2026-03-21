@@ -83,6 +83,14 @@ class ValidationEvidence(BaseModel):
         List[str],
         Field(description="List of invariant IDs/strings checked")
     ]
+    evaluated_invariant_ids: Annotated[
+        List[str],
+        Field(default_factory=list, description="IDs of invariants whose validation logic actually ran")
+    ]
+    finding_invariant_ids: Annotated[
+        List[str],
+        Field(default_factory=list, description="IDs of invariants referenced in alignment warnings or failures")
+    ]
     failures: Annotated[
         List[ValidationFailure],
         Field(default_factory=list, description="List of failures")

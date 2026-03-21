@@ -2586,6 +2586,8 @@ def validate_story_with_spec_authority(
                 passed=False,
                 rules_checked=["SPEC_VERSION_EXISTS"],
                 invariants_checked=[],
+                evaluated_invariant_ids=[],
+                finding_invariant_ids=[],
                 failures=[
                     ValidationFailure(
                         rule="SPEC_VERSION_EXISTS",
@@ -2615,6 +2617,8 @@ def validate_story_with_spec_authority(
                 passed=False,
                 rules_checked=["SPEC_PRODUCT_MATCH"],
                 invariants_checked=[],
+                evaluated_invariant_ids=[],
+                finding_invariant_ids=[],
                 failures=[
                     ValidationFailure(
                         rule="SPEC_PRODUCT_MATCH",
@@ -2657,6 +2661,8 @@ def validate_story_with_spec_authority(
                 passed=False,
                 rules_checked=["SPEC_VERSION_COMPILED"],
                 invariants_checked=[],
+                evaluated_invariant_ids=[],
+                finding_invariant_ids=[],
                 failures=[
                     ValidationFailure(
                         rule="SPEC_VERSION_COMPILED",
@@ -2811,12 +2817,25 @@ def validate_story_with_spec_authority(
 
         passed = len(failures) == 0 and len(alignment_failures) == 0
 
+        evaluated_invariant_ids: List[str] = []
+        if artifact and artifact.invariants:
+            for inv in artifact.invariants:
+                if inv.type in ("FORBIDDEN_CAPABILITY", "REQUIRED_FIELD"):
+                    evaluated_invariant_ids.append(inv.id)
+
+        finding_invariant_ids: List[str] = []
+        for finding in alignment_failures + alignment_warnings:
+            if finding.invariant and finding.invariant not in finding_invariant_ids:
+                finding_invariant_ids.append(finding.invariant)
+
         evidence = ValidationEvidence(
             spec_version_id=parsed.spec_version_id,
             validated_at=datetime.now(timezone.utc),
             passed=passed,
             rules_checked=rules_checked,
             invariants_checked=invariants_checked,
+            evaluated_invariant_ids=evaluated_invariant_ids,
+            finding_invariant_ids=finding_invariant_ids,
             failures=failures,
             warnings=warnings,
             alignment_warnings=alignment_warnings,

@@ -317,6 +317,8 @@ def _seed_task_packet_context(
             passed=True,
             rules_checked=["SPEC_VERSION_EXISTS", "SPEC_PRODUCT_MATCH"],
             invariants_checked=["REQUIRED_FIELD:user_id"],
+            evaluated_invariant_ids=[invariant.id],
+            finding_invariant_ids=[invariant.id],
             failures=[],
             warnings=["Double-check payload casing."],
             alignment_warnings=[
@@ -747,7 +749,8 @@ def test_get_task_packet_returns_canonical_packet_for_pinned_story(session, monk
     assert constraints["validation"]["present"] is True
     assert constraints["validation"]["freshness_status"] == "current"
     assert constraints["validation"]["input_hash_matches"] is True
-    assert constraints["relevant_invariants"] == [
+    assert constraints["task_hard_constraints"] == []
+    assert constraints["story_compliance_boundaries"] == [
         {
             "invariant_id": "INV-0123456789abcdef",
             "type": "REQUIRED_FIELD",
@@ -855,7 +858,8 @@ def test_unpinned_story_packet_has_no_authority_fallback(session, monkeypatch):
     assert constraints["spec_binding"]["binding_status"] == "unpinned"
     assert constraints["spec_binding"]["spec_version_id"] is None
     assert constraints["spec_binding"]["authority_artifact_status"] == "missing"
-    assert constraints["relevant_invariants"] == []
+    assert constraints["task_hard_constraints"] == []
+    assert constraints["story_compliance_boundaries"] == []
     assert constraints["validation"]["freshness_status"] == "missing"
 
 

@@ -62,9 +62,17 @@ def render_human_brief(packet: Dict[str, Any]) -> str:
         parts.append("* No acceptance criteria provided.")
     parts.append("")
 
-    parts.append("## Technical Constraints (Pinned Spec Rules)")
-    invariants = constraints.get("relevant_invariants", [])
-    parts.append(_render_invariants_markdown(invariants))
+    parts.append("## Task-Local Hard Constraints")
+    task_constraints = constraints.get("task_hard_constraints", [])
+    if task_constraints:
+        parts.append(_render_invariants_markdown(task_constraints))
+    else:
+        parts.append("* (No task-local hard constraints identified)\n")
+
+    story_boundaries = constraints.get("story_compliance_boundaries", [])
+    if story_boundaries:
+        parts.append("## Story Compliance Boundaries")
+        parts.append(_render_invariants_markdown(story_boundaries))
 
     return "\n".join(parts)
 
@@ -105,15 +113,24 @@ def render_agent_prompt(packet: Dict[str, Any]) -> str:
         parts.append("  (None provided)")
     parts.append("</acceptance_criteria>\n")
     
+    story_boundaries = constraints.get("story_compliance_boundaries", [])
+    if story_boundaries:
+        parts.append("<story_compliance_boundaries>")
+        for inv in story_boundaries:
+            inv_type = _escape_xml(inv.get("type", "RULE"))
+            excerpt = _escape_xml(inv.get("source_excerpt", ""))
+            parts.append(f"  - [{inv_type}] {excerpt}")
+        parts.append("</story_compliance_boundaries>\n")
+
     parts.append("<hard_constraints>")
-    invariants = constraints.get("relevant_invariants", [])
-    if invariants:
-        for inv in invariants:
+    task_constraints = constraints.get("task_hard_constraints", [])
+    if task_constraints:
+        for inv in task_constraints:
             inv_type = _escape_xml(inv.get("type", "RULE"))
             excerpt = _escape_xml(inv.get("source_excerpt", ""))
             parts.append(f"  - [{inv_type}] {excerpt}")
     else:
-        parts.append("  (No pinned invariants)")
+        parts.append("  (No task-local hard constraints identified)")
     parts.append("</hard_constraints>")
 
     return "\n".join(parts)
