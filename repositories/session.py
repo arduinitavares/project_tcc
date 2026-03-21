@@ -47,7 +47,7 @@ class WorkflowSessionRepository:
 
     def get_session_states_batch(
         self, app_name: str, user_id: str, session_ids: list[str]
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Dict[str, Any]]:
         """Fetch multiple session states efficiently in batches."""
         if not session_ids:
             return {}
@@ -58,7 +58,7 @@ class WorkflowSessionRepository:
             )
             return {}
 
-        results = {}
+        results: Dict[str, Dict[str, Any]] = {}
         chunk_size = 500
 
         with sqlite3.connect(self.db_path) as conn:
