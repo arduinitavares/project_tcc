@@ -396,9 +396,11 @@ def test_get_projects_batch_session_lookup(monkeypatch):
         call_counts["get_session_states_batch"] += 1
         return original_batch(session_ids)
 
+    original_single = workflow.get_session_status
+
     def fake_single(session_id):
         call_counts["get_session_status"] += 1
-        return workflow.get_session_status(session_id)
+        return original_single(session_id)
 
     monkeypatch.setattr(workflow, "get_session_states_batch", fake_batch)
     monkeypatch.setattr(workflow, "get_session_status", fake_single)
