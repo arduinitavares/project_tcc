@@ -2688,16 +2688,13 @@ def validate_story_with_spec_authority(
             }
 
         artifact = _load_compiled_artifact(authority)
-        if artifact:
+        invariants_checked = []
+        if artifact and artifact.invariants:
             invariants_checked = [
                 _render_invariant_summary(inv) 
                 for inv in artifact.invariants 
                 if inv.type in ("FORBIDDEN_CAPABILITY", "REQUIRED_FIELD")
             ]
-        else:
-            invariants_checked = (
-                json.loads(authority.invariants) if authority.invariants else []
-            )
         rules_checked, failures, warnings = _run_structural_story_checks(story)
 
         alignment_failures: List[AlignmentFinding] = []
