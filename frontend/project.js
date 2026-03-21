@@ -2455,7 +2455,31 @@ function renderSprintSavedWorkspace() {
                     <div class="mt-4 space-y-2">
                         <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Tasks</div>
                         ${(Array.isArray(story.tasks) && story.tasks.length > 0)
-                            ? `<ul class="space-y-2 text-sm text-slate-700 dark:text-slate-300">${story.tasks.map((task) => `<li class="flex items-start gap-2 rounded-lg bg-white px-3 py-2 shadow-sm dark:bg-slate-900"><span class="material-symbols-outlined mt-0.5 text-sm text-teal-500">task_alt</span><span>${task}</span></li>`).join('')}</ul>`
+                            ? `<ul class="space-y-3 text-sm text-slate-700 dark:text-slate-300">
+                                ${story.tasks.map((task) => `
+                                <li class="flex flex-col gap-2 rounded-lg bg-white p-3 shadow-sm border border-slate-100 dark:border-slate-800 dark:bg-slate-900 group">
+                                    <div class="flex items-start gap-2">
+                                        <span class="material-symbols-outlined mt-0.5 text-sm text-teal-500 shrink-0">task_alt</span>
+                                        <span class="flex-1">${task.description || task}</span>
+                                    </div>
+                                    ${task.id ? `
+                                    <div class="flex items-center gap-2 ml-6 mt-2">
+                                        <button onclick="copyTaskPrompt(event, ${selectedSprint.id}, ${task.id})" class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-sm">
+                                            <span class="material-symbols-outlined text-[12px]">content_copy</span> Copy Agent Prompt
+                                        </button>
+                                        <button onclick="toggleTaskBrief(event, ${selectedSprint.id}, ${task.id})" class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 transition-colors dark:bg-sky-900/30 dark:hover:bg-sky-900/50 dark:text-sky-300 border border-sky-200 dark:border-sky-800 shadow-sm">
+                                            <span class="material-symbols-outlined text-[12px]">visibility</span> View Brief
+                                        </button>
+                                    </div>
+                                    <div id="task-brief-${task.id}" class="hidden ml-6 mt-2 p-4 text-[12px] text-slate-700 dark:text-slate-300 bg-slate-50 border border-slate-200 rounded-md dark:bg-slate-950/50 dark:border-slate-800 relative">
+                                        <div class="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-slate-900/50 hidden backdrop-blur-sm z-10" id="task-brief-loading-${task.id}">
+                                             <span class="material-symbols-outlined animate-spin text-sky-500 text-2xl">cycle</span>
+                                        </div>
+                                        <div id="task-brief-content-${task.id}" class="whitespace-pre-wrap leading-relaxed selection:bg-sky-200 dark:selection:bg-sky-900"></div>
+                                    </div>
+                                    ` : ''}
+                                </li>`).join('')}
+                               </ul>`
                             : '<div class="text-sm text-slate-500 dark:text-slate-400">No tasks were saved for this story.</div>'}
                     </div>
                 </div>
@@ -3175,6 +3199,95 @@ async function copyArtifactToClipboard(phase) {
     }
 }
 
+// ==========================================
+// TASK PACKET HANDLERS
+// ==========================================
+
+async function copyTaskPrompt(event, sprintId, taskId) {
+    if (!selectedProjectId) return;
+    const btn = event.currentTarget;
+    const originalText = btn.innerHTML;
+    
+    try {
+        btn.innerHTML = '<span class="material-symbols-outlined text-[12px] animate-spin">cycle</span> Fetching...';
+        btn.disabled = true;
+
+        const res = await fetch(`/api/projects/${selectedProjectId}/sprints/${sprintId}/tasks/${taskId}/packet?flavor=cursor`);
+        if (!res.ok) throw new Error("Failed to fetch packet");
+        
+        const data = await res.json();
+        const output = data.data?.render;
+        
+        if (!output) throw new Error("No rendered packet returned");
+        
+        await navigator.clipboard.writeText(output);
+        
+        btn.innerHTML = '<span class="material-symbols-outlined text-[12px]">check</span> Copied!';
+        btn.classList.add('bg-emerald-50', 'text-emerald-700', 'border-emerald-200', 'dark:bg-emerald-900/30', 'dark:text-emerald-400', 'dark:border-emerald-800');
+    } catch (err) {
+        console.error("Copy Prompt Error:", err);
+        btn.innerHTML = '<span class="material-symbols-outlined text-[12px]">error</span> Error';
+    } finally {
+        setTimeout(() => {
+            btn.innerHTML = originalText;
+            btn.className = 'inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-sm';
+            btn.disabled = false;
+        }, 2000);
+    }
+}
+
+async function toggleTaskBrief(event, sprintId, taskId) {
+    if (!selectedProjectId) return;
+    
+    const containerItem = document.getElementById(`task-brief-${taskId}`);
+    const loaderItem = document.getElementById(`task-brief-loading-${taskId}`);
+    const contentItem = document.getElementById(`task-brief-content-${taskId}`);
+    const btn = event.currentTarget;
+    
+    if (!containerItem.classList.contains('hidden')) {
+        // Hide it
+        containerItem.classList.add('hidden');
+        btn.classList.remove('bg-sky-600', 'text-white', 'hover:bg-sky-700', 'dark:bg-sky-500', 'dark:text-white', 'dark:hover:bg-sky-600');
+        btn.classList.add('bg-sky-50', 'text-sky-700', 'hover:bg-sky-100', 'dark:bg-sky-900/30', 'dark:hover:bg-sky-900/50', 'dark:text-sky-300');
+        return;
+    }
+    
+    // Show it
+    containerItem.classList.remove('hidden');
+    btn.classList.remove('bg-sky-50', 'text-sky-700', 'hover:bg-sky-100', 'dark:bg-sky-900/30', 'dark:hover:bg-sky-900/50', 'dark:text-sky-300');
+    btn.classList.add('bg-sky-600', 'text-white', 'hover:bg-sky-700', 'dark:bg-sky-600', 'dark:text-white', 'dark:hover:bg-sky-500');
+    
+    // Only fetch if content is empty or resulted in prior error
+    if (!contentItem.innerHTML.trim() || contentItem.dataset.error === 'true') {
+        loaderItem.classList.remove('hidden');
+        contentItem.dataset.error = 'false';
+        try {
+            const res = await fetch(`/api/projects/${selectedProjectId}/sprints/${sprintId}/tasks/${taskId}/packet?flavor=human`);
+            if (!res.ok) throw new Error("Failed to fetch human brief");
+            
+            const data = await res.json();
+            const output = data.data?.render;
+            if (!output) throw new Error("No rendered packet returned");
+            
+            // Format markdown strictly as requested with proper regex
+            let formattedHtml = output
+                .replace(/^### (.*)/gm, '<h4 class="font-bold text-sm mt-3 mb-1 text-slate-800 dark:text-slate-200">$1</h4>')
+                .replace(/^## (.*)/gm, '<h3 class="font-black text-sm uppercase tracking-wider mt-4 mb-2 text-slate-500 border-b border-slate-200 dark:border-slate-700 pb-1">$1</h3>')
+                .replace(/^# (.*)/gm, '<h2 class="font-black text-lg mb-2 text-sky-700 dark:text-sky-400">$1</h2>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong class="font-black text-slate-800 dark:text-white">$1</strong>')
+                .replace(/^> (.*)/gm, '<blockquote class="border-l-4 border-slate-300 dark:border-slate-600 pl-3 italic text-slate-600 dark:text-slate-400 my-2">$1</blockquote>');
+            
+            contentItem.innerHTML = formattedHtml;
+        } catch (err) {
+            console.error("View Brief Error:", err);
+            contentItem.innerHTML = `<span class="text-rose-600 dark:text-rose-400"><span class="material-symbols-outlined text-[12px] relative top-0.5">error</span> Failed to load brief. (${err.message})</span>`;
+            contentItem.dataset.error = 'true';
+        } finally {
+            loaderItem.classList.add('hidden');
+        }
+    }
+}
+
 // Assign globally for inline onclick handlers attached in project.html
 window.retryProjectSetup = retryProjectSetup;
 window.handleNextPhase = handleNextPhase;
@@ -3197,3 +3310,5 @@ window.openSprintPlanner = openSprintPlanner;
 window.startCurrentSprint = startCurrentSprint;
 window.navigateToOverview = navigateToOverview;
 window.deleteCurrentProject = deleteCurrentProject;
+window.copyTaskPrompt = copyTaskPrompt;
+window.toggleTaskBrief = toggleTaskBrief;
