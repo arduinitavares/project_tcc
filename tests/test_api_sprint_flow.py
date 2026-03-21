@@ -9,14 +9,28 @@ from fastapi.testclient import TestClient
 from sqlmodel import select
 
 from agile_sqlmodel import (
+    CompiledSpecAuthority,
     Product,
+    SpecRegistry,
     Sprint,
     SprintStatus,
     SprintStory,
+    Task,
     Team,
     UserStory,
     WorkflowEvent,
     WorkflowEventType,
+)
+from tools.spec_tools import _compute_story_input_hash
+from utils.schemes import (
+    AlignmentFinding,
+    Invariant,
+    InvariantType,
+    RequiredFieldParams,
+    SourceMapEntry,
+    SpecAuthorityCompilationSuccess,
+    SpecAuthorityCompilerOutput,
+    ValidationEvidence,
 )
 
 import api as api_module
@@ -191,6 +205,139 @@ def _seed_saved_sprint(
     session.commit()
 
     return product.product_id, sprint.sprint_id
+
+
+def _seed_task_packet_context(
+    session,
+    repo: DummyProductRepository,
+    *,
+    pinned: bool,
+) -> tuple[int, int, int, int]:
+    product = repo.create("Task Packet Project")
+    session.add(
+        Product(
+            product_id=product.product_id,
+            name=product.name,
+            vision="Build trustworthy execution handoffs.\n\nIgnore this second paragraph.",
+        )
+    )
+
+    team = Team(name=f"Packet Team {product.product_id}")
+    session.add(team)
+    session.flush()
+
+    story = UserStory(
+        product_id=product.product_id,
+        title="Payload Validation Story",
+        story_description="As a developer, I want payload validation so that requests are safe.",
+        acceptance_criteria="- include user_id\n- reject invalid payloads",
+        persona="Developer",
+        story_points=3,
+        rank="1",
+        source_requirement="api_payload_validation",
+    )
+    session.add(story)
+    session.flush()
+
+    task = Task(
+        description="Implement payload validation for incoming requests",
+        story_id=story.story_id,
+    )
+    session.add(task)
+    session.flush()
+
+    sprint = Sprint(
+        goal="Ship a trustworthy task packet API",
+        start_date=date(2026, 4, 1),
+        end_date=date(2026, 4, 14),
+        status=SprintStatus.PLANNED,
+        product_id=product.product_id,
+        team_id=team.team_id,
+    )
+    session.add(sprint)
+    session.flush()
+
+    link = SprintStory(sprint_id=sprint.sprint_id, story_id=story.story_id)
+    session.add(link)
+
+    if pinned:
+        spec_version = SpecRegistry(
+            product_id=product.product_id,
+            spec_hash="a" * 64,
+            content="# Spec\n\n## Invariants\n- Requests must include user_id.",
+            status="approved",
+            approved_at=datetime.now(timezone.utc),
+            approved_by="tester",
+        )
+        session.add(spec_version)
+        session.flush()
+
+        invariant = Invariant(
+            id="INV-0123456789abcdef",
+            type=InvariantType.REQUIRED_FIELD,
+            parameters=RequiredFieldParams(field_name="user_id"),
+        )
+        artifact = SpecAuthorityCompilationSuccess(
+            scope_themes=["API"],
+            domain="api",
+            invariants=[invariant],
+            eligible_feature_rules=[],
+            gaps=[],
+            assumptions=[],
+            source_map=[
+                SourceMapEntry(
+                    invariant_id=invariant.id,
+                    excerpt="Requests must include user_id.",
+                    location="Spec §1",
+                )
+            ],
+            compiler_version="1.0.0",
+            prompt_hash="0" * 64,
+        )
+        authority = CompiledSpecAuthority(
+            spec_version_id=spec_version.spec_version_id,
+            compiler_version="1.0.0",
+            prompt_hash="0" * 64,
+            scope_themes='["API"]',
+            invariants='["REQUIRED_FIELD:user_id"]',
+            eligible_feature_ids="[]",
+            rejected_features="[]",
+            spec_gaps="[]",
+            compiled_artifact_json=SpecAuthorityCompilerOutput(
+                root=artifact
+            ).model_dump_json(),
+        )
+        session.add(authority)
+        session.flush()
+
+        story.accepted_spec_version_id = spec_version.spec_version_id
+        story.validation_evidence = ValidationEvidence(
+            spec_version_id=spec_version.spec_version_id,
+            validated_at=datetime.now(timezone.utc),
+            passed=True,
+            rules_checked=["SPEC_VERSION_EXISTS", "SPEC_PRODUCT_MATCH"],
+            invariants_checked=["REQUIRED_FIELD:user_id"],
+            failures=[],
+            warnings=["Double-check payload casing."],
+            alignment_warnings=[
+                AlignmentFinding(
+                    code="REQUIRED_FIELD_MISSING",
+                    invariant=invariant.id,
+                    capability=None,
+                    message="Acceptance criteria may be missing required field 'user_id'.",
+                    severity="warning",
+                    created_at=datetime.now(timezone.utc),
+                )
+            ],
+            alignment_failures=[],
+            validator_version="1.0.0",
+            input_hash=_compute_story_input_hash(story),
+        ).model_dump_json()
+
+    session.add(story)
+    session.commit()
+
+    return product.product_id, sprint.sprint_id, story.story_id, task.task_id
 
 
 def test_complete_story_phase_moves_to_sprint_setup(monkeypatch):
@@ -561,3 +708,239 @@ def test_start_sprint_sets_started_at_once_and_logs_event(session, monkeypatch):
         )
     ).all()
     assert len(events) == 1
+
+
+def test_get_task_packet_returns_canonical_packet_for_pinned_story(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id, _story_id, task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=True,
+    )
+
+    response = client.get(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+
+    assert payload["schema_version"] == "task_packet.v1"
+    assert payload["metadata"]["packet_id"].startswith("tp_")
+    assert payload["metadata"]["generator_version"] == "v1"
+
+    assert payload["task"]["task_id"] == task_id
+    assert payload["task"]["status"] == "To Do"
+    assert payload["task"]["label"] == "Implement payload validation for incoming requests"
+
+    assert payload["context"]["story"]["title"] == "Payload Validation Story"
+    assert payload["context"]["sprint"]["goal"] == "Ship a trustworthy task packet API"
+    assert payload["context"]["product"]["vision_excerpt"] == "Build trustworthy execution handoffs."
+
+    constraints = payload["constraints"]
+    assert constraints["acceptance_criteria_items"] == [
+        "include user_id",
+        "reject invalid payloads",
+    ]
+    assert constraints["spec_binding"]["binding_status"] == "pinned"
+    assert constraints["spec_binding"]["authority_artifact_status"] == "available"
+    assert constraints["validation"]["present"] is True
+    assert constraints["validation"]["freshness_status"] == "current"
+    assert constraints["validation"]["input_hash_matches"] is True
+    assert constraints["relevant_invariants"] == [
+        {
+            "invariant_id": "INV-0123456789abcdef",
+            "type": "REQUIRED_FIELD",
+            "parameters": {"field_name": "user_id"},
+            "source_excerpt": "Requests must include user_id.",
+            "source_location": "Spec §1",
+        }
+    ]
+    assert any(
+        finding["source"] == "validation_warning"
+        for finding in constraints["findings"]
+    )
+    assert any(
+        finding["source"] == "alignment_warning"
+        for finding in constraints["findings"]
+    )
+
+
+def test_get_task_packet_rejects_unlinked_task_sprint_pair(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, _sprint_id, story_id, task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=False,
+    )
+
+    team = session.exec(select(Team).where(Team.name == f"Packet Team {project_id}")).first()
+    assert team is not None
+
+    other_sprint = Sprint(
+        goal="Unlinked sprint",
+        start_date=date(2026, 5, 1),
+        end_date=date(2026, 5, 14),
+        status=SprintStatus.PLANNED,
+        product_id=project_id,
+        team_id=team.team_id,
+    )
+    session.add(other_sprint)
+    session.commit()
+
+    response = client.get(
+        f"/api/projects/{project_id}/sprints/{other_sprint.sprint_id}/tasks/{task_id}/packet"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Task packet context not found"
+
+    linked_story = session.get(UserStory, story_id)
+    assert linked_story is not None
+
+
+def test_same_task_gets_different_packet_identity_across_sprints(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id, story_id, task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=False,
+    )
+
+    team = session.exec(select(Team).where(Team.name == f"Packet Team {project_id}")).first()
+    assert team is not None
+
+    second_sprint = Sprint(
+        goal="Carry the task into another sprint",
+        start_date=date(2026, 5, 1),
+        end_date=date(2026, 5, 14),
+        status=SprintStatus.PLANNED,
+        product_id=project_id,
+        team_id=team.team_id,
+    )
+    session.add(second_sprint)
+    session.flush()
+    session.add(SprintStory(sprint_id=second_sprint.sprint_id, story_id=story_id))
+    session.commit()
+
+    first_payload = client.get(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet"
+    ).json()["data"]
+    second_payload = client.get(
+        f"/api/projects/{project_id}/sprints/{second_sprint.sprint_id}/tasks/{task_id}/packet"
+    ).json()["data"]
+
+    assert first_payload["metadata"]["packet_id"] != second_payload["metadata"]["packet_id"]
+    assert (
+        first_payload["metadata"]["source_fingerprint"]
+        != second_payload["metadata"]["source_fingerprint"]
+    )
+    assert first_payload["context"]["sprint"]["goal"] != second_payload["context"]["sprint"]["goal"]
+
+
+def test_unpinned_story_packet_has_no_authority_fallback(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id, _story_id, task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=False,
+    )
+
+    response = client.get(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet"
+    )
+
+    assert response.status_code == 200
+    constraints = response.json()["data"]["constraints"]
+    assert constraints["spec_binding"]["binding_status"] == "unpinned"
+    assert constraints["spec_binding"]["spec_version_id"] is None
+    assert constraints["spec_binding"]["authority_artifact_status"] == "missing"
+    assert constraints["relevant_invariants"] == []
+    assert constraints["validation"]["freshness_status"] == "missing"
+
+
+def test_task_packet_marks_validation_as_stale_when_story_content_changes(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id, story_id, task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=True,
+    )
+
+    story = session.get(UserStory, story_id)
+    assert story is not None
+    story.acceptance_criteria = "- include user_id\n- reject invalid payloads\n- log failures"
+    story.ac_updated_at = datetime.now(timezone.utc)
+    session.add(story)
+    session.commit()
+
+    response = client.get(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["constraints"]["validation"]["freshness_status"] == "stale"
+    assert payload["source_snapshot"]["story_ac_updated_at"] is not None
+
+
+def test_packet_renderer_escapes_html_and_xml_safely(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id, story_id, task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=True,
+    )
+
+    task = session.get(Task, task_id)
+    assert task is not None
+    task.description = '<script>alert("XSS")</script> and </task> breaking out **bold**'
+    session.add(task)
+    session.commit()
+
+    # Test human flavor preventing unescaped HTML injection and Markdown restructuring
+    res_human = client.get(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet?flavor=human"
+    )
+    assert res_human.status_code == 200
+    human_text = res_human.json()["data"]["render"]
+    assert '&lt;script&gt;alert("XSS")&lt;/script&gt;' in human_text
+    assert "<script>" not in human_text
+    assert "&#42;&#42;bold&#42;&#42;" in human_text
+
+    # Test agent flavor preventing unescaped XML closure injection
+    res_agent = client.get(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet?flavor=cursor"
+    )
+    assert res_agent.status_code == 200
+    agent_text = res_agent.json()["data"]["render"]
+    assert "&lt;/task&gt;" in agent_text
+    assert "</task> breaking out" not in agent_text
+
+
+def test_list_sprints_returns_task_objects(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id, story_id, task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=True,
+    )
+
+    response = client.get(f"/api/projects/{project_id}/sprints")
+    assert response.status_code == 200
+    
+    data = response.json()["data"]
+    items = data["items"]
+    assert len(items) > 0
+    sprint = items[0]
+    
+    assert len(sprint["selected_stories"]) > 0
+    story = sprint["selected_stories"][0]
+    
+    assert len(story["tasks"]) > 0
+    task_obj = story["tasks"][0]
+    
+    assert isinstance(task_obj, dict)
+    assert "id" in task_obj
+    assert "description" in task_obj
+    assert "status" in task_obj

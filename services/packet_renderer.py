@@ -1,0 +1,130 @@
+import html
+from typing import Dict, Any
+
+def _escape_md(text: Any) -> str:
+    """Escapes HTML entities and Markdown tokens to prevent XSS and formatting injection."""
+    if not text:
+        return ""
+    # Escape HTML to prevent XSS
+    safe_str = html.escape(str(text), quote=False)
+    # Encode markdown characters to prevent JS regex match interference
+    return safe_str.replace("#", "&#35;").replace("*", "&#42;")
+
+def _escape_xml(text: Any) -> str:
+    """Escapes XML entities to maintain tag boundaries for Agent Prompts."""
+    return html.escape(str(text or ""), quote=True) if text else ""
+
+def _render_invariants_markdown(invariants: list) -> str:
+    if not invariants:
+        return "* No pinned specification invariants found.\n"
+    
+    lines = []
+    for inv in invariants:
+        inv_type = _escape_md(inv.get("type", "RULE"))
+        excerpt = _escape_md(inv.get("source_excerpt", ""))
+        lines.append(f"- **[{inv_type}]** {excerpt}")
+    return "\n".join(lines) + "\n"
+
+def render_human_brief(packet: Dict[str, Any]) -> str:
+    """Renders the canonical packet into a clean Markdown brief for human developers."""
+    task = packet.get("task", {})
+    context = packet.get("context", {})
+    constraints = packet.get("constraints", {})
+    
+    story = context.get("story", {})
+    sprint = context.get("sprint", {})
+    product = context.get("product", {})
+    
+    parts = []
+    
+    task_label = _escape_md(task.get("label", "Task"))
+    parts.append(f"# Task: {task_label}")
+    parts.append(f"{_escape_md(task.get('description', ''))}\n")
+    
+    parts.append("## Context & Background")
+    if story.get("title"):
+        parts.append(f"**Parent Story**: {_escape_md(story.get('title'))}")
+        if story.get("story_description"):
+            parts.append(f"> {_escape_md(story.get('story_description'))}\n")
+            
+    if sprint.get("goal"):
+        parts.append(f"**Sprint Goal**: {_escape_md(sprint.get('goal'))}\n")
+
+    if product.get("vision_excerpt"):
+        parts.append(f"**Product Vision**: {_escape_md(product.get('vision_excerpt'))}\n")
+
+    parts.append("## Acceptance Criteria")
+    ac_items = constraints.get("acceptance_criteria_items", [])
+    if ac_items:
+        for item in ac_items:
+            parts.append(f"- [ ] {_escape_md(item)}")
+    else:
+        parts.append("* No acceptance criteria provided.")
+    parts.append("")
+
+    parts.append("## Technical Constraints (Pinned Spec Rules)")
+    invariants = constraints.get("relevant_invariants", [])
+    parts.append(_render_invariants_markdown(invariants))
+
+    return "\n".join(parts)
+
+
+def render_agent_prompt(packet: Dict[str, Any]) -> str:
+    """Renders the canonical packet into a strict, XML-tagged prompt optimized for AI Coding Agents."""
+    task = packet.get("task", {})
+    context = packet.get("context", {})
+    constraints = packet.get("constraints", {})
+    
+    story = context.get("story", {})
+    sprint = context.get("sprint", {})
+    
+    parts = []
+    
+    parts.append("You are an expert full-stack developer. Your objective is to explicitly implement the provided `<task>` without hallucinating out-of-scope features or ignoring constraints.\n")
+    
+    parts.append("<context>")
+    if sprint.get('goal'):
+        parts.append(f"  <sprint_goal>{_escape_xml(sprint.get('goal'))}</sprint_goal>")
+    if story.get('title'):
+        parts.append(f"  <parent_story>{_escape_xml(story.get('title'))}")
+        if story.get('story_description'):
+            parts.append(f"    {_escape_xml(story.get('story_description'))}")
+        parts.append("  </parent_story>")
+    parts.append("</context>\n")
+    
+    parts.append("<task>")
+    parts.append(f"  {_escape_xml(task.get('description', 'Unknown task'))}")
+    parts.append("</task>\n")
+    
+    parts.append("<acceptance_criteria>")
+    ac_items = constraints.get("acceptance_criteria_items", [])
+    if ac_items:
+        for item in ac_items:
+            parts.append(f"  - {_escape_xml(item)}")
+    else:
+        parts.append("  (None provided)")
+    parts.append("</acceptance_criteria>\n")
+    
+    parts.append("<hard_constraints>")
+    invariants = constraints.get("relevant_invariants", [])
+    if invariants:
+        for inv in invariants:
+            inv_type = _escape_xml(inv.get("type", "RULE"))
+            excerpt = _escape_xml(inv.get("source_excerpt", ""))
+            parts.append(f"  - [{inv_type}] {excerpt}")
+    else:
+        parts.append("  (No pinned invariants)")
+    parts.append("</hard_constraints>")
+
+    return "\n".join(parts)
+
+
+def render_packet(packet: Dict[str, Any], flavor: str) -> str:
+    """Dispatcher for packet rendering flavors."""
+    normalized = flavor.strip().lower()
+    if normalized in ("human", "markdown", "brief"):
+        return render_human_brief(packet)
+    elif normalized in ("cursor", "copilot", "agent", "xml"):
+        return render_agent_prompt(packet)
+    else:
+        return render_agent_prompt(packet)

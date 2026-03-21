@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,10 +18,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 from agile_sqlmodel import (
+    CompiledSpecAuthority,
+    Product,
     StoryCompletionLog,
     Sprint,
     SprintStatus,
     SprintStory,
+    Task,
     UserStory,
     WorkflowEvent,
     WorkflowEventType,
@@ -57,10 +62,16 @@ from services.sprint_input import load_sprint_candidates
 from services.sprint_runtime import run_sprint_agent_from_state
 from services.workflow import WorkflowService
 from tools.orchestrator_tools import select_project
-from tools.spec_tools import link_spec_to_product
+from tools.spec_tools import (
+    _compute_story_input_hash,
+    _load_compiled_artifact,
+    _render_invariant_summary,
+    link_spec_to_product,
+)
 from utils.failure_artifacts import read_failure_artifact
 from utils.logging_config import configure_logging
 from utils.runtime_config import get_api_host, get_api_port, get_api_reload
+from utils.schemes import ValidationEvidence
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -280,8 +291,15 @@ def _save_session_state(session_id: str, state: Dict[str, Any]) -> None:
 
 def _serialize_sprint_story(story: UserStory) -> Dict[str, Any]:
     tasks = sorted(
-        [task.description for task in story.tasks],
-        key=lambda description: description.lower(),
+        [
+            {
+                "id": task.task_id,
+                "description": task.description,
+                "status": task.status,
+            }
+            for task in story.tasks
+        ],
+        key=lambda t: t["description"].lower(),
     )
     return {
         "story_id": story.story_id,
@@ -344,6 +362,359 @@ def _get_saved_sprint(session: Session, project_id: int, sprint_id: int) -> Opti
             Sprint.sprint_id == sprint_id,
         )
     ).first()
+
+
+def _serialize_temporal(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        return value.isoformat()
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+def _hash_payload(payload: Any) -> str:
+    serialized = json.dumps(
+        payload,
+        sort_keys=True,
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(serialized.encode()).hexdigest()
+
+
+def _truncate_text(text: str, max_length: int) -> str:
+    normalized = " ".join((text or "").split())
+    if len(normalized) <= max_length:
+        return normalized
+    return f"{normalized[: max_length - 3].rstrip()}..."
+
+
+def _build_task_label(description: str) -> str:
+    normalized = _truncate_text(description or "Task", 80)
+    return normalized or "Task"
+
+
+def _extract_vision_excerpt(vision: Optional[str]) -> Optional[str]:
+    if not vision or not vision.strip():
+        return None
+    for paragraph in re.split(r"\n\s*\n", vision.strip()):
+        normalized = " ".join(paragraph.split())
+        if normalized:
+            return _truncate_text(normalized, 500)
+    return None
+
+
+def _normalize_acceptance_criteria(text: Optional[str]) -> List[str]:
+    if not text or not text.strip():
+        return []
+
+    items: List[str] = []
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        normalized = re.sub(r"^\s*(?:[-*•]+|\d+[.)])\s*", "", stripped).strip()
+        if normalized:
+            items.append(normalized)
+
+    if items:
+        return items
+
+    collapsed = " ".join(text.split())
+    return [collapsed] if collapsed else []
+
+
+def _load_validation_evidence(raw_value: Optional[str]) -> Optional[ValidationEvidence]:
+    if not raw_value:
+        return None
+    try:
+        return ValidationEvidence.model_validate_json(raw_value)
+    except Exception as exc:  # pragma: no cover - legacy malformed evidence
+        logger.warning("Failed to parse validation evidence: %s", exc)
+        return None
+
+
+def _load_pinned_authority(
+    session: Session,
+    accepted_spec_version_id: Optional[int],
+) -> Optional[CompiledSpecAuthority]:
+    if accepted_spec_version_id is None:
+        return None
+    return session.exec(
+        select(CompiledSpecAuthority).where(
+            CompiledSpecAuthority.spec_version_id == accepted_spec_version_id
+        )
+    ).first()
+
+
+def _build_packet_findings(
+    evidence: Optional[ValidationEvidence],
+) -> List[Dict[str, Optional[str]]]:
+    if not evidence:
+        return []
+
+    findings: List[Dict[str, Optional[str]]] = []
+    for failure in evidence.failures:
+        findings.append(
+            {
+                "severity": "failure",
+                "source": "validation_failure",
+                "code": failure.rule,
+                "message": failure.message,
+                "invariant_id": None,
+                "rule": failure.rule,
+                "capability": None,
+            }
+        )
+    for warning in evidence.warnings:
+        findings.append(
+            {
+                "severity": "warning",
+                "source": "validation_warning",
+                "code": warning,
+                "message": warning,
+                "invariant_id": None,
+                "rule": None,
+                "capability": None,
+            }
+        )
+    for finding in evidence.alignment_warnings:
+        findings.append(
+            {
+                "severity": finding.severity,
+                "source": "alignment_warning",
+                "code": finding.code,
+                "message": finding.message,
+                "invariant_id": finding.invariant,
+                "rule": None,
+                "capability": finding.capability,
+            }
+        )
+    for finding in evidence.alignment_failures:
+        findings.append(
+            {
+                "severity": finding.severity,
+                "source": "alignment_failure",
+                "code": finding.code,
+                "message": finding.message,
+                "invariant_id": finding.invariant,
+                "rule": None,
+                "capability": finding.capability,
+            }
+        )
+    return findings
+
+
+def _build_relevant_invariants(
+    authority: Optional[CompiledSpecAuthority],
+    evidence: Optional[ValidationEvidence],
+) -> List[Dict[str, Any]]:
+    if not authority or not evidence:
+        return []
+
+    artifact = _load_compiled_artifact(authority)
+    if not artifact:
+        return []
+
+    checked_summaries = {
+        str(item).strip()
+        for item in evidence.invariants_checked
+        if str(item).strip()
+    }
+    if not checked_summaries:
+        return []
+
+    source_map: Dict[str, Any] = {}
+    for entry in artifact.source_map:
+        source_map.setdefault(entry.invariant_id, entry)
+
+    relevant: List[Dict[str, Any]] = []
+    for invariant in artifact.invariants:
+        summary = _render_invariant_summary(invariant)
+        if invariant.id not in checked_summaries and summary not in checked_summaries:
+            continue
+
+        source_entry = source_map.get(invariant.id)
+        parameters = invariant.parameters.model_dump(mode="json")
+        relevant.append(
+            {
+                "invariant_id": invariant.id,
+                "type": invariant.type.value,
+                "parameters": parameters,
+                "source_excerpt": source_entry.excerpt if source_entry else None,
+                "source_location": source_entry.location if source_entry else None,
+            }
+        )
+    return relevant
+
+
+def _build_task_packet(
+    session: Session,
+    *,
+    project_id: int,
+    sprint_id: int,
+    task_id: int,
+) -> Optional[Dict[str, Any]]:
+    task = session.exec(
+        select(Task)
+        .options(
+            selectinload(Task.assignee),
+            selectinload(Task.story).selectinload(UserStory.product),
+        )
+        .where(Task.task_id == task_id)
+    ).first()
+    if not task or not task.story or task.story.product_id != project_id:
+        return None
+
+    sprint = session.exec(
+        select(Sprint)
+        .options(selectinload(Sprint.team))
+        .where(
+            Sprint.product_id == project_id,
+            Sprint.sprint_id == sprint_id,
+        )
+    ).first()
+    if not sprint:
+        return None
+
+    sprint_story = session.exec(
+        select(SprintStory).where(
+            SprintStory.sprint_id == sprint_id,
+            SprintStory.story_id == task.story_id,
+        )
+    ).first()
+    if not sprint_story:
+        return None
+
+    story = task.story
+    product = story.product
+    if not product or product.product_id != project_id:
+        product = session.get(Product, project_id)
+        if not product:
+            return None
+
+    evidence = _load_validation_evidence(story.validation_evidence)
+    current_story_input_hash = _compute_story_input_hash(story)
+    validation_input_hash = evidence.input_hash if evidence else None
+    input_hash_matches = (
+        current_story_input_hash == validation_input_hash
+        if validation_input_hash is not None
+        else None
+    )
+    validation_freshness = (
+        "missing"
+        if evidence is None
+        else "current"
+        if input_hash_matches
+        else "stale"
+    )
+
+    authority = _load_pinned_authority(session, story.accepted_spec_version_id)
+    compiled_artifact = _load_compiled_artifact(authority) if authority else None
+    spec_binding_status = "pinned" if story.accepted_spec_version_id is not None else "unpinned"
+    authority_status = "available" if compiled_artifact is not None else "missing"
+
+    source_snapshot = {
+        "product_id": project_id,
+        "sprint_id": sprint_id,
+        "story_id": story.story_id,
+        "task_id": task_id,
+        "product_updated_at": _serialize_temporal(product.updated_at),
+        "sprint_updated_at": _serialize_temporal(sprint.updated_at),
+        "sprint_story_added_at": _serialize_temporal(sprint_story.added_at),
+        "story_updated_at": _serialize_temporal(story.updated_at),
+        "story_ac_updated_at": _serialize_temporal(story.ac_updated_at),
+        "task_updated_at": _serialize_temporal(task.updated_at),
+        "accepted_spec_version_id": story.accepted_spec_version_id,
+        "validation_validated_at": _serialize_temporal(
+            evidence.validated_at if evidence else None
+        ),
+        "validation_input_hash": validation_input_hash,
+        "compiled_authority_compiled_at": _serialize_temporal(
+            authority.compiled_at if authority else None
+        ),
+    }
+
+    packet_id_hash = hashlib.sha256(
+        f"task_packet.v1:{sprint_id}:{task_id}".encode()
+    ).hexdigest()[:16]
+
+    return {
+        "schema_version": "task_packet.v1",
+        "metadata": {
+            "packet_id": f"tp_{packet_id_hash}",
+            "generated_at": _serialize_temporal(datetime.now(timezone.utc)),
+            "generator_version": "v1",
+            "source_fingerprint": _hash_payload(source_snapshot),
+        },
+        "source_snapshot": source_snapshot,
+        "task": {
+            "task_id": task.task_id,
+            "label": _build_task_label(task.description),
+            "description": task.description,
+            "status": task.status.value,
+            "assignee_member_id": task.assigned_to_member_id,
+            "assignee_name": task.assignee.name if task.assignee else None,
+        },
+        "context": {
+            "story": {
+                "story_id": story.story_id,
+                "title": story.title,
+                "persona": story.persona,
+                "story_description": story.story_description,
+                "status": story.status.value,
+                "story_points": story.story_points,
+                "rank": story.rank,
+                "source_requirement": story.source_requirement,
+            },
+            "sprint": {
+                "sprint_id": sprint.sprint_id,
+                "goal": sprint.goal,
+                "status": sprint.status.value,
+                "started_at": _serialize_temporal(sprint.started_at),
+                "start_date": _serialize_temporal(sprint.start_date),
+                "end_date": _serialize_temporal(sprint.end_date),
+                "team_id": sprint.team_id,
+                "team_name": sprint.team.name if sprint.team else None,
+            },
+            "product": {
+                "product_id": product.product_id,
+                "name": product.name,
+                "vision_excerpt": _extract_vision_excerpt(product.vision),
+            },
+        },
+        "constraints": {
+            "acceptance_criteria_text": story.acceptance_criteria,
+            "acceptance_criteria_items": _normalize_acceptance_criteria(
+                story.acceptance_criteria
+            ),
+            "spec_binding": {
+                "mode": "pinned_story_authority",
+                "binding_status": spec_binding_status,
+                "spec_version_id": story.accepted_spec_version_id,
+                "authority_artifact_status": authority_status,
+            },
+            "validation": {
+                "present": evidence is not None,
+                "passed": evidence.passed if evidence else None,
+                "freshness_status": validation_freshness,
+                "validated_at": _serialize_temporal(
+                    evidence.validated_at if evidence else None
+                ),
+                "validator_version": evidence.validator_version if evidence else None,
+                "current_story_input_hash": current_story_input_hash,
+                "validation_input_hash": validation_input_hash,
+                "input_hash_matches": input_hash_matches,
+                "rules_checked": list(evidence.rules_checked) if evidence else [],
+            },
+            "relevant_invariants": _build_relevant_invariants(authority, evidence),
+            "findings": _build_packet_findings(evidence),
+        },
+    }
 
 
 def _vision_state_from_complete(is_complete: bool) -> str:
@@ -1724,6 +2095,33 @@ async def list_project_sprints(project_id: int):
             "count": len(items),
         },
     }
+
+
+@app.get("/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet")
+async def get_project_task_packet(project_id: int, sprint_id: int, task_id: int, flavor: Optional[str] = None):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    with Session(get_engine()) as session:
+        packet = _build_task_packet(
+            session,
+            project_id=project_id,
+            sprint_id=sprint_id,
+            task_id=task_id,
+        )
+        if not packet:
+            raise HTTPException(status_code=404, detail="Task packet context not found")
+
+        payload = dict(packet)
+        if flavor:
+            from services.packet_renderer import render_packet
+            payload["render"] = render_packet(packet, flavor)
+
+        return {
+            "status": "success",
+            "data": payload,
+        }
 
 
 @app.post("/api/projects/{project_id}/sprint/save")
