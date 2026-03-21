@@ -102,6 +102,7 @@ def test_save_sprint_plan_creates_records(session: Session):
     sprint = session.exec(select(Sprint)).first()
     assert sprint is not None
     assert sprint.goal == "Deliver authentication essentials"
+    assert sprint.started_at is None
 
     links = session.exec(select(SprintStory)).all()
     assert len(links) == 1

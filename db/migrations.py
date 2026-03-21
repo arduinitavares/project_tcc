@@ -355,6 +355,25 @@ def migrate_user_story_refinement_linkage(engine: Engine) -> List[str]:
 
 
 # =============================================================================
+# SPRINT LIFECYCLE MIGRATION
+# =============================================================================
+
+def migrate_sprint_lifecycle(engine: Engine) -> List[str]:
+    """Ensure sprint lifecycle columns exist."""
+    actions: List[str] = []
+
+    if _ensure_column_exists(
+        engine,
+        "sprints",
+        "started_at",
+        "DATETIME",
+    ):
+        actions.append("added column: sprints.started_at")
+
+    return actions
+
+
+# =============================================================================
 # MAIN ENTRY POINT
 # =============================================================================
 
@@ -377,6 +396,7 @@ def ensure_schema_current(engine: Engine) -> None:
         actions = migrate_spec_authority_tables(engine)
         actions.extend(migrate_product_spec_cache(engine))
         actions.extend(migrate_user_story_refinement_linkage(engine))
+        actions.extend(migrate_sprint_lifecycle(engine))
         actions.extend(migrate_performance_indexes(engine))
 
         if actions:

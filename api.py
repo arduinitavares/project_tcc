@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -12,11 +13,16 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 from agile_sqlmodel import (
     StoryCompletionLog,
+    Sprint,
+    SprintStatus,
     SprintStory,
     UserStory,
+    WorkflowEvent,
+    WorkflowEventType,
     ensure_business_db_ready,
     get_engine,
 )
@@ -270,6 +276,74 @@ async def _hydrate_context(session_id: str, project_id: int) -> SimpleNamespace:
 
 def _save_session_state(session_id: str, state: Dict[str, Any]) -> None:
     workflow_service.update_session_status(session_id, state)
+
+
+def _serialize_sprint_story(story: UserStory) -> Dict[str, Any]:
+    tasks = sorted(
+        [task.description for task in story.tasks],
+        key=lambda description: description.lower(),
+    )
+    return {
+        "story_id": story.story_id,
+        "story_title": story.title,
+        "status": story.status,
+        "story_points": story.story_points,
+        "persona": story.persona,
+        "tasks": tasks,
+    }
+
+
+def _serialize_sprint_summary(sprint: Sprint) -> Dict[str, Any]:
+    stories = sorted(
+        sprint.stories,
+        key=lambda story: (
+            story.rank or "",
+            story.story_id or 0,
+        ),
+    )
+    return {
+        "id": sprint.sprint_id,
+        "goal": sprint.goal,
+        "status": sprint.status,
+        "created_at": sprint.created_at,
+        "updated_at": sprint.updated_at,
+        "started_at": sprint.started_at,
+        "start_date": sprint.start_date,
+        "end_date": sprint.end_date,
+        "team_id": sprint.team_id,
+        "team_name": sprint.team.name if sprint.team else None,
+        "story_count": len(stories),
+        "selected_stories": [_serialize_sprint_story(story) for story in stories],
+    }
+
+
+def _saved_sprint_query():
+    return (
+        select(Sprint)
+        .options(
+            selectinload(Sprint.team),
+            selectinload(Sprint.stories).selectinload(UserStory.tasks),
+        )
+    )
+
+
+def _list_saved_sprints(project_id: int) -> List[Dict[str, Any]]:
+    with Session(get_engine()) as session:
+        sprints = session.exec(
+            _saved_sprint_query()
+            .where(Sprint.product_id == project_id)
+            .order_by(Sprint.created_at.desc())
+        ).all()
+        return [_serialize_sprint_summary(sprint) for sprint in sprints]
+
+
+def _get_saved_sprint(session: Session, project_id: int, sprint_id: int) -> Optional[Sprint]:
+    return session.exec(
+        _saved_sprint_query().where(
+            Sprint.product_id == project_id,
+            Sprint.sprint_id == sprint_id,
+        )
+    ).first()
 
 
 def _vision_state_from_complete(is_complete: bool) -> str:
@@ -1636,6 +1710,22 @@ async def get_project_sprint_history(project_id: int):
     }
 
 
+@app.get("/api/projects/{project_id}/sprints")
+async def list_project_sprints(project_id: int):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    items = _list_saved_sprints(project_id)
+    return {
+        "status": "success",
+        "data": {
+            "items": items,
+            "count": len(items),
+        },
+    }
+
+
 @app.post("/api/projects/{project_id}/sprint/save")
 async def save_project_sprint(project_id: int, req: SprintSaveRequest):
     product = product_repo.get_by_id(project_id)
@@ -1701,6 +1791,50 @@ async def save_project_sprint(project_id: int, req: SprintSaveRequest):
             "save_result": result,
         },
     }
+
+
+@app.patch("/api/projects/{project_id}/sprints/{sprint_id}/start")
+async def start_project_sprint(project_id: int, sprint_id: int):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    with Session(get_engine()) as session:
+        sprint = _get_saved_sprint(session, project_id, sprint_id)
+        if not sprint:
+            raise HTTPException(status_code=404, detail="Sprint not found")
+
+        if sprint.started_at is None:
+            sprint.started_at = datetime.now(timezone.utc)
+            sprint.status = SprintStatus.ACTIVE
+            session.add(sprint)
+            session.add(
+                WorkflowEvent(
+                    event_type=WorkflowEventType.SPRINT_STARTED,
+                    product_id=project_id,
+                    sprint_id=sprint_id,
+                    session_id=str(project_id),
+                    event_metadata=json.dumps(
+                        {
+                            "team_id": sprint.team_id,
+                            "planned_start_date": str(sprint.start_date),
+                            "planned_end_date": str(sprint.end_date),
+                        }
+                    ),
+                )
+            )
+            session.commit()
+            session.refresh(sprint)
+            sprint = _get_saved_sprint(session, project_id, sprint_id)
+            if not sprint:
+                raise HTTPException(status_code=404, detail="Sprint not found")
+
+        return {
+            "status": "success",
+            "data": {
+                "sprint": _serialize_sprint_summary(sprint),
+            },
+        }
 
 
 if __name__ == "__main__":

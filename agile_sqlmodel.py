@@ -526,6 +526,7 @@ class Sprint(SQLModel, table=True):
     start_date: date = Field(sa_type=Date)
     end_date: date = Field(sa_type=Date)
     status: SprintStatus = Field(default=SprintStatus.PLANNED, nullable=False)
+    started_at: Optional[datetime] = Field(default=None)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2

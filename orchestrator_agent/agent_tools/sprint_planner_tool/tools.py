@@ -201,6 +201,7 @@ def save_sprint_plan_tool(
             start_date=start_date,
             end_date=end_date,
             status=SprintStatus.PLANNED,
+            started_at=None,
             product_id=input_data.product_id,
             team_id=team.team_id,
         )

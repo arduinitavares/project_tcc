@@ -1,10 +1,23 @@
 """API tests for sprint setup, candidates, and generation flow."""
 
 from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
 from fastapi.testclient import TestClient
+from sqlmodel import select
+
+from agile_sqlmodel import (
+    Product,
+    Sprint,
+    SprintStatus,
+    SprintStory,
+    Team,
+    UserStory,
+    WorkflowEvent,
+    WorkflowEventType,
+)
 
 import api as api_module
 
@@ -135,6 +148,49 @@ def _seed_sprint_draft_project(
         "sprint_plan_assessment": _build_sprint_assessment(is_complete=is_complete),
     }
     return product.product_id
+
+
+def _seed_saved_sprint(
+    session,
+    repo: DummyProductRepository,
+    *,
+    started: bool,
+    created_title: str,
+) -> tuple[int, int]:
+    product = repo.create(created_title)
+    session.add(Product(product_id=product.product_id, name=product.name))
+
+    team = Team(name=f"Team {product.product_id}")
+    session.add(team)
+    session.flush()
+
+    story = UserStory(
+        product_id=product.product_id,
+        title=f"{created_title} Story",
+        story_description="As a user, I want saved sprint coverage",
+        acceptance_criteria="- AC",
+    )
+    session.add(story)
+    session.flush()
+
+    sprint = Sprint(
+        goal=f"{created_title} Goal",
+        start_date=date(2026, 3, 1),
+        end_date=date(2026, 3, 15),
+        status=SprintStatus.ACTIVE if started else SprintStatus.PLANNED,
+        started_at=(
+            datetime(2026, 3, 2, 9, 0, tzinfo=timezone.utc) if started else None
+        ),
+        product_id=product.product_id,
+        team_id=team.team_id,
+    )
+    session.add(sprint)
+    session.flush()
+
+    session.add(SprintStory(sprint_id=sprint.sprint_id, story_id=story.story_id))
+    session.commit()
+
+    return product.product_id, sprint.sprint_id
 
 
 def test_complete_story_phase_moves_to_sprint_setup(monkeypatch):
@@ -429,3 +485,79 @@ def test_sprint_save_surfaces_persistence_tool_error(monkeypatch):
 
     assert response.status_code == 500
     assert response.json()["detail"] == "Stories already assigned to active or planned sprints: [12]"
+
+
+def test_list_sprints_returns_saved_sprints_newest_first(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, _older_sprint_id = _seed_saved_sprint(
+        session,
+        repo,
+        started=True,
+        created_title="Older Sprint",
+    )
+
+    team = session.exec(select(Team).where(Team.name == f"Team {project_id}")).first()
+    assert team is not None
+
+    second_story = UserStory(
+        product_id=project_id,
+        title="Newest Sprint Story",
+        story_description="As a user, I want another sprint",
+        acceptance_criteria="- AC",
+    )
+    session.add(second_story)
+    session.flush()
+
+    newer_sprint = Sprint(
+        goal="Newest Sprint Goal",
+        start_date=date(2026, 4, 1),
+        end_date=date(2026, 4, 15),
+        status=SprintStatus.PLANNED,
+        product_id=project_id,
+        team_id=team.team_id,
+    )
+    session.add(newer_sprint)
+    session.flush()
+    session.add(
+        SprintStory(sprint_id=newer_sprint.sprint_id, story_id=second_story.story_id)
+    )
+    session.commit()
+
+    response = client.get(f"/api/projects/{project_id}/sprints")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["count"] == 2
+    assert payload["data"]["items"][0]["id"] == newer_sprint.sprint_id
+    assert payload["data"]["items"][0]["started_at"] is None
+    assert payload["data"]["items"][1]["started_at"] is not None
+    assert payload["data"]["items"][0]["story_count"] == 1
+
+
+def test_start_sprint_sets_started_at_once_and_logs_event(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id = _seed_saved_sprint(
+        session,
+        repo,
+        started=False,
+        created_title="Planned Sprint",
+    )
+
+    first_response = client.patch(f"/api/projects/{project_id}/sprints/{sprint_id}/start")
+    assert first_response.status_code == 200
+    first_payload = first_response.json()
+    started_at = first_payload["data"]["sprint"]["started_at"]
+    assert started_at is not None
+    assert first_payload["data"]["sprint"]["status"] == SprintStatus.ACTIVE.value
+
+    second_response = client.patch(f"/api/projects/{project_id}/sprints/{sprint_id}/start")
+    assert second_response.status_code == 200
+    second_payload = second_response.json()
+    assert second_payload["data"]["sprint"]["started_at"] == started_at
+
+    events = session.exec(
+        select(WorkflowEvent).where(
+            WorkflowEvent.event_type == WorkflowEventType.SPRINT_STARTED
+        )
+    ).all()
+    assert len(events) == 1

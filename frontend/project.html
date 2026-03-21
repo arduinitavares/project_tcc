@@ -66,6 +66,13 @@
             <div class="p-6 border-b border-slate-200 dark:border-slate-800">
                 <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Project Phases</h3>
             </div>
+            <div id="desktop-overview-nav" class="hidden p-4 border-b border-slate-200 dark:border-slate-800">
+                <button type="button" data-project-nav="overview"
+                    class="w-full inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+                    <span class="material-symbols-outlined text-base">dashboard</span>
+                    Overview
+                </button>
+            </div>
             <div class="flex-1 overflow-y-auto p-6 relative">
                 <div class="absolute left-[1.25rem] top-10 bottom-10 w-0.5 bg-slate-200 dark:bg-slate-700 -z-0" aria-hidden="true">
                 </div>
@@ -146,6 +153,13 @@
                     <h2 id="project-page-title" class="text-3xl font-extrabold tracking-tight">Loading Project...</h2>
                     <p class="text-slate-500 dark:text-slate-400 mt-1">Navigate phases, refine vision, and advance the
                         state.</p>
+                </div>
+                <div id="mobile-overview-nav" class="hidden">
+                    <button type="button" data-project-nav="overview"
+                        class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800">
+                        <span class="material-symbols-outlined text-base">dashboard</span>
+                        Overview
+                    </button>
                 </div>
             </div>
 
@@ -252,6 +266,13 @@
 
                         <!-- Main Content Panels -->
                         <div id="phase-content" class="space-y-3">
+                            <section id="phase-section-overview"
+                                class="phase-section hidden bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg p-5">
+                                <div id="overview-panel-content" class="space-y-4">
+                                    <div class="text-xs text-slate-500">Loading overview...</div>
+                                </div>
+                            </section>
+
                             <section id="phase-section-setup"
                                 class="phase-section bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg p-5">
                                 <h4 class="text-base font-bold">Project Setup Required</h4>
@@ -818,14 +839,59 @@
                                             <span class="material-symbols-outlined font-bold">bolt</span>
                                         </div>
                                         <div>
-                                            <h2 class="text-xl font-black text-slate-800 dark:text-white">Sprint
+                                            <h2 id="sprint-phase-title" class="text-xl font-black text-slate-800 dark:text-white">Sprint
                                                 Planning</h2>
-                                            <p class="text-xs text-slate-500 font-medium">Commit User Stories to a Sprint Backlog with capacity planning.</p>
+                                            <p id="sprint-phase-subtitle" class="text-xs text-slate-500 font-medium">Commit User Stories to a Sprint Backlog with capacity planning.</p>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div class="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-2">
+                                <div id="sprint-saved-workspace" class="hidden flex-1 overflow-y-auto p-6">
+                                    <div class="w-full space-y-6">
+                                        <div id="sprint-saved-banner" class="rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 via-white to-emerald-50 p-5 shadow-sm dark:border-teal-800 dark:from-teal-900/30 dark:via-slate-900 dark:to-emerald-900/20">
+                                            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                                <div class="space-y-2">
+                                                    <div id="sprint-saved-status-pill" class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide"></div>
+                                                    <div>
+                                                        <h3 id="sprint-saved-title" class="text-2xl font-black text-slate-800 dark:text-white">Saved sprint</h3>
+                                                        <p id="sprint-saved-subtitle" class="mt-1 text-sm text-slate-600 dark:text-slate-300"></p>
+                                                    </div>
+                                                </div>
+                                                <div class="flex flex-wrap gap-3">
+                                                    <button id="btn-start-sprint" type="button" onclick="startCurrentSprint()"
+                                                        class="hidden inline-flex items-center gap-2 rounded-lg bg-teal-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-teal-700">
+                                                        <span class="material-symbols-outlined text-sm">play_circle</span>
+                                                        Start Sprint
+                                                    </button>
+                                                    <button id="btn-open-sprint-planner" type="button" onclick="openSprintPlanner()"
+                                                        class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800">
+                                                        <span class="material-symbols-outlined text-sm">edit_note</span>
+                                                        Review Planning Workspace
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div id="sprint-saved-switcher" class="hidden space-y-2">
+                                            <div class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Saved Sprints</div>
+                                            <div id="sprint-saved-switcher-list" class="flex flex-wrap gap-2"></div>
+                                        </div>
+
+                                        <div id="sprint-saved-meta" class="grid gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
+
+                                        <div class="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                                            <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+                                                <div>
+                                                    <h4 class="text-sm font-black text-slate-800 dark:text-slate-100">Committed Stories</h4>
+                                                    <p class="text-[11px] text-slate-500 dark:text-slate-400">The saved sprint scope and its current task breakdown.</p>
+                                                </div>
+                                            </div>
+                                            <div id="sprint-saved-story-list" class="space-y-4 p-5"></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="sprint-planner-workspace" class="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-2">
                                     <!-- Left Panel: Input -->
                                     <div
                                         class="flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/30">
@@ -1015,7 +1081,7 @@
         </main>
     </div>
 
-    <script src="/dashboard/project.js?v=2"></script>
+    <script src="/dashboard/project.js?v=3"></script>
     <style>
         .custom-scrollbar::-webkit-scrollbar {
             width: 6px;
