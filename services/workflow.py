@@ -66,7 +66,7 @@ class WorkflowService:
             session_id=session_id,
         )
 
-    def get_session_states_batch(self, session_ids: list[str]) -> dict:
+    def get_session_states_batch(self, session_ids: list[str]) -> Dict[str, Dict[str, Any]]:
         """Return the session state payloads for multiple sessions."""
         return self.session_repo.get_session_states_batch(
             app_name=self.app_name,
