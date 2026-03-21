@@ -101,6 +101,19 @@ def _story_evaluated_invariant_ids(story: UserStory) -> List[str]:
     return list(evidence.evaluated_invariant_ids or [])
 
 
+def _story_compliance_boundary_summaries(story: UserStory) -> List[str]:
+    """Return the evaluated compliance boundaries for a story."""
+    if not story.validation_evidence:
+        return []
+    try:
+        evidence = ValidationEvidence.model_validate_json(story.validation_evidence)
+    except Exception:  # pylint: disable=broad-except
+        return []
+    
+    findings = evidence.alignment_failures + evidence.alignment_warnings
+    return [finding.message for finding in findings if finding.message]
+
+
 def _build_projects_payload(
     session: Session, products: Iterable[Product]
 ) -> Tuple[int, List[Dict[str, Any]]]:
@@ -501,7 +514,10 @@ def fetch_sprint_candidates(product_id: int) -> Dict[str, Any]:
                 "story_points": story.story_points,
                 "persona": story.persona,
                 "story_origin": story.story_origin,
+                "story_description": story.story_description,
+                "acceptance_criteria": story.acceptance_criteria,
                 "evaluated_invariant_ids": _story_evaluated_invariant_ids(story),
+                "story_compliance_boundary_summaries": _story_compliance_boundary_summaries(story),
             }
         )
 

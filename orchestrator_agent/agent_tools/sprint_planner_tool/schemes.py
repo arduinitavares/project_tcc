@@ -1,5 +1,6 @@
 """Input and output schemas for the Sprint Planner agent."""
 
+import re
 from typing import Annotated, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,11 +32,34 @@ class SprintPlannerStory(BaseModel):
             description="Optional story points estimate (>= 1 when provided).",
         ),
     ]
+    story_description: Annotated[
+        str,
+        Field(description="Detailed user story description."),
+    ]
+    acceptance_criteria_items: Annotated[
+        List[str],
+        Field(default_factory=list, description="List of acceptance criteria items."),
+    ]
+    persona: Annotated[
+        Optional[str],
+        Field(default=None, description="Target persona for the story."),
+    ]
+    source_requirement: Annotated[
+        Optional[str],
+        Field(default=None, description="Original source requirement or reference."),
+    ]
     evaluated_invariant_ids: Annotated[
         List[str],
         Field(
             default_factory=list,
             description="Invariant IDs already evaluated for this story and allowed for task binding.",
+        ),
+    ]
+    story_compliance_boundary_summaries: Annotated[
+        List[str],
+        Field(
+            default_factory=list,
+            description="Summaries of compliance boundaries or architectural constraints applicable to this story.",
         ),
     ]
 
@@ -225,6 +249,92 @@ def validate_task_invariant_bindings(
     return errors
 
 
+def validate_task_decomposition_quality(
+    output: "SprintPlannerOutput",
+    *,
+    include_task_decomposition: bool,
+    has_acceptance_criteria_by_story: Dict[int, bool],
+) -> List[str]:
+    """Validate deterministic quality gates for sprint task decomposition."""
+    errors: List[str] = []
+
+    file_extension_pattern = re.compile(r"\.[a-zA-Z0-9]+$")
+    path_pattern = re.compile(r"[/\\]")
+
+    for story in output.selected_stories:
+        if include_task_decomposition and not story.tasks:
+            errors.append(f"Story {story.story_id}: Missing task decomposition.")
+            continue
+
+        normalized_descriptions = set()
+        
+        # for under-decomposition check
+        all_same_workstreams = True
+        all_same_targets = True
+        first_workstreams = None
+        first_targets = None
+
+        for task in story.tasks:
+            # 1. Base required field quality
+            desc = task.description.strip()
+            if not desc:
+                errors.append(f"Story {story.story_id}: Found task with empty description.")
+            
+            if task.task_kind == "other":
+                errors.append(f"Story {story.story_id} task '{desc}': 'task_kind' cannot be 'other'. Please categorize properly.")
+            
+            if not task.artifact_targets:
+                errors.append(f"Story {story.story_id} task '{desc}': Must specify at least one artifact_target.")
+                
+            if not task.workstream_tags:
+                errors.append(f"Story {story.story_id} task '{desc}': Must specify at least one workstream_tag.")
+
+            # 2. File path heuristic rejections
+            for target in task.artifact_targets:
+                if file_extension_pattern.search(target) or path_pattern.search(target):
+                    errors.append(f"Story {story.story_id} task '{desc}': artifact_target '{target}' looks like an exact file path. Use component/module names instead.")
+
+            # 3. Duplication checks
+            norm_desc = re.sub(r'[^a-z0-9]', '', desc.lower())
+            if norm_desc:
+                if norm_desc in normalized_descriptions:
+                    errors.append(f"Story {story.story_id}: Duplicate or identical task description found: '{desc}'.")
+                normalized_descriptions.add(norm_desc)
+
+            norm_targets = [re.sub(r'[^a-z0-9]', '', t.lower()) for t in task.artifact_targets]
+            if len(norm_targets) != len(set(norm_targets)):
+                errors.append(f"Story {story.story_id} task '{desc}': Contains duplicate artifact_targets.")
+                
+            norm_tags = [re.sub(r'[^a-z0-9]', '', t.lower()) for t in task.workstream_tags]
+            if len(norm_tags) != len(set(norm_tags)):
+                errors.append(f"Story {story.story_id} task '{desc}': Contains duplicate workstream_tags.")
+
+            # Tracking sets for under-decomposition heuristic
+            task_tags_set = frozenset(norm_tags)
+            task_targets_set = frozenset(norm_targets)
+            
+            if first_workstreams is None:
+                first_workstreams = task_tags_set
+                first_targets = task_targets_set
+            else:
+                if task_tags_set != first_workstreams:
+                    all_same_workstreams = False
+                if task_targets_set != first_targets:
+                    all_same_targets = False
+
+        # 4. Under-decomposition check
+        has_ac = has_acceptance_criteria_by_story.get(story.story_id, False)
+        if (
+            has_ac 
+            and len(story.tasks) > 1 
+            and all_same_workstreams 
+            and all_same_targets
+        ):
+            errors.append(f"Story {story.story_id}: Tasks are under-decomposed. All {len(story.tasks)} tasks carry the exact same workstreams and artifact targets.")
+
+    return errors
+
+
 __all__ = [
     "SprintPlannerStory",
     "SprintPlannerInput",
@@ -233,4 +343,5 @@ __all__ = [
     "SprintPlannerCapacityAnalysis",
     "SprintPlannerOutput",
     "validate_task_invariant_bindings",
+    "validate_task_decomposition_quality",
 ]

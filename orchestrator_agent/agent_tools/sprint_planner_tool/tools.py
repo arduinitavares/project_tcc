@@ -24,7 +24,11 @@ from agile_sqlmodel import (
 from utils.schemes import ValidationEvidence
 from utils.task_metadata import metadata_from_structured_task, serialize_task_metadata
 
-from .schemes import SprintPlannerOutput, validate_task_invariant_bindings
+from .schemes import (
+    SprintPlannerOutput,
+    validate_task_decomposition_quality,
+    validate_task_invariant_bindings,
+)
 
 
 class SaveSprintPlanInput(BaseModel):
@@ -211,6 +215,27 @@ def save_sprint_plan_tool(
             return {
                 "success": False,
                 "error": "Sprint plan validation error: " + "; ".join(binding_errors),
+            }
+
+        include_task_decomposition = True
+        sprint_input_dict = tool_context.state.get("sprint_input", {})
+        if isinstance(sprint_input_dict, dict) and "include_task_decomposition" in sprint_input_dict:
+            include_task_decomposition = bool(sprint_input_dict["include_task_decomposition"])
+
+        has_ac_by_story = {
+            int(story.story_id): bool((story.acceptance_criteria or "").strip())
+            for story in stories
+            if story.story_id is not None
+        }
+        decomposition_errors = validate_task_decomposition_quality(
+            validated_plan,
+            include_task_decomposition=include_task_decomposition,
+            has_acceptance_criteria_by_story=has_ac_by_story,
+        )
+        if decomposition_errors:
+            return {
+                "success": False,
+                "error": "Decomposition quality checks failed: " + "; ".join(decomposition_errors),
             }
 
         try:

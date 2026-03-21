@@ -31,6 +31,7 @@ from agile_sqlmodel import (
     ensure_business_db_ready,
     get_engine,
 )
+from utils.task_metadata import parse_task_metadata
 
 from orchestrator_agent.agent_tools.product_vision_tool.tools import (
     SaveVisionInput,
@@ -290,16 +291,21 @@ def _save_session_state(session_id: str, state: Dict[str, Any]) -> None:
     workflow_service.update_session_status(session_id, state)
 
 
+def _serialize_sprint_task(task: Task) -> Dict[str, Any]:
+    meta = parse_task_metadata(task)
+    return {
+        "id": task.task_id,
+        "description": task.description,
+        "status": task.status,
+        "task_kind": meta.task_kind,
+        "artifact_targets": meta.artifact_targets,
+        "workstream_tags": meta.workstream_tags,
+    }
+
+
 def _serialize_sprint_story(story: UserStory) -> Dict[str, Any]:
     tasks = sorted(
-        [
-            {
-                "id": task.task_id,
-                "description": task.description,
-                "status": task.status,
-            }
-            for task in story.tasks
-        ],
+        [_serialize_sprint_task(task) for task in story.tasks],
         key=lambda t: t["description"].lower(),
     )
     return {

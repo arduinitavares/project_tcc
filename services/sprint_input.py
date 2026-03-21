@@ -116,9 +116,20 @@ def load_sprint_candidates(
             "story_title": story_title,
             "priority": coerce_priority(row.get("priority"), idx),
             "story_points": normalize_positive_int(row.get("story_points")),
+            "story_description": as_text(row.get("story_description")).strip(),
+            "acceptance_criteria_items": [
+                line.strip()
+                for line in as_text(row.get("acceptance_criteria")).replace("-", "\n").splitlines()
+                if line.strip()
+            ],
             "evaluated_invariant_ids": [
                 str(item).strip()
                 for item in (row.get("evaluated_invariant_ids") or [])
+                if str(item).strip()
+            ],
+            "story_compliance_boundary_summaries": [
+                str(item).strip()
+                for item in (row.get("story_compliance_boundary_summaries") or [])
                 if str(item).strip()
             ],
         }
@@ -127,9 +138,9 @@ def load_sprint_candidates(
         if persona:
             normalized_story["persona"] = persona
 
-        story_origin = as_text(row.get("story_origin")).strip() or None
-        if story_origin:
-            normalized_story["story_origin"] = story_origin
+        source_req = as_text(row.get("story_origin")).strip() or None
+        if source_req:
+            normalized_story["source_requirement"] = source_req
 
         stories.append(normalized_story)
 
@@ -207,7 +218,12 @@ def prepare_sprint_input_context(
                 "story_title": row["story_title"],
                 "priority": int(row["priority"]),
                 "story_points": row.get("story_points"),
+                "story_description": row.get("story_description", ""),
+                "acceptance_criteria_items": list(row.get("acceptance_criteria_items") or []),
+                "persona": row.get("persona"),
+                "source_requirement": row.get("source_requirement"),
                 "evaluated_invariant_ids": list(row.get("evaluated_invariant_ids") or []),
+                "story_compliance_boundary_summaries": list(row.get("story_compliance_boundary_summaries") or []),
             }
             for row in selected_rows
             if isinstance(row, dict)

@@ -127,7 +127,7 @@ async def test_runtime_and_adapter_build_matching_sprint_input(monkeypatch) -> N
         }
 
     async def fake_invoke(payload):
-        runtime_capture["payload"] = payload.model_dump(exclude_none=True)
+        runtime_capture["payload"] = payload.model_dump()
         return _valid_sprint_output()
 
     async def fake_run_async(*, args, tool_context):
@@ -169,9 +169,14 @@ async def test_runtime_and_adapter_build_matching_sprint_input(monkeypatch) -> N
             {
                 "story_id": 12,
                 "story_title": "Event Delta Persistence",
+                "story_description": "",
+                "acceptance_criteria_items": [],
+                "persona": None,
+                "source_requirement": None,
                 "priority": 2,
                 "story_points": 3,
                 "evaluated_invariant_ids": ["INV-12"],
+                "story_compliance_boundary_summaries": [],
             }
         ],
         "team_velocity_assumption": "High",

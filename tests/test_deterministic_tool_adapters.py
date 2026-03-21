@@ -273,9 +273,14 @@ async def test_sprint_adapter_injects_refined_candidates_from_state(
         {
             "story_id": 12,
             "story_title": "Event Delta Persistence",
+            "story_description": "",
+            "acceptance_criteria_items": [],
+            "persona": None,
+            "source_requirement": None,
             "priority": 2,
             "story_points": 3,
             "evaluated_invariant_ids": [],
+            "story_compliance_boundary_summaries": [],
         }
     ]
 

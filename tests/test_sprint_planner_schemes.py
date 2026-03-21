@@ -84,9 +84,14 @@ def test_input_schema_accepts_optional_fields():
             {
                 "story_id": 101,
                 "story_title": "Enable login",
+                "story_description": "Add login functionality",
+                "acceptance_criteria_items": ["Can log in"],
+                "persona": "User",
+                "source_requirement": "Req 1",
                 "priority": 1,
                 "story_points": 3,
                 "evaluated_invariant_ids": ["INV-123"],
+                "story_compliance_boundary_summaries": ["Must log in"],
             }
         ],
         "team_velocity_assumption": "Low",
@@ -107,9 +112,14 @@ def test_input_schema_requires_duration_days():
             {
                 "story_id": 101,
                 "story_title": "Enable login",
+                "story_description": "Add login functionality",
+                "acceptance_criteria_items": [],
+                "persona": None,
+                "source_requirement": None,
                 "priority": 1,
                 "story_points": 3,
                 "evaluated_invariant_ids": [],
+                "story_compliance_boundary_summaries": [],
             }
         ],
         "team_velocity_assumption": "Low",

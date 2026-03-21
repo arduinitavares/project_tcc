@@ -2456,11 +2456,21 @@ function renderSprintSavedWorkspace() {
                         <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Tasks</div>
                         ${(Array.isArray(story.tasks) && story.tasks.length > 0)
                             ? `<ul class="space-y-3 text-sm text-slate-700 dark:text-slate-300">
-                                ${story.tasks.map((task) => `
+                                ${story.tasks.map((task) => {
+                                    const desc = task.description || task;
+                                    const kind = task.task_kind ? `<span class="inline-flex items-center px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-[10px] font-black uppercase text-slate-600 dark:text-slate-300 shadow-sm">${task.task_kind}</span>` : '';
+                                    const tags = Array.isArray(task.workstream_tags) ? task.workstream_tags.map(t => `<span class="inline-flex items-center bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 px-2 py-0.5 rounded text-[10px] font-bold border border-teal-100 dark:border-teal-800 shadow-sm">#${t}</span>`).join(' ') : '';
+                                    const targets = Array.isArray(task.artifact_targets) && task.artifact_targets.length > 0 ? `<div class="text-[11px] text-slate-500 dark:text-slate-400 mt-2 flex gap-1.5 bg-slate-50 w-full p-2 rounded border border-slate-100 dark:border-slate-800 dark:bg-slate-950/50"><span class="font-bold shrink-0">Targets:</span> <span class="break-words">${task.artifact_targets.join(', ')}</span></div>` : '';
+
+                                    return `
                                 <li class="flex flex-col gap-2 rounded-lg bg-white p-3 shadow-sm border border-slate-100 dark:border-slate-800 dark:bg-slate-900 group">
                                     <div class="flex items-start gap-2">
                                         <span class="material-symbols-outlined mt-0.5 text-sm text-teal-500 shrink-0">task_alt</span>
-                                        <span class="flex-1">${task.description || task}</span>
+                                        <div class="flex-1 flex flex-col min-w-0">
+                                            <span class="text-sm font-medium text-slate-800 dark:text-slate-200 leading-snug">${desc}</span>
+                                            <div class="flex flex-wrap items-center gap-1.5 mt-2">${kind}${tags}</div>
+                                            ${targets}
+                                        </div>
                                     </div>
                                     ${task.id ? `
                                     <div class="flex items-center gap-2 ml-6 mt-2">
@@ -2478,7 +2488,8 @@ function renderSprintSavedWorkspace() {
                                         <div id="task-brief-content-${task.id}" class="whitespace-pre-wrap leading-relaxed selection:bg-sky-200 dark:selection:bg-sky-900"></div>
                                     </div>
                                     ` : ''}
-                                </li>`).join('')}
+                                </li>`;
+                                }).join('')}
                                </ul>`
                             : '<div class="text-sm text-slate-500 dark:text-slate-400">No tasks were saved for this story.</div>'}
                     </div>
@@ -3030,8 +3041,25 @@ function renderSprintArtifactHtml(artifact, inputContext) {
                     <div>
                         <h5 class="text-[10px] uppercase font-bold text-slate-500 mb-1.5">Tasks (${taskItems.length})</h5>
                         ${taskItems.length > 0 ? `
-                        <ul class="text-[11px] text-slate-700 dark:text-slate-300 space-y-1.5 list-disc pl-4">
-                            ${taskItems.map(task => `<li>${task?.description || task}</li>`).join('')}
+                        <ul class="text-[11px] text-slate-700 dark:text-slate-300 space-y-3">
+                            ${taskItems.map(task => {
+                                const desc = task?.description || task;
+                                const isObj = typeof task === 'object' && task !== null;
+                                const kind = isObj && task.task_kind ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded-sm bg-slate-100 dark:bg-slate-700 text-[9px] font-black uppercase text-slate-600 dark:text-slate-300">${task.task_kind}</span>` : '';
+                                const tags = isObj && Array.isArray(task.workstream_tags) ? task.workstream_tags.map(t => `<span class="inline-flex items-center bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 px-1.5 py-0.5 rounded-sm text-[9px] font-bold border border-sky-100 dark:border-sky-800">#${t}</span>`).join(' ') : '';
+                                const targets = isObj && Array.isArray(task.artifact_targets) && task.artifact_targets.length > 0 ? `<div class="text-[10px] text-slate-500 dark:text-slate-400 mt-1 flex gap-1.5"><span class="font-bold">Targets:</span> ${task.artifact_targets.join(', ')}</div>` : '';
+                                
+                                return `<li class="flex flex-col rounded bg-slate-50 dark:bg-slate-900/50 p-2 border border-slate-200 dark:border-slate-700">
+                                    <div class="flex items-start gap-2">
+                                        <span class="material-symbols-outlined mt-0.5 text-[12px] text-emerald-600 shrink-0">check_circle</span>
+                                        <div class="flex-1 min-w-0">
+                                            <div class="text-slate-800 dark:text-slate-200 font-medium leading-snug">${desc}</div>
+                                            <div class="flex flex-wrap items-center gap-1.5 mt-1.5">${kind}${tags}</div>
+                                            ${targets}
+                                        </div>
+                                    </div>
+                                </li>`;
+                            }).join('')}
                         </ul>
                         ` : '<p class="text-[11px] text-slate-400">No tasks defined.</p>'}
                     </div>
