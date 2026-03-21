@@ -365,6 +365,11 @@ class TestEvidencePersistence:
         assert validated.validator_version == VALIDATOR_VERSION
         assert isinstance(validated.rules_checked, list)
         assert isinstance(validated.invariants_checked, list)
+        assert len(validated.invariants_checked) == 1
+        assert isinstance(validated.evaluated_invariant_ids, list)
+        assert "INV-0000000000000001" in validated.evaluated_invariant_ids
+        assert isinstance(validated.finding_invariant_ids, list)
+        assert len(validated.finding_invariant_ids) == 0
         assert isinstance(validated.failures, list)
         assert isinstance(validated.warnings, list)
         assert validated.input_hash is not None

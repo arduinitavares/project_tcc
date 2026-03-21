@@ -523,9 +523,6 @@ def _build_story_compliance_boundaries(
     referenced_ids = set()
     if hasattr(evidence, "finding_invariant_ids") and evidence.finding_invariant_ids:
         referenced_ids.update(evidence.finding_invariant_ids)
-    # Also include evaluated invariants as a baseline of what applies to this story domain
-    if hasattr(evidence, "evaluated_invariant_ids") and evidence.evaluated_invariant_ids:
-        referenced_ids.update(evidence.evaluated_invariant_ids)
 
     if not referenced_ids:
         return []
