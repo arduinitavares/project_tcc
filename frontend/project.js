@@ -3015,6 +3015,7 @@ function renderSprintArtifactHtml(artifact, inputContext) {
         stories.forEach((story, idx) => {
             const storyMeta = storyMetaById.get(story.story_id) || {};
             const pointsLabel = Number.isFinite(storyMeta.story_points) ? `${storyMeta.story_points} Points` : 'Points N/A';
+            const taskItems = Array.isArray(story.tasks) ? story.tasks : [];
             html += `
                 <div class="border border-slate-200 dark:border-slate-700 rounded-lg p-4 bg-white dark:bg-slate-800/60 shadow-sm relative pt-4">
                     <div class="absolute top-0 right-0 bg-slate-100 dark:bg-slate-700 text-slate-500 text-[9px] font-black px-2 py-1 rounded-bl-lg rounded-tr-lg">STORY ${idx + 1}</div>
@@ -3027,10 +3028,10 @@ function renderSprintArtifactHtml(artifact, inputContext) {
                     <p class="text-[11px] text-slate-600 dark:text-slate-400 italic mb-3">${story.reason_for_selection || 'Selected for sprint scope.'}</p>
                     
                     <div>
-                        <h5 class="text-[10px] uppercase font-bold text-slate-500 mb-1.5">Tasks (${(story.tasks || []).length})</h5>
-                        ${story.tasks && story.tasks.length > 0 ? `
+                        <h5 class="text-[10px] uppercase font-bold text-slate-500 mb-1.5">Tasks (${taskItems.length})</h5>
+                        ${taskItems.length > 0 ? `
                         <ul class="text-[11px] text-slate-700 dark:text-slate-300 space-y-1.5 list-disc pl-4">
-                            ${story.tasks.map(task => `<li>${task}</li>`).join('')}
+                            ${taskItems.map(task => `<li>${task?.description || task}</li>`).join('')}
                         </ul>
                         ` : '<p class="text-[11px] text-slate-400">No tasks defined.</p>'}
                     </div>

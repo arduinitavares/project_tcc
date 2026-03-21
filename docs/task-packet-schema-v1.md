@@ -31,6 +31,7 @@ type TaskPacket = {
     story_updated_at: string;
     story_ac_updated_at: string | null;
     task_updated_at: string;
+    task_metadata_hash: string;
 
     accepted_spec_version_id: number | null;
     validation_validated_at: string | null;
@@ -45,6 +46,9 @@ type TaskPacket = {
     status: "To Do" | "In Progress" | "Done";
     assignee_member_id: number | null;
     assignee_name: string | null;
+    task_kind: "analysis" | "design" | "implementation" | "testing" | "documentation" | "refactor" | "other";
+    artifact_targets: string[];
+    workstream_tags: string[];
   };
 
   context: {
@@ -149,9 +153,20 @@ type TaskPacket = {
 
 ### Scoped Constraints
 - Task Packet v1 removes `relevant_invariants` to avoid polluting narrow task bounds with broad story-level architectural context.
-- `task_hard_constraints` handles specific execution bounds for the task. It remains explicitly empty in Phase 1 (until task metadata fields are introduced).
+- `task_hard_constraints` handles specific execution bounds for the task. In Phase 2 it is populated only from task-local metadata bindings (`relevant_invariant_ids`) resolved against the story's pinned compiled authority.
 - `story_compliance_boundaries` is derived from the pinned compiled authority joined to invariant IDs referenced by alignment findings (`finding_invariant_ids`).
 - If the compiled authority artifact is unavailable or unparsable, `authority_artifact_status` becomes `missing` and both constraint arrays remain empty.
+
+### Structured task metadata
+- Persisted tasks now carry canonical metadata in `Task.metadata_json`.
+- The canonical metadata object is:
+  - `version: "task_metadata.v1"`
+  - `task_kind`
+  - `artifact_targets`
+  - `workstream_tags`
+  - `relevant_invariant_ids`
+- Existing tasks are backfilled one-way to the canonical empty metadata object.
+- Unknown invariant IDs in task metadata are ignored during packet assembly and never promoted into `task_hard_constraints`.
 
 ### Validation freshness
 - Validation freshness is based on the recomputed current story input hash versus the stored validation evidence input hash.
@@ -167,9 +182,30 @@ type TaskPacket = {
   - sprint update
   - sprint-story membership timestamp
   - validation evidence timestamp or input hash
+  - task metadata hash
   - pinned spec version
   - compiled authority compilation timestamp
   - product update
+
+## Sprint Planner Task Shape
+
+Sprint planner decomposition now emits structured task objects, not plain strings:
+
+```ts
+type StructuredTaskSpec = {
+  description: string;
+  task_kind: "analysis" | "design" | "implementation" | "testing" | "documentation" | "refactor" | "other";
+  artifact_targets: string[];
+  workstream_tags: string[];
+  relevant_invariant_ids: string[];
+};
+```
+
+Validation rules:
+- `description` must be non-empty.
+- `task_kind` must use the allowed enum values.
+- `artifact_targets`, `workstream_tags`, and `relevant_invariant_ids` are trimmed, deduped, and reject empty-string values.
+- `relevant_invariant_ids` must be a subset of the parent story's `evaluated_invariant_ids`.
 
 ## Public Endpoint
 

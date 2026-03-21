@@ -116,6 +116,11 @@ def load_sprint_candidates(
             "story_title": story_title,
             "priority": coerce_priority(row.get("priority"), idx),
             "story_points": normalize_positive_int(row.get("story_points")),
+            "evaluated_invariant_ids": [
+                str(item).strip()
+                for item in (row.get("evaluated_invariant_ids") or [])
+                if str(item).strip()
+            ],
         }
 
         persona = as_text(row.get("persona")).strip() or None
@@ -202,6 +207,7 @@ def prepare_sprint_input_context(
                 "story_title": row["story_title"],
                 "priority": int(row["priority"]),
                 "story_points": row.get("story_points"),
+                "evaluated_invariant_ids": list(row.get("evaluated_invariant_ids") or []),
             }
             for row in selected_rows
             if isinstance(row, dict)

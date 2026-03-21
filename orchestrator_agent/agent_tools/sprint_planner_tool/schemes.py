@@ -1,8 +1,10 @@
 """Input and output schemas for the Sprint Planner agent."""
 
-from typing import Annotated, List, Literal, Optional
+from typing import Annotated, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from utils.task_metadata import StructuredTaskSpec
 
 
 class SprintPlannerStory(BaseModel):
@@ -27,6 +29,13 @@ class SprintPlannerStory(BaseModel):
         Field(
             default=None,
             description="Optional story points estimate (>= 1 when provided).",
+        ),
+    ]
+    evaluated_invariant_ids: Annotated[
+        List[str],
+        Field(
+            default_factory=list,
+            description="Invariant IDs already evaluated for this story and allowed for task binding.",
         ),
     ]
 
@@ -87,10 +96,10 @@ class SprintPlannerSelectedStory(BaseModel):
         Field(min_length=3, description="Story title.")
     ]
     tasks: Annotated[
-        List[str],
+        List[StructuredTaskSpec],
         Field(
             default_factory=list,
-            description="Optional task list for the story.",
+            description="Optional structured task list for the story.",
         ),
     ]
     reason_for_selection: Annotated[
@@ -191,6 +200,31 @@ class SprintPlannerOutput(BaseModel):
     ]
 
 
+def validate_task_invariant_bindings(
+    output: "SprintPlannerOutput",
+    *,
+    allowed_invariant_ids_by_story: Dict[int, List[str]],
+) -> List[str]:
+    """Validate that each task only binds invariants allowed for its parent story."""
+
+    errors: List[str] = []
+    for story in output.selected_stories:
+        allowed_ids = set(allowed_invariant_ids_by_story.get(story.story_id, []))
+        for task in story.tasks:
+            invalid_ids = [
+                invariant_id
+                for invariant_id in task.relevant_invariant_ids
+                if invariant_id not in allowed_ids
+            ]
+            if invalid_ids:
+                errors.append(
+                    "Story "
+                    f"{story.story_id} task '{task.description}' referenced invalid invariant IDs: "
+                    + ", ".join(invalid_ids)
+                )
+    return errors
+
+
 __all__ = [
     "SprintPlannerStory",
     "SprintPlannerInput",
@@ -198,4 +232,5 @@ __all__ = [
     "SprintPlannerDeselectedStory",
     "SprintPlannerCapacityAnalysis",
     "SprintPlannerOutput",
+    "validate_task_invariant_bindings",
 ]

@@ -22,6 +22,8 @@ from typing import List, Set
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
+from utils.task_metadata import canonical_task_metadata_json
+
 logger = logging.getLogger(__name__)
 
 
@@ -373,6 +375,38 @@ def migrate_sprint_lifecycle(engine: Engine) -> List[str]:
     return actions
 
 
+def migrate_task_metadata(engine: Engine) -> List[str]:
+    """Ensure persisted task metadata exists and legacy rows are backfilled."""
+
+    actions: List[str] = []
+
+    if _ensure_column_exists(
+        engine,
+        "tasks",
+        "metadata_json",
+        "TEXT",
+    ):
+        actions.append("added column: tasks.metadata_json")
+
+    metadata_json = canonical_task_metadata_json()
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                """
+                UPDATE tasks
+                SET metadata_json = :metadata_json,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE metadata_json IS NULL OR TRIM(metadata_json) = ''
+                """
+            ),
+            {"metadata_json": metadata_json},
+        )
+    if result.rowcount and result.rowcount > 0:
+        actions.append(f"backfilled tasks.metadata_json rows: {result.rowcount}")
+
+    return actions
+
+
 # =============================================================================
 # MAIN ENTRY POINT
 # =============================================================================
@@ -397,6 +431,7 @@ def ensure_schema_current(engine: Engine) -> None:
         actions.extend(migrate_product_spec_cache(engine))
         actions.extend(migrate_user_story_refinement_linkage(engine))
         actions.extend(migrate_sprint_lifecycle(engine))
+        actions.extend(migrate_task_metadata(engine))
         actions.extend(migrate_performance_indexes(engine))
 
         if actions:

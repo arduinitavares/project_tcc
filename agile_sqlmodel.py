@@ -24,6 +24,7 @@ from sqlalchemy.types import Date, Text
 from sqlmodel import Field, Relationship, SQLModel, create_engine
 from db.migrations import ensure_schema_current
 import sys
+from utils.task_metadata import canonical_task_metadata_json
 from utils.runtime_config import (
     get_business_db_target,
     get_database_echo,
@@ -661,6 +662,10 @@ class Task(SQLModel, table=True):
     __tablename__ = "tasks"  # type: ignore
     task_id: Optional[int] = Field(default=None, primary_key=True)
     description: str = Field(sa_type=Text)
+    metadata_json: Optional[str] = Field(
+        default_factory=canonical_task_metadata_json,
+        sa_type=Text,
+    )
     status: TaskStatus = Field(default=TaskStatus.TO_DO, nullable=False)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),  # FIX 1

@@ -40,7 +40,21 @@ def render_human_brief(packet: Dict[str, Any]) -> str:
     task_label = _escape_md(task.get("label", "Task"))
     parts.append(f"# Task: {task_label}")
     parts.append(f"{_escape_md(task.get('description', ''))}\n")
-    
+
+    task_kind = _escape_md(task.get("task_kind", "other"))
+    parts.append("## Task Profile")
+    parts.append(f"**Task Kind**: {task_kind}")
+    artifact_targets = task.get("artifact_targets", [])
+    if artifact_targets:
+        parts.append(f"**Artifact Targets**: {_escape_md(', '.join(artifact_targets))}")
+    else:
+        parts.append("**Artifact Targets**: None specified")
+    workstream_tags = task.get("workstream_tags", [])
+    if workstream_tags:
+        parts.append(f"**Workstream Tags**: {_escape_md(', '.join(workstream_tags))}\n")
+    else:
+        parts.append("**Workstream Tags**: None specified\n")
+
     parts.append("## Context & Background")
     if story.get("title"):
         parts.append(f"**Parent Story**: {_escape_md(story.get('title'))}")
@@ -103,7 +117,27 @@ def render_agent_prompt(packet: Dict[str, Any]) -> str:
     parts.append("<task>")
     parts.append(f"  {_escape_xml(task.get('description', 'Unknown task'))}")
     parts.append("</task>\n")
-    
+
+    parts.append("<task_context>")
+    parts.append(f"  <task_kind>{_escape_xml(task.get('task_kind', 'other'))}</task_kind>")
+    artifact_targets = task.get("artifact_targets", [])
+    parts.append("  <artifact_targets>")
+    if artifact_targets:
+        for item in artifact_targets:
+            parts.append(f"    - {_escape_xml(item)}")
+    else:
+        parts.append("    (None specified)")
+    parts.append("  </artifact_targets>")
+    workstream_tags = task.get("workstream_tags", [])
+    parts.append("  <workstream_tags>")
+    if workstream_tags:
+        for item in workstream_tags:
+            parts.append(f"    - {_escape_xml(item)}")
+    else:
+        parts.append("    (None specified)")
+    parts.append("  </workstream_tags>")
+    parts.append("</task_context>\n")
+
     parts.append("<acceptance_criteria>")
     ac_items = constraints.get("acceptance_criteria_items", [])
     if ac_items:

@@ -275,6 +275,7 @@ async def test_sprint_adapter_injects_refined_candidates_from_state(
             "story_title": "Event Delta Persistence",
             "priority": 2,
             "story_points": 3,
+            "evaluated_invariant_ids": [],
         }
     ]
 
@@ -369,4 +370,3 @@ def test_minimal_adapter_signatures_remove_legacy_context_fields() -> None:
 
     assert "technical_spec" not in story_params
     assert "compiled_authority" not in story_params
-

@@ -117,7 +117,7 @@ This preserves traceability and prevents accidental scope drift during execution
 The current data model already supports deterministic packet assembly.
 
 Relevant entities already exist:
-- `Task` carries the execution unit and status
+- `Task` carries the execution unit, status, and canonical `metadata_json`
 - `UserStory` carries title, description, acceptance criteria, persona, and validation evidence
 - `Sprint` carries goal, dates, status, and team context
 - `Product` carries vision and product-level context
@@ -128,6 +128,7 @@ Important current limitations:
 - there is no project-level Definition of Done model yet
 - there is no direct `task -> sprint` foreign key; sprint context must be resolved through story linkage
 - validation evidence and compiled authority exist, but they are audit-style structured data, not human-authored summaries
+- task metadata is currently packet-focused and is not yet exposed through rich editing UI
 
 These realities should shape the schema instead of being hidden by it.
 
@@ -182,19 +183,21 @@ There are a few design risks we should explicitly avoid:
 
 ## Achieved State
 
-The canonical Task Packet v1 model has been successfully defined and implemented. The backend endpoint correctly assembles the packet on demand, deterministically from the database, using strict component identity (`task_id` + `sprint_id`) and capturing the required context boundaries and pinned invariants. 
+The canonical Task Packet v1 model has been successfully defined and implemented. The backend endpoint correctly assembles the packet on demand, deterministically from the database, using strict component identity (`task_id` + `sprint_id`) and capturing the required context boundaries and pinned invariants.
+
+Phase 2 now extends that base with structured task metadata:
+- sprint planner decomposition emits structured task specs instead of raw strings
+- persisted tasks carry canonical `metadata_json`
+- task-local hard constraints are derived from task-bound invariant IDs instead of story-wide fallbacks
 
 The exact canonical data contract is defined in [Task Packet v1 Schema Reference](./task-packet-schema-v1.md).
 
 ## Next Step
 
-The next step is to design and implement the **Renderer Layer**.
-
-This layer sits directly on top of the canonical JSON packet and translates the structured data into consumable execution instructions, without modifying the source of truth.
-
-The first renderers will focus on:
-1. **The Human Brief**: A beautifully formatted Markdown summary for presentation in the platform UI.
-2. **The Agentic Prompts**: Highly structured text blocks (often utilizing XML tags) designed specifically to be copied and pasted into tools like Cursor, GitHub Copilot Workspace, or standalone AI agents.
+The next step is to build richer consumption and authoring flows on top of the canonical packet:
+1. expose task metadata and packet context more clearly in the UI without turning the saved sprint workspace into a noisy editor
+2. iterate on renderer quality for human briefs and agent prompts now that task-local hard constraints are truly task-scoped
+3. consider later metadata editing or smarter task decomposition only after the packet-driven workflow proves useful
 
 ## Working Decision
 

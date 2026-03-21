@@ -32,6 +32,7 @@ from utils.schemes import (
     SpecAuthorityCompilerOutput,
     ValidationEvidence,
 )
+from utils.task_metadata import TaskMetadata, canonical_task_metadata, serialize_task_metadata
 
 import api as api_module
 
@@ -212,6 +213,7 @@ def _seed_task_packet_context(
     repo: DummyProductRepository,
     *,
     pinned: bool,
+    task_metadata: Optional[TaskMetadata] = None,
 ) -> tuple[int, int, int, int]:
     product = repo.create("Task Packet Project")
     session.add(
@@ -242,6 +244,7 @@ def _seed_task_packet_context(
     task = Task(
         description="Implement payload validation for incoming requests",
         story_id=story.story_id,
+        metadata_json=serialize_task_metadata(task_metadata or canonical_task_metadata()),
     )
     session.add(task)
     session.flush()
@@ -718,6 +721,12 @@ def test_get_task_packet_returns_canonical_packet_for_pinned_story(session, monk
         session,
         repo,
         pinned=True,
+        task_metadata=TaskMetadata(
+            task_kind="implementation",
+            artifact_targets=["payload validator", "request contract tests"],
+            workstream_tags=["backend", "api"],
+            relevant_invariant_ids=["INV-0123456789abcdef"],
+        ),
     )
 
     response = client.get(
@@ -734,6 +743,13 @@ def test_get_task_packet_returns_canonical_packet_for_pinned_story(session, monk
     assert payload["task"]["task_id"] == task_id
     assert payload["task"]["status"] == "To Do"
     assert payload["task"]["label"] == "Implement payload validation for incoming requests"
+    assert payload["task"]["task_kind"] == "implementation"
+    assert payload["task"]["artifact_targets"] == [
+        "payload validator",
+        "request contract tests",
+    ]
+    assert payload["task"]["workstream_tags"] == ["backend", "api"]
+    assert payload["source_snapshot"]["task_metadata_hash"]
 
     assert payload["context"]["story"]["title"] == "Payload Validation Story"
     assert payload["context"]["sprint"]["goal"] == "Ship a trustworthy task packet API"
@@ -749,7 +765,15 @@ def test_get_task_packet_returns_canonical_packet_for_pinned_story(session, monk
     assert constraints["validation"]["present"] is True
     assert constraints["validation"]["freshness_status"] == "current"
     assert constraints["validation"]["input_hash_matches"] is True
-    assert constraints["task_hard_constraints"] == []
+    assert constraints["task_hard_constraints"] == [
+        {
+            "invariant_id": "INV-0123456789abcdef",
+            "type": "REQUIRED_FIELD",
+            "parameters": {"field_name": "user_id"},
+            "source_excerpt": "Requests must include user_id.",
+            "source_location": "Spec §1",
+        }
+    ]
     assert constraints["story_compliance_boundaries"] == [
         {
             "invariant_id": "INV-0123456789abcdef",
@@ -766,6 +790,45 @@ def test_get_task_packet_returns_canonical_packet_for_pinned_story(session, monk
     assert any(
         finding["source"] == "alignment_warning"
         for finding in constraints["findings"]
+    )
+
+
+def test_task_packet_metadata_hash_changes_when_task_metadata_changes(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id, _story_id, task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=True,
+    )
+
+    first_payload = client.get(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet"
+    ).json()["data"]
+
+    task = session.get(Task, task_id)
+    assert task is not None
+    task.metadata_json = serialize_task_metadata(
+        TaskMetadata(
+            task_kind="design",
+            artifact_targets=["sequence diagram"],
+            workstream_tags=["architecture"],
+            relevant_invariant_ids=[],
+        )
+    )
+    session.add(task)
+    session.commit()
+
+    second_payload = client.get(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet"
+    ).json()["data"]
+
+    assert (
+        first_payload["source_snapshot"]["task_metadata_hash"]
+        != second_payload["source_snapshot"]["task_metadata_hash"]
+    )
+    assert (
+        first_payload["metadata"]["source_fingerprint"]
+        != second_payload["metadata"]["source_fingerprint"]
     )
 
 
@@ -911,6 +974,7 @@ def test_packet_renderer_escapes_html_and_xml_safely(session, monkeypatch):
     assert '&lt;script&gt;alert("XSS")&lt;/script&gt;' in human_text
     assert "<script>" not in human_text
     assert "&#42;&#42;bold&#42;&#42;" in human_text
+    assert "**Task Kind**: other" in human_text
 
     # Test agent flavor preventing unescaped XML closure injection
     res_agent = client.get(
@@ -920,6 +984,37 @@ def test_packet_renderer_escapes_html_and_xml_safely(session, monkeypatch):
     agent_text = res_agent.json()["data"]["render"]
     assert "&lt;/task&gt;" in agent_text
     assert "</task> breaking out" not in agent_text
+    assert "<task_kind>other</task_kind>" in agent_text
+
+
+def test_task_packet_ignores_unknown_task_invariant_ids(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id, _story_id, task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=True,
+        task_metadata=TaskMetadata(
+            task_kind="implementation",
+            artifact_targets=["payload validator"],
+            workstream_tags=["backend"],
+            relevant_invariant_ids=["INV-UNKNOWN", "INV-0123456789abcdef"],
+        ),
+    )
+
+    response = client.get(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["constraints"]["task_hard_constraints"] == [
+        {
+            "invariant_id": "INV-0123456789abcdef",
+            "type": "REQUIRED_FIELD",
+            "parameters": {"field_name": "user_id"},
+            "source_excerpt": "Requests must include user_id.",
+            "source_location": "Spec §1",
+        }
+    ]
 
 
 def test_list_sprints_returns_task_objects(session, monkeypatch):

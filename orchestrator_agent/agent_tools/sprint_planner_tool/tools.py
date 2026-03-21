@@ -21,8 +21,10 @@ from agile_sqlmodel import (
     WorkflowEventType,
     get_engine,
 )
+from utils.schemes import ValidationEvidence
+from utils.task_metadata import metadata_from_structured_task, serialize_task_metadata
 
-from .schemes import SprintPlannerOutput
+from .schemes import SprintPlannerOutput, validate_task_invariant_bindings
 
 
 class SaveSprintPlanInput(BaseModel):
@@ -73,6 +75,18 @@ def _coerce_duration_seconds(value: Any) -> Optional[float]:
     if duration < 0:
         return None
     return duration
+
+
+def _story_allowed_invariant_ids(story: UserStory) -> List[str]:
+    """Return invariant IDs a task may bind for a given story."""
+
+    if not story.validation_evidence:
+        return []
+    try:
+        evidence = ValidationEvidence.model_validate_json(story.validation_evidence)
+    except Exception:  # pylint: disable=broad-except
+        return []
+    return list(evidence.evaluated_invariant_ids or [])
 
 
 def save_sprint_plan_tool(
@@ -184,6 +198,21 @@ def save_sprint_plan_tool(
                 ),
             }
 
+        allowed_invariant_ids_by_story = {
+            int(story.story_id): _story_allowed_invariant_ids(story)
+            for story in stories
+            if story.story_id is not None
+        }
+        binding_errors = validate_task_invariant_bindings(
+            validated_plan,
+            allowed_invariant_ids_by_story=allowed_invariant_ids_by_story,
+        )
+        if binding_errors:
+            return {
+                "success": False,
+                "error": "Sprint plan validation error: " + "; ".join(binding_errors),
+            }
+
         try:
             start_date = date.fromisoformat(input_data.sprint_start_date)
         except ValueError:
@@ -215,9 +244,15 @@ def save_sprint_plan_tool(
             session.add(
                 SprintStory(sprint_id=sprint.sprint_id, story_id=story.story_id)
             )
-            for task_description in story.tasks:
+            for task_spec in story.tasks:
                 session.add(
-                    Task(story_id=story.story_id, description=task_description)
+                    Task(
+                        story_id=story.story_id,
+                        description=task_spec.description,
+                        metadata_json=serialize_task_metadata(
+                            metadata_from_structured_task(task_spec)
+                        ),
+                    )
                 )
 
         event_metadata = json.dumps(

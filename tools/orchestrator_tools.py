@@ -29,6 +29,7 @@ from agile_sqlmodel import (
     UserStory,
     get_engine,
 )
+from utils.schemes import ValidationEvidence
 
 # --- Cache configuration ---
 CACHE_TTL_MINUTES: int = 5
@@ -86,6 +87,18 @@ def _is_fresh(
 def _query_products(session: Session) -> List[Product]:
     """Fetch all products."""
     return list(session.exec(select(Product)).all())
+
+
+def _story_evaluated_invariant_ids(story: UserStory) -> List[str]:
+    """Return the evaluated invariant IDs already validated for a story."""
+
+    if not story.validation_evidence:
+        return []
+    try:
+        evidence = ValidationEvidence.model_validate_json(story.validation_evidence)
+    except Exception:  # pylint: disable=broad-except
+        return []
+    return list(evidence.evaluated_invariant_ids or [])
 
 
 def _build_projects_payload(
@@ -488,6 +501,7 @@ def fetch_sprint_candidates(product_id: int) -> Dict[str, Any]:
                 "story_points": story.story_points,
                 "persona": story.persona,
                 "story_origin": story.story_origin,
+                "evaluated_invariant_ids": _story_evaluated_invariant_ids(story),
             }
         )
 

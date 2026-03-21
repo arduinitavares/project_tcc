@@ -9,6 +9,7 @@ from orchestrator_agent.agent_tools.sprint_planner_tool.schemes import (
     SprintPlannerInput,
     SprintPlannerOutput,
     SprintPlannerSelectedStory,
+    validate_task_invariant_bindings,
 )
 
 
@@ -21,7 +22,22 @@ def _build_output_payload() -> Dict[str, Any]:
             {
                 "story_id": 101,
                 "story_title": "Enable login",
-                "tasks": ["Create auth table", "Add login UI"],
+                "tasks": [
+                    {
+                        "description": "Create auth table",
+                        "task_kind": "implementation",
+                        "artifact_targets": ["auth schema"],
+                        "workstream_tags": ["backend", "auth"],
+                        "relevant_invariant_ids": ["INV-123"],
+                    },
+                    {
+                        "description": "Add login UI",
+                        "task_kind": "implementation",
+                        "artifact_targets": ["login form"],
+                        "workstream_tags": ["frontend", "auth"],
+                        "relevant_invariant_ids": [],
+                    },
+                ],
                 "reason_for_selection": "Core to sprint goal",
             }
         ],
@@ -70,6 +86,7 @@ def test_input_schema_accepts_optional_fields():
                 "story_title": "Enable login",
                 "priority": 1,
                 "story_points": 3,
+                "evaluated_invariant_ids": ["INV-123"],
             }
         ],
         "team_velocity_assumption": "Low",
@@ -92,6 +109,7 @@ def test_input_schema_requires_duration_days():
                 "story_title": "Enable login",
                 "priority": 1,
                 "story_points": 3,
+                "evaluated_invariant_ids": [],
             }
         ],
         "team_velocity_assumption": "Low",
@@ -112,11 +130,45 @@ def test_selected_story_requires_reason():
     payload: Dict[str, Any] = {
         "story_id": 201,
         "story_title": "Password reset",
-        "tasks": ["Add reset API"],
+        "tasks": [
+            {
+                "description": "Add reset API",
+                "task_kind": "implementation",
+                "artifact_targets": ["reset API"],
+                "workstream_tags": ["backend"],
+                "relevant_invariant_ids": [],
+            }
+        ],
         "reason_for_selection": "Critical to account access",
     }
     model = SprintPlannerSelectedStory.model_validate(payload)
     assert model.story_id == 201
+
+
+def test_selected_story_rejects_legacy_string_tasks():
+    payload: Dict[str, Any] = {
+        "story_id": 201,
+        "story_title": "Password reset",
+        "tasks": ["Add reset API"],
+        "reason_for_selection": "Critical to account access",
+    }
+    try:
+        SprintPlannerSelectedStory.model_validate(payload)
+    except ValidationError as exc:
+        assert "tasks" in str(exc)
+    else:
+        raise AssertionError("Expected ValidationError for legacy string tasks")
+
+
+def test_validate_task_invariant_bindings_rejects_out_of_scope_ids():
+    model = SprintPlannerOutput.model_validate(_build_output_payload())
+    errors = validate_task_invariant_bindings(
+        model,
+        allowed_invariant_ids_by_story={101: []},
+    )
+    assert errors == [
+        "Story 101 task 'Create auth table' referenced invalid invariant IDs: INV-123"
+    ]
 
 
 def test_capacity_analysis_requires_commitment_note():

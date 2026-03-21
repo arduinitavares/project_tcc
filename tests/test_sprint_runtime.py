@@ -27,7 +27,22 @@ def _valid_sprint_output() -> str:
                 {
                     "story_id": 12,
                     "story_title": "Event Delta Persistence",
-                    "tasks": ["Create schema", "Write tests"],
+                    "tasks": [
+                        {
+                            "description": "Create schema",
+                            "task_kind": "design",
+                            "artifact_targets": ["event schema"],
+                            "workstream_tags": ["persistence"],
+                            "relevant_invariant_ids": ["INV-12"],
+                        },
+                        {
+                            "description": "Write tests",
+                            "task_kind": "testing",
+                            "artifact_targets": ["unit tests"],
+                            "workstream_tags": ["testing"],
+                            "relevant_invariant_ids": [],
+                        },
+                    ],
                     "reason_for_selection": "Supports the sprint goal.",
                 }
             ],
@@ -99,12 +114,14 @@ async def test_runtime_and_adapter_build_matching_sprint_input(monkeypatch) -> N
                     "story_title": "Attestation Gate UI",
                     "priority": 1,
                     "story_points": 5,
+                    "evaluated_invariant_ids": [],
                 },
                 {
                     "story_id": 12,
                     "story_title": "Event Delta Persistence",
                     "priority": 2,
                     "story_points": 3,
+                    "evaluated_invariant_ids": ["INV-12"],
                 },
             ],
         }
@@ -154,6 +171,7 @@ async def test_runtime_and_adapter_build_matching_sprint_input(monkeypatch) -> N
                 "story_title": "Event Delta Persistence",
                 "priority": 2,
                 "story_points": 3,
+                "evaluated_invariant_ids": ["INV-12"],
             }
         ],
         "team_velocity_assumption": "High",
@@ -162,3 +180,42 @@ async def test_runtime_and_adapter_build_matching_sprint_input(monkeypatch) -> N
         "max_story_points": 13,
         "include_task_decomposition": False,
     }
+
+
+@pytest.mark.asyncio
+async def test_runtime_rejects_out_of_scope_task_invariant_bindings(monkeypatch) -> None:
+    def fake_fetch_sprint_candidates(*, product_id):
+        assert product_id == 7
+        return {
+            "success": True,
+            "count": 1,
+            "stories": [
+                {
+                    "story_id": 12,
+                    "story_title": "Event Delta Persistence",
+                    "priority": 2,
+                    "story_points": 3,
+                    "evaluated_invariant_ids": [],
+                }
+            ],
+        }
+
+    async def fake_invoke(_payload):
+        return _valid_sprint_output()
+
+    monkeypatch.setattr(sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(sprint_runtime, "_invoke_sprint_agent", fake_invoke)
+
+    result = await sprint_runtime.run_sprint_agent_from_state(
+        {},
+        project_id=7,
+        team_velocity_assumption="medium",
+        sprint_duration_days=14,
+        max_story_points=None,
+        include_task_decomposition=True,
+        selected_story_ids=[12],
+        user_input=None,
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "Sprint output validation failed: invalid task invariant bindings"

@@ -15,7 +15,13 @@ Input is a JSON string matching the SprintPlannerInput schema.
 Example:
 {
   "available_stories": [
-    {"story_id": 101, "story_title": "Enable login", "priority": 1, "story_points": 3}
+    {
+      "story_id": 101,
+      "story_title": "Enable login",
+      "priority": 1,
+      "story_points": 3,
+      "evaluated_invariant_ids": ["INV-123"]
+    }
   ],
   "team_velocity_assumption": "Medium",
   "sprint_duration_days": 14,
@@ -46,8 +52,14 @@ Example:
         3.  Respect **Dependencies** (Story A must be done before Story B).
 
 4.  **Task Decomposition (Page 91 - "The How"):**
-    * For each selected story, generate a high-level list of **Technical Tasks**.
-    * *Format:* "Create DB Schema," "Write Unit Tests," "Implement UI logic."
+    * For each selected story, generate a high-level list of **Technical Tasks** as structured task objects.
+    * Each task object must contain:
+        * `description`
+        * `task_kind` using one of: `analysis`, `design`, `implementation`, `testing`, `documentation`, `refactor`, `other`
+        * `artifact_targets` as a short list of concrete artifacts or outputs
+        * `workstream_tags` as a short list of workstream labels
+        * `relevant_invariant_ids` chosen only from that story's `evaluated_invariant_ids`
+    * If no invariant directly applies to the task, emit `relevant_invariant_ids: []`.
     * *Constraint:* Do not write code; write *plans*.
   * If `include_task_decomposition` is false, return an empty task list for each story.
 
@@ -62,7 +74,22 @@ Example:
     {
       "story_id": 123,
       "story_title": "Title from input",
-      "tasks": ["Task 1", "Task 2", "Task 3"],
+      "tasks": [
+        {
+          "description": "Draft the persistence design for auth events",
+          "task_kind": "design",
+          "artifact_targets": ["auth event schema"],
+          "workstream_tags": ["auth", "persistence"],
+          "relevant_invariant_ids": []
+        },
+        {
+          "description": "Implement and test the auth event persistence path",
+          "task_kind": "implementation",
+          "artifact_targets": ["persistence service", "unit tests"],
+          "workstream_tags": ["auth", "backend", "testing"],
+          "relevant_invariant_ids": ["INV-123"]
+        }
+      ],
       "reason_for_selection": "Essential for Sprint Goal / High Priority"
     }
   ],

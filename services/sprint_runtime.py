@@ -12,6 +12,7 @@ from orchestrator_agent.agent_tools.sprint_planner_tool.agent import (
 from orchestrator_agent.agent_tools.sprint_planner_tool.schemes import (
     SprintPlannerInput,
     SprintPlannerOutput,
+    validate_task_invariant_bindings,
 )
 from services.sprint_input import prepare_sprint_input_context
 from utils.adk_runner import get_agent_model_info, invoke_agent_to_text, parse_json_payload
@@ -175,6 +176,24 @@ async def run_sprint_agent_from_state(
             raw_text=raw_text,
             validation_errors=exc.errors(),
             exception=exc,
+        )
+
+    allowed_invariant_ids_by_story = {
+        int(story.story_id): list(story.evaluated_invariant_ids or [])
+        for story in payload.available_stories
+    }
+    binding_errors = validate_task_invariant_bindings(
+        output_model,
+        allowed_invariant_ids_by_story=allowed_invariant_ids_by_story,
+    )
+    if binding_errors:
+        return _failure(
+            project_id=project_id,
+            input_context=input_context,
+            failure_stage="output_validation",
+            message="Sprint output validation failed: invalid task invariant bindings",
+            raw_text=raw_text,
+            validation_errors=[{"msg": error} for error in binding_errors],
         )
 
     output_artifact = output_model.model_dump(exclude_none=True)

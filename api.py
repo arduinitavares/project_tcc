@@ -72,6 +72,7 @@ from utils.failure_artifacts import read_failure_artifact
 from utils.logging_config import configure_logging
 from utils.runtime_config import get_api_host, get_api_port, get_api_reload
 from utils.schemes import ValidationEvidence
+from utils.task_metadata import hash_task_metadata, parse_task_metadata
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -550,6 +551,45 @@ def _build_story_compliance_boundaries(
     return relevant
 
 
+def _build_task_hard_constraints(
+    authority: Optional[CompiledSpecAuthority],
+    *,
+    task_metadata,
+) -> List[Dict[str, Any]]:
+    if not authority or not task_metadata.relevant_invariant_ids:
+        return []
+
+    artifact = _load_compiled_artifact(authority)
+    if not artifact:
+        return []
+
+    source_map: Dict[str, Any] = {}
+    for entry in artifact.source_map:
+        source_map.setdefault(entry.invariant_id, entry)
+
+    invariant_map = {invariant.id: invariant for invariant in artifact.invariants}
+    constraints: List[Dict[str, Any]] = []
+    for invariant_id in task_metadata.relevant_invariant_ids:
+        invariant = invariant_map.get(invariant_id)
+        if invariant is None:
+            logger.warning(
+                "Ignoring unknown invariant id '%s' while building task packet hard constraints.",
+                invariant_id,
+            )
+            continue
+        source_entry = source_map.get(invariant.id)
+        constraints.append(
+            {
+                "invariant_id": invariant.id,
+                "type": invariant.type.value,
+                "parameters": invariant.parameters.model_dump(mode="json"),
+                "source_excerpt": source_entry.excerpt if source_entry else None,
+                "source_location": source_entry.location if source_entry else None,
+            }
+        )
+    return constraints
+
+
 def _build_task_packet(
     session: Session,
     *,
@@ -596,6 +636,11 @@ def _build_task_packet(
             return None
 
     evidence = _load_validation_evidence(story.validation_evidence)
+    task_metadata = parse_task_metadata(
+        task.metadata_json,
+        logger=logger,
+        task_id=task.task_id,
+    )
     current_story_input_hash = _compute_story_input_hash(story)
     validation_input_hash = evidence.input_hash if evidence else None
     input_hash_matches = (
@@ -627,6 +672,7 @@ def _build_task_packet(
         "story_updated_at": _serialize_temporal(story.updated_at),
         "story_ac_updated_at": _serialize_temporal(story.ac_updated_at),
         "task_updated_at": _serialize_temporal(task.updated_at),
+        "task_metadata_hash": hash_task_metadata(task_metadata),
         "accepted_spec_version_id": story.accepted_spec_version_id,
         "validation_validated_at": _serialize_temporal(
             evidence.validated_at if evidence else None
@@ -657,6 +703,9 @@ def _build_task_packet(
             "status": task.status.value,
             "assignee_member_id": task.assigned_to_member_id,
             "assignee_name": task.assignee.name if task.assignee else None,
+            "task_kind": task_metadata.task_kind,
+            "artifact_targets": list(task_metadata.artifact_targets),
+            "workstream_tags": list(task_metadata.workstream_tags),
         },
         "context": {
             "story": {
@@ -709,7 +758,10 @@ def _build_task_packet(
                 "input_hash_matches": input_hash_matches,
                 "rules_checked": list(evidence.rules_checked) if evidence else [],
             },
-            "task_hard_constraints": [],
+            "task_hard_constraints": _build_task_hard_constraints(
+                authority,
+                task_metadata=task_metadata,
+            ),
             "story_compliance_boundaries": _build_story_compliance_boundaries(authority, evidence),
             "findings": _build_packet_findings(evidence),
         },

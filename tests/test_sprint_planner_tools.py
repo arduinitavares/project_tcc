@@ -1,6 +1,8 @@
 """Tests for sprint planner persistence tool."""
 
+import json
 from datetime import date
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, List, cast
 
@@ -22,6 +24,8 @@ from orchestrator_agent.agent_tools.sprint_planner_tool.tools import (
     SaveSprintPlanInput,
     save_sprint_plan_tool,
 )
+from utils.schemes import ValidationEvidence
+from utils.task_metadata import TaskMetadata
 
 
 def _seed_product_team_stories(session: Session) -> tuple[int, int, List[int]]:
@@ -43,6 +47,21 @@ def _seed_product_team_stories(session: Session) -> tuple[int, int, List[int]]:
             title=f"Story {idx + 1}",
             story_description="As a user, I want...",
             acceptance_criteria="- AC",
+            validation_evidence=ValidationEvidence(
+                spec_version_id=1,
+                validated_at=datetime.now(timezone.utc),
+                passed=True,
+                rules_checked=["SPEC_VERSION_EXISTS"],
+                invariants_checked=[],
+                evaluated_invariant_ids=["INV-VALID"] if idx == 0 else [],
+                finding_invariant_ids=[],
+                failures=[],
+                warnings=[],
+                alignment_warnings=[],
+                alignment_failures=[],
+                validator_version="1.0.0",
+                input_hash="hash",
+            ).model_dump_json(),
         )
         session.add(story)
         session.flush()
@@ -62,7 +81,22 @@ def _build_sprint_plan(story_ids: List[int]) -> Dict[str, Any]:
             {
                 "story_id": story_ids[0],
                 "story_title": "Story 1",
-                "tasks": ["Create auth table", "Add login UI"],
+                "tasks": [
+                    {
+                        "description": "Create auth table",
+                        "task_kind": "implementation",
+                        "artifact_targets": ["auth schema"],
+                        "workstream_tags": ["backend", "auth"],
+                        "relevant_invariant_ids": ["INV-VALID"],
+                    },
+                    {
+                        "description": "Add login UI",
+                        "task_kind": "implementation",
+                        "artifact_targets": ["login form"],
+                        "workstream_tags": ["frontend", "auth"],
+                        "relevant_invariant_ids": [],
+                    },
+                ],
                 "reason_for_selection": "Core to sprint goal",
             }
         ],
@@ -109,6 +143,12 @@ def test_save_sprint_plan_creates_records(session: Session):
 
     tasks = session.exec(select(Task)).all()
     assert len(tasks) == 2
+    metadata_by_description = {
+        task.description: TaskMetadata.model_validate(json.loads(task.metadata_json))
+        for task in tasks
+    }
+    assert metadata_by_description["Create auth table"].task_kind == "implementation"
+    assert metadata_by_description["Create auth table"].artifact_targets == ["auth schema"]
 
 
 def test_save_sprint_plan_uses_orchestrator_duration_when_valid(session: Session):
@@ -240,3 +280,25 @@ def test_save_sprint_plan_rejects_story_conflict(session: Session):
     result = save_sprint_plan_tool(input_data, tool_context)
     assert result["success"] is False
     assert "Stories already assigned" in result["error"]
+
+
+def test_save_sprint_plan_rejects_out_of_scope_task_invariants(session: Session):
+    product_id, team_id, story_ids = _seed_product_team_stories(session)
+    sprint_plan = _build_sprint_plan(story_ids)
+    sprint_plan["selected_stories"][0]["tasks"][0]["relevant_invariant_ids"] = ["INV-UNKNOWN"]
+
+    tool_context = cast(
+        ToolContext,
+        SimpleNamespace(state={"sprint_plan": sprint_plan}),
+    )
+    input_data = SaveSprintPlanInput(
+        product_id=product_id,
+        team_id=team_id,
+        sprint_start_date="2026-02-01",
+        sprint_duration_days=14,
+    )
+
+    result = save_sprint_plan_tool(input_data, tool_context)
+
+    assert result["success"] is False
+    assert "invalid invariant IDs" in result["error"]
