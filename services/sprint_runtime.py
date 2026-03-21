@@ -12,6 +12,7 @@ from orchestrator_agent.agent_tools.sprint_planner_tool.agent import (
 from orchestrator_agent.agent_tools.sprint_planner_tool.schemes import (
     SprintPlannerInput,
     SprintPlannerOutput,
+    validate_task_decomposition_quality,
     validate_task_invariant_bindings,
 )
 from services.sprint_input import prepare_sprint_input_context
@@ -176,6 +177,25 @@ async def run_sprint_agent_from_state(
             raw_text=raw_text,
             validation_errors=exc.errors(),
             exception=exc,
+        )
+
+    has_acceptance_criteria_by_story = {
+        story.story_id: bool(story.acceptance_criteria_items)
+        for story in payload.available_stories
+    }
+    decomp_errors = validate_task_decomposition_quality(
+        output_model,
+        include_task_decomposition=include_task_decomposition,
+        has_acceptance_criteria_by_story=has_acceptance_criteria_by_story,
+    )
+    if decomp_errors:
+        return _failure(
+            project_id=project_id,
+            input_context=input_context,
+            failure_stage="output_validation",
+            message="Sprint output validation failed: poor task decomposition quality",
+            raw_text=raw_text,
+            validation_errors=[{"msg": error} for error in decomp_errors],
         )
 
     allowed_invariant_ids_by_story = {

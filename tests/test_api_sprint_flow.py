@@ -1023,6 +1023,12 @@ def test_list_sprints_returns_task_objects(session, monkeypatch):
         session,
         repo,
         pinned=True,
+        task_metadata=TaskMetadata(
+            task_kind="design",
+            artifact_targets=["mock component"],
+            workstream_tags=["frontend", "ui"],
+            relevant_invariant_ids=[],
+        ),
     )
 
     response = client.get(f"/api/projects/{project_id}/sprints")
@@ -1043,3 +1049,9 @@ def test_list_sprints_returns_task_objects(session, monkeypatch):
     assert "id" in task_obj
     assert "description" in task_obj
     assert "status" in task_obj
+    assert "task_kind" in task_obj
+    assert "artifact_targets" in task_obj
+    assert "workstream_tags" in task_obj
+    assert task_obj["task_kind"] == "design"
+    assert task_obj["artifact_targets"] == ["mock component"]
+    assert task_obj["workstream_tags"] == ["frontend", "ui"]

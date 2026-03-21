@@ -292,7 +292,7 @@ def _save_session_state(session_id: str, state: Dict[str, Any]) -> None:
 
 
 def _serialize_sprint_task(task: Task) -> Dict[str, Any]:
-    meta = parse_task_metadata(task)
+    meta = parse_task_metadata(task.metadata_json)
     return {
         "id": task.task_id,
         "description": task.description,

@@ -224,3 +224,75 @@ async def test_runtime_rejects_out_of_scope_task_invariant_bindings(monkeypatch)
 
     assert result["success"] is False
     assert result["error"] == "Sprint output validation failed: invalid task invariant bindings"
+
+
+@pytest.mark.asyncio
+async def test_runtime_rejects_poor_task_decomposition_quality(monkeypatch) -> None:
+    def fake_fetch_sprint_candidates(*, product_id):
+        assert product_id == 7
+        return {
+            "success": True,
+            "count": 1,
+            "stories": [
+                {
+                    "story_id": 12,
+                    "story_title": "Event Delta Persistence",
+                    "priority": 2,
+                    "story_points": 3,
+                    "evaluated_invariant_ids": [],
+                    "acceptance_criteria": "Require 1\nRequire 2",
+                }
+            ],
+        }
+
+    async def fake_invoke(_payload):
+        return json.dumps(
+            {
+                "sprint_goal": "goal",
+                "sprint_number": 1,
+                "duration_days": 14,
+                "selected_stories": [
+                    {
+                        "story_id": 12,
+                        "story_title": "Event Delta Persistence",
+                        "tasks": [
+                            {
+                                "description": "Do the work",
+                                "task_kind": "other",  # Illegal value triggers hard fail
+                                "artifact_targets": ["api.py"],  # Illegal filename triggers hard fail
+                                "workstream_tags": ["backend"],
+                                "relevant_invariant_ids": [],
+                            }
+                        ],
+                        "reason_for_selection": "reason",
+                    }
+                ],
+                "deselected_stories": [],
+                "capacity_analysis": {
+                    "velocity_assumption": "High",
+                    "capacity_band": "6-7 stories",
+                    "selected_count": 1,
+                    "story_points_used": 3,
+                    "max_story_points": 13,
+                    "commitment_note": "Valid note",
+                    "reasoning": "Valid reasoning",
+                },
+            }
+        )
+
+    monkeypatch.setattr(sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(sprint_runtime, "_invoke_sprint_agent", fake_invoke)
+
+    result = await sprint_runtime.run_sprint_agent_from_state(
+        {},
+        project_id=7,
+        team_velocity_assumption="medium",
+        sprint_duration_days=14,
+        max_story_points=None,
+        include_task_decomposition=True,
+        selected_story_ids=[12],
+        user_input=None,
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "Sprint output validation failed: poor task decomposition quality"

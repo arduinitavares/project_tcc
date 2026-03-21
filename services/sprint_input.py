@@ -118,9 +118,9 @@ def load_sprint_candidates(
             "story_points": normalize_positive_int(row.get("story_points")),
             "story_description": as_text(row.get("story_description")).strip(),
             "acceptance_criteria_items": [
-                line.strip()
-                for line in as_text(row.get("acceptance_criteria")).replace("-", "\n").splitlines()
-                if line.strip()
+                line.lstrip("-* \t").strip()
+                for line in as_text(row.get("acceptance_criteria")).splitlines()
+                if line.lstrip("-* \t").strip()
             ],
             "evaluated_invariant_ids": [
                 str(item).strip()
