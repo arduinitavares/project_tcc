@@ -69,7 +69,9 @@ async def lifespan(_app: FastAPI):
     ensure_business_db_ready()
     migrated = workflow_service.migrate_legacy_setup_state()
     if migrated:
-        logger.info("Migrated %s legacy sessions from ROUTING_MODE to SETUP_REQUIRED", migrated)
+        logger.info(
+            "Migrated %s legacy sessions from ROUTING_MODE to SETUP_REQUIRED", migrated
+        )
     yield
 
 
@@ -323,7 +325,9 @@ def _set_vision_fsm_state(state: Dict[str, Any], *, is_complete: bool) -> str:
     return next_state
 
 
-async def _run_setup(session_id: str, project_id: int, spec_file_path: str) -> Dict[str, Any]:
+async def _run_setup(
+    session_id: str, project_id: int, spec_file_path: str
+) -> Dict[str, Any]:
     context = await _hydrate_context(session_id, project_id)
 
     result = link_spec_to_product(
@@ -350,7 +354,9 @@ async def _run_setup(session_id: str, project_id: int, spec_file_path: str) -> D
     }
 
     if not setup_passed:
-        error_message = result.get("compile_error") or result.get("error") or "Setup failed"
+        error_message = (
+            result.get("compile_error") or result.get("error") or "Setup failed"
+        )
     else:
         latest_product = product_repo.get_by_id(project_id)
         blocker = _setup_blocker(latest_product)
@@ -363,7 +369,11 @@ async def _run_setup(session_id: str, project_id: int, spec_file_path: str) -> D
                 project_id=project_id,
                 user_input="",
             )
-            attempt_is_complete = bool(vision_result.get("is_complete")) if vision_result.get("success") else False
+            attempt_is_complete = (
+                bool(vision_result.get("is_complete"))
+                if vision_result.get("success")
+                else False
+            )
             _record_vision_attempt(
                 context.state,
                 trigger="auto_setup_transition",
@@ -379,10 +389,14 @@ async def _run_setup(session_id: str, project_id: int, spec_file_path: str) -> D
             vision_auto_run = {
                 "attempted": True,
                 "success": bool(vision_result.get("success")),
-                "is_complete": vision_result.get("is_complete") if vision_result.get("success") else None,
+                "is_complete": vision_result.get("is_complete")
+                if vision_result.get("success")
+                else None,
                 "error": vision_result.get("error"),
                 "trigger": "auto_setup_transition",
-                **_failure_meta(vision_result, fallback_summary=vision_result.get("error")),
+                **_failure_meta(
+                    vision_result, fallback_summary=vision_result.get("error")
+                ),
             }
 
     if not setup_passed:
@@ -459,9 +473,12 @@ def get_projects():
         products = product_repo.get_all()
         payload = []
 
+        session_ids = [str(p.product_id) for p in products]
+        state_map = workflow_service.get_session_states_batch(session_ids)
+
         for product in products:
             session_id = str(product.product_id)
-            raw_state = workflow_service.get_session_status(session_id) or {}
+            raw_state = state_map.get(session_id) or {}
             effective_state = _effective_project_state(product, raw_state)
 
             payload.append(
@@ -469,16 +486,26 @@ def get_projects():
                     "id": product.product_id,
                     "name": product.name,
                     "summary": product.description or "No description provided",
-                    "fsm_state": effective_state.get("fsm_state", OrchestratorState.SETUP_REQUIRED.value),
-                "setup_status": effective_state.get("setup_status", "failed"),
-                "setup_error": effective_state.get("setup_error"),
-                "setup_failure_artifact_id": effective_state.get("setup_failure_artifact_id"),
-                "setup_failure_stage": effective_state.get("setup_failure_stage"),
-                "setup_failure_summary": effective_state.get("setup_failure_summary"),
-                "setup_raw_output_preview": effective_state.get("setup_raw_output_preview"),
-                "setup_has_full_artifact": effective_state.get("setup_has_full_artifact", False),
-            }
-        )
+                    "fsm_state": effective_state.get(
+                        "fsm_state", OrchestratorState.SETUP_REQUIRED.value
+                    ),
+                    "setup_status": effective_state.get("setup_status", "failed"),
+                    "setup_error": effective_state.get("setup_error"),
+                    "setup_failure_artifact_id": effective_state.get(
+                        "setup_failure_artifact_id"
+                    ),
+                    "setup_failure_stage": effective_state.get("setup_failure_stage"),
+                    "setup_failure_summary": effective_state.get(
+                        "setup_failure_summary"
+                    ),
+                    "setup_raw_output_preview": effective_state.get(
+                        "setup_raw_output_preview"
+                    ),
+                    "setup_has_full_artifact": effective_state.get(
+                        "setup_has_full_artifact", False
+                    ),
+                }
+            )
 
         return {"status": "success", "data": payload}
     except Exception as exc:
@@ -493,7 +520,9 @@ async def create_project(req: CreateProjectRequest):
         session_id = str(new_product.product_id)
         await workflow_service.initialize_session(session_id=session_id)
 
-        setup_result = await _run_setup(session_id, int(new_product.product_id), req.spec_file_path)
+        setup_result = await _run_setup(
+            session_id, int(new_product.product_id), req.spec_file_path
+        )
 
         return {
             "status": "success",
@@ -524,8 +553,14 @@ async def delete_project(project_id: int):
         # Cascade delete products and all artifacts
         success = product_repo.delete_project(project_id)
         if not success:
-            raise HTTPException(status_code=500, detail="Failed to delete project due to database error.")
-        return {"status": "success", "data": {"message": f"Project {project_id} deleted."}}
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to delete project due to database error.",
+            )
+        return {
+            "status": "success",
+            "data": {"message": f"Project {project_id} deleted."},
+        }
     except Exception as exc:
         logger.error("Error deleting project %d: %s", project_id, exc)
         raise HTTPException(status_code=500, detail="Failed to delete project") from exc
@@ -547,12 +582,12 @@ async def retry_project_setup(project_id: int, req: RetrySetupRequest):
             "id": project_id,
             "name": product.name,
             "setup_status": "passed" if setup_result["passed"] else "failed",
-                "setup_error": setup_result["error"],
-                "fsm_state": setup_result["fsm_state"],
-                "vision_auto_run": setup_result.get("vision_auto_run"),
-                **_failure_meta(setup_result, fallback_summary=setup_result["error"]),
-            },
-        }
+            "setup_error": setup_result["error"],
+            "fsm_state": setup_result["fsm_state"],
+            "vision_auto_run": setup_result.get("vision_auto_run"),
+            **_failure_meta(setup_result, fallback_summary=setup_result["error"]),
+        },
+    }
 
 
 @app.get("/api/projects/{project_id}/state")
@@ -581,7 +616,9 @@ async def get_project_failure_artifact(project_id: int, artifact_id: str):
         raise HTTPException(status_code=404, detail="Failure artifact not found")
 
     if artifact.get("project_id") != project_id:
-        raise HTTPException(status_code=404, detail="Failure artifact not found for project")
+        raise HTTPException(
+            status_code=404, detail="Failure artifact not found for project"
+        )
 
     return {"status": "success", "data": artifact}
 
@@ -613,7 +650,11 @@ async def generate_project_vision(project_id: int, req: VisionGenerateRequest):
         project_id=project_id,
         user_input=user_input,
     )
-    is_complete = bool(vision_result.get("is_complete")) if vision_result.get("success") else False
+    is_complete = (
+        bool(vision_result.get("is_complete"))
+        if vision_result.get("success")
+        else False
+    )
 
     attempt_count = _record_vision_attempt(
         context.state,
@@ -705,7 +746,9 @@ async def save_project_vision(project_id: int):
     )
 
     if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to save vision"))
+        raise HTTPException(
+            status_code=500, detail=result.get("error", "Failed to save vision")
+        )
 
     context.state["fsm_state"] = OrchestratorState.VISION_PERSISTENCE.value
     context.state["fsm_state_entered_at"] = _now_iso()
@@ -784,16 +827,19 @@ async def generate_project_backlog(project_id: int, req: BacklogGenerateRequest)
     context = await _hydrate_context(session_id, project_id)
 
     if context.state.get("fsm_state") in [OrchestratorState.SETUP_REQUIRED.value]:
-         raise HTTPException(status_code=409, detail="Setup required before backlog")
-         
+        raise HTTPException(status_code=409, detail="Setup required before backlog")
+
     if context.state.get("fsm_state") not in [
         OrchestratorState.VISION_PERSISTENCE.value,
         OrchestratorState.BACKLOG_INTERVIEW.value,
         OrchestratorState.BACKLOG_REVIEW.value,
         OrchestratorState.BACKLOG_PERSISTENCE.value,
-        OrchestratorState.ROADMAP_INTERVIEW.value, 
+        OrchestratorState.ROADMAP_INTERVIEW.value,
     ]:
-         raise HTTPException(status_code=409, detail=f"Invalid FSM State for backlog: {context.state.get('fsm_state')}")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Invalid FSM State for backlog: {context.state.get('fsm_state')}",
+        )
 
     attempts = _ensure_backlog_attempts(context.state)
     has_attempts = len(attempts) > 0
@@ -809,7 +855,11 @@ async def generate_project_backlog(project_id: int, req: BacklogGenerateRequest)
         project_id=project_id,
         user_input=user_input,
     )
-    is_complete = bool(backlog_result.get("is_complete")) if backlog_result.get("success") else False
+    is_complete = (
+        bool(backlog_result.get("is_complete"))
+        if backlog_result.get("success")
+        else False
+    )
 
     attempt_count = _record_backlog_attempt(
         context.state,
@@ -837,7 +887,9 @@ async def generate_project_backlog(project_id: int, req: BacklogGenerateRequest)
             "input_context": backlog_result.get("input_context"),
             "output_artifact": backlog_result.get("output_artifact"),
             "attempt_count": attempt_count,
-            **_failure_meta(backlog_result, fallback_summary=backlog_result.get("error")),
+            **_failure_meta(
+                backlog_result, fallback_summary=backlog_result.get("error")
+            ),
         },
     }
 
@@ -874,7 +926,9 @@ async def save_project_backlog(project_id: int):
 
     assessment = state.get("product_backlog_assessment")
     if not isinstance(assessment, dict):
-        raise HTTPException(status_code=409, detail="No backlog draft available to save")
+        raise HTTPException(
+            status_code=409, detail="No backlog draft available to save"
+        )
 
     if not bool(assessment.get("is_complete", False)):
         raise HTTPException(
@@ -896,7 +950,9 @@ async def save_project_backlog(project_id: int):
     )
 
     if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to save backlog"))
+        raise HTTPException(
+            status_code=500, detail=result.get("error", "Failed to save backlog")
+        )
 
     context.state["fsm_state"] = OrchestratorState.BACKLOG_PERSISTENCE.value
     context.state["fsm_state_entered_at"] = _now_iso()
@@ -1028,7 +1084,9 @@ async def generate_project_roadmap(project_id: int, req: RoadmapGenerateRequest)
             "input_context": roadmap_result.get("input_context"),
             "output_artifact": roadmap_result.get("output_artifact"),
             "attempt_count": attempt_count,
-            **_failure_meta(roadmap_result, fallback_summary=roadmap_result.get("error")),
+            **_failure_meta(
+                roadmap_result, fallback_summary=roadmap_result.get("error")
+            ),
         },
     }
 
@@ -1065,7 +1123,9 @@ async def save_project_roadmap(project_id: int):
 
     assessment = state.get("product_roadmap_assessment")
     if not isinstance(assessment, dict):
-        raise HTTPException(status_code=409, detail="No roadmap draft available to save")
+        raise HTTPException(
+            status_code=409, detail="No roadmap draft available to save"
+        )
 
     if not bool(assessment.get("is_complete", False)):
         raise HTTPException(
@@ -1073,14 +1133,19 @@ async def save_project_roadmap(project_id: int):
             detail="Roadmap cannot be saved until is_complete is true",
         )
 
-    from orchestrator_agent.agent_tools.roadmap_builder.schemes import RoadmapBuilderOutput
+    from orchestrator_agent.agent_tools.roadmap_builder.schemes import (
+        RoadmapBuilderOutput,
+    )
+
     context = await _hydrate_context(session_id, project_id)
-    
+
     try:
         roadmap_data = RoadmapBuilderOutput.model_validate(assessment)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Invalid roadmap data in session: {str(e)}")
-        
+        raise HTTPException(
+            status_code=500, detail=f"Invalid roadmap data in session: {str(e)}"
+        )
+
     result = save_roadmap_tool(
         SaveRoadmapToolInput(
             product_id=project_id,
@@ -1090,7 +1155,9 @@ async def save_project_roadmap(project_id: int):
     )
 
     if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to save roadmap"))
+        raise HTTPException(
+            status_code=500, detail=result.get("error", "Failed to save roadmap")
+        )
 
     state["fsm_state"] = OrchestratorState.ROADMAP_PERSISTENCE.value
     state["fsm_state_entered_at"] = _now_iso()
@@ -1110,6 +1177,7 @@ async def save_project_roadmap(project_id: int):
 # ==============================================================================
 # STORY ENDPOINTS
 # ==============================================================================
+
 
 def _get_all_roadmap_requirements(state: Dict[str, Any]) -> List[str]:
     """Helper: extract all assigned backlog items from saved roadmap releases."""
@@ -1141,7 +1209,7 @@ def _record_story_attempt(
     attempts_dict = _ensure_story_attempts(state)
     if parent_requirement not in attempts_dict:
         attempts_dict[parent_requirement] = []
-    
+
     attempts = attempts_dict[parent_requirement]
     normalized_failure = _failure_meta(failure_meta)
     attempts.append(
@@ -1155,12 +1223,12 @@ def _record_story_attempt(
         }
     )
     state["story_attempts"] = attempts_dict
-    
+
     # Also log latest overall for the requirement
     latest_outputs = state.get("story_outputs", {})
     latest_outputs[parent_requirement] = output_artifact
     state["story_outputs"] = latest_outputs
-    
+
     return len(attempts)
 
 
@@ -1172,10 +1240,12 @@ async def get_project_story_pending(project_id: int):
 
     session_id = str(project_id)
     state = await _ensure_session(session_id)
-    
+
     roadmap_releases = state.get("roadmap_releases") or []
     attempts_dict = _ensure_story_attempts(state)
-    saved_reqs_dict = state.get("story_saved", {})  # track which ones successfully saved
+    saved_reqs_dict = state.get(
+        "story_saved", {}
+    )  # track which ones successfully saved
 
     grouped_items = []
     total_count = 0
@@ -1184,16 +1254,16 @@ async def get_project_story_pending(project_id: int):
     # Build structural hierarchy
     for release_index, rel in enumerate(roadmap_releases):
         reqs = rel.get("items") or []
-        theme = rel.get("theme", f"Milestone Context")
+        theme = rel.get("theme", "Milestone Context")
         reasoning = rel.get("reasoning", "")
-        
+
         milestone_group = {
             "group_id": f"milestone_{release_index}",
             "theme": theme,
             "reasoning": reasoning,
-            "requirements": []
+            "requirements": [],
         }
-        
+
         for req in reqs:
             req_attempts = attempts_dict.get(req, [])
             if saved_reqs_dict.get(req):
@@ -1203,14 +1273,16 @@ async def get_project_story_pending(project_id: int):
                 status = "Attempted"
             else:
                 status = "Pending"
-                
-            milestone_group["requirements"].append({
-                "requirement": req,
-                "status": status,
-                "attempt_count": len(req_attempts)
-            })
+
+            milestone_group["requirements"].append(
+                {
+                    "requirement": req,
+                    "status": status,
+                    "attempt_count": len(req_attempts),
+                }
+            )
             total_count += 1
-            
+
         grouped_items.append(milestone_group)
 
     return {
@@ -1224,7 +1296,9 @@ async def get_project_story_pending(project_id: int):
 
 
 @app.post("/api/projects/{project_id}/story/generate")
-async def generate_project_story(project_id: int, parent_requirement: str, req: StoryGenerateRequest):
+async def generate_project_story(
+    project_id: int, parent_requirement: str, req: StoryGenerateRequest
+):
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1242,7 +1316,10 @@ async def generate_project_story(project_id: int, parent_requirement: str, req: 
                     parent_requirement = r
                     break
         else:
-            raise HTTPException(status_code=400, detail=f"Requirement '{parent_requirement}' not found in saved roadmap.")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Requirement '{parent_requirement}' not found in saved roadmap.",
+            )
 
     attempts_dict = _ensure_story_attempts(state)
     req_attempts = attempts_dict.get(parent_requirement, [])
@@ -1255,10 +1332,10 @@ async def generate_project_story(project_id: int, parent_requirement: str, req: 
         )
 
     story_result = await run_story_agent_from_state(
-        state, 
+        state,
         project_id=project_id,
         parent_requirement=parent_requirement,
-        user_input=req.user_input
+        user_input=req.user_input,
     )
 
     is_complete = bool(story_result.get("is_complete", False))
@@ -1298,7 +1375,7 @@ async def get_project_story_history(project_id: int, parent_requirement: str):
 
     session_id = str(project_id)
     state = await _ensure_session(session_id)
-    
+
     attempts_dict = _ensure_story_attempts(state)
     req_attempts = attempts_dict.get(parent_requirement, [])
 
@@ -1323,9 +1400,12 @@ async def save_project_story(project_id: int, parent_requirement: str):
 
     outputs_dict = state.get("story_outputs", {})
     assessment = outputs_dict.get(parent_requirement)
-    
+
     if not assessment:
-        raise HTTPException(status_code=409, detail=f"No story draft available for '{parent_requirement}'")
+        raise HTTPException(
+            status_code=409,
+            detail=f"No story draft available for '{parent_requirement}'",
+        )
 
     if not assessment.get("is_complete"):
         raise HTTPException(
@@ -1348,13 +1428,15 @@ async def save_project_story(project_id: int, parent_requirement: str):
     )
 
     if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to save stories"))
+        raise HTTPException(
+            status_code=500, detail=result.get("error", "Failed to save stories")
+        )
 
     # Record that this specific requirement was saved successfully
     saved_reqs_dict = context.state.get("story_saved", {})
     saved_reqs_dict[parent_requirement] = True
     context.state["story_saved"] = saved_reqs_dict
-    
+
     _save_session_state(session_id, context.state)
 
     return {
@@ -1380,26 +1462,32 @@ async def delete_project_story(project_id: int, parent_requirement: str):
         # Find all stories for this requirement in this product
         stmt = select(UserStory).where(
             UserStory.product_id == project_id,
-            UserStory.source_requirement == parent_requirement
+            UserStory.source_requirement == parent_requirement,
         )
         stories = session.exec(stmt).all()
-        
+
         deleted_count = 0
         for story in stories:
             # Delete sprint mappings
-            sprint_mappings = session.exec(select(SprintStory).where(SprintStory.story_id == story.story_id)).all()
+            sprint_mappings = session.exec(
+                select(SprintStory).where(SprintStory.story_id == story.story_id)
+            ).all()
             for sm in sprint_mappings:
                 session.delete(sm)
-                
+
             # Delete completion logs
-            logs = session.exec(select(StoryCompletionLog).where(StoryCompletionLog.story_id == story.story_id)).all()
+            logs = session.exec(
+                select(StoryCompletionLog).where(
+                    StoryCompletionLog.story_id == story.story_id
+                )
+            ).all()
             for log in logs:
                 session.delete(log)
-                
+
             # Delete the story (cascades to Tasks per schema)
             session.delete(story)
             deleted_count += 1
-            
+
         session.commit()
 
     # Clean up session state
@@ -1411,7 +1499,7 @@ async def delete_project_story(project_id: int, parent_requirement: str):
     if "story_saved" in state and parent_requirement in state["story_saved"]:
         del state["story_saved"][parent_requirement]
         state_modified = True
-        
+
     # 2. Remove latest output artifact
     if "story_outputs" in state and parent_requirement in state["story_outputs"]:
         del state["story_outputs"][parent_requirement]
@@ -1419,13 +1507,17 @@ async def delete_project_story(project_id: int, parent_requirement: str):
 
     # 3. Add a soft "reset" marker to the history if there are attempts
     if "story_attempts" in state and parent_requirement in state["story_attempts"]:
-        state["story_attempts"][parent_requirement].append({
-            "is_complete": False,
-            "trigger": "manual_refine",
-            "input_context": {"system_message": "Stories deleted and state reset by user."},
-            "output_artifact": None,
-            "created_at": _now_iso(),
-        })
+        state["story_attempts"][parent_requirement].append(
+            {
+                "is_complete": False,
+                "trigger": "manual_refine",
+                "input_context": {
+                    "system_message": "Stories deleted and state reset by user."
+                },
+                "output_artifact": None,
+                "created_at": _now_iso(),
+            }
+        )
         state_modified = True
 
     if state_modified:
@@ -1436,8 +1528,8 @@ async def delete_project_story(project_id: int, parent_requirement: str):
         "parent_requirement": parent_requirement,
         "data": {
             "deleted_count": deleted_count,
-            "message": "Stories deleted successfully"
-        }
+            "message": "Stories deleted successfully",
+        },
     }
 
 
@@ -1453,16 +1545,16 @@ async def complete_story_phase(project_id: int):
 
     session_id = str(project_id)
     state = await _ensure_session(session_id)
-    
+
     req_names = _get_all_roadmap_requirements(state)
     saved_reqs_dict = state.get("story_saved", {})
-    
+
     saved = [r for r in req_names if saved_reqs_dict.get(r)]
-    
+
     if len(saved) == 0:
         raise HTTPException(
-            status_code=409, 
-            detail="Cannot complete phase. No requirements have saved stories."
+            status_code=409,
+            detail="Cannot complete phase. No requirements have saved stories.",
         )
 
     # All pass, transition into Sprint Setup for explicit planning inputs.
@@ -1478,18 +1570,14 @@ async def complete_story_phase(project_id: int):
         state["fsm_state_entered_at"] = _now_iso()
         state["story_phase_completed_at"] = _now_iso()
         _save_session_state(session_id, state)
-    
-    return {
-        "status": "success",
-        "data": {
-            "fsm_state": state.get("fsm_state")
-        }
-    }
+
+    return {"status": "success", "data": {"fsm_state": state.get("fsm_state")}}
 
 
 # ==============================================================================
 # SPRINT ENDPOINTS
 # ==============================================================================
+
 
 def _ensure_sprint_attempts(state: Dict[str, Any]) -> List[Dict[str, Any]]:
     attempts = state.get("sprint_attempts")
@@ -1566,7 +1654,10 @@ async def generate_project_sprint(project_id: int, req: SprintGenerateRequest):
         OrchestratorState.SPRINT_PERSISTENCE.value,
     ]
     if state.get("fsm_state") not in valid_states:
-        raise HTTPException(status_code=409, detail=f"Invalid phase for sprint generation (state: {state.get('fsm_state')})")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Invalid phase for sprint generation (state: {state.get('fsm_state')})",
+        )
 
     attempts = _ensure_sprint_attempts(state)
     has_attempts = len(attempts) > 0
@@ -1655,7 +1746,9 @@ async def save_project_sprint(project_id: int, req: SprintSaveRequest):
             detail="Sprint cannot be saved until is_complete is true",
         )
 
-    from orchestrator_agent.agent_tools.sprint_planner_tool.schemes import SprintPlannerOutput
+    from orchestrator_agent.agent_tools.sprint_planner_tool.schemes import (
+        SprintPlannerOutput,
+    )
 
     team_name = req.team_name.strip()
     sprint_start_date = req.sprint_start_date.strip()
@@ -1670,7 +1763,9 @@ async def save_project_sprint(project_id: int, req: SprintSaveRequest):
     try:
         sprint_data = SprintPlannerOutput.model_validate(assessment_payload)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Invalid sprint data in session: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Invalid sprint data in session: {str(e)}"
+        )
 
     context = await _hydrate_context(session_id, project_id)
     context.state["sprint_plan"] = sprint_data.model_dump(exclude_none=True)
@@ -1686,7 +1781,9 @@ async def save_project_sprint(project_id: int, req: SprintSaveRequest):
     )
 
     if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to save sprint plan"))
+        raise HTTPException(
+            status_code=500, detail=result.get("error", "Failed to save sprint plan")
+        )
 
     state["fsm_state"] = OrchestratorState.SPRINT_PERSISTENCE.value
     state["fsm_state_entered_at"] = _now_iso()

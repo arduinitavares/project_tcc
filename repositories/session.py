@@ -25,7 +25,9 @@ class WorkflowSessionRepository:
             )
             return cursor.fetchone() is not None
 
-    def get_session_state(self, app_name: str, user_id: str, session_id: str) -> Dict[str, Any]:
+    def get_session_state(
+        self, app_name: str, user_id: str, session_id: str
+    ) -> Dict[str, Any]:
         """Fetch raw state dict from SQLite (Acts as Volatile RAM)."""
         if not self.has_sessions_table():
             logger.debug("Session store is not initialized yet; returning empty state.")
@@ -43,7 +45,46 @@ class WorkflowSessionRepository:
         logger.debug("Retrieved session state (redacted).")
         return state
 
-    def update_session_state(self, app_name: str, user_id: str, session_id: str, partial_update: Dict[str, Any]) -> None:
+    def get_session_states_batch(
+        self, app_name: str, user_id: str, session_ids: list[str]
+    ) -> Dict[str, Any]:
+        """Fetch multiple session states efficiently in batches."""
+        if not session_ids:
+            return {}
+
+        if not self.has_sessions_table():
+            logger.debug(
+                "Session store is not initialized yet; returning empty states."
+            )
+            return {}
+
+        results = {}
+        chunk_size = 500
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            for i in range(0, len(session_ids), chunk_size):
+                chunk = session_ids[i : i + chunk_size]
+                placeholders = ",".join("?" * len(chunk))
+
+                query = f"SELECT id, state FROM sessions WHERE app_name=? AND user_id=? AND id IN ({placeholders})"
+                params = [app_name, user_id] + chunk
+
+                cursor.execute(query, params)
+                for row in cursor.fetchall():
+                    session_id, state_json = row
+                    results[session_id] = json.loads(state_json) if state_json else {}
+
+        return results
+
+    def update_session_state(
+        self,
+        app_name: str,
+        user_id: str,
+        session_id: str,
+        partial_update: Dict[str, Any],
+    ) -> None:
         """Updates the Volatile State with a partial update dict."""
         if not self.has_sessions_table():
             raise RuntimeError(
@@ -75,7 +116,7 @@ class WorkflowSessionRepository:
             )
             deleted = cursor.rowcount > 0
             conn.commit()
-            
+
         if deleted:
             logger.info("Session %s deleted successfully from DB", session_id)
         return deleted

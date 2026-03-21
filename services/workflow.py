@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import sqlite3
@@ -67,7 +66,17 @@ class WorkflowService:
             session_id=session_id,
         )
 
-    def update_session_status(self, session_id: str, partial_update: Dict[str, Any]) -> None:
+    def get_session_states_batch(self, session_ids: list[str]) -> dict:
+        """Return the session state payloads for multiple sessions."""
+        return self.session_repo.get_session_states_batch(
+            app_name=self.app_name,
+            user_id=self.user_id,
+            session_ids=session_ids,
+        )
+
+    def update_session_status(
+        self, session_id: str, partial_update: Dict[str, Any]
+    ) -> None:
         """Apply partial update to session state."""
         self.session_repo.update_session_state(
             app_name=self.app_name,
@@ -90,7 +99,9 @@ class WorkflowService:
         to SETUP_REQUIRED.
         """
         if not self.session_repo.has_sessions_table():
-            logger.debug("Session store is not initialized yet; skipping legacy migration.")
+            logger.debug(
+                "Session store is not initialized yet; skipping legacy migration."
+            )
             return 0
 
         migrated = 0
@@ -165,7 +176,9 @@ class WorkflowService:
         )
         return next_state.value
 
-    async def trigger_agent_turn(self, session_id: str, user_input: str) -> Dict[str, Any]:
+    async def trigger_agent_turn(
+        self, session_id: str, user_input: str
+    ) -> Dict[str, Any]:
         """
         Legacy generic agent turn entrypoint.
         Kept for non-dashboard callers.
