@@ -93,3 +93,43 @@ def test_get_session_states_batch_chunking(temp_db):
     assert len(results) == 1001
     assert results["sid_0"]["idx"] == 0
     assert results["sid_1000"]["idx"] == 1000
+
+
+def _create_sessions_table(conn):
+    conn.execute(
+        "CREATE TABLE sessions (id TEXT, app_name TEXT, user_id TEXT, state TEXT)"
+    )
+
+
+def test_get_session_state_malformed_json(temp_db):
+    target = TempDBTarget(temp_db)
+    repo = WorkflowSessionRepository(db_target=target)
+
+    with sqlite3.connect(temp_db) as conn:
+        _create_sessions_table(conn)
+        conn.execute(
+            "INSERT INTO sessions VALUES ('sid_bad', 'app1', 'user1', 'not-valid-json')"
+        )
+        conn.commit()
+
+    result = repo.get_session_state("app1", "user1", "sid_bad")
+    assert result == {}
+
+
+def test_get_session_states_batch_malformed_json(temp_db):
+    target = TempDBTarget(temp_db)
+    repo = WorkflowSessionRepository(db_target=target)
+
+    with sqlite3.connect(temp_db) as conn:
+        _create_sessions_table(conn)
+        conn.execute(
+            "INSERT INTO sessions VALUES ('sid_ok', 'app1', 'user1', '{\"k\": 1}')"
+        )
+        conn.execute(
+            "INSERT INTO sessions VALUES ('sid_bad', 'app1', 'user1', 'not-valid-json')"
+        )
+        conn.commit()
+
+    results = repo.get_session_states_batch("app1", "user1", ["sid_ok", "sid_bad"])
+    assert results["sid_ok"] == {"k": 1}
+    assert results["sid_bad"] == {}

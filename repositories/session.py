@@ -41,7 +41,16 @@ class WorkflowSessionRepository:
             )
             row = cursor.fetchone()
 
-        state: Dict[str, Any] = json.loads(row[0]) if row else {}
+        if not row:
+            return {}
+        try:
+            state: Dict[str, Any] = json.loads(row[0] or "{}")
+        except json.JSONDecodeError:
+            logger.warning(
+                "Malformed JSON in session state for session_id=%s; returning empty state.",
+                session_id,
+            )
+            state = {}
         logger.debug("Retrieved session state (redacted).")
         return state
 
@@ -74,7 +83,14 @@ class WorkflowSessionRepository:
                 cursor.execute(query, params)
                 for row in cursor.fetchall():
                     session_id, state_json = row
-                    results[session_id] = json.loads(state_json) if state_json else {}
+                    try:
+                        results[session_id] = json.loads(state_json) if state_json else {}
+                    except json.JSONDecodeError:
+                        logger.warning(
+                            "Malformed JSON in session state for session_id=%s; returning empty state.",
+                            session_id,
+                        )
+                        results[session_id] = {}
 
         return results
 
