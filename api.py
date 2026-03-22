@@ -2194,6 +2194,10 @@ def get_task_execution(project_id: int, sprint_id: int, task_id: int):
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
         
+        sprint = session.get(Sprint, sprint_id)
+        if not sprint or sprint.product_id != project_id:
+            raise HTTPException(status_code=404, detail="Sprint not found in this project")
+        
         sprint_story = session.exec(select(SprintStory).where(
             SprintStory.sprint_id == sprint_id,
             SprintStory.story_id == task.story_id
@@ -2204,7 +2208,10 @@ def get_task_execution(project_id: int, sprint_id: int, task_id: int):
 
         logs = session.exec(
             select(TaskExecutionLog)
-            .where(TaskExecutionLog.task_id == task_id)
+            .where(
+                TaskExecutionLog.task_id == task_id,
+                TaskExecutionLog.sprint_id == sprint_id
+            )
             .order_by(TaskExecutionLog.changed_at.desc())
         ).all()
 
@@ -2246,6 +2253,10 @@ def post_task_execution(project_id: int, sprint_id: int, task_id: int, req: Task
         task = session.get(Task, task_id)
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
+
+        sprint = session.get(Sprint, sprint_id)
+        if not sprint or sprint.product_id != project_id:
+            raise HTTPException(status_code=404, detail="Sprint not found in this project")
 
         sprint_story = session.exec(select(SprintStory).where(
             SprintStory.sprint_id == sprint_id,

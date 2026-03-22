@@ -3531,8 +3531,9 @@ async function submitTaskExecution(event, sprintId, taskId) {
         
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail?.map(d => d.msg).join(' ') || data.detail || "Failed to save execution");
-        
         await fetchProjectFSMState(selectedProjectId, { preserveView: true });
+        await loadSavedSprints();
+        selectSavedSprintById(sprintId);
     } catch (err) {
         console.error(err);
         errCont.innerText = err.message;
