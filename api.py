@@ -24,6 +24,8 @@ from agile_sqlmodel import (
     Sprint,
     SprintStatus,
     SprintStory,
+    StoryResolution,
+    StoryStatus,
     Task,
     TaskAcceptanceResult,
     TaskExecutionLog,
@@ -79,6 +81,9 @@ from utils.schemes import (
     TaskExecutionWriteRequest,
     TaskExecutionReadResponse,
     TaskExecutionLogEntry,
+    StoryTaskProgressSummary,
+    StoryCloseReadResponse,
+    StoryCloseWriteRequest,
 )
 
 configure_logging()
@@ -2296,6 +2301,129 @@ def post_task_execution(project_id: int, sprint_id: int, task_id: int, req: Task
         session.commit()
 
     return get_task_execution(project_id, sprint_id, task_id)
+
+
+@app.get("/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/close", response_model=StoryCloseReadResponse)
+def get_story_close(project_id: int, sprint_id: int, story_id: int):
+    with Session(get_engine()) as session:
+        story = session.get(UserStory, story_id)
+        if not story:
+            raise HTTPException(status_code=404, detail="Story not found")
+        
+        sprint = session.get(Sprint, sprint_id)
+        if not sprint or sprint.product_id != project_id:
+            raise HTTPException(status_code=404, detail="Sprint not found in this project")
+
+        sprint_story = session.exec(select(SprintStory).where(
+            SprintStory.sprint_id == sprint_id,
+            SprintStory.story_id == story_id
+        )).first()
+
+        if not sprint_story:
+            raise HTTPException(status_code=404, detail="Story does not belong to the given sprint")
+
+        tasks = session.exec(
+            select(Task).where(Task.story_id == story_id)
+        ).all()
+        
+        total_tasks = len(tasks)
+        done_tasks = sum(1 for t in tasks if t.status == TaskStatus.DONE)
+        cancelled_tasks = sum(1 for t in tasks if t.status == TaskStatus.CANCELLED)
+        all_actionable_done = total_tasks > 0 and (done_tasks + cancelled_tasks) == total_tasks
+        
+        readiness = StoryTaskProgressSummary(
+            total_tasks=total_tasks,
+            done_tasks=done_tasks,
+            cancelled_tasks=cancelled_tasks,
+            all_actionable_tasks_done=all_actionable_done
+        )
+        
+        close_eligible = all_actionable_done
+        ineligible_reason = None if close_eligible else "Not all tasks are completed or cancelled."
+        if total_tasks == 0:
+            close_eligible = False
+            ineligible_reason = "Story has no tasks."
+
+        if story.status == StoryStatus.ACCEPTED:
+            close_eligible = False
+            ineligible_reason = "Story is already Accepted."
+
+        return StoryCloseReadResponse(
+            success=True,
+            story_id=story_id,
+            sprint_id=sprint_id,
+            current_status=story.status.value,
+            resolution=story.resolution,
+            completion_notes=story.completion_notes,
+            evidence_links=story.evidence_links,
+            completed_at=story.completed_at,
+            readiness=readiness,
+            close_eligible=close_eligible,
+            ineligible_reason=ineligible_reason
+        )
+
+
+@app.post("/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/close", response_model=StoryCloseReadResponse)
+def post_story_close(project_id: int, sprint_id: int, story_id: int, req: StoryCloseWriteRequest):
+    with Session(get_engine()) as session:
+        story = session.get(UserStory, story_id)
+        if not story:
+            raise HTTPException(status_code=404, detail="Story not found")
+            
+        sprint = session.get(Sprint, sprint_id)
+        if not sprint or sprint.product_id != project_id:
+            raise HTTPException(status_code=404, detail="Sprint not found in this project")
+
+        sprint_story = session.exec(select(SprintStory).where(
+            SprintStory.sprint_id == sprint_id,
+            SprintStory.story_id == story_id
+        )).first()
+
+        if not sprint_story:
+            raise HTTPException(status_code=404, detail="Story does not belong to the given sprint")
+
+        tasks = session.exec(select(Task).where(Task.story_id == story_id)).all()
+        total_tasks = len(tasks)
+        done_tasks = sum(1 for t in tasks if t.status == TaskStatus.DONE)
+        cancelled_tasks = sum(1 for t in tasks if t.status == TaskStatus.CANCELLED)
+        all_actionable_done = total_tasks > 0 and (done_tasks + cancelled_tasks) == total_tasks
+        
+        if total_tasks == 0:
+            raise HTTPException(status_code=409, detail="Cannot close a story with no tasks.")
+            
+        if not all_actionable_done:
+            raise HTTPException(status_code=409, detail="Cannot close a story unless all tasks are Done or Cancelled.")
+
+        old_status = story.status
+        if old_status == StoryStatus.ACCEPTED:
+            raise HTTPException(status_code=409, detail="Cannot modify an already Accepted story.")
+
+        evidence_json = None
+        if req.evidence_links:
+            evidence_json = json.dumps(req.evidence_links)
+
+        story.status = StoryStatus.DONE
+        story.resolution = req.resolution
+        story.completion_notes = req.completion_notes
+        story.evidence_links = evidence_json
+        story.completed_at = datetime.now(timezone.utc)
+
+        log = StoryCompletionLog(
+            story_id=story_id,
+            old_status=old_status,
+            new_status=StoryStatus.DONE,
+            resolution=req.resolution,
+            delivered=req.completion_notes,
+            evidence=evidence_json,
+            known_gaps=req.known_gaps,
+            follow_ups_created=req.follow_up_notes,
+            changed_by=req.changed_by or "manual-ui",
+            changed_at=datetime.now(timezone.utc)
+        )
+        session.add(log)
+        session.commit()
+
+    return get_story_close(project_id, sprint_id, story_id)
 
 
 @app.post("/api/projects/{project_id}/sprint/save")

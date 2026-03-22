@@ -630,3 +630,47 @@ class TaskExecutionReadResponse(BaseModel):
     current_status: TaskStatus
     latest_entry: Optional[TaskExecutionLogEntry] = None
     history: List[TaskExecutionLogEntry] = Field(default_factory=list)
+
+
+# --- 11. Story Manual Close Tracking ---
+
+from agile_sqlmodel import StoryResolution
+
+class StoryTaskProgressSummary(BaseModel):
+    total_tasks: int
+    done_tasks: int
+    cancelled_tasks: int
+    all_actionable_tasks_done: bool
+
+
+class StoryCloseReadResponse(BaseModel):
+    success: bool
+    story_id: int
+    sprint_id: int
+    current_status: str
+    resolution: Optional[StoryResolution] = None
+    completion_notes: Optional[str] = None
+    evidence_links: Optional[str] = None
+    completed_at: Optional[datetime] = None
+    readiness: StoryTaskProgressSummary
+    close_eligible: bool
+    ineligible_reason: Optional[str] = None
+
+
+class StoryCloseWriteRequest(BaseModel):
+    resolution: StoryResolution
+    completion_notes: str = Field(min_length=1)
+    evidence_links: Optional[List[str]] = None
+    known_gaps: Optional[str] = None
+    follow_up_notes: Optional[str] = None
+    changed_by: Optional[str] = Field(default="manual-ui")
+
+    @model_validator(mode="after")
+    def validate_story_close(self) -> "StoryCloseWriteRequest":
+        if self.evidence_links is not None:
+            self.evidence_links = [
+                ref.strip() for ref in self.evidence_links if ref and ref.strip()
+            ]
+        if not self.completion_notes or not self.completion_notes.strip():
+            raise ValueError("completion_notes is required to close a story")
+        return self

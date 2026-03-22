@@ -2451,15 +2451,37 @@ function renderSprintSavedWorkspace() {
             storyList.innerHTML = stories.map((story, index) => {
                 const tasks = Array.isArray(story.tasks) ? story.tasks : [];
                 const allTasksDone = tasks.length > 0 && tasks.every(t => t.status === 'Done' || t.status === 'Cancelled');
-                const storyReadyBanner = allTasksDone ? `
-                <div class="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 shadow-sm dark:border-emerald-800 dark:bg-emerald-900/30 flex items-center gap-3">
-                    <span class="material-symbols-outlined text-emerald-600 dark:text-emerald-400">check_circle</span>
-                    <span class="text-sm font-bold text-emerald-800 dark:text-emerald-300">All actionable tasks completed. Story is ready for manual close.</span>
-                </div>` : '';
+                const isStoryDone = story.status === 'Done';
+                let storyStateBanner = '';
+                
+                if (isStoryDone) {
+                    storyStateBanner = `
+                    <div class="mb-3 rounded-lg border border-purple-200 bg-purple-50 p-3 shadow-sm dark:border-purple-800/50 dark:bg-purple-900/30 flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <span class="material-symbols-outlined text-purple-600 dark:text-purple-400">task_alt</span>
+                            <span class="text-sm font-bold text-purple-800 dark:text-purple-300">Story marked as Done.</span>
+                        </div>
+                        <button onclick="toggleStoryClose(event, ${savedSprint.id}, ${story.story_id})" class="inline-flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded bg-purple-100 hover:bg-purple-200 text-purple-700 transition-colors dark:bg-purple-900/50 dark:hover:bg-purple-800 dark:text-purple-300 shadow-sm border border-purple-200 dark:border-purple-700">
+                            <span class="material-symbols-outlined text-[14px]">visibility</span> View Close Log
+                        </button>
+                    </div>`;
+                } else if (allTasksDone) {
+                    storyStateBanner = `
+                    <div class="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 shadow-sm dark:border-emerald-800 dark:bg-emerald-900/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="flex items-center gap-3">
+                            <span class="material-symbols-outlined text-emerald-600 dark:text-emerald-400">check_circle</span>
+                            <span class="text-sm font-bold text-emerald-800 dark:text-emerald-300">All actionable tasks completed. Ready for manual close.</span>
+                        </div>
+                        <button onclick="toggleStoryClose(event, ${savedSprint.id}, ${story.story_id})" class="inline-flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm dark:bg-emerald-500 dark:hover:bg-emerald-600">
+                            <span class="material-symbols-outlined text-[14px]">task_alt</span> Close Story
+                        </button>
+                    </div>`;
+                }
 
                 return `
-                <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/40">
-                    ${storyReadyBanner}
+                <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/40 relative">
+                    ${storyStateBanner}
+                    <div id="story-close-${story.story_id}" class="hidden mb-4 flex flex-col gap-3 rounded-lg border border-emerald-100 bg-emerald-50/50 p-4 shadow-sm dark:border-emerald-900/50 dark:bg-emerald-950/20"></div>
                     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div class="space-y-2">
                             <div class="inline-flex items-center gap-2 rounded-full bg-slate-200 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-slate-600 dark:bg-slate-700 dark:text-slate-300">
@@ -3545,3 +3567,161 @@ async function submitTaskExecution(event, sprintId, taskId) {
 
 window.toggleTaskExecution = toggleTaskExecution;
 window.submitTaskExecution = submitTaskExecution;
+
+async function toggleStoryClose(event, sprintId, storyId) {
+    if (!selectedProjectId) return;
+    
+    const containerItem = document.getElementById(`story-close-${storyId}`);
+    if (!containerItem) return;
+    
+    const btn = event.currentTarget;
+    const isShowing = !containerItem.classList.contains('hidden');
+    
+    if (isShowing) {
+        containerItem.classList.add('hidden');
+        return;
+    }
+    
+    containerItem.classList.remove('hidden');
+    containerItem.innerHTML = `<div class="flex items-center justify-center p-4"><span class="material-symbols-outlined animate-spin text-emerald-500 text-2xl">cycle</span></div>`;
+    
+    try {
+        const res = await fetch(`/api/projects/${selectedProjectId}/sprints/${sprintId}/stories/${storyId}/close`);
+        const data = await res.json();
+        
+        if (!res.ok) throw new Error(data.detail || "Failed to fetch close data");
+        
+        const isDone = data.current_status === 'Done';
+        
+        if (isDone) {
+            containerItem.innerHTML = `
+                <div class="flex items-center justify-between border-b border-emerald-200/50 pb-2 mb-2 dark:border-emerald-800/50">
+                    <h4 class="text-xs font-bold text-emerald-900 dark:text-emerald-200">Story Completion Record</h4>
+                    <span class="text-[10px] uppercase font-bold text-emerald-500 bg-emerald-100 dark:bg-emerald-900/50 px-2 py-0.5 rounded">${data.resolution || 'Completed'}</span>
+                </div>
+                <div class="flex flex-col gap-3 text-xs text-slate-700 dark:text-slate-300">
+                    <div>
+                        <span class="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Completion Notes</span>
+                        <p class="mt-1 whitespace-pre-wrap">${escapeHtml(data.completion_notes || 'No notes provided.')}</p>
+                    </div>
+                    ${data.evidence_links ? `
+                    <div>
+                        <span class="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Evidence / Artifacts</span>
+                        <p class="mt-1 font-mono text-[10px] bg-white dark:bg-slate-900 p-2 rounded shadow-sm">${escapeHtml(data.evidence_links)}</p>
+                    </div>` : ''}
+                </div>
+                <div class="flex justify-end gap-2 mt-4 pt-2 border-t border-emerald-200/50 dark:border-emerald-800/50">
+                    <button type="button" onclick="document.getElementById('story-close-${storyId}').classList.add('hidden')" class="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded dark:text-slate-300 dark:hover:bg-slate-700 transition">Close Panel</button>
+                </div>
+            `;
+            return;
+        }
+
+        containerItem.innerHTML = `
+            <div class="flex items-center justify-between border-b border-emerald-200/50 pb-2 mb-2 dark:border-emerald-800/50">
+                <h4 class="text-xs font-bold text-emerald-900 dark:text-emerald-200">Manual Story Close</h4>
+                <div class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 text-right">
+                    ${data.readiness.done_tasks}/${data.readiness.total_tasks} tasks done
+                </div>
+            </div>
+            
+            <form onsubmit="submitStoryClose(event, ${sprintId}, ${storyId})" class="flex flex-col gap-3">
+                <label class="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex flex-col gap-1">
+                    Resolution Status
+                    <select id="story-close-res-${storyId}" required class="p-1.5 rounded form-select text-xs dark:bg-slate-800 dark:border-slate-700 focus:ring-1 focus:ring-emerald-500">
+                        <option value="Completed">Completed</option>
+                        <option value="Completed with AC changes">Completed (with AC changes)</option>
+                        <option value="Partial">Partial Drop</option>
+                        <option value="Won't Do">Won't Do / Cancelled</option>
+                    </select>
+                </label>
+                
+                <label class="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex flex-col gap-1">
+                    Completion Summary / Delivered Features <span class="text-rose-500">*</span>
+                    <textarea id="story-close-notes-${storyId}" required placeholder="Describe what was delivered..." class="p-2 rounded form-textarea text-xs dark:bg-slate-800 dark:border-slate-700 h-16"></textarea>
+                </label>
+                
+                <label class="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex flex-col gap-1">
+                    Evidence Links / Commits / PRs <span class="font-normal text-slate-500">(Comma separated)</span>
+                    <input type="text" id="story-close-evidence-${storyId}" placeholder="e.g. github.com/pull/123" class="p-1.5 rounded form-input text-xs dark:bg-slate-800 dark:border-slate-700">
+                </label>
+                
+                <div class="grid grid-cols-2 gap-3">
+                    <label class="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex flex-col gap-1">
+                        Known Gaps <span class="font-normal text-slate-500">(Optional)</span>
+                        <textarea id="story-close-gaps-${storyId}" placeholder="Any bugs or edge cases..." class="p-2 rounded form-textarea text-xs dark:bg-slate-800 dark:border-slate-700 h-12"></textarea>
+                    </label>
+                    <label class="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex flex-col gap-1">
+                        Follow-up Notes <span class="font-normal text-slate-500">(Optional)</span>
+                        <textarea id="story-close-followups-${storyId}" placeholder="What to do next..." class="p-2 rounded form-textarea text-xs dark:bg-slate-800 dark:border-slate-700 h-12"></textarea>
+                    </label>
+                </div>
+
+                <div class="flex justify-end gap-2 mt-2 pt-2 border-t border-emerald-200/50 dark:border-emerald-800/50">
+                    <button type="button" onclick="document.getElementById('story-close-${storyId}').classList.add('hidden')" class="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded dark:text-slate-300 dark:hover:bg-slate-700 transition">Cancel</button>
+                    <button type="submit" id="story-close-submit-${storyId}" class="px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded transition flex items-center gap-1 shadow-sm">
+                        <span class="material-symbols-outlined text-[14px]">task_alt</span> Confirm Close
+                    </button>
+                </div>
+            </form>
+            <div id="story-close-error-${storyId}" class="hidden text-xs text-rose-600 font-bold mt-2"></div>
+        `;
+        
+    } catch (err) {
+        console.error("View Story Close Error:", err);
+        containerItem.innerHTML = `<span class="text-rose-600 dark:text-rose-400 p-4"><span class="material-symbols-outlined text-[12px] relative top-0.5">error</span> Failed to load close panel. (${err.message})</span>`;
+    }
+}
+
+async function submitStoryClose(event, sprintId, storyId) {
+    event.preventDefault();
+    if (!selectedProjectId) return;
+    
+    const submitBtn = document.getElementById(`story-close-submit-${storyId}`);
+    const errCont = document.getElementById(`story-close-error-${storyId}`);
+    
+    const resValue = document.getElementById(`story-close-res-${storyId}`).value;
+    const notesValue = document.getElementById(`story-close-notes-${storyId}`).value;
+    const evidenceRaw = document.getElementById(`story-close-evidence-${storyId}`).value;
+    const gapsValue = document.getElementById(`story-close-gaps-${storyId}`).value;
+    const followupsValue = document.getElementById(`story-close-followups-${storyId}`).value;
+    
+    const evidenceLinks = evidenceRaw ? evidenceRaw.split(',').map(s => s.trim()).filter(s => s.length > 0) : [];
+    
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="material-symbols-outlined text-[14px] animate-spin">cycle</span> Closing...';
+    errCont.classList.add('hidden');
+    
+    try {
+        const payload = {
+            resolution: resValue,
+            completion_notes: notesValue,
+            evidence_links: evidenceLinks.length > 0 ? evidenceLinks : null,
+            known_gaps: gapsValue.trim() || null,
+            follow_up_notes: followupsValue.trim() || null,
+            changed_by: "manual-ui"
+        };
+        
+        const res = await fetch(`/api/projects/${selectedProjectId}/sprints/${sprintId}/stories/${storyId}/close`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail?.map ? data.detail.map(d => d.msg).join(' ') : data.detail || "Failed to close story");
+        
+        await fetchProjectFSMState(selectedProjectId, { preserveView: true });
+        await loadSavedSprints();
+        selectSavedSprintById(sprintId);
+    } catch (err) {
+        console.error(err);
+        errCont.innerText = err.message;
+        errCont.classList.remove('hidden');
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span class="material-symbols-outlined text-[14px]">task_alt</span> Confirm Close';
+    }
+}
+
+window.toggleStoryClose = toggleStoryClose;
+window.submitStoryClose = submitStoryClose;
