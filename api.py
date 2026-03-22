@@ -2344,9 +2344,9 @@ def get_story_close(project_id: int, sprint_id: int, story_id: int):
             close_eligible = False
             ineligible_reason = "Story has no tasks."
 
-        if story.status == StoryStatus.ACCEPTED:
+        if story.status in (StoryStatus.ACCEPTED, StoryStatus.DONE):
             close_eligible = False
-            ineligible_reason = "Story is already Accepted."
+            ineligible_reason = f"Story is already {story.status.value}."
 
         return StoryCloseReadResponse(
             success=True,
@@ -2395,8 +2395,8 @@ def post_story_close(project_id: int, sprint_id: int, story_id: int, req: StoryC
             raise HTTPException(status_code=409, detail="Cannot close a story unless all tasks are Done or Cancelled.")
 
         old_status = story.status
-        if old_status == StoryStatus.ACCEPTED:
-            raise HTTPException(status_code=409, detail="Cannot modify an already Accepted story.")
+        if old_status in (StoryStatus.ACCEPTED, StoryStatus.DONE):
+            raise HTTPException(status_code=409, detail=f"Cannot modify an already {old_status.value} story.")
 
         evidence_json = None
         if req.evidence_links:

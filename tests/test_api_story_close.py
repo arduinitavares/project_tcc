@@ -91,3 +91,17 @@ def test_story_close_flow(session: Session, monkeypatch):
         json={"resolution": "Completed", "completion_notes": "Hacking"}
     )
     assert resp.status_code == 404
+
+    # 6. GET /close on a Done story
+    resp = client.get(f"/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/close")
+    assert resp.status_code == 200
+    assert resp.json()["close_eligible"] is False
+    assert "already Done" in resp.json()["ineligible_reason"]
+
+    # 7. POST /close on a Done story
+    resp = client.post(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/close",
+        json={"resolution": "Completed", "completion_notes": "Attempting rewrite"}
+    )
+    assert resp.status_code == 409
+    assert "Cannot modify an already Done story" in resp.json()["detail"]
