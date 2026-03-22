@@ -36,7 +36,7 @@ from agile_sqlmodel import (
     ensure_business_db_ready,
     get_engine,
 )
-from utils.task_metadata import parse_task_metadata
+from utils.task_metadata import parse_task_metadata, hash_task_metadata
 
 from orchestrator_agent.agent_tools.product_vision_tool.tools import (
     SaveVisionInput,
