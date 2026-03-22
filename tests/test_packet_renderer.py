@@ -63,6 +63,8 @@ def test_agent_prompt_includes_completion_report():
     output = render_agent_prompt(packet)
     assert "<completion_report>" in output
     assert "</completion_report>" in output
+    assert "Use this Markdown structure for your final completion report." in output
+    assert "Preserve normal human-readable text in the final report." in output
     assert "## Completion Report" in output
     assert "### Acceptance Criteria Checklist" in output
     assert "### Changes Made" in output
