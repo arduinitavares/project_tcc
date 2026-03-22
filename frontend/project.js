@@ -2461,7 +2461,7 @@ function renderSprintSavedWorkspace() {
                             <span class="material-symbols-outlined text-purple-600 dark:text-purple-400">task_alt</span>
                             <span class="text-sm font-bold text-purple-800 dark:text-purple-300">Story marked as Done.</span>
                         </div>
-                        <button onclick="toggleStoryClose(event, ${savedSprint.id}, ${story.story_id})" class="inline-flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded bg-purple-100 hover:bg-purple-200 text-purple-700 transition-colors dark:bg-purple-900/50 dark:hover:bg-purple-800 dark:text-purple-300 shadow-sm border border-purple-200 dark:border-purple-700">
+                        <button onclick="toggleStoryClose(event, ${selectedSprint.id}, ${story.story_id})" class="inline-flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded bg-purple-100 hover:bg-purple-200 text-purple-700 transition-colors dark:bg-purple-900/50 dark:hover:bg-purple-800 dark:text-purple-300 shadow-sm border border-purple-200 dark:border-purple-700">
                             <span class="material-symbols-outlined text-[14px]">visibility</span> View Close Log
                         </button>
                     </div>`;
@@ -2472,7 +2472,7 @@ function renderSprintSavedWorkspace() {
                             <span class="material-symbols-outlined text-emerald-600 dark:text-emerald-400">check_circle</span>
                             <span class="text-sm font-bold text-emerald-800 dark:text-emerald-300">All actionable tasks completed. Ready for manual close.</span>
                         </div>
-                        <button onclick="toggleStoryClose(event, ${savedSprint.id}, ${story.story_id})" class="inline-flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm dark:bg-emerald-500 dark:hover:bg-emerald-600">
+                        <button onclick="toggleStoryClose(event, ${selectedSprint.id}, ${story.story_id})" class="inline-flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm dark:bg-emerald-500 dark:hover:bg-emerald-600">
                             <span class="material-symbols-outlined text-[14px]">task_alt</span> Close Story
                         </button>
                     </div>`;
