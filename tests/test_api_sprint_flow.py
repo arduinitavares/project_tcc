@@ -986,6 +986,17 @@ def test_packet_renderer_escapes_html_and_xml_safely(session, monkeypatch):
     assert "</task> breaking out" not in agent_text
     assert "<task_kind>other</task_kind>" in agent_text
 
+    # Execution contract blocks are present in the agent prompt
+    assert "<execution_protocol>" in agent_text
+    assert "</execution_protocol>" in agent_text
+    assert "<completion_report>" in agent_text
+    assert "</completion_report>" in agent_text
+
+    # AC items from the seeded story appear as checklist items and are XML-escaped
+    assert "### Acceptance Criteria Checklist" in agent_text
+    assert "- [ ] include user_id" in agent_text
+    assert "- [ ] reject invalid payloads" in agent_text
+
 
 def test_task_packet_ignores_unknown_task_invariant_ids(session, monkeypatch):
     client, repo, _workflow = _build_client(monkeypatch)

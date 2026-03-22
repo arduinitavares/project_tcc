@@ -165,7 +165,41 @@ def render_agent_prompt(packet: Dict[str, Any]) -> str:
             parts.append(f"  - [{inv_type}] {excerpt}")
     else:
         parts.append("  (No task-local hard constraints identified)")
-    parts.append("</hard_constraints>")
+    parts.append("</hard_constraints>\n")
+
+    # --- Execution Protocol (fixed renderer text) ---
+    parts.append("<execution_protocol>")
+    parts.append("1. Start by writing a brief, visible work plan before making any changes.")
+    parts.append("2. Do not expose internal reasoning, hidden chain-of-thought, or self-talk.")
+    parts.append("3. Communicate only observable progress: plan, implementation summary, verification results, and blockers.")
+    parts.append("4. Treat the packet as the single source of truth: task description, acceptance criteria, task hard constraints, and story compliance boundaries.")
+    parts.append("5. Verify every acceptance-criteria item before claiming completion.")
+    parts.append("6. If blocked or only partially complete, state so explicitly instead of implying success.")
+    parts.append("</execution_protocol>\n")
+
+    # --- Completion Report (dynamic AC checklist) ---
+    task_label = _escape_xml(task.get("label", task.get("description", "Task")))
+    parts.append("<completion_report>")
+    parts.append("When you finish, output your completion report in exactly this Markdown format:\n")
+    parts.append("## Completion Report")
+    parts.append(f"**Task**: {task_label}")
+    parts.append("**Status**: DONE | PARTIAL | BLOCKED\n")
+    parts.append("### Brief Plan")
+    parts.append("- ...\n")
+    parts.append("### Acceptance Criteria Checklist")
+    if ac_items:
+        for item in ac_items:
+            parts.append(f"- [ ] {_escape_xml(item)}")
+    else:
+        parts.append("- No explicit acceptance criteria were provided in the packet.")
+    parts.append("")
+    parts.append("### Changes Made")
+    parts.append("- <file or area>: <what changed and why>\n")
+    parts.append("### Verification")
+    parts.append("- <command, check, or review performed>\n")
+    parts.append("### Blockers / Follow-ups")
+    parts.append("- None")
+    parts.append("</completion_report>")
 
     return "\n".join(parts)
 
