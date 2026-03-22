@@ -3415,7 +3415,7 @@ async function toggleTaskExecution(event, sprintId, taskId) {
                     ${data.history.map(entry => {
                         const dateStr = new Date(entry.changed_at).toLocaleString();
                         return `<li class="text-[11px] bg-white dark:bg-slate-900 p-2 rounded shadow-sm flex flex-col gap-1">
-                            <span class="font-bold text-slate-700 dark:text-slate-300">${entry.changed_by} &rarr; ${entry.new_status} <span class="text-slate-400 font-normal">(${dateStr})</span></span>
+                            <span class="font-bold text-slate-700 dark:text-slate-300">${escapeHtml(entry.changed_by)} &rarr; ${escapeHtml(entry.new_status)} <span class="text-slate-400 font-normal">(${dateStr})</span></span>
                             ${entry.outcome_summary ? `<span class="italic text-slate-600">${escapeHtml(entry.outcome_summary)}</span>` : ''}
                         </li>`;
                     }).join('')}
