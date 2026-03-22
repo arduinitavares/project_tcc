@@ -25,6 +25,9 @@ from agile_sqlmodel import (
     SprintStatus,
     SprintStory,
     Task,
+    TaskAcceptanceResult,
+    TaskExecutionLog,
+    TaskStatus,
     UserStory,
     WorkflowEvent,
     WorkflowEventType,
@@ -71,9 +74,12 @@ from tools.spec_tools import (
 )
 from utils.failure_artifacts import read_failure_artifact
 from utils.logging_config import configure_logging
-from utils.runtime_config import get_api_host, get_api_port, get_api_reload
-from utils.schemes import ValidationEvidence
-from utils.task_metadata import hash_task_metadata, parse_task_metadata
+from utils.schemes import (
+    ValidationEvidence,
+    TaskExecutionWriteRequest,
+    TaskExecutionReadResponse,
+    TaskExecutionLogEntry,
+)
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -2179,6 +2185,106 @@ async def get_project_task_packet(project_id: int, sprint_id: int, task_id: int,
             "status": "success",
             "data": payload,
         }
+
+
+@app.get("/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/execution", response_model=TaskExecutionReadResponse)
+def get_task_execution(project_id: int, sprint_id: int, task_id: int):
+    with Session(get_engine()) as session:
+        task = session.get(Task, task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        sprint_story = session.exec(select(SprintStory).where(
+            SprintStory.sprint_id == sprint_id,
+            SprintStory.story_id == task.story_id
+        )).first()
+
+        if not sprint_story:
+            raise HTTPException(status_code=404, detail="Task does not belong to the given sprint")
+
+        logs = session.exec(
+            select(TaskExecutionLog)
+            .where(TaskExecutionLog.task_id == task_id)
+            .order_by(TaskExecutionLog.changed_at.desc())
+        ).all()
+
+        history = []
+        for log in logs:
+            artifact_refs = []
+            if log.artifact_refs_json:
+                try:
+                    artifact_refs = json.loads(log.artifact_refs_json)
+                except Exception:
+                    pass
+            history.append(TaskExecutionLogEntry(
+                log_id=log.log_id,
+                task_id=log.task_id,
+                sprint_id=log.sprint_id,
+                old_status=log.old_status,
+                new_status=log.new_status,
+                outcome_summary=log.outcome_summary,
+                artifact_refs=artifact_refs,
+                acceptance_result=log.acceptance_result,
+                notes=log.notes,
+                changed_by=log.changed_by,
+                changed_at=log.changed_at,
+            ))
+
+        return TaskExecutionReadResponse(
+            success=True,
+            task_id=task_id,
+            sprint_id=sprint_id,
+            current_status=task.status,
+            latest_entry=history[0] if history else None,
+            history=history
+        )
+
+
+@app.post("/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/execution", response_model=TaskExecutionReadResponse)
+def post_task_execution(project_id: int, sprint_id: int, task_id: int, req: TaskExecutionWriteRequest):
+    with Session(get_engine()) as session:
+        task = session.get(Task, task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        sprint_story = session.exec(select(SprintStory).where(
+            SprintStory.sprint_id == sprint_id,
+            SprintStory.story_id == task.story_id
+        )).first()
+
+        if not sprint_story:
+            raise HTTPException(status_code=404, detail="Task does not belong to the given sprint")
+
+        old_status = task.status
+        if req.new_status:
+            task.status = req.new_status
+
+        artifact_refs_json = None
+        if req.artifact_refs:
+            refs = []
+            seen = set()
+            for r in req.artifact_refs:
+                rs = r.strip()
+                if rs and rs not in seen:
+                    refs.append(rs)
+                    seen.add(rs)
+            artifact_refs_json = json.dumps(refs) if refs else None
+
+        log_entry = TaskExecutionLog(
+            task_id=task_id,
+            sprint_id=sprint_id,
+            old_status=old_status,
+            new_status=task.status,
+            outcome_summary=req.outcome_summary,
+            artifact_refs_json=artifact_refs_json,
+            notes=req.notes,
+            acceptance_result=req.acceptance_result or TaskAcceptanceResult.NOT_CHECKED,
+            changed_by=req.changed_by or "manual-ui",
+        )
+        session.add(log_entry)
+        session.commit()
+
+    return get_task_execution(project_id, sprint_id, task_id)
 
 
 @app.post("/api/projects/{project_id}/sprint/save")

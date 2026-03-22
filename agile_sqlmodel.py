@@ -66,6 +66,15 @@ class TaskStatus(str, enum.Enum):
     TO_DO = "To Do"
     IN_PROGRESS = "In Progress"
     DONE = "Done"
+    CANCELLED = "Cancelled"
+
+
+class TaskAcceptanceResult(str, enum.Enum):
+    """Result of acceptance criteria check on a task."""
+
+    NOT_CHECKED = "not_checked"
+    PARTIALLY_MET = "partially_met"
+    FULLY_MET = "fully_met"
 
 
 class StoryResolution(str, enum.Enum):
@@ -690,6 +699,40 @@ class Task(SQLModel, table=True):
     # Relationships
     story: "UserStory" = Relationship(back_populates="tasks")
     assignee: Optional["TeamMember"] = Relationship(back_populates="tasks")
+
+
+class TaskExecutionLog(SQLModel, table=True):
+    """Audit trail for task execution progress and outcome."""
+
+    __tablename__ = "task_execution_logs"  # type: ignore
+
+    log_id: Optional[int] = Field(default=None, primary_key=True)
+    
+    # Task metadata at time of log
+    old_status: Optional[TaskStatus] = Field(default=None)
+    new_status: TaskStatus = Field(nullable=False)
+    
+    # Execution delivery
+    outcome_summary: Optional[str] = Field(default=None, sa_type=Text)
+    artifact_refs_json: Optional[str] = Field(default=None, sa_type=Text)
+    acceptance_result: TaskAcceptanceResult = Field(default=TaskAcceptanceResult.NOT_CHECKED)
+    notes: Optional[str] = Field(default=None, sa_type=Text)
+    
+    # Audit
+    changed_by: str = Field(default="manual-ui", max_length=100)
+    changed_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"server_default": func.now()},
+        nullable=False,
+    )
+
+    # Foreign Keys
+    task_id: int = Field(foreign_key="tasks.task_id", index=True)
+    sprint_id: int = Field(foreign_key="sprints.sprint_id", index=True)
+
+    # Relationships
+    task: "Task" = Relationship()
+    sprint: "Sprint" = Relationship()
 
 
 class StoryCompletionLog(SQLModel, table=True):

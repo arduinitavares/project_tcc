@@ -408,6 +408,52 @@ def migrate_task_metadata(engine: Engine) -> List[str]:
 
 
 # =============================================================================
+# TASK EXECUTION MIGRATION
+# =============================================================================
+
+TASK_EXECUTION_LOGS_CREATE_SQL = """
+CREATE TABLE IF NOT EXISTS task_execution_logs (
+    log_id INTEGER PRIMARY KEY,
+    task_id INTEGER NOT NULL REFERENCES tasks(task_id),
+    sprint_id INTEGER NOT NULL REFERENCES sprints(sprint_id),
+    old_status VARCHAR,
+    new_status VARCHAR NOT NULL,
+    outcome_summary TEXT,
+    artifact_refs_json TEXT,
+    acceptance_result VARCHAR NOT NULL,
+    notes TEXT,
+    changed_by VARCHAR NOT NULL,
+    changed_at DATETIME NOT NULL
+)
+"""
+
+def migrate_task_execution_logs(engine: Engine) -> List[str]:
+    """Ensure task_execution_logs table exists."""
+    actions: List[str] = []
+
+    if _ensure_table_exists(engine, "task_execution_logs", TASK_EXECUTION_LOGS_CREATE_SQL):
+        actions.append("created table: task_execution_logs")
+        
+    if _ensure_index_exists(
+        engine,
+        "task_execution_logs",
+        "ix_task_execution_logs_task_id",
+        ["task_id"],
+    ):
+        actions.append("created index: ix_task_execution_logs_task_id")
+
+    if _ensure_index_exists(
+        engine,
+        "task_execution_logs",
+        "ix_task_execution_logs_sprint_id",
+        ["sprint_id"],
+    ):
+        actions.append("created index: ix_task_execution_logs_sprint_id")
+
+    return actions
+
+
+# =============================================================================
 # MAIN ENTRY POINT
 # =============================================================================
 
@@ -432,6 +478,7 @@ def ensure_schema_current(engine: Engine) -> None:
         actions.extend(migrate_user_story_refinement_linkage(engine))
         actions.extend(migrate_sprint_lifecycle(engine))
         actions.extend(migrate_task_metadata(engine))
+        actions.extend(migrate_task_execution_logs(engine))
         actions.extend(migrate_performance_indexes(engine))
 
         if actions:

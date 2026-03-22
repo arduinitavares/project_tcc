@@ -2448,8 +2448,18 @@ function renderSprintSavedWorkspace() {
         if (stories.length === 0) {
             storyList.innerHTML = '<div class="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">This saved sprint has no committed stories yet.</div>';
         } else {
-            storyList.innerHTML = stories.map((story, index) => `
+            storyList.innerHTML = stories.map((story, index) => {
+                const tasks = Array.isArray(story.tasks) ? story.tasks : [];
+                const allTasksDone = tasks.length > 0 && tasks.every(t => t.status === 'Done' || t.status === 'Cancelled');
+                const storyReadyBanner = allTasksDone ? `
+                <div class="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 shadow-sm dark:border-emerald-800 dark:bg-emerald-900/30 flex items-center gap-3">
+                    <span class="material-symbols-outlined text-emerald-600 dark:text-emerald-400">check_circle</span>
+                    <span class="text-sm font-bold text-emerald-800 dark:text-emerald-300">All actionable tasks completed. Story is ready for manual close.</span>
+                </div>` : '';
+
+                return `
                 <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/40">
+                    ${storyReadyBanner}
                     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div class="space-y-2">
                             <div class="inline-flex items-center gap-2 rounded-full bg-slate-200 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-slate-600 dark:bg-slate-700 dark:text-slate-300">
@@ -2474,13 +2484,23 @@ function renderSprintSavedWorkspace() {
                                     const targetsStr = Array.isArray(task.artifact_targets) ? task.artifact_targets.map(escapeHtml).join(', ') : '';
                                     const targets = targetsStr ? `<div class="text-[11px] text-slate-500 dark:text-slate-400 mt-2 flex gap-1.5 bg-slate-50 w-full p-2 rounded border border-slate-100 dark:border-slate-800 dark:bg-slate-950/50"><span class="font-bold shrink-0">Targets:</span> <span class="break-words">${targetsStr}</span></div>` : '';
 
+                                    const statusStr = task.status ? escapeHtml(task.status) : 'To Do';
+                                    const statusColors = {
+                                        'To Do': 'bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+                                        'In Progress': 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800',
+                                        'Done': 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800',
+                                        'Cancelled': 'bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-800'
+                                    };
+                                    const badgeColor = statusColors[statusStr] || statusColors['To Do'];
+                                    const statusBadge = `<span id="task-badge-${task.id}" class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${badgeColor} shadow-sm">${statusStr}</span>`;
+
                                     return `
                                 <li class="flex flex-col gap-2 rounded-lg bg-white p-3 shadow-sm border border-slate-100 dark:border-slate-800 dark:bg-slate-900 group">
                                     <div class="flex items-start gap-2">
                                         <span class="material-symbols-outlined mt-0.5 text-sm text-teal-500 shrink-0">task_alt</span>
-                                        <div class="flex-1 flex flex-col min-w-0">
+                                        <div class="flex-1 flex flex-col min-w-0 gap-1.5">
+                                            <div class="flex flex-wrap items-center gap-1.5">${statusBadge} ${kind}${tags}</div>
                                             <span class="text-sm font-medium text-slate-800 dark:text-slate-200 leading-snug">${desc}</span>
-                                            <div class="flex flex-wrap items-center gap-1.5 mt-2">${kind}${tags}</div>
                                             ${targets}
                                         </div>
                                     </div>
@@ -2492,12 +2512,17 @@ function renderSprintSavedWorkspace() {
                                         <button onclick="toggleTaskBrief(event, ${selectedSprint.id}, ${task.id})" class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 transition-colors dark:bg-sky-900/30 dark:hover:bg-sky-900/50 dark:text-sky-300 border border-sky-200 dark:border-sky-800 shadow-sm">
                                             <span class="material-symbols-outlined text-[12px]">visibility</span> View Brief
                                         </button>
+                                        <button onclick="toggleTaskExecution(event, ${selectedSprint.id}, ${task.id})" class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shadow-sm">
+                                            <span class="material-symbols-outlined text-[12px]">edit_note</span> Log Progress
+                                        </button>
                                     </div>
                                     <div id="task-brief-${task.id}" class="hidden ml-6 mt-2 p-4 text-[12px] text-slate-700 dark:text-slate-300 bg-slate-50 border border-slate-200 rounded-md dark:bg-slate-950/50 dark:border-slate-800 relative">
                                         <div class="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-slate-900/50 hidden backdrop-blur-sm z-10" id="task-brief-loading-${task.id}">
                                              <span class="material-symbols-outlined animate-spin text-sky-500 text-2xl">cycle</span>
                                         </div>
                                         <div id="task-brief-content-${task.id}" class="whitespace-pre-wrap leading-relaxed selection:bg-sky-200 dark:selection:bg-sky-900"></div>
+                                    </div>
+                                    <div id="task-execution-${task.id}" class="hidden ml-6 mt-2 flex flex-col gap-3 rounded-lg border border-indigo-100 bg-indigo-50/30 p-4 shadow-sm dark:border-indigo-900/50 dark:bg-indigo-950/20">
                                     </div>
                                     ` : ''}
                                 </li>`;
@@ -2506,7 +2531,8 @@ function renderSprintSavedWorkspace() {
                             : '<div class="text-sm text-slate-500 dark:text-slate-400">No tasks were saved for this story.</div>'}
                     </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
     }
 }
@@ -3355,3 +3381,166 @@ window.navigateToOverview = navigateToOverview;
 window.deleteCurrentProject = deleteCurrentProject;
 window.copyTaskPrompt = copyTaskPrompt;
 window.toggleTaskBrief = toggleTaskBrief;
+
+async function toggleTaskExecution(event, sprintId, taskId) {
+    if (!selectedProjectId) return;
+    
+    const containerItem = document.getElementById(`task-execution-${taskId}`);
+    const btn = event.currentTarget;
+    
+    if (!containerItem.classList.contains('hidden')) {
+        containerItem.classList.add('hidden');
+        btn.classList.remove('bg-indigo-600', 'text-white', 'hover:bg-indigo-700', 'dark:bg-indigo-500', 'dark:text-white', 'dark:hover:bg-indigo-600');
+        btn.classList.add('bg-indigo-50', 'text-indigo-700', 'hover:bg-indigo-100', 'dark:bg-indigo-900/30', 'dark:hover:bg-indigo-900/50', 'dark:text-indigo-300');
+        return;
+    }
+    
+    containerItem.classList.remove('hidden');
+    btn.classList.remove('bg-indigo-50', 'text-indigo-700', 'hover:bg-indigo-100', 'dark:bg-indigo-900/30', 'dark:hover:bg-indigo-900/50', 'dark:text-indigo-300');
+    btn.classList.add('bg-indigo-600', 'text-white', 'hover:bg-indigo-700', 'dark:bg-indigo-600', 'dark:text-white', 'dark:hover:bg-indigo-500');
+    
+    containerItem.innerHTML = `<div class="flex items-center justify-center p-4"><span class="material-symbols-outlined animate-spin text-indigo-500 text-2xl">cycle</span></div>`;
+    
+    try {
+        const res = await fetch(`/api/projects/${selectedProjectId}/sprints/${sprintId}/tasks/${taskId}/execution`);
+        if (!res.ok) throw new Error("Failed to fetch execution history");
+        
+        const data = await res.json();
+        
+        let historyHtml = '';
+        if (data.history && data.history.length > 0) {
+            historyHtml = `<div class="flex flex-col gap-2 mt-4 pt-4 border-t border-indigo-200/50 dark:border-indigo-800/50">
+                <h5 class="text-[10px] font-black uppercase tracking-wider text-indigo-400">Execution History</h5>
+                <ul class="space-y-2">
+                    ${data.history.map(entry => {
+                        const dateStr = new Date(entry.changed_at).toLocaleString();
+                        return `<li class="text-[11px] bg-white dark:bg-slate-900 p-2 rounded shadow-sm flex flex-col gap-1">
+                            <span class="font-bold text-slate-700 dark:text-slate-300">${entry.changed_by} &rarr; ${entry.new_status} <span class="text-slate-400 font-normal">(${dateStr})</span></span>
+                            ${entry.outcome_summary ? `<span class="italic text-slate-600">${escapeHtml(entry.outcome_summary)}</span>` : ''}
+                        </li>`;
+                    }).join('')}
+                </ul>
+            </div>`;
+        }
+
+        containerItem.innerHTML = `
+            <div class="flex items-center justify-between">
+                <h4 class="text-xs font-bold text-indigo-900 dark:text-indigo-200">Log Task Execution</h4>
+                <div class="text-[10px] uppercase font-bold text-indigo-500">Current: ${data.current_status}</div>
+            </div>
+            <form onsubmit="submitTaskExecution(event, ${sprintId}, ${taskId})" class="flex flex-col gap-3">
+                <div class="flex gap-2">
+                    <label class="flex-1 text-[11px] font-bold text-slate-700 dark:text-slate-300 flex flex-col gap-1">
+                        New Status
+                        <select id="task-exc-status-${taskId}" required onchange="toggleTaskExecutionFields(${taskId})" class="p-1.5 rounded form-select text-xs dark:bg-slate-800 dark:border-slate-700 focus:ring-1 focus:ring-indigo-500">
+                            <option value="To Do" ${data.current_status === 'To Do' ? 'selected' : ''}>To Do</option>
+                            <option value="In Progress" ${data.current_status === 'In Progress' ? 'selected' : ''}>In Progress</option>
+                            <option value="Done" ${data.current_status === 'Done' ? 'selected' : ''}>Done</option>
+                            <option value="Cancelled" ${data.current_status === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
+                        </select>
+                    </label>
+                    <label class="flex-1 text-[11px] font-bold text-slate-700 dark:text-slate-300 flex flex-col gap-1">
+                        Acceptance Result
+                        <select id="task-exc-acceptance-${taskId}" required class="p-1.5 rounded form-select text-xs dark:bg-slate-800 dark:border-slate-700 focus:ring-1 focus:ring-indigo-500">
+                            <option value="not_checked" ${data.latest_entry?.acceptance_result === 'not_checked' ? 'selected' : ''}>Not Checked</option>
+                            <option value="partially_met" ${data.latest_entry?.acceptance_result === 'partially_met' ? 'selected' : ''}>Partially Met</option>
+                            <option value="fully_met" ${data.latest_entry?.acceptance_result === 'fully_met' ? 'selected' : ''}>Fully Met</option>
+                        </select>
+                    </label>
+                </div>
+                
+                <label class="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex flex-col gap-1">
+                    Outcome Summary <span class="font-normal text-slate-500">(Required if Done)</span>
+                    <input type="text" id="task-exc-summary-${taskId}" placeholder="e.g. Completed frontend mockup" value="${escapeHtml(data.latest_entry?.outcome_summary || '')}" class="p-1.5 rounded form-input text-xs dark:bg-slate-800 dark:border-slate-700">
+                </label>
+                
+                <label class="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex flex-col gap-1">
+                    Artifact Refs <span class="font-normal text-slate-500">(Comma separated)</span>
+                    <input type="text" id="task-exc-artifacts-${taskId}" placeholder="e.g. file.txt" value="${escapeHtml(data.latest_entry?.artifact_refs?.join(', ') || '')}" class="p-1.5 rounded form-input text-xs dark:bg-slate-800 dark:border-slate-700">
+                </label>
+
+                <div class="flex justify-end gap-2 mt-1">
+                    <button type="button" onclick="const btn = document.querySelector('#task-execution-${taskId}').previousElementSibling.querySelector('button:last-child'); toggleTaskExecution({currentTarget: btn}, ${sprintId}, ${taskId})" class="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded dark:text-slate-300 dark:hover:bg-slate-700 transition">Cancel</button>
+                    <button type="submit" id="task-exc-submit-${taskId}" class="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded transition flex items-center gap-1">
+                        <span class="material-symbols-outlined text-[14px]">save</span> Save Log
+                    </button>
+                </div>
+            </form>
+            <div id="task-exc-error-${taskId}" class="hidden text-xs text-rose-600 font-bold mt-2"></div>
+            ${historyHtml}
+        `;
+        
+        toggleTaskExecutionFields(taskId);
+        
+    } catch (err) {
+        console.error("View Execution Error:", err);
+        containerItem.innerHTML = `<span class="text-rose-600 dark:text-rose-400 p-4"><span class="material-symbols-outlined text-[12px] relative top-0.5">error</span> Failed to load execution history. (${err.message})</span>`;
+    }
+}
+
+function toggleTaskExecutionFields(taskId) {
+    const statusSel = document.getElementById(`task-exc-status-${taskId}`);
+    const summaryInp = document.getElementById(`task-exc-summary-${taskId}`);
+    if (statusSel && summaryInp) {
+        if (statusSel.value === 'Done') {
+            summaryInp.required = true;
+        } else {
+            summaryInp.required = false;
+        }
+    }
+}
+
+async function submitTaskExecution(event, sprintId, taskId) {
+    event.preventDefault();
+    if (!selectedProjectId) return;
+    
+    const submitBtn = document.getElementById(`task-exc-submit-${taskId}`);
+    const errCont = document.getElementById(`task-exc-error-${taskId}`);
+    
+    const newStatus = document.getElementById(`task-exc-status-${taskId}`).value;
+    const acceptResult = document.getElementById(`task-exc-acceptance-${taskId}`).value;
+    const summary = document.getElementById(`task-exc-summary-${taskId}`).value;
+    const artifactsRaw = document.getElementById(`task-exc-artifacts-${taskId}`).value;
+    
+    const artifactRefs = artifactsRaw ? artifactsRaw.split(',').map(s => s.trim()).filter(s => s.length > 0) : [];
+    
+    if (newStatus === 'Done' && !summary.trim()) {
+        errCont.innerText = "Outcome summary is required when marking Done.";
+        errCont.classList.remove('hidden');
+        return;
+    }
+    
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="material-symbols-outlined text-[14px] animate-spin">cycle</span> Saving...';
+    errCont.classList.add('hidden');
+    
+    try {
+        const payload = {
+            new_status: newStatus,
+            acceptance_result: acceptResult,
+            outcome_summary: summary.trim() || null,
+            artifact_refs: artifactRefs.length > 0 ? artifactRefs : null,
+            notes: "Manual UI update"
+        };
+        
+        const res = await fetch(`/api/projects/${selectedProjectId}/sprints/${sprintId}/tasks/${taskId}/execution`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail?.map(d => d.msg).join(' ') || data.detail || "Failed to save execution");
+        
+        await fetchProjectFSMState(selectedProjectId, { preserveView: true });
+    } catch (err) {
+        console.error(err);
+        errCont.innerText = err.message;
+        errCont.classList.remove('hidden');
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span class="material-symbols-outlined text-[14px]">save</span> Save Log';
+    }
+}
+
+window.toggleTaskExecution = toggleTaskExecution;
+window.submitTaskExecution = submitTaskExecution;
