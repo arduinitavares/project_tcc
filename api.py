@@ -24,7 +24,6 @@ from agile_sqlmodel import (
     Sprint,
     SprintStatus,
     SprintStory,
-    StoryResolution,
     StoryStatus,
     Task,
     TaskAcceptanceResult,
@@ -71,7 +70,6 @@ from tools.orchestrator_tools import select_project
 from tools.spec_tools import (
     _compute_story_input_hash,
     _load_compiled_artifact,
-    _render_invariant_summary,
     link_spec_to_product,
 )
 from utils.failure_artifacts import read_failure_artifact
@@ -1697,7 +1695,7 @@ async def get_project_story_pending(project_id: int):
     # Build structural hierarchy
     for release_index, rel in enumerate(roadmap_releases):
         reqs = rel.get("items") or []
-        theme = rel.get("theme", f"Milestone Context")
+        theme = rel.get("theme", "Milestone Context")
         reasoning = rel.get("reasoning", "")
         
         milestone_group = {
@@ -1891,28 +1889,47 @@ async def delete_project_story(project_id: int, parent_requirement: str):
     engine = get_engine()
     with Session(engine) as session:
         # Find all stories for this requirement in this product
-        stmt = select(UserStory).where(
+        from sqlalchemy import delete
+
+        # 1. Get the list of story IDs to delete
+        stmt = select(UserStory.story_id).where(
             UserStory.product_id == project_id,
             UserStory.source_requirement == parent_requirement
         )
-        stories = session.exec(stmt).all()
+        story_ids = session.exec(stmt).all()
+
+        deleted_count = len(story_ids)
         
-        deleted_count = 0
-        for story in stories:
-            # Delete sprint mappings
-            sprint_mappings = session.exec(select(SprintStory).where(SprintStory.story_id == story.story_id)).all()
-            for sm in sprint_mappings:
-                session.delete(sm)
+        if story_ids:
+            # When batch deleting, we must explicitly delete child records to satisfy foreign keys
+            # since bulk delete operations bypass SQLAlchemy ORM-level cascades.
+            # Chunking the IN clause is a good practice to avoid SQLite limits
+            chunk_size = 500
+            for i in range(0, len(story_ids), chunk_size):
+                chunk_ids = story_ids[i:i + chunk_size]
                 
-            # Delete completion logs
-            logs = session.exec(select(StoryCompletionLog).where(StoryCompletionLog.story_id == story.story_id)).all()
-            for log in logs:
-                session.delete(log)
+                # Delete sprint mappings
+                session.exec(delete(SprintStory).where(SprintStory.story_id.in_(chunk_ids)))
+
+                # Delete completion logs
+                session.exec(delete(StoryCompletionLog).where(StoryCompletionLog.story_id.in_(chunk_ids)))
+
+                # Delete tasks (and potentially their execution logs if they exist)
+                # First get task IDs to delete any task execution logs
+
+                task_ids_stmt = select(Task.task_id).where(Task.story_id.in_(chunk_ids))
+                task_ids = session.exec(task_ids_stmt).all()
+                if task_ids:
+                    for j in range(0, len(task_ids), chunk_size):
+                        task_chunk = task_ids[j:j + chunk_size]
+                        session.exec(delete(TaskExecutionLog).where(TaskExecutionLog.task_id.in_(task_chunk)))
+
+                # Now delete tasks
+                session.exec(delete(Task).where(Task.story_id.in_(chunk_ids)))
+
+                # Delete the stories
+                session.exec(delete(UserStory).where(UserStory.story_id.in_(chunk_ids)))
                 
-            # Delete the story (cascades to Tasks per schema)
-            session.delete(story)
-            deleted_count += 1
-            
         session.commit()
 
     # Clean up session state
