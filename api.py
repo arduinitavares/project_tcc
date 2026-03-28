@@ -240,6 +240,14 @@ def _normalize_fsm_state(value: Optional[str]) -> str:
     return OrchestratorState.SETUP_REQUIRED.value
 
 
+def _normalize_shell_fsm_state(value: Optional[str]) -> str:
+    """Normalize shell-visible FSM state while collapsing legacy terminal sprint state."""
+    state = _normalize_fsm_state(value)
+    if state == OrchestratorState.SPRINT_COMPLETE.value:
+        return OrchestratorState.SPRINT_PERSISTENCE.value
+    return state
+
+
 def _failure_meta(
     source: Optional[Dict[str, Any]],
     *,
@@ -320,7 +328,7 @@ def _serialize_sprint_task(task: Task) -> Dict[str, Any]:
     return {
         "id": task.task_id,
         "description": task.description,
-        "status": task.status,
+        "status": task.status.value if hasattr(task.status, "value") else task.status,
         "task_kind": meta.task_kind,
         "artifact_targets": meta.artifact_targets,
         "workstream_tags": meta.workstream_tags,
@@ -357,14 +365,75 @@ def _serialize_sprint_story(story: UserStory) -> Dict[str, Any]:
     return {
         "story_id": story.story_id,
         "story_title": story.title,
-        "status": story.status,
+        "status": story.status.value if hasattr(story.status, "value") else story.status,
         "story_points": story.story_points,
         "persona": story.persona,
         "tasks": tasks,
     }
 
 
-def _serialize_sprint_summary(sprint: Sprint) -> Dict[str, Any]:
+def _history_fidelity(sprint: Sprint) -> str:
+    return "snapshotted" if bool(sprint.close_snapshot_json) else "derived"
+
+
+def _build_sprint_runtime_summary(sprints: List[Sprint]) -> Dict[str, Any]:
+    active = next((sprint for sprint in sprints if sprint.status == SprintStatus.ACTIVE), None)
+    planned = next((sprint for sprint in sprints if sprint.status == SprintStatus.PLANNED), None)
+    completed = sorted(
+        [sprint for sprint in sprints if sprint.status == SprintStatus.COMPLETED],
+        key=lambda sprint: (
+            sprint.completed_at or sprint.updated_at or sprint.created_at
+        ),
+        reverse=True,
+    )
+    return {
+        "active_sprint_id": active.sprint_id if active else None,
+        "planned_sprint_id": planned.sprint_id if planned else None,
+        "latest_completed_sprint_id": completed[0].sprint_id if completed else None,
+        "can_create_next_sprint": planned is None,
+        "create_next_sprint_disabled_reason": (
+            None
+            if planned is None
+            else "A planned sprint already exists. Modify it instead of creating another."
+        ),
+    }
+
+
+def _allowed_actions_for_sprint(
+    sprint: Sprint,
+    *,
+    runtime_summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    is_planned = sprint.status == SprintStatus.PLANNED
+    is_active = sprint.status == SprintStatus.ACTIVE
+    can_start = bool(is_planned and runtime_summary.get("active_sprint_id") is None)
+    can_close = bool(is_active)
+    can_modify_planned = bool(is_planned)
+    return {
+        "can_start": can_start,
+        "start_disabled_reason": (
+            None
+            if can_start
+            else "Only planned sprints without another active sprint can be started."
+        ),
+        "can_close": can_close,
+        "close_disabled_reason": (
+            None if can_close else "Only active sprints can be closed."
+        ),
+        "can_modify_planned": can_modify_planned,
+        "modify_disabled_reason": (
+            None
+            if can_modify_planned
+            else "Only planned sprints can be edited in place."
+        ),
+    }
+
+
+def _serialize_sprint_list_item(
+    sprint: Sprint,
+    *,
+    runtime_summary: Dict[str, Any],
+) -> Dict[str, Any]:
     stories = sorted(
         sprint.stories,
         key=lambda story: (
@@ -375,17 +444,39 @@ def _serialize_sprint_summary(sprint: Sprint) -> Dict[str, Any]:
     return {
         "id": sprint.sprint_id,
         "goal": sprint.goal,
-        "status": sprint.status,
-        "created_at": sprint.created_at,
-        "updated_at": sprint.updated_at,
-        "started_at": sprint.started_at,
-        "start_date": sprint.start_date,
-        "end_date": sprint.end_date,
+        "status": sprint.status.value,
+        "created_at": _serialize_temporal(sprint.created_at),
+        "updated_at": _serialize_temporal(sprint.updated_at),
+        "started_at": _serialize_temporal(sprint.started_at),
+        "completed_at": _serialize_temporal(sprint.completed_at),
+        "start_date": _serialize_temporal(sprint.start_date),
+        "end_date": _serialize_temporal(sprint.end_date),
         "team_id": sprint.team_id,
         "team_name": sprint.team.name if sprint.team else None,
         "story_count": len(stories),
-        "selected_stories": [_serialize_sprint_story(story) for story in stories],
+        "history_fidelity": _history_fidelity(sprint),
+        "allowed_actions": _allowed_actions_for_sprint(
+            sprint,
+            runtime_summary=runtime_summary,
+        ),
     }
+
+
+def _serialize_sprint_detail(
+    sprint: Sprint,
+    *,
+    runtime_summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    stories = sorted(
+        sprint.stories,
+        key=lambda story: (
+            story.rank or "",
+            story.story_id or 0,
+        ),
+    )
+    payload = _serialize_sprint_list_item(sprint, runtime_summary=runtime_summary)
+    payload["selected_stories"] = [_serialize_sprint_story(story) for story in stories]
+    return payload
 
 
 def _saved_sprint_query():
@@ -398,14 +489,24 @@ def _saved_sprint_query():
     )
 
 
-def _list_saved_sprints(project_id: int) -> List[Dict[str, Any]]:
+def _list_saved_sprints(project_id: int) -> Dict[str, Any]:
     with Session(get_engine()) as session:
         sprints = session.exec(
             _saved_sprint_query()
             .where(Sprint.product_id == project_id)
             .order_by(Sprint.created_at.desc())
         ).all()
-        return [_serialize_sprint_summary(sprint) for sprint in sprints]
+        runtime_summary = _build_sprint_runtime_summary(sprints)
+        return {
+            "items": [
+                _serialize_sprint_list_item(
+                    sprint,
+                    runtime_summary=runtime_summary,
+                )
+                for sprint in sprints
+            ],
+            "runtime_summary": runtime_summary,
+        }
 
 
 def _get_saved_sprint(session: Session, project_id: int, sprint_id: int) -> Optional[Sprint]:
@@ -1152,7 +1253,7 @@ def _effective_project_state(project: Any, raw_state: Dict[str, Any]) -> Dict[st
         existing_error = state.get("setup_error")
         state["setup_error"] = existing_error or blocker
     else:
-        state["fsm_state"] = _normalize_fsm_state(state.get("fsm_state"))
+        state["fsm_state"] = _normalize_shell_fsm_state(state.get("fsm_state"))
         state.setdefault("setup_status", "passed")
         state.setdefault("setup_error", None)
     state.setdefault("setup_failure_artifact_id", None)
@@ -2683,14 +2784,45 @@ async def list_project_sprints(project_id: int):
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    items = _list_saved_sprints(project_id)
+    payload = _list_saved_sprints(project_id)
     return {
         "status": "success",
         "data": {
-            "items": items,
-            "count": len(items),
+            "items": payload["items"],
+            "count": len(payload["items"]),
+            "runtime_summary": payload["runtime_summary"],
         },
     }
+
+
+@app.get("/api/projects/{project_id}/sprints/{sprint_id}")
+async def get_project_sprint(project_id: int, sprint_id: int):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    with Session(get_engine()) as session:
+        sprint = _get_saved_sprint(session, project_id, sprint_id)
+        if not sprint:
+            raise HTTPException(status_code=404, detail="Sprint not found")
+
+        all_sprints = session.exec(
+            _saved_sprint_query()
+            .where(Sprint.product_id == project_id)
+            .order_by(Sprint.created_at.desc())
+        ).all()
+        runtime_summary = _build_sprint_runtime_summary(all_sprints)
+
+        return {
+            "status": "success",
+            "data": {
+                "sprint": _serialize_sprint_detail(
+                    sprint,
+                    runtime_summary=runtime_summary,
+                ),
+                "runtime_summary": runtime_summary,
+            },
+        }
 
 
 @app.get("/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet")
@@ -3085,6 +3217,42 @@ async def start_project_sprint(project_id: int, sprint_id: int):
         if not sprint:
             raise HTTPException(status_code=404, detail="Sprint not found")
 
+        other_active = session.exec(
+            select(Sprint).where(
+                Sprint.product_id == project_id,
+                Sprint.status == SprintStatus.ACTIVE,
+                Sprint.sprint_id != sprint_id,
+            )
+        ).first()
+        if other_active:
+            raise HTTPException(
+                status_code=409,
+                detail="Another sprint is already active for this project.",
+            )
+
+        if sprint.status == SprintStatus.COMPLETED:
+            raise HTTPException(
+                status_code=409,
+                detail="Completed sprints cannot be restarted.",
+            )
+
+        if sprint.status == SprintStatus.ACTIVE and sprint.started_at is not None:
+            all_sprints = session.exec(
+                _saved_sprint_query()
+                .where(Sprint.product_id == project_id)
+                .order_by(Sprint.created_at.desc())
+            ).all()
+            runtime_summary = _build_sprint_runtime_summary(all_sprints)
+            return {
+                "status": "success",
+                "data": {
+                    "sprint": _serialize_sprint_detail(
+                        sprint,
+                        runtime_summary=runtime_summary,
+                    ),
+                },
+            }
+
         if sprint.started_at is None:
             sprint.started_at = datetime.now(timezone.utc)
             sprint.status = SprintStatus.ACTIVE
@@ -3110,10 +3278,20 @@ async def start_project_sprint(project_id: int, sprint_id: int):
             if not sprint:
                 raise HTTPException(status_code=404, detail="Sprint not found")
 
+        all_sprints = session.exec(
+            _saved_sprint_query()
+            .where(Sprint.product_id == project_id)
+            .order_by(Sprint.created_at.desc())
+        ).all()
+        runtime_summary = _build_sprint_runtime_summary(all_sprints)
+
         return {
             "status": "success",
             "data": {
-                "sprint": _serialize_sprint_summary(sprint),
+                "sprint": _serialize_sprint_detail(
+                    sprint,
+                    runtime_summary=runtime_summary,
+                ),
             },
         }
 

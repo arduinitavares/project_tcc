@@ -669,9 +669,23 @@ def test_sprint_save_surfaces_unexpected_persistence_tool_error(monkeypatch):
     assert response.json()["detail"] == "database unavailable"
 
 
+def test_project_state_normalizes_legacy_sprint_complete(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_sprint_setup_project(repo, workflow)
+    workflow.states[str(project_id)] = {
+        "fsm_state": "SPRINT_COMPLETE",
+        "setup_status": "passed",
+    }
+
+    response = client.get(f"/api/projects/{project_id}/state")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["fsm_state"] == "SPRINT_PERSISTENCE"
+
+
 def test_list_sprints_returns_saved_sprints_newest_first(session, monkeypatch):
     client, repo, _workflow = _build_client(monkeypatch)
-    project_id, _older_sprint_id = _seed_saved_sprint(
+    project_id, older_sprint_id = _seed_saved_sprint(
         session,
         repo,
         started=True,
@@ -710,10 +724,31 @@ def test_list_sprints_returns_saved_sprints_newest_first(session, monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["data"]["count"] == 2
+    assert payload["data"]["runtime_summary"] == {
+        "active_sprint_id": older_sprint_id,
+        "planned_sprint_id": newer_sprint.sprint_id,
+        "latest_completed_sprint_id": None,
+        "can_create_next_sprint": False,
+        "create_next_sprint_disabled_reason": (
+            "A planned sprint already exists. Modify it instead of creating another."
+        ),
+    }
     assert payload["data"]["items"][0]["id"] == newer_sprint.sprint_id
     assert payload["data"]["items"][0]["started_at"] is None
     assert payload["data"]["items"][1]["started_at"] is not None
     assert payload["data"]["items"][0]["story_count"] == 1
+    assert payload["data"]["items"][0]["history_fidelity"] == "derived"
+    assert payload["data"]["items"][0]["allowed_actions"] == {
+        "can_start": False,
+        "start_disabled_reason": (
+            "Only planned sprints without another active sprint can be started."
+        ),
+        "can_close": False,
+        "close_disabled_reason": "Only active sprints can be closed.",
+        "can_modify_planned": True,
+        "modify_disabled_reason": None,
+    }
+    assert "selected_stories" not in payload["data"]["items"][0]
 
 
 def test_start_sprint_sets_started_at_once_and_logs_event(session, monkeypatch):
@@ -753,6 +788,7 @@ def test_start_sprint_sets_started_at_once_and_logs_event(session, monkeypatch):
     started_at = first_payload["data"]["sprint"]["started_at"]
     assert started_at is not None
     assert sprint["status"] == SprintStatus.ACTIVE.value
+    assert sprint["history_fidelity"] == "derived"
     assert sprint["selected_stories"][0]["tasks"][0]["checklist_items"] == [
         "Confirm planning notes",
         "Share execution links",
@@ -770,6 +806,71 @@ def test_start_sprint_sets_started_at_once_and_logs_event(session, monkeypatch):
         )
     ).all()
     assert len(events) == 1
+
+
+def test_start_sprint_rejects_when_another_sprint_is_active(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id = _seed_saved_sprint(
+        session,
+        repo,
+        started=False,
+        created_title="Planned Sprint",
+    )
+
+    team = session.exec(select(Team).where(Team.name == f"Team {project_id}")).first()
+    assert team is not None
+
+    active_story = UserStory(
+        product_id=project_id,
+        title="Active Sprint Story",
+        story_description="As a user, I want active sprint coverage",
+        acceptance_criteria="- AC",
+    )
+    session.add(active_story)
+    session.flush()
+
+    active_sprint = Sprint(
+        goal="Active Sprint Goal",
+        start_date=date(2026, 4, 1),
+        end_date=date(2026, 4, 15),
+        status=SprintStatus.ACTIVE,
+        started_at=datetime(2026, 4, 1, 9, 0, tzinfo=timezone.utc),
+        product_id=project_id,
+        team_id=team.team_id,
+    )
+    session.add(active_sprint)
+    session.flush()
+    session.add(
+        SprintStory(sprint_id=active_sprint.sprint_id, story_id=active_story.story_id)
+    )
+    session.commit()
+
+    response = client.patch(f"/api/projects/{project_id}/sprints/{sprint_id}/start")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Another sprint is already active for this project."
+
+
+def test_start_sprint_rejects_completed_sprint(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id = _seed_saved_sprint(
+        session,
+        repo,
+        started=True,
+        created_title="Completed Sprint",
+    )
+
+    sprint = session.get(Sprint, sprint_id)
+    assert sprint is not None
+    sprint.status = SprintStatus.COMPLETED
+    sprint.completed_at = datetime(2026, 3, 15, 18, 0, tzinfo=timezone.utc)
+    session.add(sprint)
+    session.commit()
+
+    response = client.patch(f"/api/projects/{project_id}/sprints/{sprint_id}/start")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Completed sprints cannot be restarted."
 
 
 def test_get_story_packet_returns_bootstrap_context_for_pinned_story(session, monkeypatch):
@@ -1361,7 +1462,7 @@ def test_task_packet_ignores_unknown_task_invariant_ids(session, monkeypatch):
     ]
 
 
-def test_list_sprints_returns_task_objects(session, monkeypatch):
+def test_get_sprint_detail_returns_task_objects(session, monkeypatch):
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, story_id, task_id = _seed_task_packet_context(
         session,
@@ -1384,14 +1485,15 @@ def test_list_sprints_returns_task_objects(session, monkeypatch):
     session.add(second_task)
     session.commit()
 
-    response = client.get(f"/api/projects/{project_id}/sprints")
+    response = client.get(f"/api/projects/{project_id}/sprints/{sprint_id}")
     assert response.status_code == 200
 
     data = response.json()["data"]
-    items = data["items"]
-    assert len(items) > 0
-    sprint = items[0]
+    sprint = data["sprint"]
 
+    assert sprint["id"] == sprint_id
+    assert sprint["history_fidelity"] == "derived"
+    assert data["runtime_summary"]["planned_sprint_id"] == sprint_id
     assert len(sprint["selected_stories"]) > 0
     story = sprint["selected_stories"][0]
 
