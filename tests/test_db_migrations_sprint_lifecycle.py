@@ -25,6 +25,28 @@ def _create_min_sprints_schema(engine) -> None:
         )
 
 
+def _create_min_sprints_schema_with_started_at(engine) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE sprints (
+                    sprint_id INTEGER PRIMARY KEY,
+                    goal TEXT,
+                    start_date DATE NOT NULL,
+                    end_date DATE NOT NULL,
+                    status VARCHAR NOT NULL,
+                    started_at DATETIME,
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL,
+                    product_id INTEGER NOT NULL,
+                    team_id INTEGER NOT NULL
+                )
+                """
+            )
+        )
+
+
 def test_migrate_sprint_lifecycle_adds_lifecycle_columns() -> None:
     engine = create_engine("sqlite:///:memory:")
     _create_min_sprints_schema(engine)
@@ -38,6 +60,18 @@ def test_migrate_sprint_lifecycle_adds_lifecycle_columns() -> None:
     assert "started_at" in column_names
     assert "completed_at" in column_names
     assert "close_snapshot_json" in column_names
+
+
+def test_migrate_sprint_lifecycle_only_adds_missing_partial_schema_columns() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    _create_min_sprints_schema_with_started_at(engine)
+
+    actions = migrate_sprint_lifecycle(engine)
+
+    assert actions == [
+        "added column: sprints.completed_at",
+        "added column: sprints.close_snapshot_json",
+    ]
 
 
 def test_migrate_sprint_lifecycle_is_idempotent() -> None:
