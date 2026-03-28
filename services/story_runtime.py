@@ -236,6 +236,7 @@ def build_story_request_payload(
     state: Dict[str, Any],
     *,
     parent_requirement: str,
+    current_user_input: Optional[str] = None,
 ) -> Dict[str, Any]:
     input_context = build_story_input_context(state, parent_requirement=parent_requirement)
     runtime = hydrate_story_runtime_from_legacy(
@@ -254,6 +255,8 @@ def build_story_request_payload(
         )
 
     feedback_items = _collect_unabsorbed_feedback_text(runtime)
+    if isinstance(current_user_input, str) and current_user_input.strip():
+        feedback_items.append(current_user_input)
     if feedback_items:
         input_context["requirement_context"] += (
             "\n\n--- USER REFINEMENT FEEDBACK ---\n"
@@ -389,10 +392,10 @@ async def run_story_agent_from_state(
     parent_requirement: str,
     user_input: Optional[str],
 ) -> Dict[str, Any]:
-    del user_input
     request_payload = build_story_request_payload(
         state,
         parent_requirement=parent_requirement,
+        current_user_input=user_input,
     )
     return await run_story_agent_request(
         request_payload,

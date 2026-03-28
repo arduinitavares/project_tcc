@@ -178,6 +178,30 @@ async def test_run_story_agent_from_state_includes_only_unabsorbed_feedback(monk
 
 
 @pytest.mark.asyncio
+async def test_run_story_agent_from_state_includes_current_call_user_input_before_projection_persistence(
+    monkeypatch,
+) -> None:
+    captured: Dict[str, Any] = {}
+
+    async def fake_invoke(payload):
+        captured["payload"] = payload
+        return _valid_story_output(payload.parent_requirement)
+
+    monkeypatch.setattr(story_runtime, "_invoke_story_agent", fake_invoke)
+
+    result = await story_runtime.run_story_agent_from_state(
+        _base_state(),
+        project_id=1,
+        parent_requirement="Requirement A",
+        user_input="Please keep this to one milestone.",
+    )
+
+    assert result["success"] is True
+    assert "--- USER REFINEMENT FEEDBACK ---" in captured["payload"].requirement_context
+    assert "Please keep this to one milestone." in captured["payload"].requirement_context
+
+
+@pytest.mark.asyncio
 async def test_story_runtime_invalid_json_is_nonreusable_schema_failure(monkeypatch) -> None:
     async def fake_invoke(_payload):
         return '{"broken": '
