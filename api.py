@@ -316,6 +316,13 @@ def _serialize_sprint_task(task: Task) -> Dict[str, Any]:
     }
 
 
+def _build_story_task_plan(story: UserStory) -> List[Dict[str, Any]]:
+    return sorted(
+        [_serialize_sprint_task(task) for task in story.tasks],
+        key=lambda item: item["description"].lower(),
+    )
+
+
 def _story_task_progress(tasks: List[Task]) -> tuple[int, int, int, bool]:
     actionable_tasks = [
         task for task in tasks if bool(parse_task_metadata(task.metadata_json).checklist_items)
@@ -750,6 +757,7 @@ def _build_story_packet(
     sprint_story = context.sprint_story
     product = context.product
     evidence = context.evidence
+    task_plan_tasks = _build_story_task_plan(story)
 
     source_snapshot = {
         "product_id": project_id,
@@ -768,6 +776,7 @@ def _build_story_packet(
         "compiled_authority_compiled_at": _serialize_temporal(
             context.authority.compiled_at if context.authority else None
         ),
+        "task_plan_hash": _hash_payload(task_plan_tasks),
     }
 
     packet_id_hash = hashlib.sha256(
@@ -794,10 +803,7 @@ def _build_story_packet(
             "source_requirement": story.source_requirement,
         },
         "task_plan": {
-            "tasks": sorted(
-                [_serialize_sprint_task(task) for task in story.tasks],
-                key=lambda item: item["description"].lower(),
-            )
+            "tasks": task_plan_tasks
         },
         "context": {
             "sprint": {

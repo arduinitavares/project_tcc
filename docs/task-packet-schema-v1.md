@@ -2,9 +2,11 @@
 
 ## Summary
 
-Task Packet v1 is a deterministic, on-demand execution handoff artifact. It is assembled directly from existing project data without LLM involvement and is anchored by the combination of `task_id` and `sprint_id`.
+Task Packet v1 is the original deterministic task-packet contract that shipped before the Task 3 split introduced `story_packet.v1` and promoted the live task endpoint to `task_packet.v2`.
 
-The packet is the canonical execution handoff model. Future human briefs and agent prompts must render from this payload instead of bypassing it.
+This document is retained as a historical schema reference for the superseded v1 payload. It does **not** describe the active response shape of the live `/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet` endpoint anymore.
+
+For the active task endpoint contract, see [Task Packet v2 Schema Reference](./task-packet-schema-v2.md).
 
 ## Canonical Schema
 
@@ -207,11 +209,13 @@ Validation rules:
 - `artifact_targets`, `workstream_tags`, and `relevant_invariant_ids` are trimmed, deduped, and reject empty-string values.
 - `relevant_invariant_ids` must be a subset of the parent story's `evaluated_invariant_ids`.
 
-## Public Endpoint
+## Historical Endpoint Note
+
+Task Packet v1 was originally returned by:
 
 `GET /api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet`
 
-Returns the canonical Task Packet JSON payload directly. No packet persistence table or packet migration is required for v1.
+That public endpoint now returns `task_packet.v2`. This file remains only as a historical record of the superseded v1 schema.
 
 ## Explicit Non-Goals
 

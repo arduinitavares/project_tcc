@@ -946,6 +946,49 @@ def test_task_packet_metadata_hash_changes_when_task_metadata_changes(session, m
     )
 
 
+def test_story_packet_fingerprint_changes_when_task_plan_changes(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id, story_id, task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=True,
+        task_metadata=TaskMetadata(
+            task_kind="implementation",
+            artifact_targets=["payload validator"],
+            workstream_tags=["backend"],
+            relevant_invariant_ids=[],
+            checklist_items=["Validate user_id inputs"],
+        ),
+    )
+
+    first_payload = client.get(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/packet"
+    ).json()["data"]
+
+    task = session.get(Task, task_id)
+    assert task is not None
+    task.metadata_json = serialize_task_metadata(
+        TaskMetadata(
+            task_kind="testing",
+            artifact_targets=["request contract tests"],
+            workstream_tags=["backend", "qa"],
+            relevant_invariant_ids=[],
+            checklist_items=["Cover invalid payload cases"],
+        )
+    )
+    session.add(task)
+    session.commit()
+
+    second_payload = client.get(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/packet"
+    ).json()["data"]
+
+    assert (
+        first_payload["metadata"]["source_fingerprint"]
+        != second_payload["metadata"]["source_fingerprint"]
+    )
+
+
 def test_get_task_packet_rejects_unlinked_task_sprint_pair(session, monkeypatch):
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, _sprint_id, story_id, task_id = _seed_task_packet_context(

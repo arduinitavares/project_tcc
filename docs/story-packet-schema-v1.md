@@ -34,6 +34,7 @@ type StoryPacket = {
     validation_validated_at: string | null;
     validation_input_hash: string | null;
     compiled_authority_compiled_at: string | null;
+    task_plan_hash: string;
   };
 
   story: {
@@ -150,7 +151,8 @@ type StoryPacket = {
 
 ### Source fingerprint
 
-- `source_fingerprint` must change when story, sprint, sprint membership, validation, authority, or product timestamps relevant to the packet change.
+- `source_fingerprint` must change when story, sprint, sprint membership, validation, authority, product, or task-plan inputs relevant to the packet change.
+- `task_plan_hash` captures the serialized `task_plan.tasks` payload so task description, status, metadata, checklist, and other serialized task-plan changes affect story-packet freshness deterministically.
 
 ## Public Endpoint
 
