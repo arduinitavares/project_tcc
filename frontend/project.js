@@ -56,7 +56,10 @@ let activePhaseId = 'setup';
 let viewPhaseId = 'setup';
 let currentProjectState = { setup_status: 'failed', setup_error: null };
 let savedSprints = [];
+let sprintRuntimeSummary = null;
 let currentSprintId = null;
+let currentSprintDetail = null;
+let currentSprintClosePreview = null;
 let sprintMode = null;
 let showSprintPlanner = false;
 
@@ -196,20 +199,40 @@ function getSavedSprintById(sprintId) {
 }
 
 function getSprintMode(savedSprint) {
-    return savedSprint?.started_at ? 'active' : 'planned';
+    const normalized = String(savedSprint?.status || 'Planned').toLowerCase();
+    if (normalized === 'completed') return 'completed';
+    if (normalized === 'active') return 'active';
+    return 'planned';
 }
 
 function chooseLandingSprint() {
-    const startedSprints = savedSprints
-        .filter((sprint) => Boolean(sprint.started_at))
+    const activeSprints = savedSprints
+        .filter((sprint) => getSprintMode(sprint) === 'active')
         .sort((left, right) => {
-            const leftStarted = new Date(left.started_at).getTime();
-            const rightStarted = new Date(right.started_at).getTime();
+            const leftStarted = new Date(left.started_at || left.updated_at || left.created_at || 0).getTime();
+            const rightStarted = new Date(right.started_at || right.updated_at || right.created_at || 0).getTime();
             if (rightStarted !== leftStarted) return rightStarted - leftStarted;
-            return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+            return new Date(right.created_at || 0).getTime() - new Date(left.created_at || 0).getTime();
         });
+    if (activeSprints[0]) return activeSprints[0];
 
-    return startedSprints[0] || savedSprints[0] || null;
+    const plannedSprints = savedSprints
+        .filter((sprint) => getSprintMode(sprint) === 'planned')
+        .sort((left, right) => {
+            const leftCreated = new Date(left.created_at || 0).getTime();
+            const rightCreated = new Date(right.created_at || 0).getTime();
+            return rightCreated - leftCreated;
+        });
+    if (plannedSprints[0]) return plannedSprints[0];
+
+    const completedSprints = savedSprints
+        .filter((sprint) => getSprintMode(sprint) === 'completed')
+        .sort((left, right) => {
+            const leftCompleted = new Date(left.completed_at || left.updated_at || left.created_at || 0).getTime();
+            const rightCompleted = new Date(right.completed_at || right.updated_at || right.created_at || 0).getTime();
+            return rightCompleted - leftCompleted;
+        });
+    return completedSprints[0] || null;
 }
 
 function ensureCurrentSprintSelection() {
@@ -2351,7 +2374,10 @@ async function completeStoryPhase() {
 async function loadSavedSprints() {
     if (!selectedProjectId) {
         savedSprints = [];
+        sprintRuntimeSummary = null;
         currentSprintId = null;
+        currentSprintDetail = null;
+        currentSprintClosePreview = null;
         sprintMode = null;
         renderOverviewPanel();
         renderSprintSavedWorkspace();
@@ -2366,19 +2392,26 @@ async function loadSavedSprints() {
         }
 
         savedSprints = Array.isArray(data.data?.items) ? data.data.items : [];
+        sprintRuntimeSummary = data.data?.runtime_summary || null;
     } catch (error) {
         console.error('Failed to load saved sprints:', error);
         savedSprints = [];
+        sprintRuntimeSummary = null;
     }
 
     if (currentSprintId && !getSavedSprintById(currentSprintId)) {
         currentSprintId = null;
+        currentSprintDetail = null;
+        currentSprintClosePreview = null;
         sprintMode = null;
     }
 
     const selectedSprint = ensureCurrentSprintSelection();
     if (selectedSprint) {
-        sprintMode = getSprintMode(selectedSprint);
+        await loadSprintDetail(selectedSprint.id);
+    } else {
+        currentSprintDetail = null;
+        currentSprintClosePreview = null;
     }
 
     renderOverviewPanel();
@@ -2388,23 +2421,78 @@ async function loadSavedSprints() {
     return savedSprints;
 }
 
+async function loadSprintDetail(sprintId) {
+    if (!selectedProjectId || !sprintId) {
+        currentSprintDetail = null;
+        currentSprintClosePreview = null;
+        return null;
+    }
+
+    try {
+        const response = await fetch(`/api/projects/${selectedProjectId}/sprints/${sprintId}`);
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error('Failed to load sprint detail');
+        }
+
+        currentSprintDetail = data.data?.sprint || null;
+        sprintRuntimeSummary = data.data?.runtime_summary || sprintRuntimeSummary;
+        currentSprintId = currentSprintDetail?.id || Number(sprintId);
+        sprintMode = currentSprintDetail ? getSprintMode(currentSprintDetail) : null;
+        currentSprintClosePreview = null;
+        return currentSprintDetail;
+    } catch (error) {
+        console.error('Failed to load sprint detail:', error);
+        currentSprintDetail = null;
+        currentSprintClosePreview = null;
+        return null;
+    }
+}
+
+function resetSprintClosePanel() {
+    currentSprintClosePreview = null;
+    const panel = document.getElementById('sprint-close-panel');
+    const summary = document.getElementById('sprint-close-summary');
+    const confirmButton = document.getElementById('btn-confirm-sprint-close');
+    const closeNotes = document.getElementById('sprint-close-notes');
+    const followUpNotes = document.getElementById('sprint-follow-up-notes');
+
+    if (panel) panel.classList.add('hidden');
+    if (summary) summary.innerText = '';
+    if (confirmButton) {
+        confirmButton.disabled = true;
+        confirmButton.classList.remove('cursor-not-allowed', 'opacity-60');
+    }
+    if (closeNotes) closeNotes.value = '';
+    if (followUpNotes) followUpNotes.value = '';
+}
+
 function renderOverviewPanel() {
     const container = document.getElementById('overview-panel-content');
     if (!container) return;
 
     const completedCount = getCompletedPhaseCount();
     const nextPhase = getNextIncompletePlanningPhase(activeFsmState);
-    const landingSprint = chooseLandingSprint();
-    const hasActiveSprint = savedSprints.some((sprint) => Boolean(sprint.started_at));
-    const primaryActionHtml = landingSprint
-        ? `<button type="button" onclick="selectSavedSprintById(${landingSprint.id})" class="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-sky-700">
-                <span class="material-symbols-outlined text-sm">${getSprintMode(landingSprint) === 'active' ? 'play_circle' : 'rocket_launch'}</span>
-                Open ${getSprintMode(landingSprint) === 'active' ? 'Current Sprint' : 'Saved Sprint'}
+    const planningComplete = isPlanningCompleteState(activeFsmState);
+    const activeSprintId = sprintRuntimeSummary?.active_sprint_id || null;
+    const plannedSprintId = sprintRuntimeSummary?.planned_sprint_id || null;
+    const latestCompletedSprintId = sprintRuntimeSummary?.latest_completed_sprint_id || null;
+    const savedSprintCount = savedSprints.length;
+
+    const primaryActionHtml = activeSprintId
+        ? `<button type="button" onclick="selectSavedSprintById(${activeSprintId})" class="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-sky-700">
+                <span class="material-symbols-outlined text-sm">play_circle</span>
+                Open Active Sprint
            </button>`
-        : `<button type="button" onclick="openSprintPlanner()" class="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-sky-700">
-                <span class="material-symbols-outlined text-sm">add_task</span>
-                Open Sprint Planner
-           </button>`;
+        : plannedSprintId
+            ? `<button type="button" onclick="selectSavedSprintById(${plannedSprintId})" class="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-sky-700">
+                    <span class="material-symbols-outlined text-sm">schedule</span>
+                    Open Planned Sprint
+               </button>`
+            : `<button type="button" onclick="openSprintPlanner()" class="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-sky-700">
+                    <span class="material-symbols-outlined text-sm">add_task</span>
+                    Create Next Sprint
+               </button>`;
 
     container.innerHTML = `
         <div class="space-y-6">
@@ -2416,9 +2504,11 @@ function renderOverviewPanel() {
                             Workflow Overview
                         </div>
                         <div>
-                            <h3 class="text-2xl font-black text-slate-800 dark:text-white">Planning is ${isPlanningCompleteState(activeFsmState) ? 'complete' : 'still in progress'}</h3>
+                            <h3 class="text-2xl font-black text-slate-800 dark:text-white">Planning is ${planningComplete ? 'complete' : 'still in progress'}</h3>
                             <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                                ${nextPhase ? `The next unfinished planning step is ${capitalizePhase(nextPhase)}.` : 'This project is ready to run from saved sprint context.'}
+                                ${planningComplete
+                                    ? 'Sprint runtime continues in the sprint workspace.'
+                                    : (nextPhase ? `The next unfinished planning step is ${capitalizePhase(nextPhase)}.` : 'Continue the planning pipeline before sprint runtime begins.')}
                             </p>
                         </div>
                     </div>
@@ -2436,18 +2526,24 @@ function renderOverviewPanel() {
                 </div>
                 <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
                     <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Saved Sprints</div>
-                    <div class="mt-3 text-3xl font-black text-slate-800 dark:text-white">${savedSprints.length}</div>
-                    <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">${savedSprints.length > 0 ? 'Saved sprint plans are available for work or review.' : 'No saved sprint plan exists yet for this project.'}</p>
+                    <div class="mt-3 text-3xl font-black text-slate-800 dark:text-white">${savedSprintCount}</div>
+                    <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">${savedSprintCount > 0 ? 'Completed sprints stay available as history while the next sprint is planned or run.' : 'No saved sprint plan exists yet for this project.'}</p>
                 </div>
                 <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                    <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Current Focus</div>
-                    <div class="mt-3 text-xl font-black text-slate-800 dark:text-white">${landingSprint ? (getSprintMode(landingSprint) === 'active' ? 'Active Sprint' : 'Planned Sprint') : 'Planning Review'}</div>
-                    <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">${landingSprint ? (landingSprint.goal || 'Sprint goal not provided.') : (nextPhase ? `${capitalizePhase(nextPhase)} is the next best place to continue.` : 'Open sprint planning to create a new saved sprint.')}</p>
+                    <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Planning Status</div>
+                    <div class="mt-3 text-xl font-black text-slate-800 dark:text-white">${planningComplete ? 'Ready for Iteration' : 'In Progress'}</div>
+                    <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">${planningComplete ? 'The one-time planning pipeline is complete for this project shell.' : 'Continue setup, vision, backlog, roadmap, stories, and sprint planning.'}</p>
                 </div>
                 <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                    <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Execution Status</div>
-                    <div class="mt-3 text-xl font-black text-slate-800 dark:text-white">${hasActiveSprint ? 'In Motion' : 'Not Started'}</div>
-                    <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">${hasActiveSprint ? 'At least one sprint has already been started, so project entry prioritizes active work.' : 'No sprint has been started yet. The first saved sprint will open in planned mode.'}</p>
+                    <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Sprint Runtime</div>
+                    <div class="mt-3 text-xl font-black text-slate-800 dark:text-white">${activeSprintId ? 'Sprint Active' : plannedSprintId ? 'Planned Sprint Ready' : latestCompletedSprintId ? 'Last Sprint Completed' : 'No Sprint Yet'}</div>
+                    <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">${activeSprintId
+                        ? 'Execution is active. Open the sprint workspace to manage in-flight work.'
+                        : plannedSprintId
+                            ? 'A planned sprint is ready to start or refine.'
+                            : latestCompletedSprintId
+                                ? 'The last sprint is closed and available as read-only history.'
+                                : 'Create the first sprint to begin iterative runtime.'}</p>
                 </div>
             </div>
         </div>
@@ -2472,71 +2568,112 @@ function renderSprintSavedWorkspace() {
 
     if (!savedWorkspace || !plannerWorkspace || !phaseTitle || !phaseSubtitle) return;
 
-    const selectedSprint = ensureCurrentSprintSelection();
-    const shouldShowSavedWorkspace = viewPhaseId === 'sprint' && Boolean(selectedSprint) && !showSprintPlanner;
+    const selectedSprintLite = ensureCurrentSprintSelection();
+    const selectedSprint = currentSprintDetail && currentSprintDetail.id === currentSprintId
+        ? currentSprintDetail
+        : null;
+    const sprintRecord = selectedSprint || selectedSprintLite;
+    const shouldShowSavedWorkspace = viewPhaseId === 'sprint' && Boolean(sprintRecord) && !showSprintPlanner;
 
     savedWorkspace.classList.toggle('hidden', !shouldShowSavedWorkspace);
     plannerWorkspace.classList.toggle('hidden', shouldShowSavedWorkspace);
 
-    if (!shouldShowSavedWorkspace || !selectedSprint) {
+    if (!shouldShowSavedWorkspace || !sprintRecord) {
+        resetSprintClosePanel();
         phaseTitle.innerText = 'Sprint Planning';
         phaseSubtitle.innerText = 'Commit User Stories to a Sprint Backlog with capacity planning.';
         return;
     }
 
-    sprintMode = getSprintMode(selectedSprint);
-    phaseTitle.innerText = sprintMode === 'active' ? 'Current Sprint' : 'Sprint Ready to Start';
+    sprintMode = getSprintMode(sprintRecord);
+    const isCompletedSprint = sprintMode === 'completed';
+    const closeSnapshot = selectedSprint?.close_snapshot || null;
+    const closeSummaryText = closeSnapshot
+        ? `${closeSnapshot.completed_story_count || 0} stories completed, ${closeSnapshot.open_story_count || 0} unfinished at close.`
+        : 'Closed sprint history remains read-only and available for reference.';
+
+    phaseTitle.innerText = sprintMode === 'active'
+        ? 'Current Sprint'
+        : sprintMode === 'completed'
+            ? 'Completed Sprint'
+            : 'Sprint Ready to Start';
     phaseSubtitle.innerText = sprintMode === 'active'
         ? 'Focus on the saved sprint currently in execution.'
-        : 'Your sprint plan is saved. Start it when the team is ready to begin work.';
+        : sprintMode === 'completed'
+            ? 'Review the closed sprint history and plan the next iteration when ready.'
+            : 'Your sprint plan is saved. Start it when the team is ready to begin work.';
 
     const statusPill = document.getElementById('sprint-saved-status-pill');
     if (statusPill) {
         statusPill.className = sprintMode === 'active'
             ? 'inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-black uppercase tracking-wide text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-            : 'inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-black uppercase tracking-wide text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
+            : sprintMode === 'completed'
+                ? 'inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-wide text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200'
+                : 'inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-black uppercase tracking-wide text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
         statusPill.innerHTML = `
-            <span class="material-symbols-outlined text-sm">${sprintMode === 'active' ? 'play_circle' : 'schedule'}</span>
-            ${sprintMode === 'active' ? 'Active Sprint' : 'Planned Sprint'}
+            <span class="material-symbols-outlined text-sm">${sprintMode === 'active' ? 'play_circle' : sprintMode === 'completed' ? 'history' : 'schedule'}</span>
+            ${sprintMode === 'active' ? 'Active Sprint' : sprintMode === 'completed' ? 'Completed Sprint' : 'Planned Sprint'}
         `;
     }
 
-    document.getElementById('sprint-saved-title').innerText = selectedSprint.goal || 'Saved sprint plan';
+    document.getElementById('sprint-saved-title').innerText = sprintRecord.goal || 'Saved sprint plan';
     document.getElementById('sprint-saved-subtitle').innerText = sprintMode === 'active'
-        ? `Started ${formatSafeDate(selectedSprint.started_at)} with ${selectedSprint.story_count || 0} committed stories.`
-        : `Planned for ${formatSafeDate(selectedSprint.start_date)} to ${formatSafeDate(selectedSprint.end_date)} with ${selectedSprint.story_count || 0} committed stories.`;
+        ? `Started ${formatSafeDate(sprintRecord.started_at)} with ${sprintRecord.story_count || 0} committed stories.`
+        : sprintMode === 'completed'
+            ? `Closed ${formatSafeDate(sprintRecord.completed_at)}. ${closeSummaryText}`
+            : `Planned for ${formatSafeDate(sprintRecord.start_date)} to ${formatSafeDate(sprintRecord.end_date)} with ${sprintRecord.story_count || 0} committed stories.`;
 
     const startButton = document.getElementById('btn-start-sprint');
+    const closeButton = document.getElementById('btn-close-sprint');
+    const plannerButton = document.getElementById('btn-open-sprint-planner');
     if (startButton) {
-        startButton.classList.toggle('hidden', sprintMode !== 'planned');
-        startButton.disabled = sprintMode !== 'planned';
+        const canStart = Boolean(sprintRecord.allowed_actions?.can_start);
+        startButton.classList.toggle('hidden', !canStart);
+        startButton.disabled = !canStart;
+    }
+    if (closeButton) {
+        const canClose = Boolean(sprintRecord.allowed_actions?.can_close);
+        closeButton.classList.toggle('hidden', !canClose);
+        closeButton.disabled = !canClose;
+    }
+    if (plannerButton) {
+        const canCreateNextSprint = Boolean(sprintRuntimeSummary?.can_create_next_sprint);
+        const plannerLabel = canCreateNextSprint ? 'Create Next Sprint' : 'Modify Planned Sprint';
+        plannerButton.innerHTML = `
+            <span class="material-symbols-outlined text-sm">${canCreateNextSprint ? 'add_task' : 'edit_note'}</span>
+            ${plannerLabel}
+        `;
+    }
+
+    if (isCompletedSprint || sprintMode !== 'active') {
+        resetSprintClosePanel();
     }
 
     const meta = document.getElementById('sprint-saved-meta');
     if (meta) {
-        const totalTasks = Array.isArray(selectedSprint.selected_stories)
+        const totalTasks = Array.isArray(selectedSprint?.selected_stories)
             ? selectedSprint.selected_stories.reduce((sum, story) => sum + (Array.isArray(story.tasks) ? story.tasks.length : 0), 0)
             : 0;
         meta.innerHTML = `
             <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
                 <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Team</div>
-                <div class="mt-3 text-lg font-black text-slate-800 dark:text-white">${selectedSprint.team_name || 'Unassigned'}</div>
+                <div class="mt-3 text-lg font-black text-slate-800 dark:text-white">${sprintRecord.team_name || 'Unassigned'}</div>
                 <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Saved sprint owner.</p>
             </div>
             <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Planned Window</div>
-                <div class="mt-3 text-lg font-black text-slate-800 dark:text-white">${formatSafeDate(selectedSprint.start_date)} - ${formatSafeDate(selectedSprint.end_date)}</div>
-                <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Planning dates remain separate from execution start.</p>
+                <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">${isCompletedSprint ? 'Closed At' : 'Planned Window'}</div>
+                <div class="mt-3 text-lg font-black text-slate-800 dark:text-white">${isCompletedSprint ? formatSafeDate(sprintRecord.completed_at) : `${formatSafeDate(sprintRecord.start_date)} - ${formatSafeDate(sprintRecord.end_date)}`}</div>
+                <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">${isCompletedSprint ? 'Completion remains preserved as historical runtime state.' : 'Planning dates remain separate from execution start.'}</p>
             </div>
             <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
                 <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Committed Stories</div>
-                <div class="mt-3 text-3xl font-black text-slate-800 dark:text-white">${selectedSprint.story_count || 0}</div>
+                <div class="mt-3 text-3xl font-black text-slate-800 dark:text-white">${sprintRecord.story_count || 0}</div>
                 <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Saved scope for this sprint.</p>
             </div>
             <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Task Breakdown</div>
-                <div class="mt-3 text-3xl font-black text-slate-800 dark:text-white">${totalTasks}</div>
-                <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">${sprintMode === 'active' ? 'Execution checklist carried from planning.' : 'Task decomposition ready for kickoff.'}</p>
+                <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">${isCompletedSprint ? 'Close Notes' : 'Task Breakdown'}</div>
+                <div class="mt-3 text-${isCompletedSprint ? 'lg' : '3xl'} font-black text-slate-800 dark:text-white">${isCompletedSprint ? escapeHtml(closeSnapshot?.completion_notes || 'No close notes recorded.') : totalTasks}</div>
+                <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">${isCompletedSprint ? escapeHtml(closeSnapshot?.follow_up_notes || 'No follow-up notes recorded.') : (sprintMode === 'active' ? 'Execution checklist carried from planning.' : 'Task decomposition ready for kickoff.')}</p>
             </div>
         `;
     }
@@ -2546,14 +2683,15 @@ function renderSprintSavedWorkspace() {
     if (switcher && switcherList) {
         switcher.classList.toggle('hidden', savedSprints.length <= 1);
         switcherList.innerHTML = savedSprints.map((sprint) => {
-            const active = sprint.id === selectedSprint.id;
-            const modeLabel = getSprintMode(sprint) === 'active' ? 'Active' : 'Planned';
+            const active = sprint.id === sprintRecord.id;
+            const mode = getSprintMode(sprint);
+            const modeLabel = mode === 'active' ? 'Active' : mode === 'completed' ? 'Completed' : 'Planned';
             return `
                 <button type="button" onclick="selectSavedSprintById(${sprint.id})"
                     class="${active
                         ? 'inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-[11px] font-bold text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
                         : 'inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'}">
-                    <span class="material-symbols-outlined text-sm">${getSprintMode(sprint) === 'active' ? 'play_circle' : 'schedule'}</span>
+                    <span class="material-symbols-outlined text-sm">${mode === 'active' ? 'play_circle' : mode === 'completed' ? 'history' : 'schedule'}</span>
                     Sprint ${sprint.id} · ${modeLabel}
                 </button>
             `;
@@ -2562,7 +2700,11 @@ function renderSprintSavedWorkspace() {
 
     const storyList = document.getElementById('sprint-saved-story-list');
     if (storyList) {
-        const stories = Array.isArray(selectedSprint.selected_stories) ? selectedSprint.selected_stories : [];
+        const stories = Array.isArray(selectedSprint?.selected_stories) ? selectedSprint.selected_stories : [];
+        if (!selectedSprint) {
+            storyList.innerHTML = '<div class="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">Loading sprint details...</div>';
+            return;
+        }
         if (stories.length === 0) {
             storyList.innerHTML = '<div class="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">This saved sprint has no committed stories yet.</div>';
         } else {
@@ -2573,7 +2715,9 @@ function renderSprintSavedWorkspace() {
                 const isStoryDone = story.status === 'Done';
                 let storyStateBanner = '';
                 
-                if (isStoryDone) {
+                if (isCompletedSprint) {
+                    storyStateBanner = '';
+                } else if (isStoryDone) {
                     storyStateBanner = `
                     <div class="mb-3 rounded-lg border border-purple-200 bg-purple-50 p-3 shadow-sm dark:border-purple-800/50 dark:bg-purple-900/30 flex items-center justify-between">
                         <div class="flex items-center gap-3">
@@ -2668,7 +2812,7 @@ function renderSprintSavedWorkspace() {
                                         <button onclick="toggleTaskBrief(event, ${selectedSprint.id}, ${task.id})" class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 transition-colors dark:bg-sky-900/30 dark:hover:bg-sky-900/50 dark:text-sky-300 border border-sky-200 dark:border-sky-800 shadow-sm">
                                             <span class="material-symbols-outlined text-[12px]">visibility</span> View Brief
                                         </button>
-                                        ${isExecutable ? `
+                                        ${isExecutable && !isCompletedSprint ? `
                                         <button onclick="toggleTaskExecution(event, ${selectedSprint.id}, ${task.id})" class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shadow-sm">
                                             <span class="material-symbols-outlined text-[12px]">edit_note</span> Log Progress
                                         </button>
@@ -2680,7 +2824,7 @@ function renderSprintSavedWorkspace() {
                                         </div>
                                         <div id="task-brief-content-${task.id}" class="whitespace-pre-wrap leading-relaxed selection:bg-sky-200 dark:selection:bg-sky-900"></div>
                                     </div>
-                                    ${isExecutable ? `<div id="task-execution-${task.id}" class="hidden ml-6 mt-2 flex flex-col gap-3 rounded-lg border border-indigo-100 bg-indigo-50/30 p-4 shadow-sm dark:border-indigo-900/50 dark:bg-indigo-950/20"></div>` : ''}
+                                    ${isExecutable && !isCompletedSprint ? `<div id="task-execution-${task.id}" class="hidden ml-6 mt-2 flex flex-col gap-3 rounded-lg border border-indigo-100 bg-indigo-50/30 p-4 shadow-sm dark:border-indigo-900/50 dark:bg-indigo-950/20"></div>` : ''}
                                     ` : ''}
                                 </li>`;
                                 }).join('')}
@@ -2694,12 +2838,13 @@ function renderSprintSavedWorkspace() {
     }
 }
 
-function selectSavedSprintById(sprintId) {
+async function selectSavedSprintById(sprintId) {
     const savedSprint = getSavedSprintById(sprintId);
     if (!savedSprint) return;
 
     currentSprintId = savedSprint.id;
-    sprintMode = getSprintMode(savedSprint);
+    await loadSprintDetail(savedSprint.id);
+    sprintMode = getSprintMode(currentSprintDetail || savedSprint);
     showSprintPlanner = false;
     viewPhaseId = 'sprint';
     renderPhaseSection();
@@ -2707,6 +2852,7 @@ function selectSavedSprintById(sprintId) {
 }
 
 function openSprintPlanner() {
+    resetSprintClosePanel();
     viewPhaseId = 'sprint';
     showSprintPlanner = true;
     renderPhaseSection();
@@ -2715,8 +2861,10 @@ function openSprintPlanner() {
 }
 
 async function startCurrentSprint() {
-    const savedSprint = ensureCurrentSprintSelection();
-    if (!selectedProjectId || !savedSprint || savedSprint.started_at) return;
+    const savedSprint = currentSprintDetail && currentSprintDetail.id === currentSprintId
+        ? currentSprintDetail
+        : ensureCurrentSprintSelection();
+    if (!selectedProjectId || !savedSprint || !savedSprint.allowed_actions?.can_start) return;
 
     const button = document.getElementById('btn-start-sprint');
     const originalHtml = button?.innerHTML;
@@ -2737,13 +2885,89 @@ async function startCurrentSprint() {
 
         await loadSavedSprints();
         await fetchProjectFSMState(selectedProjectId, { preserveView: true });
-        selectSavedSprintById(savedSprint.id);
+        await selectSavedSprintById(savedSprint.id);
     } catch (error) {
         console.error(error);
         alert(error.message || 'Failed to start sprint.');
     } finally {
         if (button) {
             button.innerHTML = originalHtml || '<span class="material-symbols-outlined text-sm">play_circle</span> Start Sprint';
+            button.disabled = false;
+        }
+    }
+}
+
+async function openSprintClosePanel() {
+    if (!selectedProjectId || !currentSprintId) return;
+
+    try {
+        const response = await fetch(`/api/projects/${selectedProjectId}/sprints/${currentSprintId}/close`);
+        const data = await response.json();
+        if (response.status >= 400) {
+            throw new Error(data?.detail || 'Failed to load sprint close readiness.');
+        }
+
+        currentSprintClosePreview = data;
+        const panel = document.getElementById('sprint-close-panel');
+        const summary = document.getElementById('sprint-close-summary');
+        const confirmButton = document.getElementById('btn-confirm-sprint-close');
+
+        if (!panel || !summary || !confirmButton) return;
+
+        panel.classList.remove('hidden');
+        summary.innerText = data.close_eligible
+            ? `${data.readiness.completed_story_count} stories completed, ${data.readiness.open_story_count} still open. Unfinished work can be explicitly selected into the next planned sprint.`
+            : (data.ineligible_reason || 'Sprint cannot be closed yet.');
+        confirmButton.disabled = !data.close_eligible;
+        confirmButton.classList.toggle('cursor-not-allowed', !data.close_eligible);
+        confirmButton.classList.toggle('opacity-60', !data.close_eligible);
+    } catch (error) {
+        console.error(error);
+        alert(error.message || 'Failed to load sprint close readiness.');
+    }
+}
+
+async function confirmSprintClose() {
+    if (!selectedProjectId || !currentSprintId) return;
+
+    const completionNotes = document.getElementById('sprint-close-notes')?.value?.trim() || '';
+    const followUpNotes = document.getElementById('sprint-follow-up-notes')?.value?.trim() || '';
+    if (!completionNotes) {
+        alert('Sprint close notes are required.');
+        return;
+    }
+
+    const button = document.getElementById('btn-confirm-sprint-close');
+    const originalHtml = button?.innerHTML;
+    if (button) {
+        button.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">progress_activity</span> Closing...';
+        button.disabled = true;
+    }
+
+    try {
+        const response = await fetch(`/api/projects/${selectedProjectId}/sprints/${currentSprintId}/close`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                completion_notes: completionNotes,
+                follow_up_notes: followUpNotes || null,
+            }),
+        });
+
+        if (response.status >= 400) {
+            const body = await response.json().catch(() => null);
+            throw new Error(body?.detail || 'Failed to close sprint.');
+        }
+
+        await loadSavedSprints();
+        await fetchProjectFSMState(selectedProjectId, { preserveView: true });
+        await selectSavedSprintById(currentSprintId);
+    } catch (error) {
+        console.error(error);
+        alert(error.message || 'Failed to close sprint.');
+    } finally {
+        if (button) {
+            button.innerHTML = originalHtml || '<span class="material-symbols-outlined text-sm">check_circle</span> Confirm Close';
             button.disabled = false;
         }
     }
@@ -3073,7 +3297,7 @@ async function saveSprintDraft() {
         await loadSavedSprints();
         await fetchProjectFSMState(selectedProjectId, { preserveView: true });
         if (currentSprintId) {
-            selectSavedSprintById(currentSprintId);
+            await selectSavedSprintById(currentSprintId);
         }
 
         if (button) {
@@ -3725,7 +3949,7 @@ async function submitTaskExecution(event, sprintId, taskId) {
         if (!res.ok) throw new Error(data.detail?.map(d => d.msg).join(' ') || data.detail || "Failed to save execution");
         await fetchProjectFSMState(selectedProjectId, { preserveView: true });
         await loadSavedSprints();
-        selectSavedSprintById(sprintId);
+        await selectSavedSprintById(sprintId);
     } catch (err) {
         console.error(err);
         errCont.innerText = err.message;
@@ -3883,7 +4107,7 @@ async function submitStoryClose(event, sprintId, storyId) {
         
         await fetchProjectFSMState(selectedProjectId, { preserveView: true });
         await loadSavedSprints();
-        selectSavedSprintById(sprintId);
+        await selectSavedSprintById(sprintId);
     } catch (err) {
         console.error(err);
         errCont.innerText = err.message;
