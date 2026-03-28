@@ -1,6 +1,7 @@
 """Tools for the Sprint Planner agent."""
 
 import json
+import re
 from datetime import date, timedelta
 import time
 from typing import Annotated, Any, Dict, List, Optional
@@ -79,6 +80,28 @@ def _coerce_duration_seconds(value: Any) -> Optional[float]:
     if duration < 0:
         return None
     return duration
+
+
+def _normalize_acceptance_criteria(text: Optional[str]) -> List[str]:
+    """Normalize story acceptance criteria using the canonical API behavior."""
+
+    if not text or not text.strip():
+        return []
+
+    items: List[str] = []
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        normalized = re.sub(r"^\s*(?:[-*•]+|\d+[.)])\s*", "", stripped).strip()
+        if normalized:
+            items.append(normalized)
+
+    if items:
+        return items
+
+    collapsed = " ".join(text.split())
+    return [collapsed] if collapsed else []
 
 
 def _story_allowed_invariant_ids(story: UserStory) -> List[str]:
@@ -228,11 +251,7 @@ def save_sprint_plan_tool(
             if story.story_id is not None
         }
         acceptance_criteria_items_by_story = {
-            int(story.story_id): [
-                line.lstrip("-* \t").strip()
-                for line in (story.acceptance_criteria or "").splitlines()
-                if line.lstrip("-* \t").strip()
-            ]
+            int(story.story_id): _normalize_acceptance_criteria(story.acceptance_criteria)
             for story in stories
             if story.story_id is not None
         }

@@ -334,7 +334,7 @@ def test_save_sprint_plan_rejects_checklist_items_copied_from_story_acceptance_c
         product_id=product.product_id,
         title="Story with AC",
         story_description="As a user, I want...",
-        acceptance_criteria="Persist the event\nSurface a success response",
+        acceptance_criteria="1. Persist the event\n2. Surface a success response",
         validation_evidence=ValidationEvidence(
             spec_version_id=1,
             validated_at=datetime.now(timezone.utc),
