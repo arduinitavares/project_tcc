@@ -770,12 +770,20 @@ def test_get_story_packet_returns_bootstrap_context_for_pinned_story(session, mo
     assert payload["story"]["story_id"] == story_id
     assert payload["story"]["title"] == "Payload Validation Story"
     assert payload["story"]["persona"] == "Developer"
-    assert payload["story"]["acceptance_criteria_text"] == (
-        "- include user_id\n- reject invalid payloads"
-    )
-    assert payload["story"]["acceptance_criteria_items"] == [
-        "include user_id",
-        "reject invalid payloads",
+    assert payload["task_plan"]["tasks"] == [
+        {
+            "id": _task_id,
+            "description": "Implement payload validation for incoming requests",
+            "status": "To Do",
+            "task_kind": "implementation",
+            "artifact_targets": [
+                "payload validator",
+                "request contract tests",
+            ],
+            "workstream_tags": ["backend", "api"],
+            "checklist_items": [],
+            "is_executable": False,
+        }
     ]
     assert payload["source_snapshot"]["story_id"] == story_id
     assert payload["source_snapshot"]["accepted_spec_version_id"] is not None
@@ -784,6 +792,13 @@ def test_get_story_packet_returns_bootstrap_context_for_pinned_story(session, mo
     assert payload["context"]["product"]["vision_excerpt"] == "Build trustworthy execution handoffs."
 
     constraints = payload["constraints"]
+    assert constraints["story_acceptance_criteria_text"] == (
+        "- include user_id\n- reject invalid payloads"
+    )
+    assert constraints["story_acceptance_criteria_items"] == [
+        "include user_id",
+        "reject invalid payloads",
+    ]
     assert constraints["spec_binding"]["binding_status"] == "pinned"
     assert constraints["spec_binding"]["authority_artifact_status"] == "available"
     assert constraints["validation"]["present"] is True

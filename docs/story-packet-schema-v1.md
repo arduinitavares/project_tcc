@@ -41,12 +41,23 @@ type StoryPacket = {
     title: string;
     persona: string | null;
     story_description: string | null;
-    acceptance_criteria_text: string | null;
-    acceptance_criteria_items: string[];
     status: "To Do" | "In Progress" | "Done" | "Accepted";
     story_points: number | null;
     rank: string | null;
     source_requirement: string | null;
+  };
+
+  task_plan: {
+    tasks: Array<{
+      id: number;
+      description: string;
+      status: "To Do" | "In Progress" | "Done" | "Cancelled";
+      task_kind: "analysis" | "design" | "implementation" | "testing" | "documentation" | "refactor" | "other";
+      artifact_targets: string[];
+      workstream_tags: string[];
+      checklist_items: string[];
+      is_executable: boolean;
+    }>;
   };
 
   context: {
@@ -69,6 +80,9 @@ type StoryPacket = {
   };
 
   constraints: {
+    story_acceptance_criteria_text: string | null;
+    story_acceptance_criteria_items: string[];
+
     spec_binding: {
       mode: "pinned_story_authority";
       binding_status: "pinned" | "unpinned";
@@ -118,9 +132,15 @@ type StoryPacket = {
 
 ### Story completion contract
 
-- `acceptance_criteria_text` is copied directly from the persisted story.
-- `acceptance_criteria_items` are derived by deterministically normalizing the acceptance criteria text into ordered line items.
-- Story completion remains story-scoped; task-local checklist items are not stored here.
+- `story_acceptance_criteria_text` is copied directly from the persisted story and exposed under `constraints`.
+- `story_acceptance_criteria_items` are derived by deterministically normalizing the acceptance criteria text into ordered line items.
+- Story completion remains story-scoped; task-local checklist items are not stored in the `story` block.
+
+### Story task plan
+
+- `task_plan.tasks` is the ordered list of tasks currently decomposed under the story in the sprint context.
+- Each task entry reuses the canonical sprint task serialization shape, including task-local metadata fields such as `checklist_items` and `is_executable`.
+- `task_plan` is orientation/bootstrap context for the story session; it does not replace `task_packet.v2` as the canonical task-local execution artifact.
 
 ### Spec authority and validation
 

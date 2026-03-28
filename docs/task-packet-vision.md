@@ -46,7 +46,8 @@ The new framing separates those responsibilities cleanly:
 The Story Packet is the session-bootstrap artifact. It owns:
 
 - story statement and identity
-- story acceptance criteria
+- story acceptance criteria in canonical constraints fields
+- story-scoped task plan context
 - sprint context
 - product context
 - pinned spec-binding metadata

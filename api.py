@@ -637,6 +637,7 @@ def _load_packet_story_context(
             .options(
                 selectinload(Task.assignee),
                 selectinload(Task.story).selectinload(UserStory.product),
+                selectinload(Task.story).selectinload(UserStory.tasks),
             )
             .where(Task.task_id == task_id)
         ).first()
@@ -646,7 +647,10 @@ def _load_packet_story_context(
     else:
         story = session.exec(
             select(UserStory)
-            .options(selectinload(UserStory.product))
+            .options(
+                selectinload(UserStory.product),
+                selectinload(UserStory.tasks),
+            )
             .where(UserStory.story_id == story_id)
         ).first()
         if not story or story.product_id != project_id:
@@ -784,14 +788,16 @@ def _build_story_packet(
             "title": story.title,
             "persona": story.persona,
             "story_description": story.story_description,
-            "acceptance_criteria_text": story.acceptance_criteria,
-            "acceptance_criteria_items": _normalize_acceptance_criteria(
-                story.acceptance_criteria
-            ),
             "status": story.status.value,
             "story_points": story.story_points,
             "rank": story.rank,
             "source_requirement": story.source_requirement,
+        },
+        "task_plan": {
+            "tasks": sorted(
+                [_serialize_sprint_task(task) for task in story.tasks],
+                key=lambda item: item["description"].lower(),
+            )
         },
         "context": {
             "sprint": {
@@ -811,6 +817,10 @@ def _build_story_packet(
             },
         },
         "constraints": {
+            "story_acceptance_criteria_text": story.acceptance_criteria,
+            "story_acceptance_criteria_items": _normalize_acceptance_criteria(
+                story.acceptance_criteria
+            ),
             "spec_binding": {
                 "mode": "pinned_story_authority",
                 "binding_status": context.spec_binding_status,
@@ -979,11 +989,13 @@ def _build_task_packet_render_payload(
     if not story_packet:
         return render_payload
 
-    story = story_packet.get("story", {})
+    story_constraints = story_packet.get("constraints", {})
     constraints = render_payload.setdefault("constraints", {})
-    constraints["acceptance_criteria_text"] = story.get("acceptance_criteria_text")
+    constraints["acceptance_criteria_text"] = story_constraints.get(
+        "story_acceptance_criteria_text"
+    )
     constraints["acceptance_criteria_items"] = list(
-        story.get("acceptance_criteria_items") or []
+        story_constraints.get("story_acceptance_criteria_items") or []
     )
     return render_payload
 
