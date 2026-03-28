@@ -1821,6 +1821,26 @@ function applyStoryProjectionState(payload) {
     activeStoryDraftKind = typeof currentDraft?.kind === 'string' ? currentDraft.kind : null;
 }
 
+function resolveStoryDisplayAttempt(items, payload) {
+    if (!Array.isArray(items) || items.length === 0) {
+        return null;
+    }
+
+    const projectedDraftAttemptId = payload?.save?.available
+        && typeof payload?.current_draft?.attempt_id === 'string'
+        ? payload.current_draft.attempt_id
+        : null;
+
+    if (projectedDraftAttemptId) {
+        const projectedDraftAttempt = items.find((item) => item?.attempt_id === projectedDraftAttemptId);
+        if (projectedDraftAttempt) {
+            return projectedDraftAttempt;
+        }
+    }
+
+    return items[items.length - 1];
+}
+
 async function loadStoryHistory(reqName) {
     if (!reqName || !selectedProjectId) return;
 
@@ -1837,8 +1857,8 @@ async function loadStoryHistory(reqName) {
             renderStoryHistory(items);
 
             if (items.length > 0) {
-                const latest = items[items.length - 1];
-                renderStoryAttemptPanels(latest.input_context || null, latest.output_artifact || null);
+                const displayAttempt = resolveStoryDisplayAttempt(items, payload);
+                renderStoryAttemptPanels(displayAttempt?.input_context || null, displayAttempt?.output_artifact || null);
             } else {
                 renderStoryAttemptPanels(null, null);
             }

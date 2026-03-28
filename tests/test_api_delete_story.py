@@ -20,6 +20,7 @@ from agile_sqlmodel import (
     UserStory,
 )
 from api import app
+from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_key
 
 
 @pytest.fixture
@@ -53,7 +54,8 @@ def setup_test_data(session: Session):
     for s in sprints:
         session.refresh(s)
 
-    parent_req = f"test-req-{uuid.uuid4()}"
+    parent_req = f"Test Req {uuid.uuid4()}"
+    normalized_parent_req = normalize_requirement_key(parent_req)
 
     stories = []
     sprint_mappings = []
@@ -66,7 +68,7 @@ def setup_test_data(session: Session):
         story = UserStory(
             product_id=product.product_id,
             title=f"Test Story {i}",
-            source_requirement=parent_req,
+            source_requirement=normalized_parent_req,
             status=StoryStatus.TO_DO,
         )
         stories.append(story)
@@ -285,6 +287,7 @@ async def test_delete_project_story(
 
     assert response.status_code == 200
     assert response.json()["status"] == "success"
+    assert response.json()["data"]["deleted_count"] == len(story_ids)
 
     # Assert data is completely removed
     assert (

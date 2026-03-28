@@ -58,6 +58,7 @@ from orchestrator_agent.agent_tools.sprint_planner_tool.tools import (
     SaveSprintPlanInput,
     save_sprint_plan_tool,
 )
+from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_key
 from orchestrator_agent.fsm.states import OrchestratorState
 from repositories.product import ProductRepository
 from services.interview_runtime import (
@@ -2401,13 +2402,15 @@ async def delete_project_story(project_id: int, parent_requirement: str):
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    normalized_requirement = normalize_requirement_key(parent_requirement)
+
     engine = get_engine()
     with Session(engine) as session:
         # Find all stories for this requirement in this product
         # 1. Get the list of story IDs to delete
         stmt = select(UserStory.story_id).where(
             UserStory.product_id == project_id,
-            UserStory.source_requirement == parent_requirement
+            UserStory.source_requirement == normalized_requirement
         )
         story_ids = session.exec(stmt).all()
         
