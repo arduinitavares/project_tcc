@@ -226,6 +226,46 @@ def test_hydrate_story_runtime_from_legacy_attempts_promotes_latest_reusable_art
     assert hydrated_empty["attempt_history"] == []
 
 
+def test_hydrate_story_runtime_normalizes_existing_runtime_before_skip() -> None:
+    state: dict[str, object] = {
+        "interview_runtime": {
+            "story": {
+                "req-1": {
+                    "attempt_history": [
+                        {"attempt_id": "existing-1"},
+                    ],
+                    "feedback_projection": {},
+                }
+            }
+        },
+        "story_attempts": {
+            "req-1": [
+                {
+                    "output_artifact": {
+                        "user_stories": [{"story_title": "Ignored"}],
+                    },
+                    "is_complete": True,
+                }
+            ]
+        },
+    }
+
+    runtime = interview_runtime.hydrate_story_runtime_from_legacy(
+        state,
+        parent_requirement="req-1",
+    )
+
+    assert runtime["phase"] == "story"
+    assert runtime["subject_key"] == "req-1"
+    assert runtime["draft_projection"] == {}
+    assert runtime["feedback_projection"] == {
+        "items": [],
+        "next_feedback_sequence": 0,
+    }
+    assert runtime["request_projection"] == {}
+    assert runtime["attempt_history"] == [{"attempt_id": "existing-1"}]
+
+
 def test_reset_subject_working_set_clears_projections_and_keeps_audit_marker() -> None:
     state: dict[str, object] = {}
     runtime = interview_runtime.ensure_interview_subject(
@@ -242,7 +282,7 @@ def test_reset_subject_working_set_clears_projections_and_keeps_audit_marker() -
         created_at="2026-03-28T10:00:00Z",
         draft_basis_attempt_id="attempt-1",
         included_feedback_ids=["fb-1"],
-        context_version=2,
+        context_version="story-runtime.v1",
     )
     assert request_projection == {
         "request_snapshot_id": "snapshot-1",
@@ -251,7 +291,7 @@ def test_reset_subject_working_set_clears_projections_and_keeps_audit_marker() -
         "created_at": "2026-03-28T10:00:00Z",
         "draft_basis_attempt_id": "attempt-1",
         "included_feedback_ids": ["fb-1"],
-        "context_version": 2,
+        "context_version": "story-runtime.v1",
     }
     interview_runtime.append_feedback_entry(
         runtime,

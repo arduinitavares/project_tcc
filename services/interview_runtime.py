@@ -75,7 +75,7 @@ def set_request_projection(
     created_at: Any,
     draft_basis_attempt_id: Optional[str],
     included_feedback_ids: Sequence[str],
-    context_version: int,
+    context_version: str,
 ) -> Dict[str, Any]:
     request_projection = {
         "request_snapshot_id": request_snapshot_id,
@@ -245,19 +245,14 @@ def hydrate_story_runtime_from_legacy(
     *,
     parent_requirement: str,
 ) -> Dict[str, Any]:
-    runtime_root = state.get(INTERVIEW_RUNTIME_KEY)
-    if isinstance(runtime_root, dict):
-        phase_bucket = runtime_root.get(STORY_PHASE)
-        if isinstance(phase_bucket, dict):
-            existing_runtime = phase_bucket.get(parent_requirement)
-            if isinstance(existing_runtime, dict) and existing_runtime.get("attempt_history"):
-                return existing_runtime
-
     runtime = ensure_interview_subject(
         state,
         phase=STORY_PHASE,
         subject_key=parent_requirement,
     )
+    if runtime.get("attempt_history"):
+        return runtime
+
     legacy_attempts = state.get("story_attempts") or {}
     if not isinstance(legacy_attempts, dict):
         return runtime
