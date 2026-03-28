@@ -9,6 +9,7 @@ from orchestrator_agent.agent_tools.sprint_planner_tool.schemes import (
     SprintPlannerInput,
     SprintPlannerOutput,
     SprintPlannerSelectedStory,
+    validate_task_decomposition_quality,
     validate_task_invariant_bindings,
 )
 
@@ -26,6 +27,10 @@ def _build_output_payload() -> Dict[str, Any]:
                     {
                         "description": "Create auth table",
                         "task_kind": "implementation",
+                        "checklist_items": [
+                            "Define the auth table columns",
+                            "Add persistence coverage for auth records",
+                        ],
                         "artifact_targets": ["auth schema"],
                         "workstream_tags": ["backend", "auth"],
                         "relevant_invariant_ids": ["INV-123"],
@@ -33,6 +38,10 @@ def _build_output_payload() -> Dict[str, Any]:
                     {
                         "description": "Add login UI",
                         "task_kind": "implementation",
+                        "checklist_items": [
+                            "Render the login form locally",
+                            "Wire submit handling to the login flow",
+                        ],
                         "artifact_targets": ["login form"],
                         "workstream_tags": ["frontend", "auth"],
                         "relevant_invariant_ids": [],
@@ -63,6 +72,10 @@ def test_output_schema_round_trip():
     dumped = model.model_dump_json()
     restored = SprintPlannerOutput.model_validate_json(dumped)
     assert restored.sprint_goal == payload["sprint_goal"]
+    assert restored.selected_stories[0].tasks[0].checklist_items == [
+        "Define the auth table columns",
+        "Add persistence coverage for auth records",
+    ]
 
 
 def test_output_schema_rejects_extra_fields():
@@ -178,6 +191,35 @@ def test_validate_task_invariant_bindings_rejects_out_of_scope_ids():
     )
     assert errors == [
         "Story 101 task 'Create auth table' referenced invalid invariant IDs: INV-123"
+    ]
+
+
+def test_validate_task_decomposition_quality_rejects_story_acceptance_criteria_copy():
+    model = SprintPlannerOutput.model_validate(_build_output_payload())
+    errors = validate_task_decomposition_quality(
+        model,
+        include_task_decomposition=True,
+        acceptance_criteria_items_by_story={101: ["Define the auth table columns"]},
+    )
+    assert errors == [
+        "Story 101 task 'Create auth table': checklist item 'Define the auth table columns' duplicates story acceptance criteria."
+    ]
+
+
+def test_validate_task_decomposition_quality_rejects_broad_story_completion_phrase():
+    payload = _build_output_payload()
+    payload["selected_stories"][0]["tasks"][0]["checklist_items"] = [
+        "Complete the story",
+        "Add persistence coverage for auth records",
+    ]
+    model = SprintPlannerOutput.model_validate(payload)
+    errors = validate_task_decomposition_quality(
+        model,
+        include_task_decomposition=True,
+        acceptance_criteria_items_by_story={101: ["Define the auth table columns"]},
+    )
+    assert errors == [
+        "Story 101 task 'Create auth table': checklist item 'Complete the story' is too story-level; use task-local completion criteria instead."
     ]
 
 

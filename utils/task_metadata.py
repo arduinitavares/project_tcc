@@ -61,8 +61,15 @@ class TaskMetadata(BaseModel):
     artifact_targets: List[str] = Field(default_factory=list)
     workstream_tags: List[str] = Field(default_factory=list)
     relevant_invariant_ids: List[str] = Field(default_factory=list)
+    checklist_items: List[str] = Field(default_factory=list)
 
-    @field_validator("artifact_targets", "workstream_tags", "relevant_invariant_ids", mode="before")
+    @field_validator(
+        "artifact_targets",
+        "workstream_tags",
+        "relevant_invariant_ids",
+        "checklist_items",
+        mode="before",
+    )
     @classmethod
     def _validate_lists(cls, value: Any) -> List[str]:
         return _normalize_string_list(value)
@@ -78,6 +85,7 @@ class StructuredTaskSpec(BaseModel):
     artifact_targets: List[str] = Field(default_factory=list)
     workstream_tags: List[str] = Field(default_factory=list)
     relevant_invariant_ids: List[str] = Field(default_factory=list)
+    checklist_items: List[str] = Field(default_factory=list)
 
     @field_validator("description", mode="before")
     @classmethod
@@ -89,7 +97,13 @@ class StructuredTaskSpec(BaseModel):
             raise ValueError("description must not be empty.")
         return trimmed
 
-    @field_validator("artifact_targets", "workstream_tags", "relevant_invariant_ids", mode="before")
+    @field_validator(
+        "artifact_targets",
+        "workstream_tags",
+        "relevant_invariant_ids",
+        "checklist_items",
+        mode="before",
+    )
     @classmethod
     def _validate_lists(cls, value: Any) -> List[str]:
         return _normalize_string_list(value)
@@ -155,6 +169,7 @@ def metadata_from_structured_task(task: StructuredTaskSpec) -> TaskMetadata:
         artifact_targets=list(task.artifact_targets),
         workstream_tags=list(task.workstream_tags),
         relevant_invariant_ids=list(task.relevant_invariant_ids),
+        checklist_items=list(task.checklist_items),
     )
 
 

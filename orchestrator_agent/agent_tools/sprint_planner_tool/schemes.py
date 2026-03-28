@@ -8,6 +8,22 @@ from pydantic import BaseModel, ConfigDict, Field
 from utils.task_metadata import StructuredTaskSpec
 
 
+def _normalize_comparison_text(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", value.lower().strip())
+
+
+_BROAD_STORY_COMPLETION_PHRASES = {
+    _normalize_comparison_text("complete the story"),
+    _normalize_comparison_text("finish the story"),
+    _normalize_comparison_text("implement the story"),
+    _normalize_comparison_text("satisfy all acceptance criteria"),
+    _normalize_comparison_text("satisfy acceptance criteria"),
+    _normalize_comparison_text("all acceptance criteria met"),
+    _normalize_comparison_text("story complete"),
+    _normalize_comparison_text("story is complete"),
+}
+
+
 class SprintPlannerStory(BaseModel):
     """A candidate user story for sprint planning.
 
@@ -253,11 +269,13 @@ def validate_task_decomposition_quality(
     output: "SprintPlannerOutput",
     *,
     include_task_decomposition: bool,
-    has_acceptance_criteria_by_story: Dict[int, bool],
+    has_acceptance_criteria_by_story: Optional[Dict[int, bool]] = None,
+    acceptance_criteria_items_by_story: Optional[Dict[int, List[str]]] = None,
 ) -> List[str]:
     """Validate deterministic quality gates for sprint task decomposition."""
     errors: List[str] = []
-
+    has_acceptance_criteria_by_story = has_acceptance_criteria_by_story or {}
+    acceptance_criteria_items_by_story = acceptance_criteria_items_by_story or {}
     file_extension_pattern = re.compile(r"\.[a-zA-Z0-9]+$")
     path_pattern = re.compile(r"[/\\]")
 
@@ -267,52 +285,85 @@ def validate_task_decomposition_quality(
             continue
 
         normalized_descriptions = set()
-        
-        # for under-decomposition check
         all_same_workstreams = True
         all_same_targets = True
         first_workstreams = None
         first_targets = None
+        story_acceptance_items = acceptance_criteria_items_by_story.get(story.story_id, [])
+        normalized_story_acceptance_items = {
+            _normalize_comparison_text(item)
+            for item in story_acceptance_items
+            if isinstance(item, str) and item.strip()
+        }
+        has_story_acceptance_criteria = bool(normalized_story_acceptance_items) or bool(
+            has_acceptance_criteria_by_story.get(story.story_id, False)
+        )
 
         for task in story.tasks:
-            # 1. Base required field quality
             desc = task.description.strip()
             if not desc:
                 errors.append(f"Story {story.story_id}: Found task with empty description.")
-            
-            if task.task_kind == "other":
-                errors.append(f"Story {story.story_id} task '{desc}': 'task_kind' cannot be 'other'. Please categorize properly.")
-            
-            if not task.artifact_targets:
-                errors.append(f"Story {story.story_id} task '{desc}': Must specify at least one artifact_target.")
-                
-            if not task.workstream_tags:
-                errors.append(f"Story {story.story_id} task '{desc}': Must specify at least one workstream_tag.")
 
-            # 2. File path heuristic rejections
+            if task.task_kind == "other":
+                errors.append(
+                    f"Story {story.story_id} task '{desc}': 'task_kind' cannot be 'other'. Please categorize properly."
+                )
+
+            if not task.artifact_targets:
+                errors.append(
+                    f"Story {story.story_id} task '{desc}': Must specify at least one artifact_target."
+                )
+
+            if not task.workstream_tags:
+                errors.append(
+                    f"Story {story.story_id} task '{desc}': Must specify at least one workstream_tag."
+                )
+
             for target in task.artifact_targets:
                 if file_extension_pattern.search(target) or path_pattern.search(target):
-                    errors.append(f"Story {story.story_id} task '{desc}': artifact_target '{target}' looks like an exact file path. Use component/module names instead.")
+                    errors.append(
+                        f"Story {story.story_id} task '{desc}': artifact_target '{target}' looks like an exact file path. Use component/module names instead."
+                    )
 
-            # 3. Duplication checks
-            norm_desc = re.sub(r'[^a-z0-9]', '', desc.lower())
+            if not task.checklist_items:
+                errors.append(
+                    f"Story {story.story_id} task '{desc}': Must specify at least one checklist item."
+                )
+
+            norm_desc = _normalize_comparison_text(desc)
             if norm_desc:
                 if norm_desc in normalized_descriptions:
                     errors.append(f"Story {story.story_id}: Duplicate or identical task description found: '{desc}'.")
                 normalized_descriptions.add(norm_desc)
 
-            norm_targets = [re.sub(r'[^a-z0-9]', '', t.lower()) for t in task.artifact_targets]
+            norm_targets = [_normalize_comparison_text(t) for t in task.artifact_targets]
             if len(norm_targets) != len(set(norm_targets)):
                 errors.append(f"Story {story.story_id} task '{desc}': Contains duplicate artifact_targets.")
-                
-            norm_tags = [re.sub(r'[^a-z0-9]', '', t.lower()) for t in task.workstream_tags]
+
+            norm_tags = [_normalize_comparison_text(t) for t in task.workstream_tags]
             if len(norm_tags) != len(set(norm_tags)):
                 errors.append(f"Story {story.story_id} task '{desc}': Contains duplicate workstream_tags.")
 
-            # Tracking sets for under-decomposition heuristic
+            for checklist_item in task.checklist_items:
+                checklist_text = checklist_item.strip()
+                checklist_norm = _normalize_comparison_text(checklist_text)
+                if not checklist_norm:
+                    errors.append(
+                        f"Story {story.story_id} task '{desc}': checklist item must not be empty."
+                    )
+                    continue
+                if checklist_norm in normalized_story_acceptance_items:
+                    errors.append(
+                        f"Story {story.story_id} task '{desc}': checklist item '{checklist_text}' duplicates story acceptance criteria."
+                    )
+                elif checklist_norm in _BROAD_STORY_COMPLETION_PHRASES:
+                    errors.append(
+                        f"Story {story.story_id} task '{desc}': checklist item '{checklist_text}' is too story-level; use task-local completion criteria instead."
+                    )
+
             task_tags_set = frozenset(norm_tags)
             task_targets_set = frozenset(norm_targets)
-            
+
             if first_workstreams is None:
                 first_workstreams = task_tags_set
                 first_targets = task_targets_set
@@ -322,15 +373,15 @@ def validate_task_decomposition_quality(
                 if task_targets_set != first_targets:
                     all_same_targets = False
 
-        # 4. Under-decomposition check
-        has_ac = has_acceptance_criteria_by_story.get(story.story_id, False)
         if (
-            has_ac 
-            and len(story.tasks) > 1 
-            and all_same_workstreams 
+            has_story_acceptance_criteria
+            and len(story.tasks) > 1
+            and all_same_workstreams
             and all_same_targets
         ):
-            errors.append(f"Story {story.story_id}: Tasks are under-decomposed. All {len(story.tasks)} tasks carry the exact same workstreams and artifact targets.")
+            errors.append(
+                f"Story {story.story_id}: Tasks are under-decomposed. All {len(story.tasks)} tasks carry the exact same workstreams and artifact targets."
+            )
 
     return errors
 

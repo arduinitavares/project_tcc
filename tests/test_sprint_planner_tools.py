@@ -85,6 +85,10 @@ def _build_sprint_plan(story_ids: List[int]) -> Dict[str, Any]:
                     {
                         "description": "Create auth table",
                         "task_kind": "implementation",
+                        "checklist_items": [
+                            "Define the auth table columns",
+                            "Add persistence coverage for auth records",
+                        ],
                         "artifact_targets": ["auth schema"],
                         "workstream_tags": ["backend", "auth"],
                         "relevant_invariant_ids": ["INV-VALID"],
@@ -92,6 +96,10 @@ def _build_sprint_plan(story_ids: List[int]) -> Dict[str, Any]:
                     {
                         "description": "Add login UI",
                         "task_kind": "implementation",
+                        "checklist_items": [
+                            "Render the login form locally",
+                            "Wire submit handling to the login flow",
+                        ],
                         "artifact_targets": ["login form"],
                         "workstream_tags": ["frontend", "auth"],
                         "relevant_invariant_ids": [],
@@ -149,6 +157,10 @@ def test_save_sprint_plan_creates_records(session: Session):
     }
     assert metadata_by_description["Create auth table"].task_kind == "implementation"
     assert metadata_by_description["Create auth table"].artifact_targets == ["auth schema"]
+    assert metadata_by_description["Create auth table"].checklist_items == [
+        "Define the auth table columns",
+        "Add persistence coverage for auth records",
+    ]
 
 
 def test_save_sprint_plan_uses_orchestrator_duration_when_valid(session: Session):

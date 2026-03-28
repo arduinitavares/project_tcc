@@ -31,6 +31,10 @@ def _valid_sprint_output() -> str:
                         {
                             "description": "Create schema",
                             "task_kind": "design",
+                            "checklist_items": [
+                                "Define the event schema shape",
+                                "Document the persistence boundary",
+                            ],
                             "artifact_targets": ["event schema"],
                             "workstream_tags": ["persistence"],
                             "relevant_invariant_ids": ["INV-12"],
@@ -38,6 +42,9 @@ def _valid_sprint_output() -> str:
                         {
                             "description": "Write tests",
                             "task_kind": "testing",
+                            "checklist_items": [
+                                "Cover the persistence behavior in tests",
+                            ],
                             "artifact_targets": ["unit tests"],
                             "workstream_tags": ["testing"],
                             "relevant_invariant_ids": [],
@@ -228,6 +235,69 @@ async def test_runtime_rejects_out_of_scope_task_invariant_bindings(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_runtime_passes_story_acceptance_criteria_into_decomposition_validator(monkeypatch) -> None:
+    captured = {}
+
+    def fake_fetch_sprint_candidates(*, product_id):
+        assert product_id == 7
+        return {
+            "success": True,
+            "count": 1,
+            "stories": [
+                {
+                    "story_id": 12,
+                    "story_title": "Event Delta Persistence",
+                    "priority": 2,
+                    "story_points": 3,
+                    "evaluated_invariant_ids": ["INV-12"],
+                    "acceptance_criteria": "Persist the event\nSurface a success response",
+                }
+            ],
+        }
+
+    async def fake_invoke(_payload):
+        return _valid_sprint_output()
+
+    def fake_validate_task_decomposition_quality(
+        _output,
+        *,
+        include_task_decomposition,
+        has_acceptance_criteria_by_story,
+        acceptance_criteria_items_by_story=None,
+    ):
+        captured["include_task_decomposition"] = include_task_decomposition
+        captured["has_acceptance_criteria_by_story"] = has_acceptance_criteria_by_story
+        captured["acceptance_criteria_items_by_story"] = acceptance_criteria_items_by_story
+        return []
+
+    monkeypatch.setattr(sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(sprint_runtime, "_invoke_sprint_agent", fake_invoke)
+    monkeypatch.setattr(
+        sprint_runtime,
+        "validate_task_decomposition_quality",
+        fake_validate_task_decomposition_quality,
+    )
+
+    result = await sprint_runtime.run_sprint_agent_from_state(
+        {},
+        project_id=7,
+        team_velocity_assumption="medium",
+        sprint_duration_days=14,
+        max_story_points=None,
+        include_task_decomposition=True,
+        selected_story_ids=[12],
+        user_input=None,
+    )
+
+    assert result["success"] is True
+    assert captured["include_task_decomposition"] is True
+    assert captured["has_acceptance_criteria_by_story"] == {12: True}
+    assert captured["acceptance_criteria_items_by_story"] == {
+        12: ["Persist the event", "Surface a success response"]
+    }
+
+
+@pytest.mark.asyncio
 async def test_runtime_rejects_poor_task_decomposition_quality(monkeypatch) -> None:
     def fake_fetch_sprint_candidates(*, product_id):
         assert product_id == 7
@@ -241,7 +311,7 @@ async def test_runtime_rejects_poor_task_decomposition_quality(monkeypatch) -> N
                     "priority": 2,
                     "story_points": 3,
                     "evaluated_invariant_ids": [],
-                    "acceptance_criteria": "Require 1\nRequire 2",
+                    "acceptance_criteria": "Persist the event\nSurface a success response",
                 }
             ],
         }
@@ -257,16 +327,17 @@ async def test_runtime_rejects_poor_task_decomposition_quality(monkeypatch) -> N
                         "story_id": 12,
                         "story_title": "Event Delta Persistence",
                         "tasks": [
-                            {
-                                "description": "Do the work",
-                                "task_kind": "other",  # Illegal value triggers hard fail
-                                "artifact_targets": ["api.py"],  # Illegal filename triggers hard fail
-                                "workstream_tags": ["backend"],
-                                "relevant_invariant_ids": [],
-                            }
-                        ],
-                        "reason_for_selection": "reason",
-                    }
+                        {
+                            "description": "Do the work",
+                            "task_kind": "implementation",
+                            "checklist_items": ["Persist the event"],
+                            "artifact_targets": ["event persistence service"],
+                            "workstream_tags": ["backend"],
+                            "relevant_invariant_ids": [],
+                        }
+                    ],
+                    "reason_for_selection": "reason",
+                }
                 ],
                 "deselected_stories": [],
                 "capacity_analysis": {

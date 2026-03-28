@@ -183,10 +183,15 @@ async def run_sprint_agent_from_state(
         story.story_id: bool(story.acceptance_criteria_items)
         for story in payload.available_stories
     }
+    acceptance_criteria_items_by_story = {
+        story.story_id: list(story.acceptance_criteria_items or [])
+        for story in payload.available_stories
+    }
     decomp_errors = validate_task_decomposition_quality(
         output_model,
         include_task_decomposition=include_task_decomposition,
         has_acceptance_criteria_by_story=has_acceptance_criteria_by_story,
+        acceptance_criteria_items_by_story=acceptance_criteria_items_by_story,
     )
     if decomp_errors:
         return _failure(

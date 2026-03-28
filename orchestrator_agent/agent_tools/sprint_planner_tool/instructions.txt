@@ -60,6 +60,11 @@ Example:
         * Separate design vs implementation vs testing when they are distinct material work items.
         * AVOID monolithic "do everything" tasks.
         * AVOID duplicate or near-duplicate task descriptions. Ensure each is distinctly scoped.
+        * Each task object must contain `checklist_items`.
+        * Use 1-4 concise checklist items per task.
+        * Describe task-local completion criteria or observable outcomes.
+        * Do NOT copy, paraphrase, or lightly reword the parent story's `acceptance_criteria_items` into the task checklist.
+        * If you cannot express a task with a local checklist, fold that work into another task instead of borrowing the story acceptance criteria.
     * Each task object must contain:
         * `description`: Clear statement of the work slice.
         * `task_kind`: Must be intentional (`analysis`, `design`, `implementation`, `testing`, `documentation`, `refactor`). AVOID `other` unless absolutely necessary.
@@ -85,6 +90,7 @@ Example:
         {
           "description": "Draft the persistence design for auth events",
           "task_kind": "design",
+          "checklist_items": ["Define the auth event shape", "Capture persistence boundaries"],
           "artifact_targets": ["auth event schema"],
           "workstream_tags": ["auth", "persistence"],
           "relevant_invariant_ids": []
@@ -92,6 +98,7 @@ Example:
         {
           "description": "Implement and test the auth event persistence path",
           "task_kind": "implementation",
+          "checklist_items": ["Persist events successfully", "Cover the path with tests"],
           "artifact_targets": ["persistence service", "unit tests"],
           "workstream_tags": ["auth", "backend", "testing"],
           "relevant_invariant_ids": ["INV-123"]
