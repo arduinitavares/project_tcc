@@ -2072,10 +2072,14 @@ async def get_project_story_pending(project_id: int):
         
         for req in reqs:
             req_attempts = attempts_dict.get(req, [])
+            runtime = _ensure_story_runtime(
+                state,
+                parent_requirement=req,
+            )
             if saved_reqs_dict.get(req):
                 status = "Saved"
                 saved_count += 1
-            elif len(req_attempts) > 0:
+            elif _story_has_working_state(runtime):
                 status = "Attempted"
             else:
                 status = "Pending"

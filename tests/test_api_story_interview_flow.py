@@ -881,3 +881,68 @@ def test_story_generate_allows_fresh_run_after_reset_without_manual_refinement_i
     assert runtime["attempt_history"][-1]["attempt_id"] == "attempt-3"
     assert runtime["attempt_history"][-1]["trigger"] == "auto_transition"
     assert runtime["request_projection"]["included_feedback_ids"] == []
+
+
+def test_story_pending_returns_pending_after_reset_clears_working_state(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    product = repo.create("Story Project")
+    workflow.states[str(product.product_id)] = {
+        "fsm_state": "STORY_INTERVIEW",
+        "roadmap_releases": [{"items": ["Requirement A"]}],
+        "story_attempts": {
+            "Requirement A": [
+                {
+                    "created_at": "2026-03-28T10:00:00Z",
+                    "trigger": "manual_refine",
+                    "input_context": {},
+                    "output_artifact": _story_artifact("Requirement A", "Old draft"),
+                    "is_complete": True,
+                    "failure_artifact_id": None,
+                    "failure_stage": None,
+                    "failure_summary": None,
+                    "raw_output_preview": None,
+                    "has_full_artifact": False,
+                }
+            ]
+        },
+        "interview_runtime": {
+            "story": {
+                "Requirement A": {
+                    "phase": "story",
+                    "subject_key": "Requirement A",
+                    "attempt_history": [
+                        {
+                            "attempt_id": "attempt-1",
+                            "classification": "reusable_content_result",
+                            "is_reusable": True,
+                            "retryable": False,
+                            "draft_kind": "complete_draft",
+                            "output_artifact": _story_artifact("Requirement A", "Old draft"),
+                        },
+                        {
+                            "attempt_id": "reset-marker-2",
+                            "created_at": "2026-03-28T10:05:00Z",
+                            "trigger": "reset",
+                            "classification": "reset_marker",
+                            "is_reusable": False,
+                            "retryable": False,
+                            "summary": "Stories deleted and state reset by user.",
+                            "output_artifact": None,
+                        },
+                    ],
+                    "draft_projection": {},
+                    "feedback_projection": {"items": [], "next_feedback_sequence": 0},
+                    "request_projection": {},
+                }
+            }
+        },
+    }
+
+    response = client.get(f"/api/projects/{product.product_id}/story/pending")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    requirement = payload["grouped_items"][0]["requirements"][0]
+    assert requirement["requirement"] == "Requirement A"
+    assert requirement["status"] == "Pending"
+    assert requirement["attempt_count"] == 1

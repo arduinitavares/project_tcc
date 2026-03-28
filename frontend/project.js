@@ -1940,9 +1940,10 @@ function renderStoryArtifactHtml(artifact) {
                 </div>
                 <p class="text-[11px] font-mono text-red-600 dark:text-red-300 whitespace-pre-wrap">${artifact.message || 'Unknown error'}</p>
         `;
-        if (artifact.raw_output) {
+        const rawOutput = artifact.raw_output || artifact.raw_output_preview;
+        if (rawOutput) {
             // Escape HTML just in case
-            const safeRaw = artifact.raw_output.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            const safeRaw = rawOutput.replace(/</g, "&lt;").replace(/>/g, "&gt;");
             html += `
                 <div class="mt-4 border-t border-red-200 dark:border-red-800/50 pt-3">
                     <p class="text-[10px] font-bold text-red-700 dark:text-red-400 mb-1 uppercase tracking-wide">Raw Agent Output:</p>
@@ -2242,7 +2243,7 @@ async function saveStoryDraft() {
 async function deleteStoryDraft() {
     if (!selectedProjectId || !activeStoryReq) return;
 
-    if (!confirm(`Are you sure you want to delete all stories and history for "${activeStoryReq}"? This cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to delete the current story draft for "${activeStoryReq}" and reset this requirement? Attempt history will be kept.`)) {
         return;
     }
 
