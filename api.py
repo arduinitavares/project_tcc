@@ -319,7 +319,7 @@ def _serialize_sprint_task(task: Task) -> Dict[str, Any]:
 def _build_story_task_plan(story: UserStory) -> List[Dict[str, Any]]:
     return sorted(
         [_serialize_sprint_task(task) for task in story.tasks],
-        key=lambda item: item["description"].lower(),
+        key=lambda item: (item["description"].lower(), item["id"]),
     )
 
 

@@ -45,7 +45,7 @@ type TaskPacket = {
     task_id: number;
     label: string;
     description: string;
-    status: "To Do" | "In Progress" | "Done";
+    status: "To Do" | "In Progress" | "Done" | "Cancelled";
     assignee_member_id: number | null;
     assignee_name: string | null;
     task_kind: "analysis" | "design" | "implementation" | "testing" | "documentation" | "refactor" | "other";

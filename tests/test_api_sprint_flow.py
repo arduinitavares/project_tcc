@@ -16,6 +16,7 @@ from agile_sqlmodel import (
     SprintStatus,
     SprintStory,
     Task,
+    TaskStatus,
     Team,
     UserStory,
     WorkflowEvent,
@@ -907,6 +908,36 @@ def test_get_task_packet_returns_task_local_execution_context(session, monkeypat
     )
 
 
+def test_get_task_packet_returns_cancelled_status(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id, _story_id, task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=True,
+        task_metadata=TaskMetadata(
+            task_kind="testing",
+            artifact_targets=["request contract tests"],
+            workstream_tags=["backend", "qa"],
+            relevant_invariant_ids=[],
+            checklist_items=["Cover invalid payload cases"],
+        ),
+    )
+
+    task = session.get(Task, task_id)
+    assert task is not None
+    task.status = TaskStatus.CANCELLED
+    session.add(task)
+    session.commit()
+
+    response = client.get(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["task"]["status"] == "Cancelled"
+
+
 def test_task_packet_metadata_hash_changes_when_task_metadata_changes(session, monkeypatch):
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, _story_id, task_id = _seed_task_packet_context(
@@ -944,6 +975,52 @@ def test_task_packet_metadata_hash_changes_when_task_metadata_changes(session, m
         first_payload["metadata"]["source_fingerprint"]
         != second_payload["metadata"]["source_fingerprint"]
     )
+
+
+def test_build_story_task_plan_orders_identical_descriptions_by_task_id(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id, story_id, first_task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=True,
+    )
+
+    second_task = Task(
+        description="Implement payload validation for incoming requests",
+        story_id=story_id,
+        metadata_json=serialize_task_metadata(
+            TaskMetadata(
+                task_kind="testing",
+                artifact_targets=["request contract tests"],
+                workstream_tags=["backend", "qa"],
+                relevant_invariant_ids=[],
+                checklist_items=["Cover invalid payload cases"],
+            )
+        ),
+    )
+    session.add(second_task)
+    session.commit()
+
+    first_task = session.get(Task, first_task_id)
+    assert first_task is not None
+    assert second_task.task_id is not None
+
+    reversed_story = SimpleNamespace(tasks=[second_task, first_task])
+    forward_story = SimpleNamespace(tasks=[first_task, second_task])
+
+    reversed_plan = api_module._build_story_task_plan(reversed_story)
+    forward_plan = api_module._build_story_task_plan(forward_story)
+    payload = client.get(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/packet"
+    ).json()["data"]
+
+    assert [item["id"] for item in reversed_plan] == [first_task_id, second_task.task_id]
+    assert reversed_plan == forward_plan
+    assert api_module._hash_payload(reversed_plan) == api_module._hash_payload(forward_plan)
+    assert [item["id"] for item in payload["task_plan"]["tasks"]] == [
+        first_task_id,
+        second_task.task_id,
+    ]
 
 
 def test_story_packet_fingerprint_changes_when_task_plan_changes(session, monkeypatch):
