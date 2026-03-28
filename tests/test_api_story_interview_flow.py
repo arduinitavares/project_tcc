@@ -478,6 +478,81 @@ def test_story_retry_promotes_reusable_draft_and_absorbs_frozen_feedback_ids(
     )
 
 
+def test_story_retry_rejects_when_latest_attempt_is_not_retryable_even_with_frozen_payload(
+    monkeypatch,
+):
+    client, repo, workflow = _build_client(monkeypatch)
+    product = repo.create("Story Project")
+    workflow.states[str(product.product_id)] = {
+        "fsm_state": "STORY_INTERVIEW",
+        "interview_runtime": {
+            "story": {
+                "Requirement A": {
+                    "phase": "story",
+                    "subject_key": "Requirement A",
+                    "attempt_history": [
+                        {
+                            "attempt_id": "attempt-1",
+                            "created_at": "2026-03-28T10:00:00Z",
+                            "trigger": "auto_transition",
+                            "request_snapshot_id": "request-1",
+                            "draft_basis_attempt_id": None,
+                            "included_feedback_ids": [],
+                            "classification": "reusable_content_result",
+                            "is_reusable": True,
+                            "retryable": False,
+                            "draft_kind": "complete_draft",
+                            "output_artifact": _story_artifact("Requirement A", "Saved draft"),
+                            "failure_artifact_id": None,
+                            "failure_stage": None,
+                            "failure_summary": None,
+                            "raw_output_preview": None,
+                            "has_full_artifact": False,
+                        }
+                    ],
+                    "draft_projection": {
+                        "latest_reusable_attempt_id": "attempt-1",
+                        "kind": "complete_draft",
+                        "is_complete": True,
+                        "updated_at": "2026-03-28T10:00:00Z",
+                    },
+                    "feedback_projection": {"items": [], "next_feedback_sequence": 0},
+                    "request_projection": {
+                        "request_snapshot_id": "request-1",
+                        "payload": {
+                            "parent_requirement": "Requirement A",
+                            "requirement_context": "frozen",
+                            "technical_spec": "SPEC",
+                            "compiled_authority": '{"ok": true}',
+                            "global_roadmap_context": "",
+                            "already_generated_milestone_stories": "",
+                            "artifact_registry": {},
+                        },
+                        "request_hash": "hash-1",
+                        "created_at": "2026-03-28T10:00:00Z",
+                        "draft_basis_attempt_id": None,
+                        "included_feedback_ids": [],
+                        "context_version": "story-runtime.v1",
+                    },
+                }
+            }
+        },
+    }
+
+    async def fail_if_called(*args, **kwargs):
+        raise AssertionError("retry should be rejected before invoking the story runtime")
+
+    monkeypatch.setattr(api_module, "run_story_agent_request", fail_if_called)
+
+    response = client.post(
+        f"/api/projects/{product.product_id}/story/retry",
+        params={"parent_requirement": "Requirement A"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "The latest story attempt is not eligible for retry."
+
+
 def test_story_save_uses_complete_reusable_draft_projection_not_latest_failed_attempt(
     monkeypatch,
 ):
@@ -648,3 +723,113 @@ def test_story_history_returns_projection_attempt_history_and_summary(monkeypatc
         "target_attempt_id": "attempt-2",
     }
     assert payload["save"] == {"available": True}
+
+
+def test_story_generate_allows_fresh_run_after_reset_without_manual_refinement_input(
+    monkeypatch,
+):
+    client, repo, workflow = _build_client(monkeypatch)
+    product = repo.create("Story Project")
+    request_payload = {
+        "parent_requirement": "Requirement A",
+        "requirement_context": "reset fresh start",
+        "technical_spec": "SPEC",
+        "compiled_authority": '{"ok": true}',
+        "global_roadmap_context": "",
+        "already_generated_milestone_stories": "",
+        "artifact_registry": {},
+    }
+    workflow.states[str(product.product_id)] = {
+        "fsm_state": "STORY_INTERVIEW",
+        "pending_spec_content": "SPEC",
+        "compiled_authority_cached": '{"ok": true}',
+        "roadmap_releases": [{"items": ["Requirement A"]}],
+        "interview_runtime": {
+            "story": {
+                "Requirement A": {
+                    "phase": "story",
+                    "subject_key": "Requirement A",
+                    "attempt_history": [
+                        {
+                            "attempt_id": "attempt-1",
+                            "created_at": "2026-03-28T10:00:00Z",
+                            "trigger": "manual_refine",
+                            "request_snapshot_id": "request-1",
+                            "draft_basis_attempt_id": None,
+                            "included_feedback_ids": [],
+                            "classification": "reusable_content_result",
+                            "is_reusable": True,
+                            "retryable": False,
+                            "draft_kind": "complete_draft",
+                            "output_artifact": _story_artifact("Requirement A", "Old draft"),
+                            "failure_artifact_id": None,
+                            "failure_stage": None,
+                            "failure_summary": None,
+                            "raw_output_preview": None,
+                            "has_full_artifact": False,
+                        },
+                        {
+                            "attempt_id": "reset-marker-2",
+                            "created_at": "2026-03-28T10:05:00Z",
+                            "trigger": "reset",
+                            "classification": "reset_marker",
+                            "is_reusable": False,
+                            "retryable": False,
+                            "summary": "Stories deleted and state reset by user.",
+                            "output_artifact": None,
+                        },
+                    ],
+                    "draft_projection": {},
+                    "feedback_projection": {"items": [], "next_feedback_sequence": 0},
+                    "request_projection": {},
+                }
+            }
+        },
+    }
+
+    async def fake_run_story_agent_from_state(
+        state,
+        *,
+        project_id,
+        parent_requirement,
+        user_input,
+    ):
+        assert project_id == product.product_id
+        assert parent_requirement == "Requirement A"
+        assert user_input is None
+        return {
+            "success": True,
+            "input_context": {"requirement_context": "reset fresh start"},
+            "output_artifact": _story_artifact(parent_requirement, "New draft"),
+            "classification": "reusable_content_result",
+            "draft_kind": "complete_draft",
+            "is_reusable": True,
+            "is_complete": True,
+            "request_payload": request_payload,
+            "error": None,
+            "failure_artifact_id": None,
+            "failure_stage": None,
+            "failure_summary": None,
+            "raw_output_preview": None,
+            "has_full_artifact": False,
+        }
+
+    monkeypatch.setattr(api_module, "run_story_agent_from_state", fake_run_story_agent_from_state)
+
+    response = client.post(
+        f"/api/projects/{product.product_id}/story/generate",
+        params={"parent_requirement": "Requirement A"},
+        json={},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["current_draft"] == {
+        "attempt_id": "attempt-3",
+        "kind": "complete_draft",
+        "is_complete": True,
+    }
+    runtime = workflow.states[str(product.product_id)]["interview_runtime"]["story"]["Requirement A"]
+    assert runtime["attempt_history"][-1]["attempt_id"] == "attempt-3"
+    assert runtime["attempt_history"][-1]["trigger"] == "auto_transition"
+    assert runtime["request_projection"]["included_feedback_ids"] == []

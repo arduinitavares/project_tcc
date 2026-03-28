@@ -1907,15 +1907,49 @@ def _story_save_payload(runtime: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return artifact
 
 
-def _story_interview_summary(runtime: Dict[str, Any]) -> Dict[str, Any]:
+def _story_has_working_state(runtime: Dict[str, Any]) -> bool:
     draft_projection = runtime.get("draft_projection") or {}
+    if draft_projection:
+        return True
+
+    request_projection = runtime.get("request_projection") or {}
+    if isinstance(request_projection.get("payload"), dict):
+        return True
+
+    feedback_projection = runtime.get("feedback_projection") or {}
+    items = feedback_projection.get("items") or []
+    if not isinstance(items, list):
+        return False
+
+    return any(
+        isinstance(item, dict)
+        and item.get("status") == "unabsorbed"
+        and isinstance(item.get("text"), str)
+        and item.get("text").strip()
+        for item in items
+    )
+
+
+def _story_retry_target_attempt_id(runtime: Dict[str, Any]) -> Optional[str]:
     attempts = runtime.get("attempt_history") or []
     latest_attempt = attempts[-1] if attempts else {}
     request_projection = runtime.get("request_projection") or {}
-    retry_available = bool(
-        latest_attempt.get("retryable")
+    if not (
+        isinstance(latest_attempt, dict)
+        and latest_attempt.get("retryable")
         and isinstance(request_projection.get("payload"), dict)
-    )
+    ):
+        return None
+
+    attempt_id = latest_attempt.get("attempt_id")
+    if not isinstance(attempt_id, str) or not attempt_id:
+        return None
+    return attempt_id
+
+
+def _story_interview_summary(runtime: Dict[str, Any]) -> Dict[str, Any]:
+    draft_projection = runtime.get("draft_projection") or {}
+    retry_target_attempt_id = _story_retry_target_attempt_id(runtime)
 
     current_draft = None
     if draft_projection:
@@ -1928,10 +1962,8 @@ def _story_interview_summary(runtime: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "current_draft": current_draft,
         "retry": {
-            "available": retry_available,
-            "target_attempt_id": latest_attempt.get("attempt_id")
-            if retry_available
-            else None,
+            "available": bool(retry_target_attempt_id),
+            "target_attempt_id": retry_target_attempt_id,
         },
         "save": {
             "available": bool(_story_save_payload(runtime)),
@@ -2067,10 +2099,7 @@ async def generate_project_story(project_id: int, parent_requirement: str, req: 
         state,
         parent_requirement=parent_requirement,
     )
-    has_attempts = any(
-        isinstance(attempt, dict) and attempt.get("trigger") != "reset"
-        for attempt in runtime.get("attempt_history") or []
-    )
+    has_attempts = _story_has_working_state(runtime)
     normalized_user_input = req.user_input.strip() if isinstance(req.user_input, str) else None
 
     if has_attempts and not normalized_user_input:
@@ -2186,6 +2215,11 @@ async def retry_project_story(project_id: int, parent_requirement: str):
         raise HTTPException(
             status_code=409,
             detail="No replayable story request is available.",
+        )
+    if not _story_retry_target_attempt_id(runtime):
+        raise HTTPException(
+            status_code=409,
+            detail="The latest story attempt is not eligible for retry.",
         )
 
     story_result = await run_story_agent_request(
