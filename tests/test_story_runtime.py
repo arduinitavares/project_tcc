@@ -202,6 +202,61 @@ async def test_run_story_agent_from_state_includes_current_call_user_input_befor
 
 
 @pytest.mark.asyncio
+async def test_run_story_agent_from_state_does_not_crash_on_unserializable_reusable_artifact(
+    monkeypatch,
+) -> None:
+    captured: Dict[str, Any] = {}
+
+    async def fake_invoke(payload):
+        captured["payload"] = payload
+        return _valid_story_output(payload.parent_requirement)
+
+    monkeypatch.setattr(story_runtime, "_invoke_story_agent", fake_invoke)
+
+    state = _base_state()
+    state["interview_runtime"] = {
+        "story": {
+            "Requirement A": {
+                "attempt_history": [
+                    {
+                        "attempt_id": "attempt-1",
+                        "classification": "reusable_content_result",
+                        "is_reusable": True,
+                        "retryable": False,
+                        "draft_kind": "complete_draft",
+                        "output_artifact": {
+                            "parent_requirement": "Requirement A",
+                            "user_stories": [],
+                            "is_complete": True,
+                            "clarifying_questions": [],
+                            "debug_handle": object(),
+                        },
+                    }
+                ],
+                "draft_projection": {
+                    "latest_reusable_attempt_id": "attempt-1",
+                    "kind": "complete_draft",
+                    "is_complete": True,
+                },
+                "feedback_projection": {"items": [], "next_feedback_sequence": 0},
+                "request_projection": {},
+            }
+        }
+    }
+
+    result = await story_runtime.run_story_agent_from_state(
+        state,
+        project_id=1,
+        parent_requirement="Requirement A",
+        user_input=None,
+    )
+
+    assert result["success"] is True
+    assert result["classification"] == "reusable_content_result"
+    assert "--- PREVIOUS DRAFT TO REFINE ---" not in captured["payload"].requirement_context
+
+
+@pytest.mark.asyncio
 async def test_story_runtime_invalid_json_is_nonreusable_schema_failure(monkeypatch) -> None:
     async def fake_invoke(_payload):
         return '{"broken": '

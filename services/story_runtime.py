@@ -249,10 +249,18 @@ def build_story_request_payload(
         parent_requirement=parent_requirement,
     )
     if reusable_artifact:
-        input_context["requirement_context"] += (
-            "\n\n--- PREVIOUS DRAFT TO REFINE ---\n"
-            f"{json.dumps(reusable_artifact, indent=2)}"
-        )
+        try:
+            reusable_artifact_json = json.dumps(reusable_artifact, indent=2)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Skipping reusable story draft injection due to unserializable artifact",
+                extra={"parent_requirement": parent_requirement},
+            )
+        else:
+            input_context["requirement_context"] += (
+                "\n\n--- PREVIOUS DRAFT TO REFINE ---\n"
+                f"{reusable_artifact_json}"
+            )
 
     feedback_items = _collect_unabsorbed_feedback_text(runtime)
     if isinstance(current_user_input, str) and current_user_input.strip():
