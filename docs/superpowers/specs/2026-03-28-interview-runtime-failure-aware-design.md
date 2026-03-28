@@ -139,7 +139,7 @@ Each attempt should capture at least:
 - `created_at`
 - `trigger`
 - `request_snapshot_id`
-- `base_draft_attempt_id`
+- `draft_basis_attempt_id`
 - `included_feedback_ids`
 - `classification`
 - `is_reusable`
@@ -186,6 +186,8 @@ Each feedback item should record:
 - `unabsorbed`
 - `absorbed`
 
+For story mode v1, each non-empty `user_input` submitted through a generate/refine call becomes one feedback entry. An empty `user_input` creates no feedback item. `feedback_id` may be any opaque unique identifier; the runtime contract requires uniqueness and ordering, not a specific ID format.
+
 The runtime may also keep a lightweight unresolved summary or cursor for prompt assembly, but the system of record remains the ordered feedback thread.
 
 ### 4. `request_projection`
@@ -206,6 +208,8 @@ Recommended fields:
 
 - the frozen payload actually sent to the agent
 - the assembly provenance that explains how that payload was formed
+
+For story mode v1, the runtime should store the full assembled payload for the latest invocation only. `attempt_history` should reference request snapshots by ID and provenance rather than duplicating the full payload per attempt. This intentionally prioritizes deterministic retry over minimum storage size while bounding growth to one replayable payload per `(phase, subject_key)`.
 
 ## Reuse And Failure Classification
 
@@ -255,6 +259,8 @@ These are valid reusable kinds:
   - no meaningful reusable stories
   - non-empty `clarifying_questions`
   - `is_complete=false`
+
+To support `clarification_only` in story mode, the story output schema should be aligned with this runtime contract by allowing `user_stories=[]` only when `is_complete=false` and `clarifying_questions` is non-empty. Until that contract is implemented, story mode v1 reusable outputs are limited to schema-valid responses with non-empty `user_stories`.
 
 These are non-reusable:
 
@@ -405,10 +411,29 @@ For transparency, the details panel may default to the latest attempt. However, 
 
 Save must read from `draft_projection`, not from the latest attempt.
 
+Save is eligible only when:
+
+- `draft_projection` exists
+- `draft_projection.kind == "complete_draft"`
+- the referenced reusable artifact remains `is_complete=true`
+
 Consequences:
 
 - a retryable failure after a good draft must not invalidate the good draft as the save baseline
 - if no reusable draft exists, save must remain unavailable even if many failed attempts exist in history
+
+### Delete And Reset Behavior
+
+Delete/reset must establish a fresh working set without contaminating future prompt assembly with pre-reset state.
+
+When a user explicitly deletes or restarts a story interview:
+
+- clear `draft_projection`
+- clear the active `feedback_projection` working set
+- clear `request_projection`
+- append a reset marker to `attempt_history`
+
+Pre-reset attempts and feedback may remain available for audit/history, but they must not participate in prompt assembly after the reset boundary. Story mode v1 may present the requirement as a fresh thread in the UI even if older attempts are still retained for audit purposes.
 
 ### API Surface Expectations
 
@@ -429,6 +454,7 @@ Tests should focus on projection boundaries and behavior, not incidental legacy 
 
 - schema-valid incomplete output with stories is reusable
 - schema-valid clarification-only output is reusable only when `is_complete=false`
+- story-mode clarification-only reuse requires the schema contract that allows zero stories with non-empty `clarifying_questions`
 - invalid JSON, truncation, or EOF is `nonreusable_schema_failure`
 - provider timeout/rate-limit/auth/credit failures are non-reusable provider/transport failures
 - retryable is false when no replayable request snapshot exists
