@@ -53,6 +53,13 @@ class DummyWorkflowService:
     def get_session_status(self, session_id: str):
         return dict(self.states.get(str(session_id), {}))
 
+    def get_session_states_batch(self, session_ids: list[str]):
+        return {
+            str(sid): dict(self.states.get(str(sid), {}))
+            for sid in session_ids
+            if str(sid) in self.states
+        }
+
     def update_session_status(self, session_id: str, partial_update):
         sid = str(session_id)
         current = dict(self.states.get(sid, {}))
@@ -121,7 +128,7 @@ def _build_client(monkeypatch):
 
     monkeypatch.setattr(api_module, "select_project", fake_select_project)
     monkeypatch.setattr(api_module, "link_spec_to_product", fake_link_spec_to_product)
-    
+
     async def fake_run_vision_agent_from_state(state, *, project_id, user_input):
         return {
             "success": True,
@@ -129,7 +136,9 @@ def _build_client(monkeypatch):
                 "user_raw_text": user_input or "",
                 "prior_vision_state": "NO_HISTORY",
                 "specification_content": state.get("pending_spec_content", "SPEC"),
-                "compiled_authority": state.get("compiled_authority_cached", '{"ok": true}'),
+                "compiled_authority": state.get(
+                    "compiled_authority_cached", '{"ok": true}'
+                ),
             },
             "output_artifact": {
                 "updated_components": {
@@ -154,7 +163,9 @@ def _build_client(monkeypatch):
             "has_full_artifact": False,
         }
 
-    monkeypatch.setattr(api_module, "run_vision_agent_from_state", fake_run_vision_agent_from_state)
+    monkeypatch.setattr(
+        api_module, "run_vision_agent_from_state", fake_run_vision_agent_from_state
+    )
 
     return TestClient(api_module.app), repo, workflow
 
@@ -287,7 +298,9 @@ def test_create_project_auto_vision_failure_is_recorded(monkeypatch):
                 "user_raw_text": user_input or "",
                 "prior_vision_state": "NO_HISTORY",
                 "specification_content": state.get("pending_spec_content", "SPEC"),
-                "compiled_authority": state.get("compiled_authority_cached", '{"ok": true}'),
+                "compiled_authority": state.get(
+                    "compiled_authority_cached", '{"ok": true}'
+                ),
             },
             "output_artifact": {
                 "error": "VISION_GENERATION_FAILED",
@@ -318,7 +331,10 @@ def test_create_project_auto_vision_failure_is_recorded(monkeypatch):
     assert payload["data"]["vision_auto_run"]["attempted"] is True
     assert payload["data"]["vision_auto_run"]["success"] is False
     assert payload["data"]["vision_auto_run"]["is_complete"] is None
-    assert payload["data"]["vision_auto_run"]["failure_artifact_id"] == "vision-auto-failure"
+    assert (
+        payload["data"]["vision_auto_run"]["failure_artifact_id"]
+        == "vision-auto-failure"
+    )
 
     history = workflow.states["1"]["vision_attempts"]
     assert isinstance(history, list)
@@ -343,3 +359,75 @@ def test_create_project_setup_failure_exposes_failure_metadata(monkeypatch):
     assert payload["data"]["failure_stage"] == "output_validation"
     assert payload["data"]["has_full_artifact"] is True
     assert workflow.states["1"]["setup_failure_artifact_id"] == "setup-artifact-1"
+
+
+def test_get_projects_batch_session_lookup(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+
+    # Create dummy products
+    product1 = repo.create("Project 1")
+    product2 = repo.create("Project 2")
+    product3 = repo.create("Project 3")
+
+    # Only products 1 and 2 will have session states in the mock
+    product1.spec_file_path = (
+        __file__  # Use a file that exists on disk to pass _setup_blocker
+    )
+    product1.compiled_authority_json = '{"ok": true}'  # Also needed for _setup_blocker
+
+    workflow.states[str(product1.product_id)] = {
+        "fsm_state": "VISION_INTERVIEW",
+        "setup_status": "passed",
+    }
+    workflow.states[str(product2.product_id)] = {
+        "fsm_state": "SETUP_REQUIRED",
+        "setup_status": "failed",
+    }
+    # product3 has no state
+
+    # Keep track of how many times get_session_status is called (should be 0 now for get_projects)
+    call_counts = {"get_session_status": 0, "get_session_states_batch": 0}
+
+    # We don't necessarily need to mock the workflow methods since _build_client might mock them already
+    # Let's mock the get_session_states_batch to verify it's called
+    original_batch = workflow.get_session_states_batch
+
+    def fake_batch(session_ids):
+        call_counts["get_session_states_batch"] += 1
+        return original_batch(session_ids)
+
+    original_single = workflow.get_session_status
+
+    def fake_single(session_id):
+        call_counts["get_session_status"] += 1
+        return original_single(session_id)
+
+    monkeypatch.setattr(workflow, "get_session_states_batch", fake_batch)
+    monkeypatch.setattr(workflow, "get_session_status", fake_single)
+
+    response = client.get("/api/projects")
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["status"] == "success"
+    data = payload["data"]
+
+    assert len(data) >= 3  # at least our 3 products
+
+    # Check that batch was called instead of single status
+    assert call_counts["get_session_states_batch"] == 1
+    assert call_counts["get_session_status"] == 0
+
+    # Verify the correct payloads are returned
+    found1 = next(p for p in data if p["id"] == product1.product_id)
+    assert found1["fsm_state"] == "VISION_INTERVIEW"
+    assert found1["setup_status"] == "passed"
+
+    found2 = next(p for p in data if p["id"] == product2.product_id)
+    assert found2["fsm_state"] == "SETUP_REQUIRED"
+    assert found2["setup_status"] == "failed"
+
+    found3 = next(p for p in data if p["id"] == product3.product_id)
+    # the fallback in _effective_project_state logic should give defaults:
+    assert found3["fsm_state"] == "SETUP_REQUIRED"
+    assert found3["setup_status"] == "failed"
