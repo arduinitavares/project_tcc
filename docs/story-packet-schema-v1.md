@@ -160,6 +160,4 @@ type StoryPacket = {
 
 `GET /api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/packet`
 
-Returns the canonical Story Packet v1 JSON payload directly.
-
 The response shape is `{ "status": "success", "data": <canonical packet> }`. If `flavor` is supplied, `data.render` contains a derived prompt or brief for the requested presentation style.

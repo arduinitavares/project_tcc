@@ -175,6 +175,5 @@ type TaskPacket = {
 
 `GET /api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet`
 
-Returns the canonical Task Packet v2 JSON payload directly.
-
 The response shape is `{ "status": "success", "data": <canonical packet> }`. If `flavor` is supplied, `data.render` contains a derived prompt or brief for the requested presentation style.
+The recognized flavor families are `human|markdown|brief` for human-readable briefs and `cursor|copilot|agent|xml` for agent-style prompts; unknown values fall back to agent-style rendering.

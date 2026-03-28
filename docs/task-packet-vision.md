@@ -129,7 +129,7 @@ This allows task completion to remain task-scoped without silently inheriting st
 
 ## Consumption Model
 
-Consumers can request either the canonical packet JSON or a rendered view derived from that packet. The rendered view is a convenience layer only; it does not change the canonical schema or the task/story ownership split.
+Consumers always receive the canonical packet envelope, and may optionally request a `render` field alongside it. The rendered view is a convenience layer only; it does not change the canonical schema or the task/story ownership split.
 
 - Story renderings use story bootstrap semantics and keep story acceptance criteria as the completion contract.
 - Task human brief renderings are standalone and include compact parent-story orientation.
