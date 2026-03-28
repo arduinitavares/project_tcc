@@ -60,10 +60,23 @@ from orchestrator_agent.agent_tools.sprint_planner_tool.tools import (
 )
 from orchestrator_agent.fsm.states import OrchestratorState
 from repositories.product import ProductRepository
+from services.interview_runtime import (
+    append_attempt,
+    append_feedback_entry,
+    ensure_interview_subject,
+    hydrate_story_runtime_from_legacy,
+    mark_feedback_absorbed,
+    promote_reusable_draft,
+    reset_subject_working_set,
+    set_request_projection,
+)
 from services.vision_runtime import run_vision_agent_from_state
 from services.backlog_runtime import run_backlog_agent_from_state
 from services.roadmap_runtime import run_roadmap_agent_from_state
-from services.story_runtime import run_story_agent_from_state
+from services.story_runtime import (
+    run_story_agent_from_state,
+    run_story_agent_request,
+)
 from services.sprint_input import load_sprint_candidates
 from services.sprint_runtime import run_sprint_agent_from_state
 from services.workflow import WorkflowService
@@ -1842,40 +1855,132 @@ def _ensure_story_attempts(state: Dict[str, Any]) -> Dict[str, List[Dict[str, An
     return attempts
 
 
-def _record_story_attempt(
+def _story_retryable(classification: Optional[str]) -> bool:
+    return classification in {
+        "nonreusable_provider_failure",
+        "nonreusable_transport_failure",
+    }
+
+
+def _ensure_story_runtime(
     state: Dict[str, Any],
     *,
     parent_requirement: str,
-    trigger: str,
-    input_context: Dict[str, Any],
-    output_artifact: Dict[str, Any],
-    is_complete: bool,
-    failure_meta: Optional[Dict[str, Any]] = None,
-) -> int:
-    attempts_dict = _ensure_story_attempts(state)
-    if parent_requirement not in attempts_dict:
-        attempts_dict[parent_requirement] = []
-    
-    attempts = attempts_dict[parent_requirement]
-    normalized_failure = _failure_meta(failure_meta)
-    attempts.append(
-        {
-            "created_at": _now_iso(),
-            "trigger": trigger,
-            "input_context": input_context,
-            "output_artifact": output_artifact,
-            "is_complete": is_complete,
-            **normalized_failure,
-        }
+) -> Dict[str, Any]:
+    return hydrate_story_runtime_from_legacy(
+        state,
+        parent_requirement=parent_requirement,
     )
-    state["story_attempts"] = attempts_dict
-    
-    # Also log latest overall for the requirement
-    latest_outputs = state.get("story_outputs", {})
-    latest_outputs[parent_requirement] = output_artifact
-    state["story_outputs"] = latest_outputs
-    
-    return len(attempts)
+
+
+def _find_attempt_by_id(
+    runtime: Dict[str, Any],
+    attempt_id: str,
+) -> Optional[Dict[str, Any]]:
+    for attempt in reversed(runtime.get("attempt_history") or []):
+        if not isinstance(attempt, dict):
+            continue
+        if attempt.get("attempt_id") == attempt_id:
+            return attempt
+    return None
+
+
+def _story_save_payload(runtime: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    draft_projection = runtime.get("draft_projection") or {}
+    if draft_projection.get("kind") != "complete_draft":
+        return None
+
+    attempt_id = draft_projection.get("latest_reusable_attempt_id")
+    if not isinstance(attempt_id, str) or not attempt_id:
+        return None
+
+    attempt = _find_attempt_by_id(runtime, attempt_id)
+    artifact = (attempt or {}).get("output_artifact")
+    if not isinstance(artifact, dict):
+        return None
+    if not artifact.get("is_complete"):
+        return None
+
+    stories = artifact.get("user_stories")
+    if not isinstance(stories, list) or len(stories) == 0:
+        return None
+    return artifact
+
+
+def _story_interview_summary(runtime: Dict[str, Any]) -> Dict[str, Any]:
+    draft_projection = runtime.get("draft_projection") or {}
+    attempts = runtime.get("attempt_history") or []
+    latest_attempt = attempts[-1] if attempts else {}
+    request_projection = runtime.get("request_projection") or {}
+    retry_available = bool(
+        latest_attempt.get("retryable")
+        and isinstance(request_projection.get("payload"), dict)
+    )
+
+    current_draft = None
+    if draft_projection:
+        current_draft = {
+            "attempt_id": draft_projection.get("latest_reusable_attempt_id"),
+            "kind": draft_projection.get("kind"),
+            "is_complete": bool(draft_projection.get("is_complete", False)),
+        }
+
+    return {
+        "current_draft": current_draft,
+        "retry": {
+            "available": retry_available,
+            "target_attempt_id": latest_attempt.get("attempt_id")
+            if retry_available
+            else None,
+        },
+        "save": {
+            "available": bool(_story_save_payload(runtime)),
+        },
+    }
+
+
+def _sync_story_legacy_mirrors(
+    state: Dict[str, Any],
+    *,
+    parent_requirement: str,
+    runtime: Dict[str, Any],
+) -> None:
+    story_attempts = state.get("story_attempts")
+    if not isinstance(story_attempts, dict):
+        story_attempts = {}
+        state["story_attempts"] = story_attempts
+
+    story_attempts[parent_requirement] = [
+        {
+            "created_at": attempt.get("created_at"),
+            "trigger": attempt.get("trigger"),
+            "input_context": {},
+            "output_artifact": attempt.get("output_artifact"),
+            "is_complete": bool(
+                ((attempt.get("output_artifact") or {}) if isinstance(attempt, dict) else {}).get(
+                    "is_complete"
+                )
+            ),
+            "failure_artifact_id": attempt.get("failure_artifact_id"),
+            "failure_stage": attempt.get("failure_stage"),
+            "failure_summary": attempt.get("failure_summary"),
+            "raw_output_preview": attempt.get("raw_output_preview"),
+            "has_full_artifact": bool(attempt.get("has_full_artifact", False)),
+        }
+        for attempt in runtime.get("attempt_history") or []
+        if isinstance(attempt, dict) and attempt.get("trigger") != "reset"
+    ]
+
+    story_outputs = state.get("story_outputs")
+    if not isinstance(story_outputs, dict):
+        story_outputs = {}
+        state["story_outputs"] = story_outputs
+
+    reusable = _story_save_payload(runtime)
+    if reusable:
+        story_outputs[parent_requirement] = reusable
+    else:
+        story_outputs.pop(parent_requirement, None)
 
 
 @app.get("/api/projects/{project_id}/story/pending")
@@ -1958,32 +2063,97 @@ async def generate_project_story(project_id: int, parent_requirement: str, req: 
         else:
             raise HTTPException(status_code=400, detail=f"Requirement '{parent_requirement}' not found in saved roadmap.")
 
-    attempts_dict = _ensure_story_attempts(state)
-    req_attempts = attempts_dict.get(parent_requirement, [])
-    has_attempts = len(req_attempts) > 0
+    runtime = _ensure_story_runtime(
+        state,
+        parent_requirement=parent_requirement,
+    )
+    has_attempts = any(
+        isinstance(attempt, dict) and attempt.get("trigger") != "reset"
+        for attempt in runtime.get("attempt_history") or []
+    )
+    normalized_user_input = req.user_input.strip() if isinstance(req.user_input, str) else None
 
-    if has_attempts and not req.user_input:
+    if has_attempts and not normalized_user_input:
         raise HTTPException(
             status_code=400,
             detail="User input is required to refine an existing story.",
         )
 
+    included_feedback_ids: List[str] = []
+    if normalized_user_input:
+        feedback_entry = append_feedback_entry(
+            runtime,
+            normalized_user_input,
+            _now_iso(),
+        )
+        included_feedback_ids.append(feedback_entry["feedback_id"])
+
     story_result = await run_story_agent_from_state(
-        state, 
+        state,
         project_id=project_id,
         parent_requirement=parent_requirement,
-        user_input=req.user_input
+        user_input=req.user_input,
+    )
+    request_payload = story_result.get("request_payload")
+    if not isinstance(request_payload, dict):
+        request_payload = {}
+
+    created_at = _now_iso()
+    draft_basis_attempt_id = (runtime.get("draft_projection") or {}).get(
+        "latest_reusable_attempt_id"
+    )
+    request_projection = set_request_projection(
+        runtime,
+        request_snapshot_id=f"request-{len(runtime.get('attempt_history') or []) + 1}",
+        payload=request_payload,
+        request_hash=hashlib.sha256(
+            json.dumps(request_payload, sort_keys=True).encode("utf-8")
+        ).hexdigest(),
+        created_at=created_at,
+        draft_basis_attempt_id=draft_basis_attempt_id
+        if isinstance(draft_basis_attempt_id, str)
+        else None,
+        included_feedback_ids=included_feedback_ids,
+        context_version="story-runtime.v1",
     )
 
-    is_complete = bool(story_result.get("is_complete", False))
-    attempt_count = _record_story_attempt(
+    attempt_id = f"attempt-{len(runtime.get('attempt_history') or []) + 1}"
+    append_attempt(
+        runtime,
+        {
+            "attempt_id": attempt_id,
+            "created_at": created_at,
+            "trigger": "manual_refine" if normalized_user_input else "auto_transition",
+            "request_snapshot_id": request_projection.get("request_snapshot_id"),
+            "draft_basis_attempt_id": request_projection.get("draft_basis_attempt_id"),
+            "included_feedback_ids": list(included_feedback_ids),
+            "classification": story_result.get("classification"),
+            "is_reusable": bool(story_result.get("is_reusable", False)),
+            "retryable": _story_retryable(story_result.get("classification")),
+            "draft_kind": story_result.get("draft_kind"),
+            "output_artifact": story_result.get("output_artifact") or {},
+            **_failure_meta(story_result, fallback_summary=story_result.get("error")),
+        },
+    )
+
+    if story_result.get("is_reusable"):
+        promote_reusable_draft(
+            runtime,
+            attempt_id=attempt_id,
+            kind=story_result.get("draft_kind") or "incomplete_draft",
+            is_complete=bool(story_result.get("is_complete", False)),
+            updated_at=created_at,
+        )
+        mark_feedback_absorbed(
+            runtime,
+            feedback_ids=included_feedback_ids,
+            attempt_id=attempt_id,
+        )
+
+    _sync_story_legacy_mirrors(
         state,
         parent_requirement=parent_requirement,
-        trigger="manual_refine" if has_attempts else "auto_transition",
-        input_context=story_result.get("input_context") or {},
-        output_artifact=story_result.get("output_artifact") or {},
-        is_complete=is_complete,
-        failure_meta=story_result,
+        runtime=runtime,
     )
 
     _save_session_state(session_id, state)
@@ -1992,14 +2162,86 @@ async def generate_project_story(project_id: int, parent_requirement: str, req: 
         "status": "success",
         "parent_requirement": parent_requirement,
         "data": {
-            "is_complete": is_complete,
-            "story_run_success": bool(story_result.get("success")),
-            "error": story_result.get("error"),
-            "trigger": "manual_refine" if has_attempts else "auto_transition",
-            "input_context": story_result.get("input_context"),
             "output_artifact": story_result.get("output_artifact"),
-            "attempt_count": attempt_count,
+            **_story_interview_summary(runtime),
+        },
+    }
+
+
+@app.post("/api/projects/{project_id}/story/retry")
+async def retry_project_story(project_id: int, parent_requirement: str):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+    runtime = _ensure_story_runtime(
+        state,
+        parent_requirement=parent_requirement,
+    )
+    request_projection = runtime.get("request_projection") or {}
+    request_payload = request_projection.get("payload")
+    if not isinstance(request_payload, dict):
+        raise HTTPException(
+            status_code=409,
+            detail="No replayable story request is available.",
+        )
+
+    story_result = await run_story_agent_request(
+        request_payload,
+        project_id=project_id,
+        parent_requirement=parent_requirement,
+    )
+
+    created_at = _now_iso()
+    included_feedback_ids = list(request_projection.get("included_feedback_ids") or [])
+    attempt_id = f"attempt-{len(runtime.get('attempt_history') or []) + 1}"
+    append_attempt(
+        runtime,
+        {
+            "attempt_id": attempt_id,
+            "created_at": created_at,
+            "trigger": "retry_same_input",
+            "request_snapshot_id": request_projection.get("request_snapshot_id"),
+            "draft_basis_attempt_id": request_projection.get("draft_basis_attempt_id"),
+            "included_feedback_ids": included_feedback_ids,
+            "classification": story_result.get("classification"),
+            "is_reusable": bool(story_result.get("is_reusable", False)),
+            "retryable": _story_retryable(story_result.get("classification")),
+            "draft_kind": story_result.get("draft_kind"),
+            "output_artifact": story_result.get("output_artifact") or {},
             **_failure_meta(story_result, fallback_summary=story_result.get("error")),
+        },
+    )
+
+    if story_result.get("is_reusable"):
+        promote_reusable_draft(
+            runtime,
+            attempt_id=attempt_id,
+            kind=story_result.get("draft_kind") or "incomplete_draft",
+            is_complete=bool(story_result.get("is_complete", False)),
+            updated_at=created_at,
+        )
+        mark_feedback_absorbed(
+            runtime,
+            feedback_ids=included_feedback_ids,
+            attempt_id=attempt_id,
+        )
+
+    _sync_story_legacy_mirrors(
+        state,
+        parent_requirement=parent_requirement,
+        runtime=runtime,
+    )
+    _save_session_state(session_id, state)
+
+    return {
+        "status": "success",
+        "parent_requirement": parent_requirement,
+        "data": {
+            "output_artifact": story_result.get("output_artifact"),
+            **_story_interview_summary(runtime),
         },
     }
 
@@ -2012,16 +2254,19 @@ async def get_project_story_history(project_id: int, parent_requirement: str):
 
     session_id = str(project_id)
     state = await _ensure_session(session_id)
-    
-    attempts_dict = _ensure_story_attempts(state)
-    req_attempts = attempts_dict.get(parent_requirement, [])
+    runtime = _ensure_story_runtime(
+        state,
+        parent_requirement=parent_requirement,
+    )
+    attempt_history = runtime.get("attempt_history") or []
 
     return {
         "status": "success",
         "parent_requirement": parent_requirement,
         "data": {
-            "items": req_attempts,
-            "count": len(req_attempts),
+            "items": attempt_history,
+            "count": len(attempt_history),
+            **_story_interview_summary(runtime),
         },
     }
 
@@ -2034,18 +2279,14 @@ async def save_project_story(project_id: int, parent_requirement: str):
 
     session_id = str(project_id)
     state = await _ensure_session(session_id)
-
-    outputs_dict = state.get("story_outputs", {})
-    assessment = outputs_dict.get(parent_requirement)
+    runtime = _ensure_story_runtime(
+        state,
+        parent_requirement=parent_requirement,
+    )
+    assessment = _story_save_payload(runtime)
     
     if not assessment:
         raise HTTPException(status_code=409, detail=f"No story draft available for '{parent_requirement}'")
-
-    if not assessment.get("is_complete"):
-        raise HTTPException(
-            status_code=409,
-            detail="Cannot persist stories because the latest output indicates it is incomplete.",
-        )
 
     stories = assessment.get("user_stories")
     if not isinstance(stories, list) or len(stories) == 0:
@@ -2066,8 +2307,15 @@ async def save_project_story(project_id: int, parent_requirement: str):
 
     # Record that this specific requirement was saved successfully
     saved_reqs_dict = context.state.get("story_saved", {})
+    if not isinstance(saved_reqs_dict, dict):
+        saved_reqs_dict = {}
     saved_reqs_dict[parent_requirement] = True
     context.state["story_saved"] = saved_reqs_dict
+    _sync_story_legacy_mirrors(
+        context.state,
+        parent_requirement=parent_requirement,
+        runtime=runtime,
+    )
     
     _save_session_state(session_id, context.state)
 
@@ -2136,31 +2384,26 @@ async def delete_project_story(project_id: int, parent_requirement: str):
     # Clean up session state
     session_id = str(project_id)
     state = await _ensure_session(session_id)
-    state_modified = False
+    runtime = _ensure_story_runtime(
+        state,
+        parent_requirement=parent_requirement,
+    )
+    reset_subject_working_set(
+        runtime,
+        created_at=_now_iso(),
+        summary="Stories deleted and state reset by user.",
+    )
 
-    # 1. Remove from saved list
-    if "story_saved" in state and parent_requirement in state["story_saved"]:
-        del state["story_saved"][parent_requirement]
-        state_modified = True
-        
-    # 2. Remove latest output artifact
-    if "story_outputs" in state and parent_requirement in state["story_outputs"]:
-        del state["story_outputs"][parent_requirement]
-        state_modified = True
+    story_saved = state.get("story_saved")
+    if isinstance(story_saved, dict):
+        story_saved.pop(parent_requirement, None)
 
-    # 3. Add a soft "reset" marker to the history if there are attempts
-    if "story_attempts" in state and parent_requirement in state["story_attempts"]:
-        state["story_attempts"][parent_requirement].append({
-            "is_complete": False,
-            "trigger": "manual_refine",
-            "input_context": {"system_message": "Stories deleted and state reset by user."},
-            "output_artifact": None,
-            "created_at": _now_iso(),
-        })
-        state_modified = True
-
-    if state_modified:
-        _save_session_state(session_id, state)
+    _sync_story_legacy_mirrors(
+        state,
+        parent_requirement=parent_requirement,
+        runtime=runtime,
+    )
+    _save_session_state(session_id, state)
 
     return {
         "status": "success",

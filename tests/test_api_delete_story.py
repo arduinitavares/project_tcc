@@ -146,7 +146,80 @@ async def test_delete_project_story(
     mock_state = {
         "story_saved": {parent_req: True},
         "story_outputs": {parent_req: {"data": "some artifact"}},
-        "story_attempts": {parent_req: ["attempt 1"]},
+        "story_attempts": {
+            parent_req: [
+                {
+                    "created_at": "2026-03-28T10:00:00Z",
+                    "trigger": "manual_refine",
+                    "input_context": {},
+                    "output_artifact": {"data": "some artifact"},
+                    "is_complete": True,
+                    "failure_artifact_id": None,
+                    "failure_stage": None,
+                    "failure_summary": None,
+                    "raw_output_preview": None,
+                    "has_full_artifact": False,
+                }
+            ]
+        },
+        "interview_runtime": {
+            "story": {
+                parent_req: {
+                    "phase": "story",
+                    "subject_key": parent_req,
+                    "attempt_history": [
+                        {
+                            "attempt_id": "attempt-1",
+                            "created_at": "2026-03-28T10:00:00Z",
+                            "trigger": "manual_refine",
+                            "request_snapshot_id": "request-1",
+                            "draft_basis_attempt_id": None,
+                            "included_feedback_ids": ["feedback-1"],
+                            "classification": "reusable_content_result",
+                            "is_reusable": True,
+                            "retryable": False,
+                            "draft_kind": "complete_draft",
+                            "output_artifact": {
+                                "data": "some artifact",
+                                "is_complete": True,
+                            },
+                            "failure_artifact_id": None,
+                            "failure_stage": None,
+                            "failure_summary": None,
+                            "raw_output_preview": None,
+                            "has_full_artifact": False,
+                        }
+                    ],
+                    "draft_projection": {
+                        "latest_reusable_attempt_id": "attempt-1",
+                        "kind": "complete_draft",
+                        "is_complete": True,
+                        "updated_at": "2026-03-28T10:00:00Z",
+                    },
+                    "feedback_projection": {
+                        "items": [
+                            {
+                                "feedback_id": "feedback-1",
+                                "text": "keep it smaller",
+                                "created_at": "2026-03-28T09:59:00Z",
+                                "status": "absorbed",
+                                "absorbed_by_attempt_id": "attempt-1",
+                            }
+                        ],
+                        "next_feedback_sequence": 1,
+                    },
+                    "request_projection": {
+                        "request_snapshot_id": "request-1",
+                        "payload": {"parent_requirement": parent_req},
+                        "request_hash": "hash-1",
+                        "created_at": "2026-03-28T10:00:00Z",
+                        "draft_basis_attempt_id": None,
+                        "included_feedback_ids": ["feedback-1"],
+                        "context_version": "story-runtime.v1",
+                    },
+                }
+            }
+        },
         "another_req": "should not be touched",
     }
 
@@ -265,21 +338,16 @@ async def test_delete_project_story(
 
     assert parent_req not in final_state["story_saved"]
     assert parent_req not in final_state["story_outputs"]
-    assert len(final_state["story_attempts"][parent_req]) == 2
+    assert len(final_state["story_attempts"][parent_req]) == 1
+    assert final_state["story_attempts"][parent_req][0]["trigger"] == "manual_refine"
 
-    last_attempt = final_state["story_attempts"][parent_req][-1]
-    assert not last_attempt["is_complete"]
-    assert last_attempt["trigger"] == "manual_refine"
-    assert "user" in last_attempt["input_context"]["system_message"]
-    assert "another_req" in final_state
-    final_state = saved_state_calls[0]
-
-    assert parent_req not in final_state["story_saved"]
-    assert parent_req not in final_state["story_outputs"]
-    assert len(final_state["story_attempts"][parent_req]) == 2
-
-    last_attempt = final_state["story_attempts"][parent_req][-1]
-    assert not last_attempt["is_complete"]
-    assert last_attempt["trigger"] == "manual_refine"
-    assert "user" in last_attempt["input_context"]["system_message"]
+    runtime = final_state["interview_runtime"]["story"][parent_req]
+    assert runtime["draft_projection"] == {}
+    assert runtime["request_projection"] == {}
+    assert runtime["feedback_projection"]["items"] == []
+    assert len(runtime["attempt_history"]) == 2
+    reset_attempt = runtime["attempt_history"][-1]
+    assert reset_attempt["trigger"] == "reset"
+    assert reset_attempt["classification"] == "reset_marker"
+    assert "state reset by user" in reset_attempt["summary"]
     assert "another_req" in final_state
