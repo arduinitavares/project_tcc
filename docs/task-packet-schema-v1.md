@@ -166,6 +166,7 @@ type TaskPacket = {
   - `task_kind`
   - `artifact_targets`
   - `workstream_tags`
+  - `checklist_items`
   - `relevant_invariant_ids`
 - Existing tasks are backfilled one-way to the canonical empty metadata object.
 - Unknown invariant IDs in task metadata are ignored during packet assembly and never promoted into `task_hard_constraints`.
@@ -199,6 +200,7 @@ type StructuredTaskSpec = {
   task_kind: "analysis" | "design" | "implementation" | "testing" | "documentation" | "refactor" | "other";
   artifact_targets: string[];
   workstream_tags: string[];
+  checklist_items: string[];
   relevant_invariant_ids: string[];
 };
 ```
@@ -206,7 +208,7 @@ type StructuredTaskSpec = {
 Validation rules:
 - `description` must be non-empty.
 - `task_kind` must use the allowed enum values.
-- `artifact_targets`, `workstream_tags`, and `relevant_invariant_ids` are trimmed, deduped, and reject empty-string values.
+- `artifact_targets`, `workstream_tags`, `checklist_items`, and `relevant_invariant_ids` are trimmed, deduped, and reject empty-string values.
 - `relevant_invariant_ids` must be a subset of the parent story's `evaluated_invariant_ids`.
 
 ## Historical Endpoint Note

@@ -141,7 +141,8 @@ type StoryPacket = {
 
 ### Story task plan
 
-- `task_plan.tasks` is the ordered list of tasks currently decomposed under the story in the sprint context.
+- `task_plan.tasks` is the ordered list of tasks currently decomposed under the story for the requested story+sprint packet context.
+- Because tasks are currently stored at story scope and there is no separate `task -> sprint` relation, the task plan is story-scoped rather than filtered to sprint-only task membership.
 - Each task entry reuses the canonical sprint task serialization shape, including task-local metadata fields such as `checklist_items` and `is_executable`.
 - `task_plan` is orientation/bootstrap context for the story session; it does not replace `task_packet.v2` as the canonical task-local execution artifact.
 
