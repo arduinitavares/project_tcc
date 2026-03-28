@@ -13,6 +13,7 @@ from orchestrator_agent.agent_tools.user_story_writer_tool.schemes import (
     UserStoryWriterInput,
     UserStoryWriterOutput,
 )
+from services.interview_runtime import hydrate_story_runtime_from_legacy
 from utils.adk_runner import get_agent_model_info, invoke_agent_to_text, parse_json_payload
 from utils.failure_artifacts import AgentInvocationError, write_failure_artifact
 from utils.runtime_config import STORY_RUNNER_IDENTITY
@@ -167,97 +168,211 @@ def _failure(
     }
 
 
-async def run_story_agent_from_state(
+def _with_failure_metadata(
+    result: Dict[str, Any],
+    *,
+    classification: str,
+    draft_kind: Optional[str],
+    is_reusable: bool,
+    request_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    result.update(
+        {
+            "classification": classification,
+            "draft_kind": draft_kind,
+            "is_reusable": is_reusable,
+            "request_payload": request_payload,
+        }
+    )
+    return result
+
+
+def _get_latest_reusable_story_artifact(
     state: Dict[str, Any],
+    *,
+    parent_requirement: str,
+) -> Optional[Dict[str, Any]]:
+    runtime = hydrate_story_runtime_from_legacy(
+        state,
+        parent_requirement=parent_requirement,
+    )
+    draft_projection = runtime.get("draft_projection") or {}
+    attempt_id = draft_projection.get("latest_reusable_attempt_id")
+    if not isinstance(attempt_id, str) or not attempt_id:
+        return None
+
+    for attempt in reversed(runtime.get("attempt_history") or []):
+        if not isinstance(attempt, dict):
+            continue
+        if attempt.get("attempt_id") != attempt_id:
+            continue
+        artifact = attempt.get("output_artifact")
+        return artifact if isinstance(artifact, dict) else None
+    return None
+
+
+def _collect_unabsorbed_feedback_text(runtime: Dict[str, Any]) -> List[str]:
+    feedback_projection = runtime.get("feedback_projection") or {}
+    if not isinstance(feedback_projection, dict):
+        return []
+
+    items = feedback_projection.get("items") or []
+    if not isinstance(items, list):
+        return []
+
+    feedback_text: List[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("status") != "unabsorbed":
+            continue
+        text = item.get("text")
+        if isinstance(text, str) and text.strip():
+            feedback_text.append(text)
+    return feedback_text
+
+
+def build_story_request_payload(
+    state: Dict[str, Any],
+    *,
+    parent_requirement: str,
+) -> Dict[str, Any]:
+    input_context = build_story_input_context(state, parent_requirement=parent_requirement)
+    runtime = hydrate_story_runtime_from_legacy(
+        state,
+        parent_requirement=parent_requirement,
+    )
+
+    reusable_artifact = _get_latest_reusable_story_artifact(
+        state,
+        parent_requirement=parent_requirement,
+    )
+    if reusable_artifact:
+        input_context["requirement_context"] += (
+            "\n\n--- PREVIOUS DRAFT TO REFINE ---\n"
+            f"{json.dumps(reusable_artifact, indent=2)}"
+        )
+
+    feedback_items = _collect_unabsorbed_feedback_text(runtime)
+    if feedback_items:
+        input_context["requirement_context"] += (
+            "\n\n--- USER REFINEMENT FEEDBACK ---\n"
+            + "\n".join(feedback_items)
+        )
+
+    return input_context
+
+
+async def run_story_agent_request(
+    request_payload: Dict[str, Any],
     *,
     project_id: int,
     parent_requirement: str,
-    user_input: Optional[str],
 ) -> Dict[str, Any]:
-    input_context = build_story_input_context(state, parent_requirement=parent_requirement)
-
-    # Inject the previous draft so the agent can iterate instead of starting from scratch
-    attempts_dict = state.get("story_attempts")
-    if isinstance(attempts_dict, dict) and parent_requirement in attempts_dict:
-        req_attempts = attempts_dict[parent_requirement]
-        if req_attempts:
-            last_artifact = req_attempts[-1].get("output_artifact")
-            if last_artifact:
-                try:
-                    last_json = json.dumps(last_artifact, indent=2)
-                    input_context["requirement_context"] += f"\n\n--- PREVIOUS DRAFT TO REFINE ---\n{last_json}"
-                except Exception:
-                    pass
-
-    if user_input:
-        input_context["requirement_context"] += f"\n\n--- USER REFINEMENT FEEDBACK ---\n{user_input}"
-
     try:
-        payload = UserStoryWriterInput.model_validate(input_context)
+        payload = UserStoryWriterInput.model_validate(request_payload)
     except ValidationError as exc:
-        return _failure(
-            project_id=project_id,
-            parent_requirement=parent_requirement,
-            input_context=input_context,
-            failure_stage="input_validation",
-            message=f"Story input validation failed: {exc}",
-            validation_errors=exc.errors(),
-            exception=exc,
+        return _with_failure_metadata(
+            _failure(
+                project_id=project_id,
+                parent_requirement=parent_requirement,
+                input_context=request_payload,
+                failure_stage="input_validation",
+                message=f"Story input validation failed: {exc}",
+                validation_errors=exc.errors(),
+                exception=exc,
+            ),
+            classification="nonreusable_schema_failure",
+            draft_kind=None,
+            is_reusable=False,
+            request_payload=request_payload,
         )
 
     try:
         raw_text = await _invoke_story_agent(payload)
     except AgentInvocationError as exc:
-        return _failure(
-            project_id=project_id,
-            parent_requirement=parent_requirement,
-            input_context=input_context,
-            failure_stage="invocation_exception",
-            message=f"Story runtime failed: {exc}",
-            raw_text=exc.partial_output,
-            exception=exc,
+        return _with_failure_metadata(
+            _failure(
+                project_id=project_id,
+                parent_requirement=parent_requirement,
+                input_context=request_payload,
+                failure_stage="invocation_exception",
+                message=f"Story runtime failed: {exc}",
+                raw_text=exc.partial_output,
+                exception=exc,
+            ),
+            classification="nonreusable_provider_failure",
+            draft_kind=None,
+            is_reusable=False,
+            request_payload=request_payload,
         )
     except Exception as exc:  # pylint: disable=broad-except
-        return _failure(
-            project_id=project_id,
-            parent_requirement=parent_requirement,
-            input_context=input_context,
-            failure_stage="invocation_exception",
-            message=f"Story runtime failed: {exc}",
-            exception=exc,
+        return _with_failure_metadata(
+            _failure(
+                project_id=project_id,
+                parent_requirement=parent_requirement,
+                input_context=request_payload,
+                failure_stage="invocation_exception",
+                message=f"Story runtime failed: {exc}",
+                exception=exc,
+            ),
+            classification="nonreusable_provider_failure",
+            draft_kind=None,
+            is_reusable=False,
+            request_payload=request_payload,
         )
 
     parsed = parse_json_payload(raw_text)
     if parsed is None:
-        return _failure(
-            project_id=project_id,
-            parent_requirement=parent_requirement,
-            input_context=input_context,
-            failure_stage="invalid_json",
-            message="Story response is not valid JSON",
-            raw_text=raw_text,
+        return _with_failure_metadata(
+            _failure(
+                project_id=project_id,
+                parent_requirement=parent_requirement,
+                input_context=request_payload,
+                failure_stage="invalid_json",
+                message="Story response is not valid JSON",
+                raw_text=raw_text,
+            ),
+            classification="nonreusable_schema_failure",
+            draft_kind=None,
+            is_reusable=False,
+            request_payload=request_payload,
         )
 
     try:
         output_model = UserStoryWriterOutput.model_validate(parsed)
     except ValidationError as exc:
-        return _failure(
-            project_id=project_id,
-            parent_requirement=parent_requirement,
-            input_context=input_context,
-            failure_stage="output_validation",
-            message=f"Story output validation failed: {exc}",
-            raw_text=raw_text,
-            validation_errors=exc.errors(),
-            exception=exc,
+        return _with_failure_metadata(
+            _failure(
+                project_id=project_id,
+                parent_requirement=parent_requirement,
+                input_context=request_payload,
+                failure_stage="output_validation",
+                message=f"Story output validation failed: {exc}",
+                raw_text=raw_text,
+                validation_errors=exc.errors(),
+                exception=exc,
+            ),
+            classification="nonreusable_schema_failure",
+            draft_kind=None,
+            is_reusable=False,
+            request_payload=request_payload,
         )
 
     output_artifact = output_model.model_dump(exclude_none=True)
     return {
         "success": True,
-        "input_context": input_context,
+        "input_context": request_payload,
         "output_artifact": output_artifact,
+        "classification": "reusable_content_result",
+        "draft_kind": (
+            "complete_draft"
+            if bool(output_artifact.get("is_complete", False))
+            else "incomplete_draft"
+        ),
+        "is_reusable": True,
         "is_complete": bool(output_artifact.get("is_complete", False)),
+        "request_payload": request_payload,
         "error": None,
         "failure_artifact_id": None,
         "failure_stage": None,
@@ -265,3 +380,22 @@ async def run_story_agent_from_state(
         "raw_output_preview": None,
         "has_full_artifact": False,
     }
+
+
+async def run_story_agent_from_state(
+    state: Dict[str, Any],
+    *,
+    project_id: int,
+    parent_requirement: str,
+    user_input: Optional[str],
+) -> Dict[str, Any]:
+    del user_input
+    request_payload = build_story_request_payload(
+        state,
+        parent_requirement=parent_requirement,
+    )
+    return await run_story_agent_request(
+        request_payload,
+        project_id=project_id,
+        parent_requirement=parent_requirement,
+    )
