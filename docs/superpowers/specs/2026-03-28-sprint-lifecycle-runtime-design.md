@@ -101,7 +101,8 @@ Lifecycle rules:
 
 Lifecycle transitions:
 
-- `save sprint plan` creates or updates the single open `Planned` sprint, including while another sprint is currently `Active`
+- `save sprint plan` creates the single open `Planned` sprint when none exists, including while another sprint is currently `Active`
+- `modify planned sprint` updates the existing open `Planned` sprint in place
 - `start sprint` transitions `Planned -> Active`
 - `close sprint` transitions `Active -> Completed`
 
@@ -110,6 +111,7 @@ Unsupported transitions:
 - `Completed -> Active`
 - `Completed -> Planned`
 - creating a second planned sprint while one already exists
+- treating an update to the existing planned sprint as if it were creation of an additional planned sprint
 - starting a sprint while another sprint is already active
 
 ## Project Shell UX Contract
@@ -326,6 +328,7 @@ The API should provide server-derived lifecycle semantics directly so the fronte
 - `completed_at`
 - `history_fidelity`
 - allowed actions for each sprint
+- lightweight completed-sprint summary fields only, not the full denormalized close snapshot
 
 Recommended allowed-action fields:
 
@@ -338,6 +341,22 @@ When an action is unavailable, the API should also provide reason strings where 
 - `start_disabled_reason`
 - `close_disabled_reason`
 - `modify_disabled_reason`
+
+The list response stays lightweight. It should provide enough information for sprint selection, landing priority, and high-level status chips, but it should not embed the full denormalized close snapshot for every completed sprint.
+
+### Sprint Detail Response
+
+The selected sprint should be loaded through a dedicated detail payload such as:
+
+- `GET /api/projects/{project_id}/sprints/{sprint_id}`
+
+This response should return:
+
+- full sprint detail for planned and active sprints
+- the denormalized close snapshot for completed sprints when available
+- the same server-derived allowed actions and reason fields used by the list response
+
+For legacy completed sprints without a snapshot, the detail response should still return `history_fidelity = "derived"` so the UI can present the history honestly.
 
 ### Project-Level Runtime Summary
 
@@ -360,17 +379,19 @@ Recommended project-level action fields:
 Add explicit close endpoints parallel to the existing story-close interaction:
 
 - `GET /api/projects/{project_id}/sprints/{sprint_id}/close`
-  Returns readiness preview and close eligibility information.
+  Returns readiness preview and close eligibility information. This endpoint should behave like the existing story-close `GET`: it may return `200` for non-active sprints with `close_eligible = false` and an explanatory reason so the UI can render a disabled close flow with guidance.
 - `POST /api/projects/{project_id}/sprints/{sprint_id}/close`
-  Persists closure, stamps `completed_at`, writes the close snapshot, and returns the completed sprint payload.
+  Persists closure, stamps `completed_at`, writes the close snapshot, and returns the completed sprint payload. This endpoint is the one that enforces lifecycle conflicts for non-active sprints.
 
 ## Error Handling Contract
 
 Lifecycle guardrails should surface as specific workflow conflicts:
 
 - `409 Conflict` when starting a sprint while another sprint is active
-- `409 Conflict` when creating or saving a new planned sprint while another planned sprint exists
-- `409 Conflict` when closing a sprint that is not active
+- `409 Conflict` when attempting to create an additional planned sprint while another planned sprint already exists
+- updating the existing planned sprint is allowed and must not be treated as the conflict above
+- `409 Conflict` on `POST /sprints/{id}/close` when the sprint is not active
+- `GET /sprints/{id}/close` should return readiness and eligibility data instead of using that conflict response
 - `404 Not Found` when the sprint does not belong to the project
 - `422 Unprocessable Entity` for malformed close payloads
 
@@ -409,16 +430,21 @@ Testing should target lifecycle invariants and contract boundaries, not just vis
 
 ### Backend Tests
 
-- saving a sprint creates or updates the single open planned sprint
+- saving a sprint creates the single open planned sprint when none exists
+- modifying the current planned sprint updates it in place
+- attempting to create a second planned sprint is blocked
 - starting a sprint transitions it to `Active`
 - starting a sprint is blocked when another sprint is already active
 - closing a sprint transitions it to `Completed`
 - closing a sprint stamps `completed_at`
 - closing a sprint writes a close snapshot
+- `GET /sprints/{id}/close` returns `close_eligible = false` plus an ineligible reason for non-active sprints
+- `POST /sprints/{id}/close` returns `409` for non-active sprints
 - completed sprints remain listable and readable
 - stories in open planned or active sprints are excluded from sprint candidates
 - unfinished stories from completed sprints are eligible sprint candidates
-- sprint list responses expose canonical status, fidelity, runtime summary, and allowed actions
+- sprint list responses expose canonical status, fidelity, runtime summary, and allowed actions without embedding full close snapshots
+- sprint detail responses expose the full completed-sprint snapshot when available
 - legacy `SPRINT_COMPLETE` shell state renders as planning-complete rather than terminal-project-complete
 
 ### Frontend Tests
