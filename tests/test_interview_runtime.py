@@ -17,7 +17,7 @@ def test_ensure_interview_subject_initializes_empty_projection() -> None:
         "subject_key": "req-1",
         "attempt_history": [],
         "draft_projection": {},
-        "feedback_projection": {"items": []},
+        "feedback_projection": {"items": [], "next_feedback_sequence": 0},
         "request_projection": {},
     }
     assert state == {
@@ -27,6 +27,35 @@ def test_ensure_interview_subject_initializes_empty_projection() -> None:
             }
         }
     }
+
+
+def test_ensure_interview_subject_normalizes_partial_nested_structures() -> None:
+    state: dict[str, object] = {
+        "interview_runtime": {
+            "story": {
+                "req-1": {
+                    "phase": "story",
+                    "subject_key": "req-1",
+                    "attempt_history": [],
+                    "draft_projection": {},
+                    "feedback_projection": {},
+                    "request_projection": {},
+                }
+            }
+        }
+    }
+
+    runtime = interview_runtime.ensure_interview_subject(
+        state,
+        phase="story",
+        subject_key="req-1",
+    )
+
+    assert runtime["feedback_projection"] == {
+        "items": [],
+        "next_feedback_sequence": 0,
+    }
+    assert runtime["request_projection"] == {}
 
 
 def test_append_feedback_and_mark_absorbed() -> None:
@@ -66,6 +95,35 @@ def test_append_feedback_and_mark_absorbed() -> None:
         "status": "absorbed",
         "absorbed_by_attempt_id": "attempt-1",
     }
+
+
+def test_append_feedback_ids_remain_unique_across_reset() -> None:
+    state: dict[str, object] = {}
+    runtime = interview_runtime.ensure_interview_subject(
+        state,
+        phase="story",
+        subject_key="req-1",
+    )
+
+    first = interview_runtime.append_feedback_entry(
+        runtime,
+        text="first",
+        created_at="2026-03-28T10:00:00Z",
+    )
+    interview_runtime.reset_subject_working_set(
+        runtime,
+        created_at="2026-03-28T10:01:00Z",
+        summary="reset",
+    )
+    second = interview_runtime.append_feedback_entry(
+        runtime,
+        text="second",
+        created_at="2026-03-28T10:02:00Z",
+    )
+
+    assert first["feedback_id"] != second["feedback_id"]
+    assert first["feedback_id"] == "feedback-1"
+    assert second["feedback_id"] == "feedback-2"
 
 
 def test_hydrate_story_runtime_from_legacy_attempts_promotes_latest_reusable_artifact() -> None:
@@ -115,6 +173,30 @@ def test_hydrate_story_runtime_from_legacy_attempts_promotes_latest_reusable_art
         "reusable_content_result",
         "reusable_content_result",
     ]
+    assert runtime["attempt_history"][0]["created_at"] is None
+    assert runtime["attempt_history"][0]["trigger"] == "legacy"
+    assert runtime["attempt_history"][0]["request_snapshot_id"] is None
+    assert runtime["attempt_history"][0]["draft_basis_attempt_id"] is None
+    assert runtime["attempt_history"][0]["included_feedback_ids"] == []
+    assert runtime["attempt_history"][0]["is_reusable"] is False
+    assert runtime["attempt_history"][0]["retryable"] is False
+    assert runtime["attempt_history"][0]["draft_kind"] is None
+    assert runtime["attempt_history"][0]["output_artifact"] is None
+    assert runtime["attempt_history"][0]["failure_stage"] == "output_validation"
+    assert runtime["attempt_history"][0]["failure_artifact_id"] is None
+    assert runtime["attempt_history"][0]["failure_summary"] == "schema mismatch"
+    assert runtime["attempt_history"][0]["raw_output_preview"] is None
+    assert runtime["attempt_history"][2]["request_snapshot_id"] is None
+    assert runtime["attempt_history"][2]["draft_basis_attempt_id"] is None
+    assert runtime["attempt_history"][2]["included_feedback_ids"] == []
+    assert runtime["attempt_history"][2]["draft_kind"] == "incomplete_draft"
+    assert runtime["attempt_history"][2]["is_reusable"] is True
+    assert runtime["attempt_history"][2]["retryable"] is False
+    assert runtime["attempt_history"][3]["draft_kind"] == "complete_draft"
+    assert runtime["attempt_history"][3]["is_reusable"] is True
+    assert runtime["attempt_history"][3]["retryable"] is False
+    assert runtime["attempt_history"][3]["created_at"] is None
+    assert runtime["attempt_history"][3]["trigger"] == "legacy"
     assert runtime["draft_projection"] == {
         "latest_reusable_attempt_id": "legacy-4",
         "kind": "complete_draft",

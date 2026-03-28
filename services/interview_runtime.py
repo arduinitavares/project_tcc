@@ -29,9 +29,21 @@ def _empty_projection(phase: str, subject_key: str) -> Dict[str, Any]:
         "subject_key": subject_key,
         "attempt_history": [],
         "draft_projection": {},
-        "feedback_projection": {"items": []},
+        "feedback_projection": {"items": [], "next_feedback_sequence": 0},
         "request_projection": {},
     }
+
+
+def _normalize_feedback_projection(projection: Dict[str, Any]) -> Dict[str, Any]:
+    feedback_projection = projection.setdefault("feedback_projection", {})
+    if not isinstance(feedback_projection, dict):
+        raise TypeError("feedback_projection must be a dict")
+    feedback_projection.setdefault("items", [])
+    if not isinstance(feedback_projection["items"], list):
+        raise TypeError("feedback_projection.items must be a list")
+    if "next_feedback_sequence" not in feedback_projection:
+        feedback_projection["next_feedback_sequence"] = len(feedback_projection["items"])
+    return feedback_projection
 
 
 def ensure_interview_subject(
@@ -49,7 +61,7 @@ def ensure_interview_subject(
     projection.setdefault("subject_key", subject_key)
     projection.setdefault("attempt_history", [])
     projection.setdefault("draft_projection", {})
-    projection.setdefault("feedback_projection", {"items": []})
+    _normalize_feedback_projection(projection)
     projection.setdefault("request_projection", {})
     return projection
 
@@ -84,13 +96,11 @@ def append_feedback_entry(
     created_at: Any,
     feedback_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    feedback_projection = runtime.setdefault("feedback_projection", {"items": []})
-    if not isinstance(feedback_projection, dict):
-        raise TypeError("feedback_projection must be a dict")
-    items = feedback_projection.setdefault("items", [])
-    if not isinstance(items, list):
-        raise TypeError("feedback_projection.items must be a list")
-    generated_id = feedback_id or f"feedback-{len(items) + 1}"
+    feedback_projection = _normalize_feedback_projection(runtime)
+    items = feedback_projection["items"]
+    sequence = int(feedback_projection.get("next_feedback_sequence", len(items))) + 1
+    feedback_projection["next_feedback_sequence"] = sequence
+    generated_id = feedback_id or f"feedback-{sequence}"
     entry = {
         "feedback_id": generated_id,
         "text": text,
@@ -163,11 +173,8 @@ def reset_subject_working_set(
     summary: str,
 ) -> Dict[str, Any]:
     runtime["request_projection"] = {}
-    feedback_projection = runtime.setdefault("feedback_projection", {"items": []})
-    if not isinstance(feedback_projection, dict):
-        raise TypeError("feedback_projection must be a dict")
+    feedback_projection = _normalize_feedback_projection(runtime)
     feedback_projection["items"] = []
-
     runtime["draft_projection"] = {}
 
     attempts = runtime.setdefault("attempt_history", [])
@@ -200,6 +207,39 @@ def _classify_story_attempt(attempt: Dict[str, Any]) -> str:
     return "nonreusable_schema_failure"
 
 
+def _normalized_legacy_attempt(
+    attempt: Dict[str, Any],
+    *,
+    attempt_id: str,
+) -> Dict[str, Any]:
+    classification = _classify_story_attempt(attempt)
+    is_reusable = classification == "reusable_content_result"
+    legacy_attempt: Dict[str, Any] = {
+        "attempt_id": attempt_id,
+        "created_at": attempt.get("created_at"),
+        "trigger": "legacy",
+        "request_snapshot_id": attempt.get("request_snapshot_id"),
+        "draft_basis_attempt_id": attempt.get("draft_basis_attempt_id"),
+        "included_feedback_ids": list(attempt.get("included_feedback_ids") or []),
+        "classification": classification,
+        "is_reusable": is_reusable,
+        "retryable": False,
+        "draft_kind": None,
+        "output_artifact": deepcopy(attempt.get("output_artifact")),
+        "failure_stage": attempt.get("failure_stage"),
+        "failure_artifact_id": attempt.get("failure_artifact_id"),
+        "failure_summary": attempt.get("failure_summary") or attempt.get("error"),
+        "raw_output_preview": attempt.get("raw_output_preview")
+        or attempt.get("raw_output")
+        or attempt.get("partial_output"),
+    }
+    if is_reusable:
+        legacy_attempt["draft_kind"] = (
+            "complete_draft" if bool(attempt.get("is_complete")) else "incomplete_draft"
+        )
+    return legacy_attempt
+
+
 def hydrate_story_runtime_from_legacy(
     state: Dict[str, Any],
     *,
@@ -229,16 +269,16 @@ def hydrate_story_runtime_from_legacy(
     for index, attempt in enumerate(attempts, start=1):
         if not isinstance(attempt, dict):
             continue
-        normalized_attempt = deepcopy(attempt)
-        normalized_attempt["attempt_id"] = f"legacy-{index}"
-        normalized_attempt["classification"] = _classify_story_attempt(attempt)
+        normalized_attempt = _normalized_legacy_attempt(
+            attempt,
+            attempt_id=f"legacy-{index}",
+        )
         runtime["attempt_history"].append(normalized_attempt)
         if normalized_attempt["classification"] == "reusable_content_result":
-            is_complete = bool(normalized_attempt.get("is_complete"))
             runtime["draft_projection"] = {
                 "latest_reusable_attempt_id": normalized_attempt["attempt_id"],
-                "kind": "complete_draft" if is_complete else "incomplete_draft",
-                "is_complete": is_complete,
+                "kind": normalized_attempt["draft_kind"],
+                "is_complete": bool(attempt.get("is_complete")),
                 "updated_at": normalized_attempt.get("created_at"),
             }
 
