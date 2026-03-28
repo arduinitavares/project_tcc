@@ -1272,6 +1272,36 @@ def test_story_packet_flavor_render_includes_story_acceptance_criteria(session, 
     assert "Task Checklist" not in payload["render"]
 
 
+def test_story_packet_human_flavor_renders_top_level_story_fields(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id, story_id, _task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=True,
+        task_metadata=TaskMetadata(
+            task_kind="implementation",
+            artifact_targets=["payload validator"],
+            workstream_tags=["backend"],
+            relevant_invariant_ids=[],
+            checklist_items=["Confirm request shape"],
+        ),
+    )
+
+    response = client.get(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/packet?flavor=human"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["schema_version"] == "story_packet.v1"
+    assert "render" in payload
+    assert "# Story: Payload Validation Story" in payload["render"]
+    assert "As a developer, I want payload validation so that requests are safe." in payload["render"]
+    assert "## Story Acceptance Criteria" in payload["render"]
+    assert "## Task Plan Reference" in payload["render"]
+    assert "## Task Checklist" not in payload["render"]
+
+
 def test_task_packet_ignores_unknown_task_invariant_ids(session, monkeypatch):
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, _story_id, task_id = _seed_task_packet_context(

@@ -51,6 +51,12 @@ def _story_task_plan_items(packet: Dict[str, Any]) -> list:
     return list(tasks)
 
 
+def _story_metadata(packet: Dict[str, Any]) -> Dict[str, Any]:
+    if _schema_version(packet) == STORY_SCHEMA_VERSION:
+        return packet.get("story", {}) or {}
+    return packet.get("context", {}).get("story", {}) or {}
+
+
 def _render_story_task_plan_reference(packet: Dict[str, Any]) -> str:
     tasks = _story_task_plan_items(packet)
     if not tasks:
@@ -294,7 +300,7 @@ def render_human_brief(packet: Dict[str, Any]) -> str:
     context = packet.get("context", {})
     constraints = packet.get("constraints", {})
 
-    story = context.get("story", {})
+    story = _story_metadata(packet)
     sprint = context.get("sprint", {})
     product = context.get("product", {})
 

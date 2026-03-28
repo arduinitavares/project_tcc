@@ -21,6 +21,11 @@ def _minimal_packet(
     task_plan=None,
 ):
     """Build the smallest valid packet dict for renderer testing."""
+    story_payload = {
+        "story_id": 7,
+        "title": story_title,
+        "story_description": story_description,
+    }
     packet = {
         "schema_version": schema_version,
         "task": {
@@ -34,11 +39,6 @@ def _minimal_packet(
             "checklist_items": task_checklist_items or [],
         },
         "context": {
-            "story": {
-                "story_id": 7,
-                "title": story_title,
-                "story_description": story_description,
-            },
             "sprint": {
                 "sprint_id": 3,
                 "goal": sprint_goal,
@@ -54,6 +54,10 @@ def _minimal_packet(
             "story_acceptance_criteria_items": ac_items or [],
         },
     }
+    if schema_version == "story_packet.v1":
+        packet["story"] = story_payload
+    else:
+        packet["context"]["story"] = story_payload
     if task_plan is not None:
         packet["task_plan"] = {"tasks": task_plan}
     return packet
@@ -109,6 +113,36 @@ def test_render_packet_uses_story_acceptance_criteria_for_story_packets():
     assert "Task Checklist" not in output
     assert "Task Plan Reference" in output
     assert "Implement request validation" in output
+
+
+def test_story_packet_human_brief_uses_top_level_story_shape():
+    packet = _minimal_packet(
+        schema_version="story_packet.v1",
+        story_title="Top-level Story Title",
+        story_description="Top-level story description.",
+        ac_items=["include user_id"],
+        task_plan=[
+            {
+                "id": 12,
+                "description": "Implement request validation",
+                "status": "To Do",
+                "task_kind": "implementation",
+                "artifact_targets": ["validator"],
+                "workstream_tags": ["backend"],
+                "checklist_items": ["Confirm request shape"],
+                "is_executable": True,
+            }
+        ],
+    )
+
+    output = render_human_brief(packet)
+
+    assert "# Story: Top-level Story Title" in output
+    assert "Top-level story description." in output
+    assert "## Story Acceptance Criteria" in output
+    assert "## Task Plan Reference" in output
+    assert "Confirm request shape" not in output
+    assert "## Task Checklist" not in output
 
 
 def test_human_brief_has_no_execution_contract():
