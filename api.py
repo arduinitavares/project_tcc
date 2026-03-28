@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
+from sqlalchemy import delete
 from agile_sqlmodel import (
     CompiledSpecAuthority,
     Product,
@@ -1889,17 +1890,15 @@ async def delete_project_story(project_id: int, parent_requirement: str):
     engine = get_engine()
     with Session(engine) as session:
         # Find all stories for this requirement in this product
-        from sqlalchemy import delete
-
         # 1. Get the list of story IDs to delete
         stmt = select(UserStory.story_id).where(
             UserStory.product_id == project_id,
             UserStory.source_requirement == parent_requirement
         )
         story_ids = session.exec(stmt).all()
-
-        deleted_count = len(story_ids)
         
+        deleted_count = len(story_ids)
+
         if story_ids:
             # When batch deleting, we must explicitly delete child records to satisfy foreign keys
             # since bulk delete operations bypass SQLAlchemy ORM-level cascades.

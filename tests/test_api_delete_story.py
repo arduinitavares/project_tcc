@@ -90,14 +90,39 @@ def setup_test_data(session: Session):
 
     return product.product_id, parent_req, [s.story_id for s in stories], [t.task_id for t in tasks]
 
+
+
 @pytest.mark.asyncio
 async def test_delete_project_story(session: Session, setup_test_data, monkeypatch, engine):
     import api as api_module
+
     monkeypatch.setattr(api_module, "get_engine", lambda: engine)
     monkeypatch.setattr(api_module.product_repo, "_get_session", lambda: session)
     monkeypatch.setattr("agile_sqlmodel.get_engine", lambda: engine)
 
     product_id, parent_req, story_ids, task_ids = setup_test_data
+
+    # 1. Seed session state data to ensure cleanup works
+    str(product_id)
+
+    # Mock _ensure_session and _save_session_state for easier verification
+    mock_state = {
+        "story_saved": {parent_req: True},
+        "story_outputs": {parent_req: {"data": "some artifact"}},
+        "story_attempts": {parent_req: ["attempt 1"]},
+        "another_req": "should not be touched"
+    }
+
+    saved_state_calls = []
+
+    async def mock_ensure_session(sid):
+        return mock_state
+
+    def mock_save_session_state(sid, state):
+        saved_state_calls.append(state.copy())
+
+    monkeypatch.setattr(api_module, "_ensure_session", mock_ensure_session)
+    monkeypatch.setattr(api_module, "_save_session_state", mock_save_session_state)
 
     # Assert data exists before deletion
     assert len(session.exec(select(UserStory).where(UserStory.story_id.in_(story_ids))).all()) == len(story_ids)
@@ -119,3 +144,20 @@ async def test_delete_project_story(session: Session, setup_test_data, monkeypat
     assert len(session.exec(select(StoryCompletionLog).where(StoryCompletionLog.story_id.in_(story_ids))).all()) == 0
     assert len(session.exec(select(Task).where(Task.story_id.in_(story_ids))).all()) == 0
     assert len(session.exec(select(TaskExecutionLog).where(TaskExecutionLog.task_id.in_(task_ids))).all()) == 0
+
+
+
+
+    # Assert session state was cleaned up properly
+    assert len(saved_state_calls) == 1
+    final_state = saved_state_calls[0]
+
+    assert parent_req not in final_state["story_saved"]
+    assert parent_req not in final_state["story_outputs"]
+    assert len(final_state["story_attempts"][parent_req]) == 2
+
+    last_attempt = final_state["story_attempts"][parent_req][-1]
+    assert not last_attempt["is_complete"]
+    assert last_attempt["trigger"] == "manual_refine"
+    assert "user" in last_attempt["input_context"]["system_message"]
+    assert "another_req" in final_state
