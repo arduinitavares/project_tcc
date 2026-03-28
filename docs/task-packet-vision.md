@@ -4,16 +4,16 @@
 
 We are extending the platform from a planning system into an execution handoff system.
 
-Today, the product already produces structured planning artifacts such as product vision, backlog items, roadmap milestones, user stories, sprint scope, and decomposed technical tasks. The next step is to make that planning output directly consumable during execution.
+Today, the product already produces structured planning artifacts such as product vision, backlog items, roadmap milestones, user stories, sprint scope, and decomposed technical tasks. That planning output now feeds a two-layer handoff flow during execution.
 
 ## Current Framing
 
-The handoff model now uses two canonical artifacts instead of one overloaded task prompt:
+The handoff model uses two canonical artifacts instead of one overloaded task prompt:
 
 - **Story Packet**: the stable bootstrap context for a story session
 - **Task Packet**: the task-local execution delta for one decomposed task inside that story
 
-Neither packet is itself the prompt. Prompts, briefs, and agent-specific formats are renderings built on top of these canonical payloads.
+Neither packet is itself the prompt. Prompts, briefs, and agent-specific formats are renderings built on top of these canonical payloads, and the implementation already exposes optional rendered views alongside the canonical JSON.
 
 ## Product Principle
 
@@ -109,19 +109,7 @@ The current packet phase focuses on:
 - one canonical task packet per task+sprint context
 - deterministic packet generation from existing project/story/task/sprint/validation data
 - preserving story bootstrap context separately from task-local execution context
-- supporting later renderers for story briefs and task prompts
-
-## Out of Scope
-
-This phase does not attempt to solve:
-
-- automatic agent execution
-- writing work results back into project state automatically
-- broad codebase/context dumps in every packet
-- replacing stories or tasks as the source of truth
-- final renderer wording or UI affordances
-
-Those belong to later work once the packet contracts are stable.
+- rendering story briefs and task prompts from the canonical packets when requested
 
 ## Achieved State
 
@@ -139,13 +127,13 @@ Task Packet v2 now carries explicit task-local checklist fields:
 
 This allows task completion to remain task-scoped without silently inheriting story acceptance criteria as the task’s done checklist.
 
-## Next Step
+## Consumption Model
 
-The next step is to build richer consumption flows on top of the canonical artifacts:
+Consumers can request either the canonical packet JSON or a rendered view derived from that packet. The rendered view is a convenience layer only; it does not change the canonical schema or the task/story ownership split.
 
-1. expose story bootstrap and task delta actions clearly in the UI
-2. update renderers so task prompts use task checklist terminology while story prompts keep story acceptance criteria terminology
-3. consider later metadata editing and smarter task decomposition once the packet-driven workflow proves useful
+- Story renderings use story bootstrap semantics and keep story acceptance criteria as the completion contract.
+- Task renderings use task checklist semantics and assume the parent story bootstrap has already happened.
+- The rendered prompt/brief is added alongside the packet payload, so downstream tools can choose between machine-readable state and human/agent-facing output without redefining the source of truth.
 
 ## Working Decision
 
