@@ -727,6 +727,13 @@
                                                     <div
                                                         class="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 flex items-center justify-between shrink-0">
                                                         <div class="flex gap-3">
+                                                            <button id="btn-retry-story"
+                                                                onclick="retryStoryDraft()"
+                                                                class="hidden inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-800 text-white font-bold transition-all shadow-sm">
+                                                                <span
+                                                                    class="material-symbols-outlined text-sm">refresh</span>
+                                                                Retry same input
+                                                            </button>
                                                             <button id="btn-generate-story"
                                                                 onclick="generateStoryDraft()"
                                                                 class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold transition-all shadow-sm">

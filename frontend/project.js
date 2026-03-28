@@ -74,6 +74,11 @@ let storyRequirements = []; // Array of { requirement, status, attempt_count }
 let activeStoryReq = null;
 let activeStoryAttemptCount = 0;
 let activeStoryIsComplete = false;
+let activeStoryRetryAvailable = false;
+let activeStoryRetryTargetAttemptId = null;
+let activeStorySaveAvailable = false;
+let activeStoryDraftKind = null;
+let activeStoryLatestClassification = null;
 
 // Variables to hold raw JSON data for the copy feature
 let currentVisionArtifactJSON = null;
@@ -1791,8 +1796,29 @@ async function selectStoryRequirement(reqName) {
     const input = document.getElementById('story-user-input');
     if (input) input.value = '';
 
+    activeStoryAttemptCount = 0;
+    activeStoryLatestClassification = null;
+    applyStoryProjectionState();
+    renderStoryHistory([]);
+    renderStoryAttemptPanels(null, null);
+    updateStorySaveButton();
+
     // Load history for specific req
     await loadStoryHistory(reqName);
+}
+
+function applyStoryProjectionState(payload) {
+    const currentDraft = payload?.current_draft || null;
+    const retry = payload?.retry || {};
+    const save = payload?.save || {};
+
+    activeStoryIsComplete = Boolean(currentDraft?.is_complete);
+    activeStoryRetryAvailable = Boolean(retry.available);
+    activeStoryRetryTargetAttemptId = typeof retry.target_attempt_id === 'string'
+        ? retry.target_attempt_id
+        : null;
+    activeStorySaveAvailable = Boolean(save.available);
+    activeStoryDraftKind = typeof currentDraft?.kind === 'string' ? currentDraft.kind : null;
 }
 
 async function loadStoryHistory(reqName) {
@@ -1803,22 +1829,29 @@ async function loadStoryHistory(reqName) {
         const data = await response.json();
 
         if (data.status === 'success') {
-            const items = Array.isArray(data.data?.items) ? data.data.items : [];
+            const payload = data.data || {};
+            const items = Array.isArray(payload.items) ? payload.items : [];
             activeStoryAttemptCount = items.length;
+            activeStoryLatestClassification = items.length > 0 ? items[items.length - 1].classification || null : null;
+            applyStoryProjectionState(payload);
             renderStoryHistory(items);
 
             if (items.length > 0) {
                 const latest = items[items.length - 1];
-                activeStoryIsComplete = Boolean(latest.is_complete);
                 renderStoryAttemptPanels(latest.input_context || null, latest.output_artifact || null);
             } else {
-                activeStoryIsComplete = false;
                 renderStoryAttemptPanels(null, null);
             }
             updateStorySaveButton();
         }
     } catch (e) {
         console.error("Failed to load story history:", e);
+        activeStoryAttemptCount = 0;
+        activeStoryLatestClassification = null;
+        applyStoryProjectionState();
+        renderStoryHistory([]);
+        renderStoryAttemptPanels(null, null);
+        updateStorySaveButton();
     }
 }
 
@@ -1834,18 +1867,26 @@ function renderStoryHistory(items) {
 
     const reversed = [...items].reverse();
     reversed.forEach((item, index) => {
+        const badgeMeta = {
+            reusable_content_result: ['Reusable draft', 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 ring-emerald-200'],
+            nonreusable_provider_failure: ['Retryable failure', 'text-slate-700 bg-slate-100 dark:bg-slate-700/70 dark:text-slate-200 ring-slate-200 dark:ring-slate-600'],
+            nonreusable_transport_failure: ['Retryable failure', 'text-slate-700 bg-slate-100 dark:bg-slate-700/70 dark:text-slate-200 ring-slate-200 dark:ring-slate-600'],
+            nonreusable_schema_failure: ['Schema failure', 'text-red-700 bg-red-50 dark:bg-red-900/30 dark:text-red-300 ring-red-200 dark:ring-red-700'],
+            reset_marker: ['Reset', 'text-amber-700 bg-amber-50 dark:bg-amber-900/30 dark:text-amber-300 ring-amber-200 dark:ring-amber-700'],
+        };
+        const [badgeLabel, badgeClasses] = badgeMeta[item.classification] || ['Attempt', 'text-amber-600 bg-amber-50 dark:bg-amber-900/30 dark:text-amber-300 ring-amber-200 dark:ring-amber-700'];
         const stamp = item.created_at || '-';
-        const state = item.is_complete ? 'Complete' : 'Needs input';
-        const color = item.is_complete ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 ring-emerald-200' : 'text-amber-600 bg-amber-50 dark:bg-amber-900/30 ring-amber-200';
+        const summary = item.summary ? `<p class="text-[10px] text-slate-500 mt-1">${item.summary}</p>` : '';
 
         const row = document.createElement('div');
         row.className = 'border border-slate-200 dark:border-slate-700 rounded-lg p-3 bg-slate-50 dark:bg-slate-800/60 transition-transform';
         row.innerHTML = `
             <div class="flex items-center justify-between">
                 <span class="text-xs font-extrabold text-slate-700 dark:text-slate-300">Attempt ${items.length - index}</span>
-                <span class="text-[10px] uppercase ${color} px-2 py-0.5 rounded-full ring-1 ring-inset font-bold">${state}</span>
+                <span class="text-[10px] uppercase ${badgeClasses} px-2 py-0.5 rounded-full ring-1 ring-inset font-bold">${badgeLabel}</span>
             </div>
             <p class="text-[10px] text-slate-400 mt-2">${stamp}</p>
+            ${summary}
         `;
         container.appendChild(row);
     });
@@ -1865,6 +1906,8 @@ function renderStoryAttemptPanels(inputContext, outputArtifact) {
     }
 
     if (!outputArtifact) {
+        currentStoryArtifactJSON = null;
+        if (copyBtn) copyBtn.classList.add('hidden');
         outputCanvas.innerHTML = `
             <div class="text-xs text-slate-500 flex flex-col items-center justify-center h-full gap-3 opacity-60">
                 <span class="material-symbols-outlined text-4xl">receipt_long</span>
@@ -2003,20 +2046,29 @@ function renderStoryArtifactHtml(artifact) {
 
 function updateStorySaveButton() {
     const button = document.getElementById('btn-save-story');
+    const retryButton = document.getElementById('btn-retry-story');
     const deleteBtn = document.getElementById('btn-delete-story');
     const hint = document.getElementById('story-save-hint');
-    if (!button || !hint) return;
+    if (!button || !hint || !retryButton) return;
 
-    const canSave = Boolean(selectedProjectId) && activeStoryReq && activeStoryIsComplete;
+    const canSave = Boolean(selectedProjectId) && activeStoryReq && activeStorySaveAvailable;
+    const canRetry = Boolean(selectedProjectId) && activeStoryReq && activeStoryRetryAvailable;
     button.disabled = !canSave;
+    retryButton.disabled = !canRetry;
+    retryButton.classList.toggle('hidden', !activeStoryRetryAvailable);
 
     // Check if it's already saved to change text
     const reqObj = storyRequirements.find(r => r.requirement === activeStoryReq);
     const isSaved = reqObj?.status === 'Saved';
+    const resetOnlyState = activeStoryAttemptCount > 0
+        && activeStoryLatestClassification === 'reset_marker'
+        && !activeStoryRetryAvailable
+        && !activeStorySaveAvailable
+        && !activeStoryDraftKind;
 
     // Toggle delete button
     if (deleteBtn) {
-        if (activeStoryAttemptCount > 0 || isSaved) {
+        if ((activeStoryAttemptCount > 0 && !resetOnlyState) || isSaved) {
             deleteBtn.classList.remove('hidden');
         } else {
             deleteBtn.classList.add('hidden');
@@ -2029,12 +2081,20 @@ function updateStorySaveButton() {
 
     if (isSaved) {
         button.innerHTML = '<span class="material-symbols-outlined text-sm">check</span> Saved';
-        hint.innerText = 'Stories for this requirement are already saved. You can generate again to overwrite.';
+        hint.innerText = activeStoryRetryAvailable
+            ? 'Reusable complete draft is already saved. You can retry the latest failed input or save again to overwrite.'
+            : 'Reusable complete draft is already saved. Save again to overwrite if needed.';
     } else {
         button.innerHTML = '<span class="material-symbols-outlined text-sm">save</span> Save Stories';
-        hint.innerText = canSave
-            ? 'Output is complete. Proceed to save.'
-            : 'Save disabled until latest output has is_complete=true.';
+        if (activeStorySaveAvailable && activeStoryRetryAvailable) {
+            hint.innerText = 'Reusable complete draft is ready to save. You can also retry the latest failed input.';
+        } else if (activeStorySaveAvailable) {
+            hint.innerText = 'Reusable complete draft is ready to save.';
+        } else if (activeStoryRetryAvailable) {
+            hint.innerText = 'Latest attempt failed without a reusable complete draft. Retry the same input or keep refining.';
+        } else {
+            hint.innerText = 'Save disabled until a complete reusable draft exists.';
+        }
     }
 }
 
@@ -2056,8 +2116,9 @@ async function generateStoryDraft() {
 
     const input = document.getElementById('story-user-input');
     const userInput = input?.value?.trim() || '';
+    const requiresRefinementInput = activeStoryAttemptCount > 0 && activeStoryLatestClassification !== 'reset_marker';
 
-    if (activeStoryAttemptCount > 0 && !userInput) {
+    if (requiresRefinementInput && !userInput) {
         alert('Please provide feedback to refine the generated stories.');
         return;
     }
@@ -2094,6 +2155,42 @@ async function generateStoryDraft() {
     } finally {
         if (button) {
             button.innerHTML = original || '<span class="material-symbols-outlined text-sm">cycle</span> Generate / Refine';
+            button.disabled = false;
+        }
+    }
+}
+
+async function retryStoryDraft() {
+    if (!selectedProjectId || !activeStoryReq || !activeStoryRetryAvailable) return;
+
+    const button = document.getElementById('btn-retry-story');
+    const original = button?.innerHTML;
+    if (button) {
+        button.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">refresh</span> Retrying...';
+        button.disabled = true;
+    }
+
+    try {
+        const response = await fetch(`/api/projects/${selectedProjectId}/story/retry?parent_requirement=${encodeURIComponent(activeStoryReq)}`, {
+            method: 'POST',
+        });
+
+        if (response.status >= 400) {
+            const body = await response.json();
+            throw new Error(body.detail || 'Retry failed.');
+        }
+
+        const data = await response.json();
+        if (data.status !== 'success') throw new Error('Retry failed.');
+
+        await loadStoryRequirements();
+        await loadStoryHistory(activeStoryReq);
+    } catch (error) {
+        console.error(error);
+        alert(error.message || 'Retry failed.');
+    } finally {
+        if (button) {
+            button.innerHTML = original || '<span class="material-symbols-outlined text-sm">refresh</span> Retry same input';
             button.disabled = false;
         }
     }
@@ -3441,6 +3538,7 @@ window.generateRoadmapDraft = generateRoadmapDraft;
 window.saveRoadmapDraft = saveRoadmapDraft;
 window.selectStoryRequirement = selectStoryRequirement;
 window.generateStoryDraft = generateStoryDraft;
+window.retryStoryDraft = retryStoryDraft;
 window.saveStoryDraft = saveStoryDraft;
 window.deleteStoryDraft = deleteStoryDraft;
 window.completeStoryPhase = completeStoryPhase;
