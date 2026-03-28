@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 import logging
@@ -985,25 +984,6 @@ def _build_task_packet(
             "findings": _build_packet_findings(evidence),
         },
     }
-
-
-def _build_task_packet_render_payload(
-    task_packet: Dict[str, Any],
-    story_packet: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
-    render_payload = copy.deepcopy(task_packet)
-    if not story_packet:
-        return render_payload
-
-    story_constraints = story_packet.get("constraints", {})
-    constraints = render_payload.setdefault("constraints", {})
-    constraints["acceptance_criteria_text"] = story_constraints.get(
-        "story_acceptance_criteria_text"
-    )
-    constraints["acceptance_criteria_items"] = list(
-        story_constraints.get("story_acceptance_criteria_items") or []
-    )
-    return render_payload
 
 
 def _vision_state_from_complete(is_complete: bool) -> str:
@@ -2422,16 +2402,7 @@ async def get_project_task_packet(project_id: int, sprint_id: int, task_id: int,
         payload = dict(packet)
         if flavor:
             from services.packet_renderer import render_packet
-            story_packet = _build_story_packet(
-                session,
-                project_id=project_id,
-                sprint_id=sprint_id,
-                story_id=packet["context"]["story"]["story_id"],
-            )
-            payload["render"] = render_packet(
-                _build_task_packet_render_payload(packet, story_packet),
-                flavor,
-            )
+            payload["render"] = render_packet(packet, flavor)
 
         return {
             "status": "success",
@@ -2440,7 +2411,12 @@ async def get_project_task_packet(project_id: int, sprint_id: int, task_id: int,
 
 
 @app.get("/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/packet")
-async def get_project_story_packet(project_id: int, sprint_id: int, story_id: int):
+async def get_project_story_packet(
+    project_id: int,
+    sprint_id: int,
+    story_id: int,
+    flavor: Optional[str] = None,
+):
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -2455,9 +2431,15 @@ async def get_project_story_packet(project_id: int, sprint_id: int, story_id: in
         if not packet:
             raise HTTPException(status_code=404, detail="Story packet context not found")
 
+        payload = dict(packet)
+        if flavor:
+            from services.packet_renderer import render_packet
+
+            payload["render"] = render_packet(packet, flavor)
+
         return {
             "status": "success",
-            "data": packet,
+            "data": payload,
         }
 
 

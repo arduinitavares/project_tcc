@@ -1191,6 +1191,13 @@ def test_packet_renderer_escapes_html_and_xml_safely(session, monkeypatch):
         session,
         repo,
         pinned=True,
+        task_metadata=TaskMetadata(
+            task_kind="implementation",
+            artifact_targets=["payload validator"],
+            workstream_tags=["backend"],
+            relevant_invariant_ids=[],
+            checklist_items=["Confirm request shape", "Cover invalid payload cases"],
+        ),
     )
 
     task = session.get(Task, task_id)
@@ -1208,7 +1215,7 @@ def test_packet_renderer_escapes_html_and_xml_safely(session, monkeypatch):
     assert '&lt;script&gt;alert("XSS")&lt;/script&gt;' in human_text
     assert "<script>" not in human_text
     assert "&#42;&#42;bold&#42;&#42;" in human_text
-    assert "**Task Kind**: other" in human_text
+    assert "**Task Kind**: implementation" in human_text
 
     # Test agent flavor preventing unescaped XML closure injection
     res_agent = client.get(
@@ -1218,7 +1225,7 @@ def test_packet_renderer_escapes_html_and_xml_safely(session, monkeypatch):
     agent_text = res_agent.json()["data"]["render"]
     assert "&lt;/task&gt;" in agent_text
     assert "</task> breaking out" not in agent_text
-    assert "<task_kind>other</task_kind>" in agent_text
+    assert "<task_kind>implementation</task_kind>" in agent_text
 
     # Execution contract blocks are present in the agent prompt
     assert "<execution_protocol>" in agent_text
@@ -1226,10 +1233,43 @@ def test_packet_renderer_escapes_html_and_xml_safely(session, monkeypatch):
     assert "<completion_report>" in agent_text
     assert "</completion_report>" in agent_text
 
-    # AC items from the seeded story appear as checklist items and are XML-escaped
-    assert "### Acceptance Criteria Checklist" in agent_text
-    assert "- [ ] include user_id" in agent_text
-    assert "- [ ] reject invalid payloads" in agent_text
+    # Task checklist items should drive the task prompt, not story acceptance criteria.
+    assert "Task Checklist" in agent_text
+    assert "Verify every task checklist item before claiming completion." in agent_text
+    assert "This prompt assumes the session was already initialized with the parent story prompt. If not, restart with Copy Story Prompt." in agent_text
+    assert "- [ ] Confirm request shape" in agent_text
+    assert "- [ ] Cover invalid payload cases" in agent_text
+    assert "Acceptance Criteria Checklist" not in agent_text
+    assert "Story Acceptance Criteria" not in agent_text
+
+
+def test_story_packet_flavor_render_includes_story_acceptance_criteria(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id, story_id, _task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=True,
+        task_metadata=TaskMetadata(
+            task_kind="implementation",
+            artifact_targets=["payload validator"],
+            workstream_tags=["backend"],
+            relevant_invariant_ids=[],
+            checklist_items=["Confirm request shape"],
+        ),
+    )
+
+    response = client.get(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/packet?flavor=cursor"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["schema_version"] == "story_packet.v1"
+    assert "render" in payload
+    assert "Story Acceptance Criteria" in payload["render"]
+    assert "- [ ] include user_id" in payload["render"]
+    assert "- [ ] reject invalid payloads" in payload["render"]
+    assert "Task Checklist" not in payload["render"]
 
 
 def test_task_packet_ignores_unknown_task_invariant_ids(session, monkeypatch):
