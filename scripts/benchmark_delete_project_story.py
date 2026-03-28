@@ -1,12 +1,23 @@
 import time
 import uuid
 import sys
-from datetime import datetime, timezone
-from sqlmodel import Session, select, create_engine, SQLModel
-from agile_sqlmodel import get_engine, Product, UserStory, SprintStory, Sprint, StoryCompletionLog, Task, TaskStatus, StoryStatus, SprintStatus, Team
-from repositories.product import ProductRepository
-import api
+import os
 import asyncio
+from datetime import datetime, timezone
+import tempfile
+
+# Ensure we can import from the root of the project
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Set isolated DB targets before imports that might initialize them
+temp_db_path = tempfile.mktemp(suffix=".db")
+temp_session_db_path = tempfile.mktemp(suffix="_session.db")
+os.environ["PROJECT_TCC_DB_URL"] = f"sqlite:///{temp_db_path}"
+os.environ["PROJECT_TCC_SESSION_DB_URL"] = f"sqlite:///{temp_session_db_path}"
+
+from sqlmodel import Session, select, SQLModel  # noqa: E402
+from agile_sqlmodel import get_engine, Product, UserStory, SprintStory, Sprint, StoryCompletionLog, Task, TaskStatus, StoryStatus, SprintStatus, Team, TaskExecutionLog  # noqa: E402
+import api  # noqa: E402
 
 def setup_data(session, num_stories=100, num_sprints=5, num_logs=3, num_tasks=5):
     # Create product
@@ -15,7 +26,8 @@ def setup_data(session, num_stories=100, num_sprints=5, num_logs=3, num_tasks=5)
     session.commit()
     session.refresh(product)
 
-    team = Team(name="Bench Team")
+    # Create unique team
+    team = Team(name=f"Bench Team {uuid.uuid4()}")
     session.add(team)
     session.commit()
     session.refresh(team)
@@ -31,12 +43,13 @@ def setup_data(session, num_stories=100, num_sprints=5, num_logs=3, num_tasks=5)
     for s in sprints:
         session.refresh(s)
 
-    parent_req = "bench-req"
+    parent_req = f"bench-req-{uuid.uuid4()}"
 
     stories = []
     sprint_mappings = []
     logs = []
     tasks = []
+    task_execution_logs = []
 
     # Create Stories
     for i in range(num_stories):
@@ -53,7 +66,7 @@ def setup_data(session, num_stories=100, num_sprints=5, num_logs=3, num_tasks=5)
     for s in stories:
         session.refresh(s)
 
-    # Create Mappings, Logs, Tasks
+    # Create Mappings, Logs, Tasks, and Task Execution Logs
     for story in stories:
         for s in sprints[:2]: # add to 2 sprints
             sm = SprintStory(sprint_id=s.sprint_id, story_id=story.story_id)
@@ -70,6 +83,16 @@ def setup_data(session, num_stories=100, num_sprints=5, num_logs=3, num_tasks=5)
     session.add_all(sprint_mappings)
     session.add_all(logs)
     session.add_all(tasks)
+    session.commit()
+    for t in tasks:
+        session.refresh(t)
+
+    # Add Task Execution Logs for tasks
+    for t in tasks:
+        t_log = TaskExecutionLog(task_id=t.task_id, sprint_id=sprints[0].sprint_id, new_status=TaskStatus.IN_PROGRESS)
+        task_execution_logs.append(t_log)
+
+    session.add_all(task_execution_logs)
     session.commit()
 
     return product.product_id, parent_req
@@ -93,6 +116,12 @@ async def run_benchmark():
     with Session(engine) as session:
         remaining_stories = session.exec(select(UserStory).where(UserStory.product_id == product_id)).all()
         print(f"Remaining stories: {len(remaining_stories)}")
+
+    # Clean up temp databases
+    if os.path.exists(temp_db_path):
+        os.remove(temp_db_path)
+    if os.path.exists(temp_session_db_path):
+        os.remove(temp_session_db_path)
 
 if __name__ == "__main__":
     asyncio.run(run_benchmark())
