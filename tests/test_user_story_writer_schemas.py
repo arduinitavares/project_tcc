@@ -106,29 +106,47 @@ class TestUserStoryItem:
                 produced_artifacts=[],
             )
 
-    def test_rejects_high_score_with_warning(self) -> None:
-        with pytest.raises(ValidationError, match="must be omitted"):
-            UserStoryItem(
-                story_title="Some story title",
-                statement="As a user, I want feature X, so that I get benefit Y.",
-                acceptance_criteria=["Verify X works."],
-                invest_score="High",
-                estimated_effort="S",
-                produced_artifacts=[],
-                decomposition_warning="Should not be here.",
-            )
+    def test_coerces_high_score_with_warning_to_low(self) -> None:
+        item = UserStoryItem(
+            story_title="Some story title",
+            statement="As a user, I want feature X, so that I get benefit Y.",
+            acceptance_criteria=["Verify X works."],
+            invest_score="High",
+            estimated_effort="S",
+            produced_artifacts=[],
+            decomposition_warning="Dependent on open design decisions being confirmed.",
+        )
+        assert item.invest_score == "Low"
+        assert item.decomposition_warning == (
+            "Dependent on open design decisions being confirmed."
+        )
 
-    def test_rejects_medium_score_with_warning(self) -> None:
-        with pytest.raises(ValidationError, match="must be omitted"):
-            UserStoryItem(
-                story_title="Some story title",
-                statement="As a user, I want feature X, so that I get benefit Y.",
-                acceptance_criteria=["Verify X works."],
-                invest_score="Medium",
-                estimated_effort="S",
-                produced_artifacts=[],
-                decomposition_warning="Should not be here either.",
-            )
+    def test_coerces_medium_score_with_warning_to_low(self) -> None:
+        item = UserStoryItem(
+            story_title="Some story title",
+            statement="As a user, I want feature X, so that I get benefit Y.",
+            acceptance_criteria=["Verify X works."],
+            invest_score="Medium",
+            estimated_effort="S",
+            produced_artifacts=[],
+            decomposition_warning="Pending confirmation of integration boundaries.",
+        )
+        assert item.invest_score == "Low"
+        assert item.decomposition_warning == (
+            "Pending confirmation of integration boundaries."
+        )
+
+    def test_accepts_high_score_with_known_placeholder_warning(self) -> None:
+        item = UserStoryItem(
+            story_title="Some story title",
+            statement="As a user, I want feature X, so that I get benefit Y.",
+            acceptance_criteria=["Verify X works."],
+            invest_score="High",
+            estimated_effort="S",
+            produced_artifacts=[],
+            decomposition_warning="Only include this key if score is Low",
+        )
+        assert item.decomposition_warning is None
 
     def test_rejects_low_score_without_warning(self) -> None:
         with pytest.raises(

@@ -5,6 +5,16 @@ from typing import Annotated, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+_LOW_WARNING_PLACEHOLDER_STRINGS = {
+    "only include this key if score is low",
+    "only include this key if the score is low",
+    "omit for high or medium",
+    "null",
+    "none",
+    "n/a",
+}
+
+
 class UserStoryItem(BaseModel):
     """A single user story produced by the User Story Writer (Page 69)."""
 
@@ -65,6 +75,33 @@ class UserStoryItem(BaseModel):
             ),
         ),
     ]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_placeholder_warning(cls, data):
+        """Normalize warning/score mismatches before strict validation."""
+        if not isinstance(data, dict):
+            return data
+
+        invest_score = data.get("invest_score")
+        warning = data.get("decomposition_warning")
+        if invest_score not in ("High", "Medium") or warning is None:
+            return data
+
+        if not isinstance(warning, str):
+            return data
+
+        normalized_warning = warning.strip()
+        normalized = normalized_warning.lower()
+        if not normalized or normalized in _LOW_WARNING_PLACEHOLDER_STRINGS:
+            cleaned = dict(data)
+            cleaned.pop("decomposition_warning", None)
+            return cleaned
+
+        cleaned = dict(data)
+        cleaned["invest_score"] = "Low"
+        cleaned["decomposition_warning"] = normalized_warning
+        return cleaned
 
     @model_validator(mode="after")
     def _validate_statement_format(self):
