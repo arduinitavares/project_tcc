@@ -37,7 +37,7 @@ The new framing separates those responsibilities cleanly:
 - story acceptance criteria stay story-scoped
 - task checklist items stay task-scoped
 - spec/validation metadata can still be inherited where execution needs it
-- renderers can later combine story bootstrap and task delta without collapsing them into one canonical payload
+- task renderers can later combine story bootstrap and task delta without collapsing them into one canonical payload
 
 ## Canonical Artifacts
 
@@ -132,7 +132,8 @@ This allows task completion to remain task-scoped without silently inheriting st
 Consumers can request either the canonical packet JSON or a rendered view derived from that packet. The rendered view is a convenience layer only; it does not change the canonical schema or the task/story ownership split.
 
 - Story renderings use story bootstrap semantics and keep story acceptance criteria as the completion contract.
-- Task renderings use task checklist semantics and assume the parent story bootstrap has already happened.
+- Task human brief renderings are standalone and include compact parent-story orientation.
+- Task agent prompt renderings use task checklist semantics and assume the parent story bootstrap has already happened.
 - The rendered prompt/brief is added alongside the packet payload, so downstream tools can choose between machine-readable state and human/agent-facing output without redefining the source of truth.
 
 ## Working Decision

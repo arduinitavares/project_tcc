@@ -6,7 +6,7 @@ Task Packet v2 is the canonical task-local execution artifact. It is assembled d
 
 The packet is intentionally narrow: it describes the local execution slice, not the full story completion contract.
 
-The public endpoint can also return an optional rendered view through the `flavor` query parameter. That rendering is added alongside the canonical payload and does not change the canonical schema. Task renderings use task-checklist semantics and assume the parent story bootstrap has already been loaded.
+The public endpoint can also return an optional rendered view through the `flavor` query parameter. The API envelope remains `{ "status": "success", "data": <canonical packet> }`, with an optional `data.render` field when `flavor` is supplied. Task renderings use task-checklist semantics, and the agent task prompt render assumes the parent story bootstrap has already been loaded.
 
 ## Canonical Schema
 
@@ -177,4 +177,4 @@ type TaskPacket = {
 
 Returns the canonical Task Packet v2 JSON payload directly.
 
-If `flavor` is supplied, the response keeps the canonical payload unchanged and adds a `render` field containing a derived prompt or brief for the requested presentation style.
+The response shape is `{ "status": "success", "data": <canonical packet> }`. If `flavor` is supplied, `data.render` contains a derived prompt or brief for the requested presentation style.

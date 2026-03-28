@@ -6,7 +6,7 @@ Story Packet v1 is the canonical story-session bootstrap artifact. It is assembl
 
 This packet is the stable bootstrap companion to `task_packet.v2`.
 
-The public endpoint can also return an optional rendered view through the `flavor` query parameter. That rendering is added alongside the canonical payload and does not change the canonical schema. Story renderings use story-acceptance-criteria and bootstrap semantics.
+The public endpoint can also return an optional rendered view through the `flavor` query parameter. The API envelope remains `{ "status": "success", "data": <canonical packet> }`, with an optional `data.render` field when `flavor` is supplied. Story renderings use story-acceptance-criteria and bootstrap semantics.
 
 ## Canonical Schema
 
@@ -162,4 +162,4 @@ type StoryPacket = {
 
 Returns the canonical Story Packet v1 JSON payload directly.
 
-If `flavor` is supplied, the response keeps the canonical payload unchanged and adds a `render` field containing a derived prompt or brief for the requested presentation style.
+The response shape is `{ "status": "success", "data": <canonical packet> }`. If `flavor` is supplied, `data.render` contains a derived prompt or brief for the requested presentation style.
