@@ -51,20 +51,26 @@ class SaveSprintPlanInput(BaseModel):
 def _get_story_conflicts(
     session: Session,
     story_ids: List[int],
+    *,
+    ignore_sprint_id: Optional[int] = None,
 ) -> List[int]:
     """Return story IDs already assigned to active or planned sprints."""
 
     if not story_ids:
         return []
 
-    existing = session.exec(
+    query = (
         select(SprintStory.story_id)
         .join(Sprint, col(Sprint.sprint_id) == col(SprintStory.sprint_id))
         .where(
             col(SprintStory.story_id).in_(story_ids),
             col(Sprint.status).in_([SprintStatus.PLANNED, SprintStatus.ACTIVE]),
         )
-    ).all()
+    )
+    if ignore_sprint_id is not None:
+        query = query.where(col(Sprint.sprint_id) != ignore_sprint_id)
+
+    existing = session.exec(query).all()
 
     return list({row for row in existing})
 
@@ -189,11 +195,27 @@ def save_sprint_plan_tool(
                 "error": "Either team_id or team_name must be provided.",
             }
 
+        existing_planned_sprint = session.exec(
+            select(Sprint)
+            .where(
+                Sprint.product_id == input_data.product_id,
+                Sprint.status == SprintStatus.PLANNED,
+            )
+            .order_by(Sprint.updated_at.desc(), Sprint.sprint_id.desc())
+        ).first()
+
         story_ids = [story.story_id for story in validated_plan.selected_stories]
-        conflicts = _get_story_conflicts(session, story_ids)
+        conflicts = _get_story_conflicts(
+            session,
+            story_ids,
+            ignore_sprint_id=existing_planned_sprint.sprint_id
+            if existing_planned_sprint and existing_planned_sprint.sprint_id is not None
+            else None,
+        )
         if conflicts:
             return {
                 "success": False,
+                "error_code": "STORY_ALREADY_IN_OPEN_SPRINT",
                 "error": (
                     "Stories already assigned to active or planned sprints: "
                     f"{sorted(conflicts)}"
@@ -279,35 +301,69 @@ def save_sprint_plan_tool(
             }
 
         end_date = start_date + timedelta(days=input_data.sprint_duration_days)
-        sprint = Sprint(
-            goal=validated_plan.sprint_goal,
-            start_date=start_date,
-            end_date=end_date,
-            status=SprintStatus.PLANNED,
-            started_at=None,
-            product_id=input_data.product_id,
-            team_id=team.team_id,
-        )
-        session.add(sprint)
-        session.flush()
+        sprint = existing_planned_sprint
+        if sprint is None:
+            sprint = Sprint(
+                goal=validated_plan.sprint_goal,
+                start_date=start_date,
+                end_date=end_date,
+                status=SprintStatus.PLANNED,
+                started_at=None,
+                product_id=input_data.product_id,
+                team_id=team.team_id,
+            )
+            session.add(sprint)
+            session.flush()
+        else:
+            sprint.goal = validated_plan.sprint_goal
+            sprint.start_date = start_date
+            sprint.end_date = end_date
+            sprint.team_id = team.team_id
+            sprint.status = SprintStatus.PLANNED
+            sprint.started_at = None
+            sprint.completed_at = None
+            session.add(sprint)
+            existing_links = session.exec(
+                select(SprintStory).where(SprintStory.sprint_id == sprint.sprint_id)
+            ).all()
+            for link in existing_links:
+                session.delete(link)
+            session.flush()
 
         if sprint.sprint_id is None:
             raise RuntimeError("Sprint ID was not generated.")
+
+        existing_tasks_by_story: Dict[int, Dict[str, Task]] = {}
+        for task in session.exec(
+            select(Task).where(col(Task.story_id).in_(story_ids))
+        ).all():
+            story_task_map = existing_tasks_by_story.setdefault(task.story_id, {})
+            story_task_map.setdefault(task.description, task)
 
         for story in validated_plan.selected_stories:
             session.add(
                 SprintStory(sprint_id=sprint.sprint_id, story_id=story.story_id)
             )
             for task_spec in story.tasks:
-                session.add(
-                    Task(
+                metadata_json = serialize_task_metadata(
+                    metadata_from_structured_task(task_spec)
+                )
+                existing_task = existing_tasks_by_story.get(story.story_id, {}).get(
+                    task_spec.description
+                )
+                if existing_task:
+                    existing_task.metadata_json = metadata_json
+                    session.add(existing_task)
+                else:
+                    new_task = Task(
                         story_id=story.story_id,
                         description=task_spec.description,
-                        metadata_json=serialize_task_metadata(
-                            metadata_from_structured_task(task_spec)
-                        ),
+                        metadata_json=metadata_json,
                     )
-                )
+                    session.add(new_task)
+                    existing_tasks_by_story.setdefault(story.story_id, {})[
+                        task_spec.description
+                    ] = new_task
 
         event_metadata = json.dumps(
             {

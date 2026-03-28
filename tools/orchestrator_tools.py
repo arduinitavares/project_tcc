@@ -24,6 +24,8 @@ from agile_sqlmodel import (
     Product,
     SpecRegistry,
     Sprint,
+    SprintStatus,
+    SprintStory,
     StoryStatus,
     Theme,
     UserStory,
@@ -467,6 +469,18 @@ def fetch_sprint_candidates(product_id: int) -> Dict[str, Any]:
         f"\n[Tool: fetch_sprint_candidates] Fetching refined sprint candidates for product ID: {product_id}"
     )
     with Session(get_engine()) as session:
+        open_sprint_story_ids = {
+            int(story_id)
+            for story_id in session.exec(
+                select(SprintStory.story_id)
+                .join(Sprint, Sprint.sprint_id == SprintStory.sprint_id)
+                .where(
+                    Sprint.product_id == product_id,
+                    Sprint.status.in_([SprintStatus.PLANNED, SprintStatus.ACTIVE]),
+                )
+            ).all()
+            if story_id is not None
+        }
         stories = list(
             session.exec(
                 select(UserStory)
@@ -485,6 +499,7 @@ def fetch_sprint_candidates(product_id: int) -> Dict[str, Any]:
             "excluded_counts": {
                 "non_refined": 0,
                 "superseded": 0,
+                "open_sprint": 0,
             },
             "message": "No stories found in backlog.",
         }
@@ -492,6 +507,7 @@ def fetch_sprint_candidates(product_id: int) -> Dict[str, Any]:
     refined: List[UserStory] = []
     excluded_non_refined = 0
     excluded_superseded = 0
+    excluded_open_sprint = 0
 
     for story in stories:
         if bool(story.is_superseded):
@@ -499,6 +515,9 @@ def fetch_sprint_candidates(product_id: int) -> Dict[str, Any]:
             continue
         if not bool(story.is_refined):
             excluded_non_refined += 1
+            continue
+        if int(story.story_id or 0) in open_sprint_story_ids:
+            excluded_open_sprint += 1
             continue
         refined.append(story)
 
@@ -523,8 +542,13 @@ def fetch_sprint_candidates(product_id: int) -> Dict[str, Any]:
         )
 
     print(
-        "   [DB] Found %s sprint candidates (excluded: non_refined=%s, superseded=%s)."
-        % (len(candidate_list), excluded_non_refined, excluded_superseded)
+        "   [DB] Found %s sprint candidates (excluded: non_refined=%s, superseded=%s, open_sprint=%s)."
+        % (
+            len(candidate_list),
+            excluded_non_refined,
+            excluded_superseded,
+            excluded_open_sprint,
+        )
     )
 
     return {
@@ -534,10 +558,12 @@ def fetch_sprint_candidates(product_id: int) -> Dict[str, Any]:
         "excluded_counts": {
             "non_refined": excluded_non_refined,
             "superseded": excluded_superseded,
+            "open_sprint": excluded_open_sprint,
         },
         "message": (
             f"Found {len(candidate_list)} refined sprint candidate(s) in backlog "
-            f"(excluded non-refined={excluded_non_refined}, superseded={excluded_superseded})."
+            f"(excluded non-refined={excluded_non_refined}, superseded={excluded_superseded}, "
+            f"open_sprint={excluded_open_sprint})."
         ),
     }
 

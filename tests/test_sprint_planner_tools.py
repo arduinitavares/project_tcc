@@ -24,8 +24,9 @@ from orchestrator_agent.agent_tools.sprint_planner_tool.tools import (
     SaveSprintPlanInput,
     save_sprint_plan_tool,
 )
+from tools.orchestrator_tools import fetch_sprint_candidates
 from utils.schemes import ValidationEvidence
-from utils.task_metadata import TaskMetadata
+from utils.task_metadata import TaskMetadata, serialize_task_metadata
 
 
 def _seed_product_team_stories(session: Session) -> tuple[int, int, List[int]]:
@@ -259,14 +260,14 @@ def test_save_sprint_plan_falls_back_when_state_duration_invalid(session: Sessio
 
 
 def test_save_sprint_plan_rejects_story_conflict(session: Session):
-    """Ensure a story cannot be assigned to multiple planned sprints."""
+    """Ensure a story cannot be assigned to another open sprint."""
     product_id, team_id, story_ids = _seed_product_team_stories(session)
 
     existing_sprint = Sprint(
         goal="Existing sprint",
         start_date=date(2026, 1, 1),
         end_date=date(2026, 1, 14),
-        status=SprintStatus.PLANNED,
+        status=SprintStatus.ACTIVE,
         product_id=product_id,
         team_id=team_id,
     )
@@ -292,6 +293,235 @@ def test_save_sprint_plan_rejects_story_conflict(session: Session):
     result = save_sprint_plan_tool(input_data, tool_context)
     assert result["success"] is False
     assert "Stories already assigned" in result["error"]
+
+
+def test_save_sprint_plan_updates_existing_planned_sprint_in_place(session: Session):
+    """Saving a revised draft should reuse the open planned sprint for the product."""
+    product_id, team_id, story_ids = _seed_product_team_stories(session)
+
+    existing_sprint = Sprint(
+        goal="Initial sprint goal",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 14),
+        status=SprintStatus.PLANNED,
+        product_id=product_id,
+        team_id=team_id,
+    )
+    session.add(existing_sprint)
+    session.flush()
+    assert existing_sprint.sprint_id is not None
+
+    session.add(
+        SprintStory(sprint_id=existing_sprint.sprint_id, story_id=story_ids[0])
+    )
+    session.add(
+        Task(
+            story_id=story_ids[0],
+            description="Create auth table",
+            metadata_json=serialize_task_metadata(
+                TaskMetadata(
+                    task_kind="implementation",
+                    artifact_targets=["auth schema"],
+                    workstream_tags=["backend", "auth"],
+                    relevant_invariant_ids=["INV-VALID"],
+                    checklist_items=[
+                        "Define the auth table columns",
+                        "Add persistence coverage for auth records",
+                    ],
+                )
+            ),
+        )
+    )
+    session.commit()
+
+    sprint_plan = _build_sprint_plan(story_ids)
+    sprint_plan["sprint_goal"] = "Updated sprint goal"
+    sprint_plan["selected_stories"].append(
+        {
+            "story_id": story_ids[1],
+            "story_title": "Story 2",
+            "tasks": [
+                {
+                    "description": "Add audit logging",
+                    "task_kind": "implementation",
+                    "checklist_items": [
+                        "Emit audit events for auth updates",
+                        "Cover the new audit trail with tests",
+                    ],
+                    "artifact_targets": ["audit logging"],
+                    "workstream_tags": ["backend"],
+                    "relevant_invariant_ids": [],
+                }
+            ],
+            "reason_for_selection": "Still fits the revised sprint scope",
+        }
+    )
+    sprint_plan["deselected_stories"] = []
+    sprint_plan["capacity_analysis"]["selected_count"] = 2
+    sprint_plan["capacity_analysis"]["story_points_used"] = 5
+
+    tool_context = cast(
+        ToolContext,
+        SimpleNamespace(state={"sprint_plan": sprint_plan}),
+    )
+    input_data = SaveSprintPlanInput(
+        product_id=product_id,
+        team_id=team_id,
+        sprint_start_date="2026-02-01",
+        sprint_duration_days=10,
+    )
+
+    result = save_sprint_plan_tool(input_data, tool_context)
+
+    assert result["success"] is True
+    assert result["sprint_id"] == existing_sprint.sprint_id
+
+    sprints = session.exec(select(Sprint)).all()
+    assert len(sprints) == 1
+    session.refresh(existing_sprint)
+    assert existing_sprint.goal == "Updated sprint goal"
+    assert existing_sprint.start_date == date(2026, 2, 1)
+    assert existing_sprint.end_date == date(2026, 2, 11)
+
+    links = session.exec(
+        select(SprintStory).where(SprintStory.sprint_id == existing_sprint.sprint_id)
+    ).all()
+    assert sorted(link.story_id for link in links) == sorted(story_ids)
+
+    tasks = session.exec(select(Task).order_by(Task.story_id, Task.description)).all()
+    assert len(tasks) == 3
+    assert sum(1 for task in tasks if task.description == "Create auth table") == 1
+    assert sorted(task.description for task in tasks) == [
+        "Add audit logging",
+        "Add login UI",
+        "Create auth table",
+    ]
+
+
+def test_fetch_sprint_candidates_excludes_stories_in_open_sprints(session: Session):
+    """Only stories tied to open planned/active sprints should be excluded."""
+    product = Product(name="Candidate Product", vision="Vision", description="Desc")
+    team = Team(name="Candidate Team")
+    session.add(product)
+    session.add(team)
+    session.commit()
+    session.refresh(product)
+    session.refresh(team)
+
+    assert product.product_id is not None
+    assert team.team_id is not None
+
+    stories = {
+        "planned": UserStory(
+            product_id=product.product_id,
+            title="Planned story",
+            story_description="Assigned to a planned sprint",
+            acceptance_criteria="- AC",
+            is_refined=True,
+            rank="1",
+        ),
+        "active": UserStory(
+            product_id=product.product_id,
+            title="Active story",
+            story_description="Assigned to an active sprint",
+            acceptance_criteria="- AC",
+            is_refined=True,
+            rank="2",
+        ),
+        "completed_only": UserStory(
+            product_id=product.product_id,
+            title="Completed-only story",
+            story_description="Assigned only to a completed sprint",
+            acceptance_criteria="- AC",
+            is_refined=True,
+            rank="3",
+        ),
+        "eligible": UserStory(
+            product_id=product.product_id,
+            title="Eligible story",
+            story_description="Not assigned to any open sprint",
+            acceptance_criteria="- AC",
+            is_refined=True,
+            rank="4",
+        ),
+        "non_refined": UserStory(
+            product_id=product.product_id,
+            title="Needs refinement",
+            story_description="Still rough",
+            acceptance_criteria="- AC",
+            is_refined=False,
+            rank="5",
+        ),
+        "superseded": UserStory(
+            product_id=product.product_id,
+            title="Superseded story",
+            story_description="Replaced by another story",
+            acceptance_criteria="- AC",
+            is_refined=True,
+            is_superseded=True,
+            rank="6",
+        ),
+    }
+    session.add_all(stories.values())
+    session.flush()
+
+    planned_sprint = Sprint(
+        goal="Planned",
+        start_date=date(2026, 2, 1),
+        end_date=date(2026, 2, 14),
+        status=SprintStatus.PLANNED,
+        product_id=product.product_id,
+        team_id=team.team_id,
+    )
+    active_sprint = Sprint(
+        goal="Active",
+        start_date=date(2026, 2, 15),
+        end_date=date(2026, 2, 28),
+        status=SprintStatus.ACTIVE,
+        product_id=product.product_id,
+        team_id=team.team_id,
+    )
+    completed_sprint = Sprint(
+        goal="Completed",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 14),
+        status=SprintStatus.COMPLETED,
+        product_id=product.product_id,
+        team_id=team.team_id,
+    )
+    session.add_all([planned_sprint, active_sprint, completed_sprint])
+    session.flush()
+
+    session.add_all(
+        [
+            SprintStory(
+                sprint_id=planned_sprint.sprint_id,
+                story_id=stories["planned"].story_id,
+            ),
+            SprintStory(
+                sprint_id=active_sprint.sprint_id,
+                story_id=stories["active"].story_id,
+            ),
+            SprintStory(
+                sprint_id=completed_sprint.sprint_id,
+                story_id=stories["completed_only"].story_id,
+            ),
+        ]
+    )
+    session.commit()
+
+    result = fetch_sprint_candidates(product.product_id)
+
+    assert result["success"] is True
+    assert [story["story_title"] for story in result["stories"]] == [
+        "Completed-only story",
+        "Eligible story",
+    ]
+    assert result["excluded_counts"] == {
+        "non_refined": 1,
+        "superseded": 1,
+        "open_sprint": 2,
+    }
 
 
 def test_save_sprint_plan_rejects_out_of_scope_task_invariants(session: Session):

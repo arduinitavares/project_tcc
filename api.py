@@ -3049,7 +3049,15 @@ async def save_project_sprint(project_id: int, req: SprintSaveRequest):
     )
 
     if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to save sprint plan"))
+        status_code = (
+            409
+            if result.get("error_code") == "STORY_ALREADY_IN_OPEN_SPRINT"
+            else 500
+        )
+        raise HTTPException(
+            status_code=status_code,
+            detail=result.get("error", "Failed to save sprint plan"),
+        )
 
     state["fsm_state"] = OrchestratorState.SPRINT_PERSISTENCE.value
     state["fsm_state_entered_at"] = _now_iso()

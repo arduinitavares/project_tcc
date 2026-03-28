@@ -615,7 +615,7 @@ def test_sprint_save_rejects_incomplete_assessment(monkeypatch):
     assert response.json()["detail"] == "Sprint cannot be saved until is_complete is true"
 
 
-def test_sprint_save_surfaces_persistence_tool_error(monkeypatch):
+def test_sprint_save_maps_open_sprint_conflict_to_http_409(monkeypatch):
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_draft_project(repo, workflow)
 
@@ -623,7 +623,36 @@ def test_sprint_save_surfaces_persistence_tool_error(monkeypatch):
         return SimpleNamespace(state={}, session_id=session_id)
 
     def fake_save_sprint_plan_tool(input_data, tool_context):
-        return {"success": False, "error": "Stories already assigned to active or planned sprints: [12]"}
+        return {
+            "success": False,
+            "error_code": "STORY_ALREADY_IN_OPEN_SPRINT",
+            "error": "Stories already assigned to active or planned sprints: [12]",
+        }
+
+    monkeypatch.setattr(api_module, "_hydrate_context", fake_hydrate_context)
+    monkeypatch.setattr(api_module, "save_sprint_plan_tool", fake_save_sprint_plan_tool)
+
+    response = client.post(
+        f"/api/projects/{project_id}/sprint/save",
+        json={
+            "team_name": "Team Alpha",
+            "sprint_start_date": "2026-03-15",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Stories already assigned to active or planned sprints: [12]"
+
+
+def test_sprint_save_surfaces_unexpected_persistence_tool_error(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_sprint_draft_project(repo, workflow)
+
+    async def fake_hydrate_context(session_id: str, project_id: int):
+        return SimpleNamespace(state={}, session_id=session_id)
+
+    def fake_save_sprint_plan_tool(input_data, tool_context):
+        return {"success": False, "error": "database unavailable"}
 
     monkeypatch.setattr(api_module, "_hydrate_context", fake_hydrate_context)
     monkeypatch.setattr(api_module, "save_sprint_plan_tool", fake_save_sprint_plan_tool)
@@ -637,7 +666,7 @@ def test_sprint_save_surfaces_persistence_tool_error(monkeypatch):
     )
 
     assert response.status_code == 500
-    assert response.json()["detail"] == "Stories already assigned to active or planned sprints: [12]"
+    assert response.json()["detail"] == "database unavailable"
 
 
 def test_list_sprints_returns_saved_sprints_newest_first(session, monkeypatch):
