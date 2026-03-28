@@ -372,6 +372,22 @@ def migrate_sprint_lifecycle(engine: Engine) -> List[str]:
     ):
         actions.append("added column: sprints.started_at")
 
+    if _ensure_column_exists(
+        engine,
+        "sprints",
+        "completed_at",
+        "DATETIME",
+    ):
+        actions.append("added column: sprints.completed_at")
+
+    if _ensure_column_exists(
+        engine,
+        "sprints",
+        "close_snapshot_json",
+        "TEXT",
+    ):
+        actions.append("added column: sprints.close_snapshot_json")
+
     return actions
 
 
