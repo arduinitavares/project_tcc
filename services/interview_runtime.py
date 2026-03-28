@@ -40,9 +40,9 @@ def _normalize_feedback_projection(projection: Dict[str, Any]) -> Dict[str, Any]
     if not isinstance(feedback_projection, dict):
         feedback_projection = {}
         projection["feedback_projection"] = feedback_projection
-    feedback_projection.setdefault("items", [])
-    if not isinstance(feedback_projection["items"], list):
-        raise TypeError("feedback_projection.items must be a list")
+    items = feedback_projection.get("items")
+    if not isinstance(items, list):
+        feedback_projection["items"] = []
     derived_sequence = _derive_feedback_sequence_floor(feedback_projection["items"])
     current_sequence = feedback_projection.get("next_feedback_sequence")
     if not isinstance(current_sequence, int) or current_sequence < derived_sequence:
@@ -76,9 +76,11 @@ def ensure_interview_subject(
     if not isinstance(projection, dict):
         raise TypeError("interview subject projection must be a dict")
 
-    projection.setdefault("phase", phase)
-    projection.setdefault("subject_key", subject_key)
-    projection.setdefault("attempt_history", [])
+    projection["phase"] = phase
+    projection["subject_key"] = subject_key
+    attempt_history = projection.get("attempt_history")
+    if not isinstance(attempt_history, list):
+        projection["attempt_history"] = []
     draft_projection = projection.get("draft_projection")
     if not isinstance(draft_projection, dict):
         projection["draft_projection"] = {}
