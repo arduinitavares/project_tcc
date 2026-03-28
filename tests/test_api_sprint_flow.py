@@ -695,12 +695,39 @@ def test_start_sprint_sets_started_at_once_and_logs_event(session, monkeypatch):
         created_title="Planned Sprint",
     )
 
+    story = session.exec(
+        select(UserStory).where(UserStory.product_id == project_id)
+    ).first()
+    assert story is not None
+
+    task = Task(
+        description="Prepare the sprint kickoff checklist",
+        story_id=story.story_id,
+        metadata_json=serialize_task_metadata(
+            TaskMetadata(
+                task_kind="documentation",
+                artifact_targets=["kickoff checklist"],
+                workstream_tags=["ops"],
+                relevant_invariant_ids=[],
+                checklist_items=["Confirm planning notes", "Share execution links"],
+            )
+        ),
+    )
+    session.add(task)
+    session.commit()
+
     first_response = client.patch(f"/api/projects/{project_id}/sprints/{sprint_id}/start")
     assert first_response.status_code == 200
     first_payload = first_response.json()
+    sprint = first_payload["data"]["sprint"]
     started_at = first_payload["data"]["sprint"]["started_at"]
     assert started_at is not None
-    assert first_payload["data"]["sprint"]["status"] == SprintStatus.ACTIVE.value
+    assert sprint["status"] == SprintStatus.ACTIVE.value
+    assert sprint["selected_stories"][0]["tasks"][0]["checklist_items"] == [
+        "Confirm planning notes",
+        "Share execution links",
+    ]
+    assert sprint["selected_stories"][0]["tasks"][0]["is_executable"] is True
 
     second_response = client.patch(f"/api/projects/{project_id}/sprints/{sprint_id}/start")
     assert second_response.status_code == 200

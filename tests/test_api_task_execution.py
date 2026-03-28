@@ -18,6 +18,7 @@ def test_task_execution_flow(session, monkeypatch):
             artifact_targets=["mock.py"],
             workstream_tags=["backend"],
             relevant_invariant_ids=[],
+            checklist_items=["Implement the mock module", "Write the execution log"],
         ),
     )
 
@@ -107,3 +108,34 @@ def test_task_execution_flow(session, monkeypatch):
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["history"]) == 0  # Should not show Sprint 1 logs!
+
+
+def test_task_execution_rejects_non_executable_tasks(session, monkeypatch):
+    from tests.test_api_sprint_flow import _build_client, _seed_task_packet_context
+    from utils.task_metadata import TaskMetadata
+
+    client, repo, _ = _build_client(monkeypatch)
+
+    project_id, sprint_id, _story_id, task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=True,
+        task_metadata=TaskMetadata(
+            task_kind="documentation",
+            artifact_targets=["design-notes.md"],
+            workstream_tags=["docs"],
+            relevant_invariant_ids=[],
+            checklist_items=[],
+        ),
+    )
+
+    resp = client.post(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/execution",
+        json={
+            "new_status": "In Progress",
+            "notes": "Trying to run a reference-only task.",
+        },
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "Task has no executable checklist items."

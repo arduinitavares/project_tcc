@@ -315,6 +315,19 @@ def _serialize_sprint_task(task: Task) -> Dict[str, Any]:
     }
 
 
+def _story_task_progress(tasks: List[Task]) -> tuple[int, int, int, bool]:
+    actionable_tasks = [
+        task for task in tasks if bool(parse_task_metadata(task.metadata_json).checklist_items)
+    ]
+    total_tasks = len(actionable_tasks)
+    done_tasks = sum(1 for task in actionable_tasks if task.status == TaskStatus.DONE)
+    cancelled_tasks = sum(
+        1 for task in actionable_tasks if task.status == TaskStatus.CANCELLED
+    )
+    all_actionable_tasks_done = total_tasks > 0 and (done_tasks + cancelled_tasks) == total_tasks
+    return total_tasks, done_tasks, cancelled_tasks, all_actionable_tasks_done
+
+
 def _serialize_sprint_story(story: UserStory) -> Dict[str, Any]:
     tasks = sorted(
         [_serialize_sprint_task(task) for task in story.tasks],
@@ -2289,6 +2302,13 @@ def post_task_execution(project_id: int, sprint_id: int, task_id: int, req: Task
         if not sprint_story:
             raise HTTPException(status_code=404, detail="Task does not belong to the given sprint")
 
+        task_metadata = parse_task_metadata(task.metadata_json)
+        if not task_metadata.checklist_items:
+            raise HTTPException(
+                status_code=409,
+                detail="Task has no executable checklist items.",
+            )
+
         old_status = task.status
         if req.new_status:
             task.status = req.new_status
@@ -2340,14 +2360,10 @@ def get_story_close(project_id: int, sprint_id: int, story_id: int):
         if not sprint_story:
             raise HTTPException(status_code=404, detail="Story does not belong to the given sprint")
 
-        tasks = session.exec(
-            select(Task).where(Task.story_id == story_id)
-        ).all()
-        
-        total_tasks = len(tasks)
-        done_tasks = sum(1 for t in tasks if t.status == TaskStatus.DONE)
-        cancelled_tasks = sum(1 for t in tasks if t.status == TaskStatus.CANCELLED)
-        all_actionable_done = total_tasks > 0 and (done_tasks + cancelled_tasks) == total_tasks
+        tasks = session.exec(select(Task).where(Task.story_id == story_id)).all()
+        total_tasks, done_tasks, cancelled_tasks, all_actionable_done = _story_task_progress(
+            tasks
+        )
         
         readiness = StoryTaskProgressSummary(
             total_tasks=total_tasks,
@@ -2357,10 +2373,14 @@ def get_story_close(project_id: int, sprint_id: int, story_id: int):
         )
         
         close_eligible = all_actionable_done
-        ineligible_reason = None if close_eligible else "Not all tasks are completed or cancelled."
+        ineligible_reason = (
+            None
+            if close_eligible
+            else "Not all actionable tasks are completed or cancelled."
+        )
         if total_tasks == 0:
             close_eligible = False
-            ineligible_reason = "Story has no tasks."
+            ineligible_reason = "Story has no executable tasks."
 
         if story.status in (StoryStatus.ACCEPTED, StoryStatus.DONE):
             close_eligible = False
@@ -2401,16 +2421,21 @@ def post_story_close(project_id: int, sprint_id: int, story_id: int, req: StoryC
             raise HTTPException(status_code=404, detail="Story does not belong to the given sprint")
 
         tasks = session.exec(select(Task).where(Task.story_id == story_id)).all()
-        total_tasks = len(tasks)
-        done_tasks = sum(1 for t in tasks if t.status == TaskStatus.DONE)
-        cancelled_tasks = sum(1 for t in tasks if t.status == TaskStatus.CANCELLED)
-        all_actionable_done = total_tasks > 0 and (done_tasks + cancelled_tasks) == total_tasks
+        total_tasks, done_tasks, cancelled_tasks, all_actionable_done = _story_task_progress(
+            tasks
+        )
         
         if total_tasks == 0:
-            raise HTTPException(status_code=409, detail="Cannot close a story with no tasks.")
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot close a story with no executable tasks.",
+            )
             
         if not all_actionable_done:
-            raise HTTPException(status_code=409, detail="Cannot close a story unless all tasks are Done or Cancelled.")
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot close a story unless all actionable tasks are Done or Cancelled.",
+            )
 
         old_status = story.status
         if old_status in (StoryStatus.ACCEPTED, StoryStatus.DONE):

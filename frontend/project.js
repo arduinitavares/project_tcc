@@ -2450,7 +2450,8 @@ function renderSprintSavedWorkspace() {
         } else {
             storyList.innerHTML = stories.map((story, index) => {
                 const tasks = Array.isArray(story.tasks) ? story.tasks : [];
-                const allTasksDone = tasks.length > 0 && tasks.every(t => t.status === 'Done' || t.status === 'Cancelled');
+                const actionableTasks = tasks.filter((task) => task.is_executable !== false);
+                const allTasksDone = actionableTasks.length > 0 && actionableTasks.every(t => t.status === 'Done' || t.status === 'Cancelled');
                 const isStoryDone = story.status === 'Done';
                 let storyStateBanner = '';
                 
@@ -2505,6 +2506,10 @@ function renderSprintSavedWorkspace() {
                                     const tags = Array.isArray(task.workstream_tags) ? task.workstream_tags.map(t => `<span class="inline-flex items-center bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 px-2 py-0.5 rounded text-[10px] font-bold border border-teal-100 dark:border-teal-800 shadow-sm">#${escapeHtml(t)}</span>`).join(' ') : '';
                                     const targetsStr = Array.isArray(task.artifact_targets) ? task.artifact_targets.map(escapeHtml).join(', ') : '';
                                     const targets = targetsStr ? `<div class="text-[11px] text-slate-500 dark:text-slate-400 mt-2 flex gap-1.5 bg-slate-50 w-full p-2 rounded border border-slate-100 dark:border-slate-800 dark:bg-slate-950/50"><span class="font-bold shrink-0">Targets:</span> <span class="break-words">${targetsStr}</span></div>` : '';
+                                    const isExecutable = task.is_executable !== false;
+                                    const executionMode = isExecutable
+                                        ? ''
+                                        : `<span class="inline-flex items-center px-2 py-0.5 rounded border border-amber-200 bg-amber-50 text-[10px] font-black uppercase text-amber-700 shadow-sm dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300">Reference only</span>`;
 
                                     const statusStr = task.status ? escapeHtml(task.status) : 'To Do';
                                     const statusColors = {
@@ -2521,7 +2526,7 @@ function renderSprintSavedWorkspace() {
                                     <div class="flex items-start gap-2">
                                         <span class="material-symbols-outlined mt-0.5 text-sm text-teal-500 shrink-0">task_alt</span>
                                         <div class="flex-1 flex flex-col min-w-0 gap-1.5">
-                                            <div class="flex flex-wrap items-center gap-1.5">${statusBadge} ${kind}${tags}</div>
+                                            <div class="flex flex-wrap items-center gap-1.5">${statusBadge} ${kind}${tags}${executionMode}</div>
                                             <span class="text-sm font-medium text-slate-800 dark:text-slate-200 leading-snug">${desc}</span>
                                             ${targets}
                                         </div>
@@ -2534,9 +2539,15 @@ function renderSprintSavedWorkspace() {
                                         <button onclick="toggleTaskBrief(event, ${selectedSprint.id}, ${task.id})" class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 transition-colors dark:bg-sky-900/30 dark:hover:bg-sky-900/50 dark:text-sky-300 border border-sky-200 dark:border-sky-800 shadow-sm">
                                             <span class="material-symbols-outlined text-[12px]">visibility</span> View Brief
                                         </button>
+                                        ${isExecutable ? `
                                         <button onclick="toggleTaskExecution(event, ${selectedSprint.id}, ${task.id})" class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shadow-sm">
                                             <span class="material-symbols-outlined text-[12px]">edit_note</span> Log Progress
                                         </button>
+                                        ` : `
+                                        <span class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800 shadow-sm">
+                                            <span class="material-symbols-outlined text-[12px]">lock</span> Reference only
+                                        </span>
+                                        `}
                                     </div>
                                     <div id="task-brief-${task.id}" class="hidden ml-6 mt-2 p-4 text-[12px] text-slate-700 dark:text-slate-300 bg-slate-50 border border-slate-200 rounded-md dark:bg-slate-950/50 dark:border-slate-800 relative">
                                         <div class="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-slate-900/50 hidden backdrop-blur-sm z-10" id="task-brief-loading-${task.id}">
@@ -2544,8 +2555,7 @@ function renderSprintSavedWorkspace() {
                                         </div>
                                         <div id="task-brief-content-${task.id}" class="whitespace-pre-wrap leading-relaxed selection:bg-sky-200 dark:selection:bg-sky-900"></div>
                                     </div>
-                                    <div id="task-execution-${task.id}" class="hidden ml-6 mt-2 flex flex-col gap-3 rounded-lg border border-indigo-100 bg-indigo-50/30 p-4 shadow-sm dark:border-indigo-900/50 dark:bg-indigo-950/20">
-                                    </div>
+                                    ${isExecutable ? `<div id="task-execution-${task.id}" class="hidden ml-6 mt-2 flex flex-col gap-3 rounded-lg border border-indigo-100 bg-indigo-50/30 p-4 shadow-sm dark:border-indigo-900/50 dark:bg-indigo-950/20"></div>` : ''}
                                     ` : ''}
                                 </li>`;
                                 }).join('')}

@@ -6,6 +6,7 @@ from agile_sqlmodel import UserStory, StoryStatus, StoryCompletionLog, Task, Tas
 def test_story_close_flow(session: Session, monkeypatch):
     from tests.test_api_sprint_flow import _build_client, _seed_task_packet_context
     from utils.task_metadata import TaskMetadata
+    from utils.task_metadata import serialize_task_metadata
 
     client, repo, _ = _build_client(monkeypatch)
 
@@ -18,8 +19,25 @@ def test_story_close_flow(session: Session, monkeypatch):
             artifact_targets=["mock.py"],
             workstream_tags=["backend"],
             relevant_invariant_ids=[],
+            checklist_items=["Implement the mock module", "Mark the task complete"],
         ),
     )
+
+    reference_task = Task(
+        description="Document the rollout notes",
+        story_id=story_id,
+        metadata_json=serialize_task_metadata(
+            TaskMetadata(
+                task_kind="documentation",
+                artifact_targets=["release-notes.md"],
+                workstream_tags=["docs"],
+                relevant_invariant_ids=[],
+                checklist_items=[],
+            )
+        ),
+    )
+    session.add(reference_task)
+    session.commit()
 
     # 1. GET /close (Not all tasks done)
     resp = client.get(f"/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/close")
@@ -39,7 +57,7 @@ def test_story_close_flow(session: Session, monkeypatch):
         }
     )
     assert resp.status_code == 409
-    assert "Cannot close a story unless all tasks are Done" in resp.json()["detail"]
+    assert "Cannot close a story unless all actionable tasks are Done or Cancelled." == resp.json()["detail"]
 
     # Mark the only task as done
     task = session.get(Task, task_id)
@@ -105,3 +123,42 @@ def test_story_close_flow(session: Session, monkeypatch):
     )
     assert resp.status_code == 409
     assert "Cannot modify an already Done story" in resp.json()["detail"]
+
+
+def test_story_close_rejects_stories_with_only_reference_tasks(session: Session, monkeypatch):
+    from tests.test_api_sprint_flow import _build_client, _seed_task_packet_context
+    from utils.task_metadata import TaskMetadata
+
+    client, repo, _ = _build_client(monkeypatch)
+
+    project_id, sprint_id, story_id, _task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=True,
+        task_metadata=TaskMetadata(
+            task_kind="documentation",
+            artifact_targets=["runbook.md"],
+            workstream_tags=["docs"],
+            relevant_invariant_ids=[],
+            checklist_items=[],
+        ),
+    )
+
+    resp = client.get(f"/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/close")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["close_eligible"] is False
+    assert data["readiness"]["total_tasks"] == 0
+    assert data["readiness"]["done_tasks"] == 0
+    assert data["readiness"]["all_actionable_tasks_done"] is False
+    assert data["ineligible_reason"] == "Story has no executable tasks."
+
+    resp = client.post(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/close",
+        json={
+            "resolution": "Completed",
+            "completion_notes": "Attempted close without actionable work",
+        },
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "Cannot close a story with no executable tasks."
