@@ -2121,7 +2121,7 @@ async def generate_project_story(project_id: int, parent_requirement: str, req: 
         state,
         project_id=project_id,
         parent_requirement=parent_requirement,
-        user_input=req.user_input,
+        user_input=None if included_feedback_ids else req.user_input,
     )
     request_payload = story_result.get("request_payload")
     if not isinstance(request_payload, dict):

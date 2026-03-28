@@ -115,8 +115,18 @@ def test_story_generate_promotes_reusable_draft_records_request_projection_and_a
     ):
         assert project_id == product.product_id
         assert parent_requirement == "Requirement A"
-        assert user_input == "Please keep this to one milestone."
+        assert user_input is None
         assert state["roadmap_releases"][0]["items"] == ["Requirement A"]
+        runtime = state["interview_runtime"]["story"]["Requirement A"]
+        assert runtime["feedback_projection"]["items"] == [
+            {
+                "feedback_id": "feedback-1",
+                "text": "Please keep this to one milestone.",
+                "created_at": runtime["feedback_projection"]["items"][0]["created_at"],
+                "status": "unabsorbed",
+                "absorbed_by_attempt_id": None,
+            }
+        ]
         return {
             "success": True,
             "input_context": {"requirement_context": "assembled"},
