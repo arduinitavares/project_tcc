@@ -94,6 +94,29 @@ def test_story_generate_promotes_reusable_draft_records_request_projection_and_a
         "pending_spec_content": "SPEC",
         "compiled_authority_cached": '{"ok": true}',
         "roadmap_releases": [{"items": ["Requirement A"]}],
+        "interview_runtime": {
+            "story": {
+                "Requirement A": {
+                    "phase": "story",
+                    "subject_key": "Requirement A",
+                    "attempt_history": [],
+                    "draft_projection": {},
+                    "feedback_projection": {
+                        "items": [
+                            {
+                                "feedback_id": "feedback-1",
+                                "text": "Please also keep the auth path out of scope.",
+                                "created_at": "2026-03-28T09:59:00Z",
+                                "status": "unabsorbed",
+                                "absorbed_by_attempt_id": None,
+                            }
+                        ],
+                        "next_feedback_sequence": 1,
+                    },
+                    "request_projection": {},
+                }
+            }
+        },
     }
 
     request_payload = {
@@ -121,8 +144,15 @@ def test_story_generate_promotes_reusable_draft_records_request_projection_and_a
         assert runtime["feedback_projection"]["items"] == [
             {
                 "feedback_id": "feedback-1",
+                "text": "Please also keep the auth path out of scope.",
+                "created_at": "2026-03-28T09:59:00Z",
+                "status": "unabsorbed",
+                "absorbed_by_attempt_id": None,
+            },
+            {
+                "feedback_id": "feedback-2",
                 "text": "Please keep this to one milestone.",
-                "created_at": runtime["feedback_projection"]["items"][0]["created_at"],
+                "created_at": runtime["feedback_projection"]["items"][1]["created_at"],
                 "status": "unabsorbed",
                 "absorbed_by_attempt_id": None,
             }
@@ -169,20 +199,28 @@ def test_story_generate_promotes_reusable_draft_records_request_projection_and_a
     state = workflow.states[str(product.product_id)]
     runtime = state["interview_runtime"]["story"]["Requirement A"]
     assert runtime["request_projection"]["payload"] == request_payload
-    assert runtime["request_projection"]["included_feedback_ids"] == ["feedback-1"]
+    assert runtime["request_projection"]["included_feedback_ids"] == ["feedback-1", "feedback-2"]
     assert runtime["draft_projection"] == {
         "latest_reusable_attempt_id": "attempt-1",
         "kind": "complete_draft",
         "is_complete": True,
         "updated_at": runtime["draft_projection"]["updated_at"],
     }
-    assert runtime["attempt_history"][0]["included_feedback_ids"] == ["feedback-1"]
+    assert runtime["attempt_history"][0]["included_feedback_ids"] == ["feedback-1", "feedback-2"]
+    assert runtime["attempt_history"][0]["input_context"] == {"requirement_context": "assembled"}
     assert runtime["attempt_history"][0]["classification"] == "reusable_content_result"
     assert runtime["feedback_projection"]["items"] == [
         {
             "feedback_id": "feedback-1",
+            "text": "Please also keep the auth path out of scope.",
+            "created_at": "2026-03-28T09:59:00Z",
+            "status": "absorbed",
+            "absorbed_by_attempt_id": "attempt-1",
+        },
+        {
+            "feedback_id": "feedback-2",
             "text": "Please keep this to one milestone.",
-            "created_at": runtime["feedback_projection"]["items"][0]["created_at"],
+            "created_at": runtime["feedback_projection"]["items"][1]["created_at"],
             "status": "absorbed",
             "absorbed_by_attempt_id": "attempt-1",
         }

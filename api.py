@@ -1971,6 +1971,27 @@ def _story_interview_summary(runtime: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _story_unabsorbed_feedback_ids(runtime: Dict[str, Any]) -> List[str]:
+    feedback_projection = runtime.get("feedback_projection") or {}
+    if not isinstance(feedback_projection, dict):
+        return []
+
+    items = feedback_projection.get("items") or []
+    if not isinstance(items, list):
+        return []
+
+    feedback_ids: List[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("status") != "unabsorbed":
+            continue
+        feedback_id = item.get("feedback_id")
+        if isinstance(feedback_id, str) and feedback_id:
+            feedback_ids.append(feedback_id)
+    return feedback_ids
+
+
 def _sync_story_legacy_mirrors(
     state: Dict[str, Any],
     *,
@@ -1986,7 +2007,11 @@ def _sync_story_legacy_mirrors(
         {
             "created_at": attempt.get("created_at"),
             "trigger": attempt.get("trigger"),
-            "input_context": {},
+            "input_context": (
+                attempt.get("input_context")
+                if isinstance(attempt.get("input_context"), dict)
+                else {}
+            ),
             "output_artifact": attempt.get("output_artifact"),
             "is_complete": bool(
                 ((attempt.get("output_artifact") or {}) if isinstance(attempt, dict) else {}).get(
@@ -2108,14 +2133,13 @@ async def generate_project_story(project_id: int, parent_requirement: str, req: 
             detail="User input is required to refine an existing story.",
         )
 
-    included_feedback_ids: List[str] = []
     if normalized_user_input:
-        feedback_entry = append_feedback_entry(
+        append_feedback_entry(
             runtime,
             normalized_user_input,
             _now_iso(),
         )
-        included_feedback_ids.append(feedback_entry["feedback_id"])
+    included_feedback_ids = _story_unabsorbed_feedback_ids(runtime)
 
     story_result = await run_story_agent_from_state(
         state,
@@ -2156,6 +2180,7 @@ async def generate_project_story(project_id: int, parent_requirement: str, req: 
             "request_snapshot_id": request_projection.get("request_snapshot_id"),
             "draft_basis_attempt_id": request_projection.get("draft_basis_attempt_id"),
             "included_feedback_ids": list(included_feedback_ids),
+            "input_context": story_result.get("input_context") or request_payload,
             "classification": story_result.get("classification"),
             "is_reusable": bool(story_result.get("is_reusable", False)),
             "retryable": _story_retryable(story_result.get("classification")),
@@ -2240,6 +2265,7 @@ async def retry_project_story(project_id: int, parent_requirement: str):
             "request_snapshot_id": request_projection.get("request_snapshot_id"),
             "draft_basis_attempt_id": request_projection.get("draft_basis_attempt_id"),
             "included_feedback_ids": included_feedback_ids,
+            "input_context": story_result.get("input_context") or request_payload,
             "classification": story_result.get("classification"),
             "is_reusable": bool(story_result.get("is_reusable", False)),
             "retryable": _story_retryable(story_result.get("classification")),
