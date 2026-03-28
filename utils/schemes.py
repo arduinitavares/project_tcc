@@ -674,3 +674,38 @@ class StoryCloseWriteRequest(BaseModel):
         if not self.completion_notes or not self.completion_notes.strip():
             raise ValueError("completion_notes is required to close a story")
         return self
+
+
+class SprintCloseStorySummary(BaseModel):
+    story_id: int
+    story_title: str
+    story_status: str
+    total_tasks: int
+    done_tasks: int
+    cancelled_tasks: int
+    completion_state: Literal["completed", "unfinished"]
+
+
+class SprintCloseReadiness(BaseModel):
+    completed_story_count: int
+    open_story_count: int
+    unfinished_story_ids: List[int] = Field(default_factory=list)
+    stories: List[SprintCloseStorySummary] = Field(default_factory=list)
+
+
+class SprintCloseReadResponse(BaseModel):
+    success: bool
+    sprint_id: int
+    current_status: str
+    completed_at: Optional[datetime] = None
+    readiness: SprintCloseReadiness
+    close_eligible: bool
+    ineligible_reason: Optional[str] = None
+    history_fidelity: Literal["snapshotted", "derived"] = "derived"
+    close_snapshot: Optional[Dict[str, Any]] = None
+
+
+class SprintCloseWriteRequest(BaseModel):
+    completion_notes: str = Field(min_length=1)
+    follow_up_notes: Optional[str] = None
+    changed_by: Optional[str] = Field(default="manual-ui")

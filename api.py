@@ -97,6 +97,10 @@ from utils.schemes import (
     StoryTaskProgressSummary,
     StoryCloseReadResponse,
     StoryCloseWriteRequest,
+    SprintCloseStorySummary,
+    SprintCloseReadiness,
+    SprintCloseReadResponse,
+    SprintCloseWriteRequest,
 )
 
 configure_logging()
@@ -357,6 +361,45 @@ def _story_task_progress(tasks: List[Task]) -> tuple[int, int, int, bool]:
     return total_tasks, done_tasks, cancelled_tasks, all_actionable_tasks_done
 
 
+def _build_sprint_close_readiness(stories: List[UserStory]) -> SprintCloseReadiness:
+    summaries: List[SprintCloseStorySummary] = []
+    completed_story_count = 0
+    unfinished_story_ids: List[int] = []
+
+    for story in stories:
+        total_tasks, done_tasks, cancelled_tasks, _all_actionable_done = _story_task_progress(
+            story.tasks
+        )
+        completion_state = (
+            "completed"
+            if story.status in (StoryStatus.DONE, StoryStatus.ACCEPTED)
+            else "unfinished"
+        )
+        if completion_state == "completed":
+            completed_story_count += 1
+        elif story.story_id is not None:
+            unfinished_story_ids.append(int(story.story_id))
+
+        summaries.append(
+            SprintCloseStorySummary(
+                story_id=int(story.story_id),
+                story_title=story.title,
+                story_status=story.status.value,
+                total_tasks=total_tasks,
+                done_tasks=done_tasks,
+                cancelled_tasks=cancelled_tasks,
+                completion_state=completion_state,
+            )
+        )
+
+    return SprintCloseReadiness(
+        completed_story_count=completed_story_count,
+        open_story_count=len(summaries) - completed_story_count,
+        unfinished_story_ids=unfinished_story_ids,
+        stories=summaries,
+    )
+
+
 def _serialize_sprint_story(story: UserStory) -> Dict[str, Any]:
     tasks = sorted(
         [_serialize_sprint_task(task) for task in story.tasks],
@@ -374,6 +417,16 @@ def _serialize_sprint_story(story: UserStory) -> Dict[str, Any]:
 
 def _history_fidelity(sprint: Sprint) -> str:
     return "snapshotted" if bool(sprint.close_snapshot_json) else "derived"
+
+
+def _load_sprint_close_snapshot(sprint: Sprint) -> Optional[Dict[str, Any]]:
+    if not sprint.close_snapshot_json:
+        return None
+    try:
+        return json.loads(sprint.close_snapshot_json)
+    except (TypeError, ValueError):
+        logger.warning("Failed to parse sprint close snapshot for sprint %s", sprint.sprint_id)
+        return None
 
 
 def _build_sprint_runtime_summary(sprints: List[Sprint]) -> Dict[str, Any]:
@@ -476,6 +529,7 @@ def _serialize_sprint_detail(
     )
     payload = _serialize_sprint_list_item(sprint, runtime_summary=runtime_summary)
     payload["selected_stories"] = [_serialize_sprint_story(story) for story in stories]
+    payload["close_snapshot"] = _load_sprint_close_snapshot(sprint)
     return payload
 
 
@@ -2823,6 +2877,89 @@ async def get_project_sprint(project_id: int, sprint_id: int):
                 "runtime_summary": runtime_summary,
             },
         }
+
+
+@app.get(
+    "/api/projects/{project_id}/sprints/{sprint_id}/close",
+    response_model=SprintCloseReadResponse,
+)
+def get_sprint_close(project_id: int, sprint_id: int):
+    with Session(get_engine()) as session:
+        sprint = _get_saved_sprint(session, project_id, sprint_id)
+        if not sprint:
+            raise HTTPException(status_code=404, detail="Sprint not found")
+
+        readiness = _build_sprint_close_readiness(list(sprint.stories))
+        close_eligible = sprint.status == SprintStatus.ACTIVE
+        if close_eligible:
+            ineligible_reason = None
+        elif sprint.status == SprintStatus.COMPLETED:
+            ineligible_reason = "Sprint is already completed."
+        else:
+            ineligible_reason = "Only active sprints can be closed."
+
+        return SprintCloseReadResponse(
+            success=True,
+            sprint_id=sprint_id,
+            current_status=sprint.status.value,
+            completed_at=sprint.completed_at,
+            readiness=readiness,
+            close_eligible=close_eligible,
+            ineligible_reason=ineligible_reason,
+            history_fidelity=_history_fidelity(sprint),
+            close_snapshot=_load_sprint_close_snapshot(sprint),
+        )
+
+
+@app.post(
+    "/api/projects/{project_id}/sprints/{sprint_id}/close",
+    response_model=SprintCloseReadResponse,
+)
+def post_sprint_close(project_id: int, sprint_id: int, req: SprintCloseWriteRequest):
+    with Session(get_engine()) as session:
+        sprint = _get_saved_sprint(session, project_id, sprint_id)
+        if not sprint:
+            raise HTTPException(status_code=404, detail="Sprint not found")
+        if sprint.status != SprintStatus.ACTIVE:
+            raise HTTPException(status_code=409, detail="Only active sprints can be closed.")
+
+        readiness = _build_sprint_close_readiness(list(sprint.stories))
+        snapshot = {
+            "closed_at": _now_iso(),
+            "completion_notes": req.completion_notes,
+            "follow_up_notes": req.follow_up_notes,
+            "completed_story_count": readiness.completed_story_count,
+            "open_story_count": readiness.open_story_count,
+            "unfinished_story_ids": readiness.unfinished_story_ids,
+            "stories": [story.model_dump(mode="json") for story in readiness.stories],
+        }
+
+        sprint.status = SprintStatus.COMPLETED
+        sprint.completed_at = datetime.now(timezone.utc)
+        sprint.close_snapshot_json = json.dumps(snapshot)
+        session.add(sprint)
+        session.add(
+            WorkflowEvent(
+                event_type=WorkflowEventType.SPRINT_COMPLETED,
+                product_id=project_id,
+                sprint_id=sprint_id,
+                session_id=str(project_id),
+                event_metadata=json.dumps(snapshot),
+            )
+        )
+        session.commit()
+
+        return SprintCloseReadResponse(
+            success=True,
+            sprint_id=sprint_id,
+            current_status=SprintStatus.COMPLETED.value,
+            completed_at=sprint.completed_at,
+            readiness=readiness,
+            close_eligible=False,
+            ineligible_reason="Sprint is already completed.",
+            history_fidelity="snapshotted",
+            close_snapshot=snapshot,
+        )
 
 
 @app.get("/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet")
