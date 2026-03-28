@@ -398,6 +398,120 @@ def test_save_sprint_plan_updates_existing_planned_sprint_in_place(session: Sess
     ]
 
 
+def test_save_sprint_plan_reconciles_selected_story_tasks_on_planned_update(
+    session: Session,
+):
+    """Selected-story tasks should exactly match the revised planned sprint."""
+    product_id, team_id, story_ids = _seed_product_team_stories(session)
+
+    existing_sprint = Sprint(
+        goal="Initial sprint goal",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 14),
+        status=SprintStatus.PLANNED,
+        product_id=product_id,
+        team_id=team_id,
+    )
+    session.add(existing_sprint)
+    session.flush()
+    assert existing_sprint.sprint_id is not None
+
+    session.add(
+        SprintStory(sprint_id=existing_sprint.sprint_id, story_id=story_ids[0])
+    )
+    session.add_all(
+        [
+            Task(
+                story_id=story_ids[0],
+                description="Create auth table",
+                metadata_json=serialize_task_metadata(
+                    TaskMetadata(
+                        task_kind="documentation",
+                        artifact_targets=["old auth schema"],
+                        workstream_tags=["legacy"],
+                        relevant_invariant_ids=[],
+                        checklist_items=["Obsolete checklist"],
+                    )
+                ),
+            ),
+            Task(
+                story_id=story_ids[0],
+                description="Create auth table",
+                metadata_json=serialize_task_metadata(
+                    TaskMetadata(
+                        task_kind="analysis",
+                        artifact_targets=["duplicate schema"],
+                        workstream_tags=["legacy"],
+                        relevant_invariant_ids=[],
+                        checklist_items=["Duplicate checklist"],
+                    )
+                ),
+            ),
+            Task(
+                story_id=story_ids[0],
+                description="Remove legacy auth path",
+                metadata_json=serialize_task_metadata(
+                    TaskMetadata(
+                        task_kind="implementation",
+                        artifact_targets=["legacy auth path"],
+                        workstream_tags=["backend"],
+                        relevant_invariant_ids=[],
+                        checklist_items=["Delete dead code"],
+                    )
+                ),
+            ),
+        ]
+    )
+    session.commit()
+
+    sprint_plan = _build_sprint_plan(story_ids)
+    sprint_plan["selected_stories"][0]["tasks"] = [
+        {
+            "description": "Create auth table",
+            "task_kind": "implementation",
+            "checklist_items": [
+                "Define the auth table columns",
+                "Add persistence coverage for auth records",
+            ],
+            "artifact_targets": ["auth schema"],
+            "workstream_tags": ["backend", "auth"],
+            "relevant_invariant_ids": ["INV-VALID"],
+        }
+    ]
+
+    tool_context = cast(
+        ToolContext,
+        SimpleNamespace(state={"sprint_plan": sprint_plan}),
+    )
+    input_data = SaveSprintPlanInput(
+        product_id=product_id,
+        team_id=team_id,
+        sprint_start_date="2026-02-01",
+        sprint_duration_days=14,
+    )
+
+    result = save_sprint_plan_tool(input_data, tool_context)
+
+    assert result["success"] is True
+
+    story_tasks = session.exec(
+        select(Task)
+        .where(Task.story_id == story_ids[0])
+        .order_by(Task.task_id)
+    ).all()
+    assert len(story_tasks) == 1
+    assert story_tasks[0].description == "Create auth table"
+    metadata = TaskMetadata.model_validate(json.loads(story_tasks[0].metadata_json))
+    assert metadata.task_kind == "implementation"
+    assert metadata.artifact_targets == ["auth schema"]
+    assert metadata.workstream_tags == ["backend", "auth"]
+    assert metadata.relevant_invariant_ids == ["INV-VALID"]
+    assert metadata.checklist_items == [
+        "Define the auth table columns",
+        "Add persistence coverage for auth records",
+    ]
+
+
 def test_fetch_sprint_candidates_excludes_stories_in_open_sprints(session: Session):
     """Only stories tied to open planned/active sprints should be excluded."""
     product = Product(name="Candidate Product", vision="Vision", description="Desc")

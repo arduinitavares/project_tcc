@@ -333,27 +333,40 @@ def save_sprint_plan_tool(
         if sprint.sprint_id is None:
             raise RuntimeError("Sprint ID was not generated.")
 
-        existing_tasks_by_story: Dict[int, Dict[str, Task]] = {}
+        existing_tasks_by_story: Dict[int, Dict[str, List[Task]]] = {}
         for task in session.exec(
-            select(Task).where(col(Task.story_id).in_(story_ids))
+            select(Task)
+            .where(col(Task.story_id).in_(story_ids))
+            .order_by(Task.story_id, Task.task_id)
         ).all():
             story_task_map = existing_tasks_by_story.setdefault(task.story_id, {})
-            story_task_map.setdefault(task.description, task)
+            story_task_map.setdefault(task.description, []).append(task)
 
         for story in validated_plan.selected_stories:
             session.add(
                 SprintStory(sprint_id=sprint.sprint_id, story_id=story.story_id)
             )
+            story_tasks = existing_tasks_by_story.get(story.story_id, {})
+            desired_descriptions = {task_spec.description for task_spec in story.tasks}
+
+            for description, duplicate_tasks in story_tasks.items():
+                if description in desired_descriptions:
+                    for duplicate_task in duplicate_tasks[1:]:
+                        session.delete(duplicate_task)
+                else:
+                    for obsolete_task in duplicate_tasks:
+                        session.delete(obsolete_task)
+
             for task_spec in story.tasks:
                 metadata_json = serialize_task_metadata(
                     metadata_from_structured_task(task_spec)
                 )
-                existing_task = existing_tasks_by_story.get(story.story_id, {}).get(
-                    task_spec.description
-                )
-                if existing_task:
-                    existing_task.metadata_json = metadata_json
-                    session.add(existing_task)
+                matching_tasks = story_tasks.get(task_spec.description, [])
+                if matching_tasks:
+                    kept_task = matching_tasks[0]
+                    kept_task.metadata_json = metadata_json
+                    session.add(kept_task)
+                    story_tasks[task_spec.description] = [kept_task]
                 else:
                     new_task = Task(
                         story_id=story.story_id,
@@ -361,9 +374,7 @@ def save_sprint_plan_tool(
                         metadata_json=metadata_json,
                     )
                     session.add(new_task)
-                    existing_tasks_by_story.setdefault(story.story_id, {})[
-                        task_spec.description
-                    ] = new_task
+                    story_tasks[task_spec.description] = [new_task]
 
         event_metadata = json.dumps(
             {
