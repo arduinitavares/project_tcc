@@ -310,6 +310,8 @@ def _serialize_sprint_task(task: Task) -> Dict[str, Any]:
         "task_kind": meta.task_kind,
         "artifact_targets": meta.artifact_targets,
         "workstream_tags": meta.workstream_tags,
+        "checklist_items": meta.checklist_items,
+        "is_executable": bool(meta.checklist_items),
     }
 
 

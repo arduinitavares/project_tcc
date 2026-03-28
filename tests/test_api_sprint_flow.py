@@ -1039,30 +1039,46 @@ def test_list_sprints_returns_task_objects(session, monkeypatch):
             artifact_targets=["mock component"],
             workstream_tags=["frontend", "ui"],
             relevant_invariant_ids=[],
+            checklist_items=["Sketch the component states", "Review the accessibility copy"],
         ),
     )
 
+    second_task = Task(
+        description="Document payload validation contract",
+        story_id=story_id,
+        metadata_json=serialize_task_metadata(canonical_task_metadata()),
+    )
+    session.add(second_task)
+    session.commit()
+
     response = client.get(f"/api/projects/{project_id}/sprints")
     assert response.status_code == 200
-    
+
     data = response.json()["data"]
     items = data["items"]
     assert len(items) > 0
     sprint = items[0]
-    
+
     assert len(sprint["selected_stories"]) > 0
     story = sprint["selected_stories"][0]
-    
+
     assert len(story["tasks"]) > 0
-    task_obj = story["tasks"][0]
-    
-    assert isinstance(task_obj, dict)
-    assert "id" in task_obj
-    assert "description" in task_obj
-    assert "status" in task_obj
-    assert "task_kind" in task_obj
-    assert "artifact_targets" in task_obj
-    assert "workstream_tags" in task_obj
-    assert task_obj["task_kind"] == "design"
-    assert task_obj["artifact_targets"] == ["mock component"]
-    assert task_obj["workstream_tags"] == ["frontend", "ui"]
+    tasks_by_description = {task["description"]: task for task in story["tasks"]}
+
+    executable_task = tasks_by_description["Implement payload validation for incoming requests"]
+    non_executable_task = tasks_by_description["Document payload validation contract"]
+
+    assert isinstance(executable_task, dict)
+    assert executable_task["id"] == task_id
+    assert executable_task["task_kind"] == "design"
+    assert executable_task["artifact_targets"] == ["mock component"]
+    assert executable_task["workstream_tags"] == ["frontend", "ui"]
+    assert executable_task["checklist_items"] == [
+        "Sketch the component states",
+        "Review the accessibility copy",
+    ]
+    assert executable_task["is_executable"] is True
+
+    assert isinstance(non_executable_task, dict)
+    assert non_executable_task["checklist_items"] == []
+    assert non_executable_task["is_executable"] is False
