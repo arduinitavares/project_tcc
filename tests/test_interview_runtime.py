@@ -37,9 +37,9 @@ def test_ensure_interview_subject_normalizes_partial_nested_structures() -> None
                     "phase": "story",
                     "subject_key": "req-1",
                     "attempt_history": [],
-                    "draft_projection": {},
+                    "draft_projection": [],
                     "feedback_projection": {},
-                    "request_projection": {},
+                    "request_projection": None,
                 }
             }
         }
@@ -51,6 +51,7 @@ def test_ensure_interview_subject_normalizes_partial_nested_structures() -> None
         subject_key="req-1",
     )
 
+    assert runtime["draft_projection"] == {}
     assert runtime["feedback_projection"] == {
         "items": [],
         "next_feedback_sequence": 0,
@@ -124,6 +125,48 @@ def test_append_feedback_ids_remain_unique_across_reset() -> None:
     assert first["feedback_id"] != second["feedback_id"]
     assert first["feedback_id"] == "feedback-1"
     assert second["feedback_id"] == "feedback-2"
+
+
+def test_append_feedback_uses_max_existing_suffix_on_migrated_state() -> None:
+    runtime = {
+        "attempt_history": [],
+        "draft_projection": {},
+        "feedback_projection": {
+            "items": [
+                {
+                    "feedback_id": "feedback-2",
+                    "text": "legacy",
+                    "created_at": "2026-03-28T09:00:00Z",
+                    "status": "absorbed",
+                    "absorbed_by_attempt_id": "attempt-legacy",
+                },
+                {
+                    "feedback_id": "custom-legacy-id",
+                    "text": "external",
+                    "created_at": "2026-03-28T09:05:00Z",
+                    "status": "unabsorbed",
+                    "absorbed_by_attempt_id": None,
+                },
+                {
+                    "feedback_id": "feedback-7",
+                    "text": "legacy",
+                    "created_at": "2026-03-28T09:10:00Z",
+                    "status": "unabsorbed",
+                    "absorbed_by_attempt_id": None,
+                },
+            ]
+        },
+        "request_projection": {},
+    }
+
+    entry = interview_runtime.append_feedback_entry(
+        runtime,
+        text="fresh",
+        created_at="2026-03-28T10:00:00Z",
+    )
+
+    assert entry["feedback_id"] == "feedback-8"
+    assert runtime["feedback_projection"]["next_feedback_sequence"] == 8
 
 
 def test_hydrate_story_runtime_from_legacy_attempts_promotes_latest_reusable_artifact() -> None:
@@ -204,6 +247,24 @@ def test_hydrate_story_runtime_from_legacy_attempts_promotes_latest_reusable_art
         "updated_at": None,
     }
 
+    assert runtime["attempt_history"][0] == {
+        "attempt_id": "legacy-1",
+        "created_at": None,
+        "trigger": "legacy",
+        "request_snapshot_id": None,
+        "draft_basis_attempt_id": None,
+        "included_feedback_ids": [],
+        "classification": "nonreusable_schema_failure",
+        "is_reusable": False,
+        "retryable": False,
+        "draft_kind": None,
+        "output_artifact": None,
+        "failure_stage": "output_validation",
+        "failure_artifact_id": None,
+        "failure_summary": "schema mismatch",
+        "raw_output_preview": None,
+    }
+
     state["story_attempts"]["req-1"] = []
     hydrated_again = interview_runtime.hydrate_story_runtime_from_legacy(
         state,
@@ -264,6 +325,10 @@ def test_hydrate_story_runtime_normalizes_existing_runtime_before_skip() -> None
     }
     assert runtime["request_projection"] == {}
     assert runtime["attempt_history"] == [{"attempt_id": "existing-1"}]
+
+    assert state["story_attempts"]["req-1"][0]["output_artifact"]["user_stories"][0][
+        "story_title"
+    ] == "Ignored"
 
 
 def test_reset_subject_working_set_clears_projections_and_keeps_audit_marker() -> None:
@@ -330,3 +395,37 @@ def test_reset_subject_working_set_clears_projections_and_keeps_audit_marker() -
     assert runtime["attempt_history"][-1]["summary"] == "reset for next pass"
     assert runtime["attempt_history"][-1]["output_artifact"] is None
     assert runtime["audit_marker"] == {"kind": "audit", "marker": "keep-me"}
+
+
+def test_append_attempt_and_promote_reusable_draft() -> None:
+    runtime = {
+        "attempt_history": [],
+        "draft_projection": {},
+        "feedback_projection": {"items": [], "next_feedback_sequence": 0},
+        "request_projection": {},
+    }
+
+    stored_attempt = interview_runtime.append_attempt(
+        runtime,
+        {
+            "attempt_id": "attempt-1",
+            "classification": "reusable_content_result",
+            "output_artifact": {"user_stories": [{"story_title": "One"}]},
+        },
+    )
+    draft_projection = interview_runtime.promote_reusable_draft(
+        runtime,
+        attempt_id="attempt-1",
+        kind="complete_draft",
+        is_complete=True,
+        updated_at="2026-03-28T10:03:00Z",
+    )
+
+    assert stored_attempt["attempt_id"] == "attempt-1"
+    assert runtime["attempt_history"] == [stored_attempt]
+    assert draft_projection == {
+        "latest_reusable_attempt_id": "attempt-1",
+        "kind": "complete_draft",
+        "is_complete": True,
+        "updated_at": "2026-03-28T10:03:00Z",
+    }

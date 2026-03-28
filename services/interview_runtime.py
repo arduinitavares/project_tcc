@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from typing import Any, Dict, Optional, Sequence
 
 
@@ -37,13 +38,31 @@ def _empty_projection(phase: str, subject_key: str) -> Dict[str, Any]:
 def _normalize_feedback_projection(projection: Dict[str, Any]) -> Dict[str, Any]:
     feedback_projection = projection.setdefault("feedback_projection", {})
     if not isinstance(feedback_projection, dict):
-        raise TypeError("feedback_projection must be a dict")
+        feedback_projection = {}
+        projection["feedback_projection"] = feedback_projection
     feedback_projection.setdefault("items", [])
     if not isinstance(feedback_projection["items"], list):
         raise TypeError("feedback_projection.items must be a list")
-    if "next_feedback_sequence" not in feedback_projection:
-        feedback_projection["next_feedback_sequence"] = len(feedback_projection["items"])
+    derived_sequence = _derive_feedback_sequence_floor(feedback_projection["items"])
+    current_sequence = feedback_projection.get("next_feedback_sequence")
+    if not isinstance(current_sequence, int) or current_sequence < derived_sequence:
+        feedback_projection["next_feedback_sequence"] = derived_sequence
     return feedback_projection
+
+
+def _derive_feedback_sequence_floor(items: list[Any]) -> int:
+    max_suffix = 0
+    for entry in items:
+        if not isinstance(entry, dict):
+            continue
+        feedback_id = entry.get("feedback_id")
+        if not isinstance(feedback_id, str):
+            continue
+        match = re.fullmatch(r"feedback-(\d+)", feedback_id)
+        if not match:
+            continue
+        max_suffix = max(max_suffix, int(match.group(1)))
+    return max_suffix
 
 
 def ensure_interview_subject(
@@ -60,9 +79,13 @@ def ensure_interview_subject(
     projection.setdefault("phase", phase)
     projection.setdefault("subject_key", subject_key)
     projection.setdefault("attempt_history", [])
-    projection.setdefault("draft_projection", {})
+    draft_projection = projection.get("draft_projection")
+    if not isinstance(draft_projection, dict):
+        projection["draft_projection"] = {}
+    request_projection = projection.get("request_projection")
+    if not isinstance(request_projection, dict):
+        projection["request_projection"] = {}
     _normalize_feedback_projection(projection)
-    projection.setdefault("request_projection", {})
     return projection
 
 
@@ -98,7 +121,7 @@ def append_feedback_entry(
 ) -> Dict[str, Any]:
     feedback_projection = _normalize_feedback_projection(runtime)
     items = feedback_projection["items"]
-    sequence = int(feedback_projection.get("next_feedback_sequence", len(items))) + 1
+    sequence = int(feedback_projection["next_feedback_sequence"]) + 1
     feedback_projection["next_feedback_sequence"] = sequence
     generated_id = feedback_id or f"feedback-{sequence}"
     entry = {
