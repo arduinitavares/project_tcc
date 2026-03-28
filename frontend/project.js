@@ -2490,9 +2490,14 @@ function renderSprintSavedWorkspace() {
                             </div>
                             <h5 class="text-sm font-black text-slate-800 dark:text-slate-100">${story.story_title || `Story ${story.story_id}`}</h5>
                         </div>
-                        <div class="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-[11px] font-bold text-slate-600 shadow-sm dark:bg-slate-900 dark:text-slate-300">
-                            <span class="material-symbols-outlined text-sm">flare</span>
-                            ${Number.isFinite(story.story_points) ? `${story.story_points} pts` : 'Unestimated'}
+                        <div class="flex flex-col items-start sm:items-end gap-2">
+                            <div class="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-[11px] font-bold text-slate-600 shadow-sm dark:bg-slate-900 dark:text-slate-300">
+                                <span class="material-symbols-outlined text-sm">flare</span>
+                                ${Number.isFinite(story.story_points) ? `${story.story_points} pts` : 'Unestimated'}
+                            </div>
+                            <button onclick="copyStoryPrompt(event, ${selectedSprint.id}, ${story.story_id})" class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-sm">
+                                <span class="material-symbols-outlined text-[12px]">content_copy</span> Copy Story Prompt
+                            </button>
                         </div>
                     </div>
                     <div class="mt-4 space-y-2">
@@ -2532,10 +2537,16 @@ function renderSprintSavedWorkspace() {
                                         </div>
                                     </div>
                                     ${task.id ? `
-                                    <div class="flex items-center gap-2 ml-6 mt-2">
+                                    <div class="flex flex-wrap items-center gap-2 ml-6 mt-2">
+                                        ${isExecutable ? `
                                         <button onclick="copyTaskPrompt(event, ${selectedSprint.id}, ${task.id})" class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-sm">
-                                            <span class="material-symbols-outlined text-[12px]">content_copy</span> Copy Agent Prompt
+                                            <span class="material-symbols-outlined text-[12px]">content_copy</span> Copy Task Prompt
                                         </button>
+                                        ` : `
+                                        <span class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800 shadow-sm">
+                                            <span class="material-symbols-outlined text-[12px]">lock</span> Reference Only
+                                        </span>
+                                        `}
                                         <button onclick="toggleTaskBrief(event, ${selectedSprint.id}, ${task.id})" class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 transition-colors dark:bg-sky-900/30 dark:hover:bg-sky-900/50 dark:text-sky-300 border border-sky-200 dark:border-sky-800 shadow-sm">
                                             <span class="material-symbols-outlined text-[12px]">visibility</span> View Brief
                                         </button>
@@ -2543,11 +2554,7 @@ function renderSprintSavedWorkspace() {
                                         <button onclick="toggleTaskExecution(event, ${selectedSprint.id}, ${task.id})" class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shadow-sm">
                                             <span class="material-symbols-outlined text-[12px]">edit_note</span> Log Progress
                                         </button>
-                                        ` : `
-                                        <span class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800 shadow-sm">
-                                            <span class="material-symbols-outlined text-[12px]">lock</span> Reference only
-                                        </span>
-                                        `}
+                                        ` : ''}
                                     </div>
                                     <div id="task-brief-${task.id}" class="hidden ml-6 mt-2 p-4 text-[12px] text-slate-700 dark:text-slate-300 bg-slate-50 border border-slate-200 rounded-md dark:bg-slate-950/50 dark:border-slate-800 relative">
                                         <div class="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-slate-900/50 hidden backdrop-blur-sm z-10" id="task-brief-loading-${task.id}">
@@ -3337,6 +3344,39 @@ async function copyTaskPrompt(event, sprintId, taskId) {
     }
 }
 
+async function copyStoryPrompt(event, sprintId, storyId) {
+    if (!selectedProjectId) return;
+    const btn = event.currentTarget;
+    const originalText = btn.innerHTML;
+
+    try {
+        btn.innerHTML = '<span class="material-symbols-outlined text-[12px] animate-spin">cycle</span> Fetching...';
+        btn.disabled = true;
+
+        const res = await fetch(`/api/projects/${selectedProjectId}/sprints/${sprintId}/stories/${storyId}/packet?flavor=cursor`);
+        if (!res.ok) throw new Error("Failed to fetch packet");
+
+        const data = await res.json();
+        const output = data.data?.render;
+
+        if (!output) throw new Error("No rendered packet returned");
+
+        await navigator.clipboard.writeText(output);
+
+        btn.innerHTML = '<span class="material-symbols-outlined text-[12px]">check</span> Copied!';
+        btn.classList.add('bg-emerald-50', 'text-emerald-700', 'border-emerald-200', 'dark:bg-emerald-900/30', 'dark:text-emerald-400', 'dark:border-emerald-800');
+    } catch (err) {
+        console.error("Copy Story Prompt Error:", err);
+        btn.innerHTML = '<span class="material-symbols-outlined text-[12px]">error</span> Error';
+    } finally {
+        setTimeout(() => {
+            btn.innerHTML = originalText;
+            btn.className = 'inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-sm';
+            btn.disabled = false;
+        }, 2000);
+    }
+}
+
 async function toggleTaskBrief(event, sprintId, taskId) {
     if (!selectedProjectId) return;
     
@@ -3412,6 +3452,7 @@ window.startCurrentSprint = startCurrentSprint;
 window.navigateToOverview = navigateToOverview;
 window.deleteCurrentProject = deleteCurrentProject;
 window.copyTaskPrompt = copyTaskPrompt;
+window.copyStoryPrompt = copyStoryPrompt;
 window.toggleTaskBrief = toggleTaskBrief;
 
 async function toggleTaskExecution(event, sprintId, taskId) {
@@ -3472,7 +3513,7 @@ async function toggleTaskExecution(event, sprintId, taskId) {
                         </select>
                     </label>
                     <label class="flex-1 text-[11px] font-bold text-slate-700 dark:text-slate-300 flex flex-col gap-1">
-                        Acceptance Result
+                        Checklist Result
                         <select id="task-exc-acceptance-${taskId}" required class="p-1.5 rounded form-select text-xs dark:bg-slate-800 dark:border-slate-700 focus:ring-1 focus:ring-indigo-500">
                             <option value="not_checked" ${data.latest_entry?.acceptance_result === 'not_checked' ? 'selected' : ''}>Not Checked</option>
                             <option value="partially_met" ${data.latest_entry?.acceptance_result === 'partially_met' ? 'selected' : ''}>Partially Met</option>
