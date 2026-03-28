@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -621,23 +622,35 @@ def _build_task_hard_constraints(
     return constraints
 
 
-def _build_task_packet(
+def _load_packet_story_context(
     session: Session,
     *,
     project_id: int,
     sprint_id: int,
-    task_id: int,
-) -> Optional[Dict[str, Any]]:
-    task = session.exec(
-        select(Task)
-        .options(
-            selectinload(Task.assignee),
-            selectinload(Task.story).selectinload(UserStory.product),
-        )
-        .where(Task.task_id == task_id)
-    ).first()
-    if not task or not task.story or task.story.product_id != project_id:
-        return None
+    story_id: Optional[int] = None,
+    task_id: Optional[int] = None,
+) -> Optional[SimpleNamespace]:
+    task = None
+    if task_id is not None:
+        task = session.exec(
+            select(Task)
+            .options(
+                selectinload(Task.assignee),
+                selectinload(Task.story).selectinload(UserStory.product),
+            )
+            .where(Task.task_id == task_id)
+        ).first()
+        if not task or not task.story or task.story.product_id != project_id:
+            return None
+        story = task.story
+    else:
+        story = session.exec(
+            select(UserStory)
+            .options(selectinload(UserStory.product))
+            .where(UserStory.story_id == story_id)
+        ).first()
+        if not story or story.product_id != project_id:
+            return None
 
     sprint = session.exec(
         select(Sprint)
@@ -653,13 +666,12 @@ def _build_task_packet(
     sprint_story = session.exec(
         select(SprintStory).where(
             SprintStory.sprint_id == sprint_id,
-            SprintStory.story_id == task.story_id,
+            SprintStory.story_id == story.story_id,
         )
     ).first()
     if not sprint_story:
         return None
 
-    story = task.story
     product = story.product
     if not product or product.product_id != project_id:
         product = session.get(Product, project_id)
@@ -667,11 +679,6 @@ def _build_task_packet(
             return None
 
     evidence = _load_validation_evidence(story.validation_evidence)
-    task_metadata = parse_task_metadata(
-        task.metadata_json,
-        logger=logger,
-        task_id=task.task_id,
-    )
     current_story_input_hash = _compute_story_input_hash(story)
     validation_input_hash = evidence.input_hash if evidence else None
     input_hash_matches = (
@@ -692,6 +699,170 @@ def _build_task_packet(
     spec_binding_status = "pinned" if story.accepted_spec_version_id is not None else "unpinned"
     authority_status = "available" if compiled_artifact is not None else "missing"
 
+    task_metadata = None
+    if task is not None:
+        task_metadata = parse_task_metadata(
+            task.metadata_json,
+            logger=logger,
+            task_id=task.task_id,
+        )
+
+    return SimpleNamespace(
+        task=task,
+        task_metadata=task_metadata,
+        story=story,
+        sprint=sprint,
+        sprint_story=sprint_story,
+        product=product,
+        evidence=evidence,
+        current_story_input_hash=current_story_input_hash,
+        validation_input_hash=validation_input_hash,
+        input_hash_matches=input_hash_matches,
+        validation_freshness=validation_freshness,
+        authority=authority,
+        spec_binding_status=spec_binding_status,
+        authority_status=authority_status,
+    )
+
+
+def _build_story_packet(
+    session: Session,
+    *,
+    project_id: int,
+    sprint_id: int,
+    story_id: int,
+) -> Optional[Dict[str, Any]]:
+    context = _load_packet_story_context(
+        session,
+        project_id=project_id,
+        sprint_id=sprint_id,
+        story_id=story_id,
+    )
+    if not context:
+        return None
+
+    story = context.story
+    sprint = context.sprint
+    sprint_story = context.sprint_story
+    product = context.product
+    evidence = context.evidence
+
+    source_snapshot = {
+        "product_id": project_id,
+        "sprint_id": sprint_id,
+        "story_id": story.story_id,
+        "product_updated_at": _serialize_temporal(product.updated_at),
+        "sprint_updated_at": _serialize_temporal(sprint.updated_at),
+        "sprint_story_added_at": _serialize_temporal(sprint_story.added_at),
+        "story_updated_at": _serialize_temporal(story.updated_at),
+        "story_ac_updated_at": _serialize_temporal(story.ac_updated_at),
+        "accepted_spec_version_id": story.accepted_spec_version_id,
+        "validation_validated_at": _serialize_temporal(
+            evidence.validated_at if evidence else None
+        ),
+        "validation_input_hash": context.validation_input_hash,
+        "compiled_authority_compiled_at": _serialize_temporal(
+            context.authority.compiled_at if context.authority else None
+        ),
+    }
+
+    packet_id_hash = hashlib.sha256(
+        f"story_packet.v1:{sprint_id}:{story_id}".encode()
+    ).hexdigest()[:16]
+
+    return {
+        "schema_version": "story_packet.v1",
+        "metadata": {
+            "packet_id": f"sp_{packet_id_hash}",
+            "generated_at": _serialize_temporal(datetime.now(timezone.utc)),
+            "generator_version": "v1",
+            "source_fingerprint": _hash_payload(source_snapshot),
+        },
+        "source_snapshot": source_snapshot,
+        "story": {
+            "story_id": story.story_id,
+            "title": story.title,
+            "persona": story.persona,
+            "story_description": story.story_description,
+            "acceptance_criteria_text": story.acceptance_criteria,
+            "acceptance_criteria_items": _normalize_acceptance_criteria(
+                story.acceptance_criteria
+            ),
+            "status": story.status.value,
+            "story_points": story.story_points,
+            "rank": story.rank,
+            "source_requirement": story.source_requirement,
+        },
+        "context": {
+            "sprint": {
+                "sprint_id": sprint.sprint_id,
+                "goal": sprint.goal,
+                "status": sprint.status.value,
+                "started_at": _serialize_temporal(sprint.started_at),
+                "start_date": _serialize_temporal(sprint.start_date),
+                "end_date": _serialize_temporal(sprint.end_date),
+                "team_id": sprint.team_id,
+                "team_name": sprint.team.name if sprint.team else None,
+            },
+            "product": {
+                "product_id": product.product_id,
+                "name": product.name,
+                "vision_excerpt": _extract_vision_excerpt(product.vision),
+            },
+        },
+        "constraints": {
+            "spec_binding": {
+                "mode": "pinned_story_authority",
+                "binding_status": context.spec_binding_status,
+                "spec_version_id": story.accepted_spec_version_id,
+                "authority_artifact_status": context.authority_status,
+            },
+            "validation": {
+                "present": evidence is not None,
+                "passed": evidence.passed if evidence else None,
+                "freshness_status": context.validation_freshness,
+                "validated_at": _serialize_temporal(
+                    evidence.validated_at if evidence else None
+                ),
+                "validator_version": evidence.validator_version if evidence else None,
+                "current_story_input_hash": context.current_story_input_hash,
+                "validation_input_hash": context.validation_input_hash,
+                "input_hash_matches": context.input_hash_matches,
+                "rules_checked": list(evidence.rules_checked) if evidence else [],
+            },
+            "story_compliance_boundaries": _build_story_compliance_boundaries(
+                context.authority,
+                evidence,
+            ),
+            "findings": _build_packet_findings(evidence),
+        },
+    }
+
+
+def _build_task_packet(
+    session: Session,
+    *,
+    project_id: int,
+    sprint_id: int,
+    task_id: int,
+) -> Optional[Dict[str, Any]]:
+    context = _load_packet_story_context(
+        session,
+        project_id=project_id,
+        sprint_id=sprint_id,
+        task_id=task_id,
+    )
+    if not context or context.task is None or context.task_metadata is None:
+        return None
+
+    task = context.task
+    task_metadata = context.task_metadata
+    story = context.story
+    sprint = context.sprint
+    sprint_story = context.sprint_story
+    product = context.product
+    evidence = context.evidence
+
     source_snapshot = {
         "product_id": project_id,
         "sprint_id": sprint_id,
@@ -708,22 +879,22 @@ def _build_task_packet(
         "validation_validated_at": _serialize_temporal(
             evidence.validated_at if evidence else None
         ),
-        "validation_input_hash": validation_input_hash,
+        "validation_input_hash": context.validation_input_hash,
         "compiled_authority_compiled_at": _serialize_temporal(
-            authority.compiled_at if authority else None
+            context.authority.compiled_at if context.authority else None
         ),
     }
 
     packet_id_hash = hashlib.sha256(
-        f"task_packet.v1:{sprint_id}:{task_id}".encode()
+        f"task_packet.v2:{sprint_id}:{task_id}".encode()
     ).hexdigest()[:16]
 
     return {
-        "schema_version": "task_packet.v1",
+        "schema_version": "task_packet.v2",
         "metadata": {
             "packet_id": f"tp_{packet_id_hash}",
             "generated_at": _serialize_temporal(datetime.now(timezone.utc)),
-            "generator_version": "v1",
+            "generator_version": "v2",
             "source_fingerprint": _hash_payload(source_snapshot),
         },
         "source_snapshot": source_snapshot,
@@ -737,6 +908,8 @@ def _build_task_packet(
             "task_kind": task_metadata.task_kind,
             "artifact_targets": list(task_metadata.artifact_targets),
             "workstream_tags": list(task_metadata.workstream_tags),
+            "checklist_items": list(task_metadata.checklist_items),
+            "is_executable": bool(task_metadata.checklist_items),
         },
         "context": {
             "story": {
@@ -766,37 +939,53 @@ def _build_task_packet(
             },
         },
         "constraints": {
-            "acceptance_criteria_text": story.acceptance_criteria,
-            "acceptance_criteria_items": _normalize_acceptance_criteria(
-                story.acceptance_criteria
-            ),
             "spec_binding": {
                 "mode": "pinned_story_authority",
-                "binding_status": spec_binding_status,
+                "binding_status": context.spec_binding_status,
                 "spec_version_id": story.accepted_spec_version_id,
-                "authority_artifact_status": authority_status,
+                "authority_artifact_status": context.authority_status,
             },
             "validation": {
                 "present": evidence is not None,
                 "passed": evidence.passed if evidence else None,
-                "freshness_status": validation_freshness,
+                "freshness_status": context.validation_freshness,
                 "validated_at": _serialize_temporal(
                     evidence.validated_at if evidence else None
                 ),
                 "validator_version": evidence.validator_version if evidence else None,
-                "current_story_input_hash": current_story_input_hash,
-                "validation_input_hash": validation_input_hash,
-                "input_hash_matches": input_hash_matches,
+                "current_story_input_hash": context.current_story_input_hash,
+                "validation_input_hash": context.validation_input_hash,
+                "input_hash_matches": context.input_hash_matches,
                 "rules_checked": list(evidence.rules_checked) if evidence else [],
             },
             "task_hard_constraints": _build_task_hard_constraints(
-                authority,
+                context.authority,
                 task_metadata=task_metadata,
             ),
-            "story_compliance_boundaries": _build_story_compliance_boundaries(authority, evidence),
+            "story_compliance_boundaries": _build_story_compliance_boundaries(
+                context.authority,
+                evidence,
+            ),
             "findings": _build_packet_findings(evidence),
         },
     }
+
+
+def _build_task_packet_render_payload(
+    task_packet: Dict[str, Any],
+    story_packet: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    render_payload = copy.deepcopy(task_packet)
+    if not story_packet:
+        return render_payload
+
+    story = story_packet.get("story", {})
+    constraints = render_payload.setdefault("constraints", {})
+    constraints["acceptance_criteria_text"] = story.get("acceptance_criteria_text")
+    constraints["acceptance_criteria_items"] = list(
+        story.get("acceptance_criteria_items") or []
+    )
+    return render_payload
 
 
 def _vision_state_from_complete(is_complete: bool) -> str:
@@ -2215,11 +2404,42 @@ async def get_project_task_packet(project_id: int, sprint_id: int, task_id: int,
         payload = dict(packet)
         if flavor:
             from services.packet_renderer import render_packet
-            payload["render"] = render_packet(packet, flavor)
+            story_packet = _build_story_packet(
+                session,
+                project_id=project_id,
+                sprint_id=sprint_id,
+                story_id=packet["context"]["story"]["story_id"],
+            )
+            payload["render"] = render_packet(
+                _build_task_packet_render_payload(packet, story_packet),
+                flavor,
+            )
 
         return {
             "status": "success",
             "data": payload,
+        }
+
+
+@app.get("/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/packet")
+async def get_project_story_packet(project_id: int, sprint_id: int, story_id: int):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    with Session(get_engine()) as session:
+        packet = _build_story_packet(
+            session,
+            project_id=project_id,
+            sprint_id=sprint_id,
+            story_id=story_id,
+        )
+        if not packet:
+            raise HTTPException(status_code=404, detail="Story packet context not found")
+
+        return {
+            "status": "success",
+            "data": packet,
         }
 
 

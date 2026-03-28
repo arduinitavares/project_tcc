@@ -4,203 +4,148 @@
 
 We are extending the platform from a planning system into an execution handoff system.
 
-Today, the product takes a project from Vision through Sprint Planning. It already produces structured artifacts such as product vision, backlog items, roadmap milestones, user stories, sprint scope, and decomposed technical tasks. The next step is to make that work immediately consumable by developers and agents.
+Today, the product already produces structured planning artifacts such as product vision, backlog items, roadmap milestones, user stories, sprint scope, and decomposed technical tasks. The next step is to make that planning output directly consumable during execution.
 
-The feature we are building is a **Task Packet** system: a structured, canonical handoff artifact for a single unit of execution work.
+## Current Framing
 
-## What We Are Building
+The handoff model now uses two canonical artifacts instead of one overloaded task prompt:
 
-A **Task Packet** is a structured representation of one task that contains the minimum complete context required for a human developer or coding agent to begin work without hunting across multiple screens or artifacts.
+- **Story Packet**: the stable bootstrap context for a story session
+- **Task Packet**: the task-local execution delta for one decomposed task inside that story
 
-The Task Packet is not the prompt itself. It is the source artifact from which multiple delivery formats can be rendered.
-
-Those delivery formats may include:
-- a human-readable task brief
-- a copyable agent prompt
-- a machine-readable JSON payload
-- later, agent-specific renderers for different tools or models
-
-The Task Packet must be generated from the platform's structured source of truth, not manually authored as free text.
+Neither packet is itself the prompt. Prompts, briefs, and agent-specific formats are renderings built on top of these canonical payloads.
 
 ## Product Principle
 
-The core principle is:
+The core principle remains:
 
 **The packet is the product. The prompt is only one rendering of the packet.**
 
-This matters because prompts are delivery formats, not durable source-of-truth objects. If we model only prompt text, we will make the system brittle, hard to version, and hard to adapt for different audiences.
+This matters because prompts are delivery formats, not durable source-of-truth objects. If we model only prompt text, we make the system brittle, hard to version, and hard to adapt for different audiences and tools.
 
-If we model a canonical Task Packet first, we can later support:
-- multiple prompt styles
-- multiple agent flavors
-- human briefs
-- auditability and versioning
-- future execution feedback loops
+## Why Split Story and Task Context
 
-## Why We Are Building It
+The earlier task-packet contract reused story acceptance criteria as the checklist for every task prompt. That created a scope leak:
 
-The current system is strong at planning, but there is still friction between planning and execution.
+- each task looked responsible for the full story outcome
+- review and coordination slices looked like full implementation tasks
+- sibling tasks repeated the same story-level completion contract
+- task execution and story completion became ambiguous
 
-Without Task Packets:
-- users must manually gather context from stories, sprint scope, and project artifacts
-- agents begin with incomplete context and must guess constraints, scope, and intent
-- handoff quality varies depending on who is consuming the task
-- execution is disconnected from the planning data already available in the system
+The new framing separates those responsibilities cleanly:
 
-With Task Packets:
-- execution can start immediately from a single artifact
-- human and agent handoffs become consistent
-- the system's structured planning data becomes directly useful during development
-- planning and execution become part of one continuous workflow
+- story acceptance criteria stay story-scoped
+- task checklist items stay task-scoped
+- spec/validation metadata can still be inherited where execution needs it
+- renderers can later combine story bootstrap and task delta without collapsing them into one canonical payload
 
-## Intended Consumers
+## Canonical Artifacts
 
-Task Packets are intended for two primary audiences:
+### Story Packet
 
-**Human developers**  
-They need a concise execution brief with enough context to understand what to build, why it matters, what constraints apply, and how to know when the work is done.
+The Story Packet is the session-bootstrap artifact. It owns:
 
-**Coding agents**  
-They need explicit, structured instructions with scoped context, acceptance criteria, constraints, and validation expectations so they can begin effectively and avoid hallucinating missing details.
+- story statement and identity
+- story acceptance criteria
+- sprint context
+- product context
+- pinned spec-binding metadata
+- validation freshness and findings
+- story-level compliance boundaries
 
-These audiences overlap, but they should not be treated as identical. The underlying packet should be shared; the rendered presentation may differ.
+### Task Packet
 
-## v1 Decisions
+The Task Packet is the task-local execution artifact. It owns:
 
-The first version of Task Packets is locked around these decisions:
+- task description and identity
+- task-local checklist items
+- executable/non-executable status
+- artifact targets and workstream tags
+- task-local hard constraints
+- compact parent-story orientation
+- inherited spec-binding and validation metadata needed during execution
 
-### 1. Generation Model
-Task Packets are assembled by a **deterministic backend/service**, not by an LLM and not by a new planning agent.
+The Task Packet does **not** treat story acceptance criteria as the task checklist.
 
-This means:
-- packet fields come from existing persisted data and deterministic transformations
-- the canonical packet is trustworthy and testable
-- LLMs may be used later in renderers, but not in the packet model itself
+## Deterministic Rules
 
-### 2. Generation Lifecycle
-Task Packets are generated **on demand** from current state.
+Both packets follow the same platform rules:
 
-This means:
-- the system does not pre-generate packets at sprint save
-- the system does not store prompt text as the primary artifact
-- packets include freshness/version metadata so staleness can be detected
+- assembled by deterministic backend code, not by an LLM
+- generated on demand from current persisted state
+- anchored by sprint-scoped identity
+- freshness-aware through source snapshot and source fingerprint metadata
+- bound only to pinned story authority, never silent latest-authority fallback
 
-### 3. Packet Depth
-v1 uses a **standard depth** context boundary.
+Packet identity is:
 
-Each packet includes:
-- the task
-- the parent story
-- the sprint context
-- a short product context
-- applicable constraints and validation context
-
-v1 does not include broad roadmap history, sibling-task dumps, or unrelated project context.
-
-### 4. Packet Identity
-The canonical handoff is anchored by **`task_id + sprint_id`**, not by `task_id` alone.
-
-This matters because the same task may be consumed under different sprint contexts, and sprint context changes the meaning of the handoff.
-
-### 5. Spec Authority Rule
-Task Packets trust only **pinned story authority**.
-
-This means:
-- if a story has `accepted_spec_version_id`, the packet may include constraints derived from that pinned spec context
-- if a story is not pinned, the packet must explicitly say spec context is unavailable or unpinned
-- the packet must **not** silently fall back to the latest product authority
-
-This preserves traceability and prevents accidental scope drift during execution.
+- Story Packet: `story_id + sprint_id`
+- Task Packet: `task_id + sprint_id`
 
 ## Current Data Reality
 
-The current data model already supports deterministic packet assembly.
+The current data model already supports deterministic assembly:
 
-Relevant entities already exist:
-- `Task` carries the execution unit, status, and canonical `metadata_json`
-- `UserStory` carries title, description, acceptance criteria, persona, and validation evidence
+- `UserStory` carries story title, description, acceptance criteria, persona, and validation evidence
+- `Task` carries the execution slice plus canonical `metadata_json`
 - `Sprint` carries goal, dates, status, and team context
-- `Product` carries vision and product-level context
-- story-to-sprint linkage already exists through `SprintStory`
+- `Product` carries vision/product context
+- `SprintStory` provides the authoritative story-to-sprint membership
 
-Important current limitations:
-- tasks do not currently have a dedicated title field
-- there is no project-level Definition of Done model yet
-- there is no direct `task -> sprint` foreign key; sprint context must be resolved through story linkage
-- validation evidence and compiled authority exist, but they are audit-style structured data, not human-authored summaries
-- task metadata is currently packet-focused and is not yet exposed through rich editing UI
+Important current limitations still shape the contract:
 
-These realities should shape the schema instead of being hidden by it.
+- tasks do not have a dedicated title field
+- there is no direct `task -> sprint` foreign key
+- project-level Definition of Done is not yet modeled explicitly
+- validation/spec artifacts are structured audit data, not human-written summaries
+- renderer behavior can evolve independently of the canonical packet schemas
 
-## Initial Scope
+## In Scope
 
-The initial unit of handoff is the **task**, not the full story.
+The current packet phase focuses on:
 
-Stories are often too large for one implementation session. Sprint planning already decomposes selected stories into technical tasks, which makes task-level handoff the most practical starting point.
+- one canonical story packet per story+sprint context
+- one canonical task packet per task+sprint context
+- deterministic packet generation from existing project/story/task/sprint/validation data
+- preserving story bootstrap context separately from task-local execution context
+- supporting later renderers for story briefs and task prompts
 
-For v1, the system focuses on:
-- one canonical packet per task+sprint context
-- packet generation from existing project, story, sprint, and validation data
-- future rendering into a human brief and an agent prompt
-- freshness/version awareness so users know whether a copied packet may be stale
+## Out of Scope
 
-## Out of Scope for the First Version
+This phase does not attempt to solve:
 
-The first version should not try to solve every execution problem.
-
-Out of scope for v1:
-- automatic agent execution from the platform
+- automatic agent execution
 - writing work results back into project state automatically
-- full agent-specific prompt tuning for many tools
-- large codebase dumps embedded into every packet
-- replacing the task, story, or sprint records as the source of truth
-- inventing narrative summaries with LLMs inside the canonical packet model
+- broad codebase/context dumps in every packet
+- replacing stories or tasks as the source of truth
+- final renderer wording or UI affordances
 
-These may become later extensions, but they are not required to prove the value of the Task Packet system.
-
-## Desired Outcome
-
-When a user opens a planned sprint and selects a task, they should be able to immediately obtain a clean, trustworthy execution handoff.
-
-The experience should feel like:
-- the system understands the task
-- the system knows why the task exists
-- the system knows what good completion looks like
-- the system can package that context in a format suitable for execution
-
-The user should not need to manually reconstruct context from multiple planning artifacts.
-
-## Risks To Avoid
-
-There are a few design risks we should explicitly avoid:
-
-- treating prompt text as the primary model instead of structured packet data
-- generating packets that are too large and noisy to be useful
-- mixing task context with too much unrelated sprint or project history
-- silently substituting newer spec authority for a story that was never pinned to it
-- failing to track packet freshness when stories, tasks, sprint membership, or validation context change
-- designing only for AI agents and forgetting human readability
+Those belong to later work once the packet contracts are stable.
 
 ## Achieved State
 
-The canonical Task Packet v1 model has been successfully defined and implemented. The backend endpoint correctly assembles the packet on demand, deterministically from the database, using strict component identity (`task_id` + `sprint_id`) and capturing the required context boundaries and pinned invariants.
+The canonical handoff layer now consists of:
 
-Phase 2 now extends that base with structured task metadata:
-- sprint planner decomposition emits structured task specs instead of raw strings
-- persisted tasks carry canonical `metadata_json`
-- task-local hard constraints are derived from task-bound invariant IDs instead of story-wide fallbacks
+- [`story_packet.v1`](./story-packet-schema-v1.md) for story bootstrap context
+- [`task_packet.v2`](./task-packet-schema-v2.md) for task-local execution context
 
-The exact canonical data contract is defined in [Task Packet v1 Schema Reference](./task-packet-schema-v1.md).
+The backend assembles both packets on demand, deterministically from the database, with strict sprint-scoped identity plus pinned spec-binding and validation metadata.
+
+Task Packet v2 now carries explicit task-local checklist fields:
+
+- `checklist_items`
+- `is_executable`
+
+This allows task completion to remain task-scoped without silently inheriting story acceptance criteria as the task’s done checklist.
 
 ## Next Step
 
-The next step is to build richer consumption and authoring flows on top of the canonical packet:
-1. expose task metadata and packet context more clearly in the UI without turning the saved sprint workspace into a noisy editor
-2. iterate on renderer quality for human briefs and agent prompts now that task-local hard constraints are truly task-scoped
-3. consider later metadata editing or smarter task decomposition only after the packet-driven workflow proves useful
+The next step is to build richer consumption flows on top of the canonical artifacts:
+
+1. expose story bootstrap and task delta actions clearly in the UI
+2. update renderers so task prompts use task checklist terminology while story prompts keep story acceptance criteria terminology
+3. consider later metadata editing and smarter task decomposition once the packet-driven workflow proves useful
 
 ## Working Decision
 
-For this project, we will proceed with this framing:
-
-**We are building a canonical Task Packet model for execution handoff, generated deterministically from current state, anchored by task+sprint context, and rendered later into prompts or briefs without treating those renderings as the source of truth.**
+**We are building canonical Story and Task Packet models for execution handoff, generated deterministically from current state, anchored by sprint-scoped story/task identities, and rendered later into prompts or briefs without treating those renderings as the source of truth.**

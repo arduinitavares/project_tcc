@@ -742,9 +742,9 @@ def test_start_sprint_sets_started_at_once_and_logs_event(session, monkeypatch):
     assert len(events) == 1
 
 
-def test_get_task_packet_returns_canonical_packet_for_pinned_story(session, monkeypatch):
+def test_get_story_packet_returns_bootstrap_context_for_pinned_story(session, monkeypatch):
     client, repo, _workflow = _build_client(monkeypatch)
-    project_id, sprint_id, _story_id, task_id = _seed_task_packet_context(
+    project_id, sprint_id, story_id, _task_id = _seed_task_packet_context(
         session,
         repo,
         pinned=True,
@@ -757,15 +757,83 @@ def test_get_task_packet_returns_canonical_packet_for_pinned_story(session, monk
     )
 
     response = client.get(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/packet"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+
+    assert payload["schema_version"] == "story_packet.v1"
+    assert payload["metadata"]["packet_id"].startswith("sp_")
+    assert payload["metadata"]["generator_version"] == "v1"
+
+    assert payload["story"]["story_id"] == story_id
+    assert payload["story"]["title"] == "Payload Validation Story"
+    assert payload["story"]["persona"] == "Developer"
+    assert payload["story"]["acceptance_criteria_text"] == (
+        "- include user_id\n- reject invalid payloads"
+    )
+    assert payload["story"]["acceptance_criteria_items"] == [
+        "include user_id",
+        "reject invalid payloads",
+    ]
+    assert payload["source_snapshot"]["story_id"] == story_id
+    assert payload["source_snapshot"]["accepted_spec_version_id"] is not None
+
+    assert payload["context"]["sprint"]["goal"] == "Ship a trustworthy task packet API"
+    assert payload["context"]["product"]["vision_excerpt"] == "Build trustworthy execution handoffs."
+
+    constraints = payload["constraints"]
+    assert constraints["spec_binding"]["binding_status"] == "pinned"
+    assert constraints["spec_binding"]["authority_artifact_status"] == "available"
+    assert constraints["validation"]["present"] is True
+    assert constraints["validation"]["freshness_status"] == "current"
+    assert constraints["validation"]["input_hash_matches"] is True
+    assert "task_hard_constraints" not in constraints
+    assert constraints["story_compliance_boundaries"] == [
+        {
+            "invariant_id": "INV-0123456789abcdef",
+            "type": "REQUIRED_FIELD",
+            "parameters": {"field_name": "user_id"},
+            "source_excerpt": "Requests must include user_id.",
+            "source_location": "Spec §1",
+        }
+    ]
+    assert any(
+        finding["source"] == "validation_warning"
+        for finding in constraints["findings"]
+    )
+    assert any(
+        finding["source"] == "alignment_warning"
+        for finding in constraints["findings"]
+    )
+
+
+def test_get_task_packet_returns_task_local_execution_context(session, monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+    project_id, sprint_id, story_id, task_id = _seed_task_packet_context(
+        session,
+        repo,
+        pinned=True,
+        task_metadata=TaskMetadata(
+            task_kind="implementation",
+            artifact_targets=["payload validator", "request contract tests"],
+            workstream_tags=["backend", "api"],
+            relevant_invariant_ids=["INV-0123456789abcdef"],
+            checklist_items=["Validate user_id inputs", "Cover invalid payload cases"],
+        ),
+    )
+
+    response = client.get(
         f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet"
     )
 
     assert response.status_code == 200
     payload = response.json()["data"]
 
-    assert payload["schema_version"] == "task_packet.v1"
+    assert payload["schema_version"] == "task_packet.v2"
     assert payload["metadata"]["packet_id"].startswith("tp_")
-    assert payload["metadata"]["generator_version"] == "v1"
+    assert payload["metadata"]["generator_version"] == "v2"
 
     assert payload["task"]["task_id"] == task_id
     assert payload["task"]["status"] == "To Do"
@@ -776,17 +844,21 @@ def test_get_task_packet_returns_canonical_packet_for_pinned_story(session, monk
         "request contract tests",
     ]
     assert payload["task"]["workstream_tags"] == ["backend", "api"]
+    assert payload["task"]["checklist_items"] == [
+        "Validate user_id inputs",
+        "Cover invalid payload cases",
+    ]
+    assert payload["task"]["is_executable"] is True
     assert payload["source_snapshot"]["task_metadata_hash"]
 
+    assert payload["context"]["story"]["story_id"] == story_id
     assert payload["context"]["story"]["title"] == "Payload Validation Story"
     assert payload["context"]["sprint"]["goal"] == "Ship a trustworthy task packet API"
     assert payload["context"]["product"]["vision_excerpt"] == "Build trustworthy execution handoffs."
 
     constraints = payload["constraints"]
-    assert constraints["acceptance_criteria_items"] == [
-        "include user_id",
-        "reject invalid payloads",
-    ]
+    assert "acceptance_criteria_text" not in constraints
+    assert "acceptance_criteria_items" not in constraints
     assert constraints["spec_binding"]["binding_status"] == "pinned"
     assert constraints["spec_binding"]["authority_artifact_status"] == "available"
     assert constraints["validation"]["present"] is True
