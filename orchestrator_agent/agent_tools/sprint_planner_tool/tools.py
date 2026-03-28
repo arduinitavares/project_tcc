@@ -227,10 +227,20 @@ def save_sprint_plan_tool(
             for story in stories
             if story.story_id is not None
         }
+        acceptance_criteria_items_by_story = {
+            int(story.story_id): [
+                line.lstrip("-* \t").strip()
+                for line in (story.acceptance_criteria or "").splitlines()
+                if line.lstrip("-* \t").strip()
+            ]
+            for story in stories
+            if story.story_id is not None
+        }
         decomposition_errors = validate_task_decomposition_quality(
             validated_plan,
             include_task_decomposition=include_task_decomposition,
             has_acceptance_criteria_by_story=has_ac_by_story,
+            acceptance_criteria_items_by_story=acceptance_criteria_items_by_story,
         )
         if decomposition_errors:
             return {

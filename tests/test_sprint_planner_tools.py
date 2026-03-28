@@ -314,3 +314,97 @@ def test_save_sprint_plan_rejects_out_of_scope_task_invariants(session: Session)
 
     assert result["success"] is False
     assert "invalid invariant IDs" in result["error"]
+
+
+def test_save_sprint_plan_rejects_checklist_items_copied_from_story_acceptance_criteria(
+    session: Session,
+):
+    product = Product(name="Checklist Product", vision="Vision", description="Desc")
+    team = Team(name="Checklist Team")
+    session.add(product)
+    session.add(team)
+    session.commit()
+    session.refresh(product)
+    session.refresh(team)
+
+    assert product.product_id is not None
+    assert team.team_id is not None
+
+    story = UserStory(
+        product_id=product.product_id,
+        title="Story with AC",
+        story_description="As a user, I want...",
+        acceptance_criteria="Persist the event\nSurface a success response",
+        validation_evidence=ValidationEvidence(
+            spec_version_id=1,
+            validated_at=datetime.now(timezone.utc),
+            passed=True,
+            rules_checked=["SPEC_VERSION_EXISTS"],
+            invariants_checked=[],
+            evaluated_invariant_ids=["INV-VALID"],
+            finding_invariant_ids=[],
+            failures=[],
+            warnings=[],
+            alignment_warnings=[],
+            alignment_failures=[],
+            validator_version="1.0.0",
+            input_hash="hash",
+        ).model_dump_json(),
+    )
+    session.add(story)
+    session.commit()
+    session.refresh(story)
+
+    assert story.story_id is not None
+
+    sprint_plan = {
+        "sprint_goal": "Deliver authentication essentials",
+        "sprint_number": 1,
+        "duration_days": 14,
+        "selected_stories": [
+            {
+                "story_id": story.story_id,
+                "story_title": "Story with AC",
+                "tasks": [
+                    {
+                        "description": "Create auth table",
+                        "task_kind": "implementation",
+                        "checklist_items": [
+                            "Persist the event",
+                            "Add persistence coverage for auth records",
+                        ],
+                        "artifact_targets": ["auth schema"],
+                        "workstream_tags": ["backend", "auth"],
+                        "relevant_invariant_ids": ["INV-VALID"],
+                    }
+                ],
+                "reason_for_selection": "Core to sprint goal",
+            }
+        ],
+        "deselected_stories": [],
+        "capacity_analysis": {
+            "velocity_assumption": "Medium",
+            "capacity_band": "4-5 stories",
+            "selected_count": 1,
+            "story_points_used": 3,
+            "max_story_points": 10,
+            "commitment_note": "Does this scope feel achievable in 2 weeks?",
+            "reasoning": "Scope fits capacity band.",
+        },
+    }
+
+    tool_context = cast(
+        ToolContext,
+        SimpleNamespace(state={"sprint_plan": sprint_plan}),
+    )
+    input_data = SaveSprintPlanInput(
+        product_id=product.product_id,
+        team_id=team.team_id,
+        sprint_start_date="2026-02-01",
+        sprint_duration_days=14,
+    )
+
+    result = save_sprint_plan_tool(input_data, tool_context)
+
+    assert result["success"] is False
+    assert "duplicates story acceptance criteria" in result["error"]
