@@ -1,3 +1,9 @@
+"""FastAPI application for AgenticFlow orchestration and workflow management.
+
+Provides REST endpoints for project setup, vision generation, backlog management,
+roadmap planning, user story creation, and sprint execution.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -5,26 +11,27 @@ import json
 import logging
 import re
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from sqlalchemy import delete
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
-from sqlalchemy import delete
+
 from agile_sqlmodel import (
     CompiledSpecAuthority,
     Product,
-    StoryCompletionLog,
     Sprint,
     SprintStatus,
     SprintStory,
+    StoryCompletionLog,
     StoryStatus,
     Task,
     TaskAcceptanceResult,
@@ -36,50 +43,49 @@ from agile_sqlmodel import (
     ensure_business_db_ready,
     get_engine,
 )
-from utils.task_metadata import parse_task_metadata, hash_task_metadata
-
-from orchestrator_agent.agent_tools.product_vision_tool.tools import (
-    SaveVisionInput,
-    save_vision_tool,
-)
 from orchestrator_agent.agent_tools.backlog_primer.tools import (
     SaveBacklogInput,
     save_backlog_tool,
+)
+from orchestrator_agent.agent_tools.product_vision_tool.tools import (
+    SaveVisionInput,
+    save_vision_tool,
 )
 from orchestrator_agent.agent_tools.roadmap_builder.tools import (
     SaveRoadmapToolInput,
     save_roadmap_tool,
 )
-from orchestrator_agent.agent_tools.user_story_writer_tool.tools import (
-    SaveStoriesInput,
-    save_stories_tool,
-)
 from orchestrator_agent.agent_tools.sprint_planner_tool.tools import (
     SaveSprintPlanInput,
     save_sprint_plan_tool,
 )
-from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_key
+from orchestrator_agent.agent_tools.story_linkage import (
+    normalize_requirement_key,
+)
+from orchestrator_agent.agent_tools.user_story_writer_tool.tools import (
+    SaveStoriesInput,
+    save_stories_tool,
+)
 from orchestrator_agent.fsm.states import OrchestratorState
 from repositories.product import ProductRepository
+from services.backlog_runtime import run_backlog_agent_from_state
 from services.interview_runtime import (
     append_attempt,
     append_feedback_entry,
-    ensure_interview_subject,
     hydrate_story_runtime_from_legacy,
     mark_feedback_absorbed,
     promote_reusable_draft,
     reset_subject_working_set,
     set_request_projection,
 )
-from services.vision_runtime import run_vision_agent_from_state
-from services.backlog_runtime import run_backlog_agent_from_state
 from services.roadmap_runtime import run_roadmap_agent_from_state
+from services.sprint_input import load_sprint_candidates
+from services.sprint_runtime import run_sprint_agent_from_state
 from services.story_runtime import (
     run_story_agent_from_state,
     run_story_agent_request,
 )
-from services.sprint_input import load_sprint_candidates
-from services.sprint_runtime import run_sprint_agent_from_state
+from services.vision_runtime import run_vision_agent_from_state
 from services.workflow import WorkflowService
 from tools.orchestrator_tools import select_project
 from tools.spec_tools import (
@@ -90,18 +96,24 @@ from tools.spec_tools import (
 from utils.failure_artifacts import read_failure_artifact
 from utils.logging_config import configure_logging
 from utils.schemes import (
-    ValidationEvidence,
-    TaskExecutionWriteRequest,
-    TaskExecutionReadResponse,
-    TaskExecutionLogEntry,
-    StoryTaskProgressSummary,
-    StoryCloseReadResponse,
-    StoryCloseWriteRequest,
-    SprintCloseStorySummary,
     SprintCloseReadiness,
     SprintCloseReadResponse,
+    SprintCloseStorySummary,
     SprintCloseWriteRequest,
+    StoryCloseReadResponse,
+    StoryCloseWriteRequest,
+    StoryTaskProgressSummary,
+    TaskExecutionLogEntry,
+    TaskExecutionReadResponse,
+    TaskExecutionWriteRequest,
+    ValidationEvidence,
 )
+from utils.task_metadata import hash_task_metadata, parse_task_metadata
+
+if TYPE_CHECKING:
+    from google.adk.tools import ToolContext
+else:
+    ToolContext = Any
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -116,55 +128,76 @@ async def lifespan(_app: FastAPI):
     ensure_business_db_ready()
     migrated = workflow_service.migrate_legacy_setup_state()
     if migrated:
-        logger.info("Migrated %s legacy sessions from ROUTING_MODE to SETUP_REQUIRED", migrated)
+        logger.info(
+            "Migrated %s legacy sessions from ROUTING_MODE to SETUP_REQUIRED",
+            migrated,
+        )
     yield
 
 
 app = FastAPI(title="AgenticFlow API", lifespan=lifespan)
 
-app.mount("/dashboard", StaticFiles(directory="frontend", html=True), name="frontend")
+app.mount(
+    "/dashboard", StaticFiles(directory="frontend", html=True), name="frontend"
+)
 
 
 class CreateProjectRequest(BaseModel):
+    """Request body for creating a new project."""
+
     name: str = Field(min_length=1)
     spec_file_path: str = Field(min_length=1)
 
 
 class RetrySetupRequest(BaseModel):
+    """Request body for retrying project setup after a failure."""
+
     spec_file_path: str = Field(min_length=1)
 
 
 class VisionGenerateRequest(BaseModel):
-    user_input: Optional[str] = None
+    """Request body for generating product vision."""
+
+    user_input: str | None = None
 
 
 class BacklogGenerateRequest(BaseModel):
-    user_input: Optional[str] = None
+    """Request body for generating product backlog."""
+
+    user_input: str | None = None
 
 
 class RoadmapGenerateRequest(BaseModel):
-    user_input: Optional[str] = None
+    """Request body for generating product roadmap."""
+
+    user_input: str | None = None
 
 
 class StoryGenerateRequest(BaseModel):
-    user_input: Optional[str] = None
+    """Request body for generating user stories."""
+
+    user_input: str | None = None
 
 
 class SprintGenerateRequest(BaseModel):
-    user_input: Optional[str] = None
+    """Request body for generating sprint plans."""
+
+    user_input: str | None = None
     team_velocity_assumption: Literal["Low", "Medium", "High"] = "Medium"
     sprint_duration_days: int = 14
-    max_story_points: Optional[int] = None
+    max_story_points: int | None = None
     include_task_decomposition: bool = True
-    selected_story_ids: Optional[List[int]] = None
+    selected_story_ids: list[int] | None = None
 
 
 class SprintSaveRequest(BaseModel):
+    """Request body for saving sprint details after execution."""
+
     team_name: str = Field(min_length=1)
     sprint_start_date: str = Field(min_length=1)
 
 
-WORKFLOW_STEPS: List[Dict[str, Any]] = [
+WORKFLOW_STEPS: list[dict[str, Any]] = [
     {
         "id": "setup",
         "label": "Project Setup",
@@ -232,10 +265,10 @@ FAILURE_META_FIELDS = (
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _normalize_fsm_state(value: Optional[str]) -> str:
+def _normalize_fsm_state(value: str | None) -> str:
     """Normalize state to canonical key, fallback to SETUP_REQUIRED."""
     if isinstance(value, str):
         normalized = value.strip().upper()
@@ -244,7 +277,7 @@ def _normalize_fsm_state(value: Optional[str]) -> str:
     return OrchestratorState.SETUP_REQUIRED.value
 
 
-def _normalize_shell_fsm_state(value: Optional[str]) -> str:
+def _normalize_shell_fsm_state(value: str | None) -> str:
     """Normalize shell-visible FSM state while collapsing legacy terminal sprint state."""
     state = _normalize_fsm_state(value)
     if state == OrchestratorState.SPRINT_COMPLETE.value:
@@ -253,10 +286,10 @@ def _normalize_shell_fsm_state(value: Optional[str]) -> str:
 
 
 def _failure_meta(
-    source: Optional[Dict[str, Any]],
+    source: dict[str, Any] | None,
     *,
-    fallback_summary: Optional[str] = None,
-) -> Dict[str, Any]:
+    fallback_summary: str | None = None,
+) -> dict[str, Any]:
     payload = source or {}
     return {
         "failure_artifact_id": payload.get("failure_artifact_id"),
@@ -268,11 +301,11 @@ def _failure_meta(
 
 
 def _set_setup_failure_meta(
-    state: Dict[str, Any],
-    source: Optional[Dict[str, Any]],
+    state: dict[str, Any],
+    source: dict[str, Any] | None,
     *,
-    error_message: Optional[str],
-) -> Dict[str, Any]:
+    error_message: str | None,
+) -> dict[str, Any]:
     metadata = _failure_meta(source, fallback_summary=error_message)
     state["setup_failure_artifact_id"] = metadata["failure_artifact_id"]
     state["setup_failure_stage"] = metadata["failure_stage"]
@@ -282,7 +315,7 @@ def _set_setup_failure_meta(
     return metadata
 
 
-def _clear_setup_failure_meta(state: Dict[str, Any]) -> None:
+def _clear_setup_failure_meta(state: dict[str, Any]) -> None:
     state["setup_failure_artifact_id"] = None
     state["setup_failure_stage"] = None
     state["setup_failure_summary"] = None
@@ -290,7 +323,7 @@ def _clear_setup_failure_meta(state: Dict[str, Any]) -> None:
     state["setup_has_full_artifact"] = False
 
 
-def _setup_blocker(product: Any) -> Optional[str]:
+def _setup_blocker(product: Any) -> str | None:
     if not product:
         return "Project not found."
 
@@ -308,7 +341,7 @@ def _setup_blocker(product: Any) -> Optional[str]:
     return None
 
 
-async def _ensure_session(session_id: str) -> Dict[str, Any]:
+async def _ensure_session(session_id: str) -> dict[str, Any]:
     state = workflow_service.get_session_status(session_id) or {}
     if not state.get("fsm_state"):
         await workflow_service.initialize_session(session_id=session_id)
@@ -316,23 +349,34 @@ async def _ensure_session(session_id: str) -> Dict[str, Any]:
     return state
 
 
-async def _hydrate_context(session_id: str, project_id: int) -> SimpleNamespace:
+def _build_tool_context(
+    context: SimpleNamespace,
+) -> ToolContext:
+    # API flows use a lightweight state container outside the ADK runtime.
+    return cast(ToolContext, context)
+
+
+async def _hydrate_context(
+    session_id: str, project_id: int
+) -> SimpleNamespace:
     state = await _ensure_session(session_id)
     context = SimpleNamespace(state=dict(state), session_id=session_id)
-    select_project(project_id, context)
+    select_project(project_id, _build_tool_context(context))
     return context
 
 
-def _save_session_state(session_id: str, state: Dict[str, Any]) -> None:
+def _save_session_state(session_id: str, state: dict[str, Any]) -> None:
     workflow_service.update_session_status(session_id, state)
 
 
-def _serialize_sprint_task(task: Task) -> Dict[str, Any]:
+def _serialize_sprint_task(task: Task) -> dict[str, Any]:
     meta = parse_task_metadata(task.metadata_json)
     return {
         "id": task.task_id,
         "description": task.description,
-        "status": task.status.value if hasattr(task.status, "value") else task.status,
+        "status": task.status.value
+        if hasattr(task.status, "value")
+        else task.status,
         "task_kind": meta.task_kind,
         "artifact_targets": meta.artifact_targets,
         "workstream_tags": meta.workstream_tags,
@@ -341,34 +385,42 @@ def _serialize_sprint_task(task: Task) -> Dict[str, Any]:
     }
 
 
-def _build_story_task_plan(story: UserStory) -> List[Dict[str, Any]]:
+def _build_story_task_plan(story: UserStory) -> list[dict[str, Any]]:
     return sorted(
         [_serialize_sprint_task(task) for task in story.tasks],
         key=lambda item: (item["description"].lower(), item["id"]),
     )
 
 
-def _story_task_progress(tasks: List[Task]) -> tuple[int, int, int, bool]:
+def _story_task_progress(tasks: list[Task]) -> tuple[int, int, int, bool]:
     actionable_tasks = [
-        task for task in tasks if bool(parse_task_metadata(task.metadata_json).checklist_items)
+        task
+        for task in tasks
+        if bool(parse_task_metadata(task.metadata_json).checklist_items)
     ]
     total_tasks = len(actionable_tasks)
-    done_tasks = sum(1 for task in actionable_tasks if task.status == TaskStatus.DONE)
+    done_tasks = sum(
+        1 for task in actionable_tasks if task.status == TaskStatus.DONE
+    )
     cancelled_tasks = sum(
         1 for task in actionable_tasks if task.status == TaskStatus.CANCELLED
     )
-    all_actionable_tasks_done = total_tasks > 0 and (done_tasks + cancelled_tasks) == total_tasks
+    all_actionable_tasks_done = (
+        total_tasks > 0 and (done_tasks + cancelled_tasks) == total_tasks
+    )
     return total_tasks, done_tasks, cancelled_tasks, all_actionable_tasks_done
 
 
-def _build_sprint_close_readiness(stories: List[UserStory]) -> SprintCloseReadiness:
-    summaries: List[SprintCloseStorySummary] = []
+def _build_sprint_close_readiness(
+    stories: list[UserStory],
+) -> SprintCloseReadiness:
+    summaries: list[SprintCloseStorySummary] = []
     completed_story_count = 0
-    unfinished_story_ids: List[int] = []
+    unfinished_story_ids: list[int] = []
 
     for story in stories:
-        total_tasks, done_tasks, cancelled_tasks, _all_actionable_done = _story_task_progress(
-            story.tasks
+        total_tasks, done_tasks, cancelled_tasks, _all_actionable_done = (
+            _story_task_progress(story.tasks)
         )
         completion_state = (
             "completed"
@@ -400,7 +452,7 @@ def _build_sprint_close_readiness(stories: List[UserStory]) -> SprintCloseReadin
     )
 
 
-def _serialize_sprint_story(story: UserStory) -> Dict[str, Any]:
+def _serialize_sprint_story(story: UserStory) -> dict[str, Any]:
     tasks = sorted(
         [_serialize_sprint_task(task) for task in story.tasks],
         key=lambda t: t["description"].lower(),
@@ -408,7 +460,9 @@ def _serialize_sprint_story(story: UserStory) -> Dict[str, Any]:
     return {
         "story_id": story.story_id,
         "story_title": story.title,
-        "status": story.status.value if hasattr(story.status, "value") else story.status,
+        "status": story.status.value
+        if hasattr(story.status, "value")
+        else story.status,
         "story_points": story.story_points,
         "persona": story.persona,
         "tasks": tasks,
@@ -419,21 +473,38 @@ def _history_fidelity(sprint: Sprint) -> str:
     return "snapshotted" if bool(sprint.close_snapshot_json) else "derived"
 
 
-def _load_sprint_close_snapshot(sprint: Sprint) -> Optional[Dict[str, Any]]:
+def _load_sprint_close_snapshot(sprint: Sprint) -> dict[str, Any] | None:
     if not sprint.close_snapshot_json:
         return None
     try:
         return json.loads(sprint.close_snapshot_json)
     except (TypeError, ValueError):
-        logger.warning("Failed to parse sprint close snapshot for sprint %s", sprint.sprint_id)
+        logger.warning(
+            "Failed to parse sprint close snapshot for sprint %s",
+            sprint.sprint_id,
+        )
         return None
 
 
-def _build_sprint_runtime_summary(sprints: List[Sprint]) -> Dict[str, Any]:
-    active = next((sprint for sprint in sprints if sprint.status == SprintStatus.ACTIVE), None)
-    planned = next((sprint for sprint in sprints if sprint.status == SprintStatus.PLANNED), None)
+def _build_sprint_runtime_summary(sprints: list[Sprint]) -> dict[str, Any]:
+    active = next(
+        (sprint for sprint in sprints if sprint.status == SprintStatus.ACTIVE),
+        None,
+    )
+    planned = next(
+        (
+            sprint
+            for sprint in sprints
+            if sprint.status == SprintStatus.PLANNED
+        ),
+        None,
+    )
     completed = sorted(
-        [sprint for sprint in sprints if sprint.status == SprintStatus.COMPLETED],
+        [
+            sprint
+            for sprint in sprints
+            if sprint.status == SprintStatus.COMPLETED
+        ],
         key=lambda sprint: (
             sprint.completed_at or sprint.updated_at or sprint.created_at
         ),
@@ -442,7 +513,9 @@ def _build_sprint_runtime_summary(sprints: List[Sprint]) -> Dict[str, Any]:
     return {
         "active_sprint_id": active.sprint_id if active else None,
         "planned_sprint_id": planned.sprint_id if planned else None,
-        "latest_completed_sprint_id": completed[0].sprint_id if completed else None,
+        "latest_completed_sprint_id": completed[0].sprint_id
+        if completed
+        else None,
         "can_create_next_sprint": planned is None,
         "create_next_sprint_disabled_reason": (
             None
@@ -455,11 +528,13 @@ def _build_sprint_runtime_summary(sprints: List[Sprint]) -> Dict[str, Any]:
 def _allowed_actions_for_sprint(
     sprint: Sprint,
     *,
-    runtime_summary: Dict[str, Any],
-) -> Dict[str, Any]:
+    runtime_summary: dict[str, Any],
+) -> dict[str, Any]:
     is_planned = sprint.status == SprintStatus.PLANNED
     is_active = sprint.status == SprintStatus.ACTIVE
-    can_start = bool(is_planned and runtime_summary.get("active_sprint_id") is None)
+    can_start = bool(
+        is_planned and runtime_summary.get("active_sprint_id") is None
+    )
     can_close = bool(is_active)
     can_modify_planned = bool(is_planned)
     return {
@@ -485,8 +560,8 @@ def _allowed_actions_for_sprint(
 def _serialize_sprint_list_item(
     sprint: Sprint,
     *,
-    runtime_summary: Dict[str, Any],
-) -> Dict[str, Any]:
+    runtime_summary: dict[str, Any],
+) -> dict[str, Any]:
     stories = sorted(
         sprint.stories,
         key=lambda story: (
@@ -518,8 +593,8 @@ def _serialize_sprint_list_item(
 def _serialize_sprint_detail(
     sprint: Sprint,
     *,
-    runtime_summary: Dict[str, Any],
-) -> Dict[str, Any]:
+    runtime_summary: dict[str, Any],
+) -> dict[str, Any]:
     stories = sorted(
         sprint.stories,
         key=lambda story: (
@@ -527,23 +602,24 @@ def _serialize_sprint_detail(
             story.story_id or 0,
         ),
     )
-    payload = _serialize_sprint_list_item(sprint, runtime_summary=runtime_summary)
-    payload["selected_stories"] = [_serialize_sprint_story(story) for story in stories]
+    payload = _serialize_sprint_list_item(
+        sprint, runtime_summary=runtime_summary
+    )
+    payload["selected_stories"] = [
+        _serialize_sprint_story(story) for story in stories
+    ]
     payload["close_snapshot"] = _load_sprint_close_snapshot(sprint)
     return payload
 
 
 def _saved_sprint_query():
-    return (
-        select(Sprint)
-        .options(
-            selectinload(Sprint.team),
-            selectinload(Sprint.stories).selectinload(UserStory.tasks),
-        )
+    return select(Sprint).options(
+        selectinload(Sprint.team),
+        selectinload(Sprint.stories).selectinload(UserStory.tasks),
     )
 
 
-def _list_saved_sprints(project_id: int) -> Dict[str, Any]:
+def _list_saved_sprints(project_id: int) -> dict[str, Any]:
     with Session(get_engine()) as session:
         sprints = session.exec(
             _saved_sprint_query()
@@ -563,7 +639,9 @@ def _list_saved_sprints(project_id: int) -> Dict[str, Any]:
         }
 
 
-def _get_saved_sprint(session: Session, project_id: int, sprint_id: int) -> Optional[Sprint]:
+def _get_saved_sprint(
+    session: Session, project_id: int, sprint_id: int
+) -> Sprint | None:
     return session.exec(
         _saved_sprint_query().where(
             Sprint.product_id == project_id,
@@ -572,12 +650,12 @@ def _get_saved_sprint(session: Session, project_id: int, sprint_id: int) -> Opti
     ).first()
 
 
-def _serialize_temporal(value: Any) -> Optional[str]:
+def _serialize_temporal(value: Any) -> str | None:
     if value is None:
         return None
     if isinstance(value, datetime):
         if value.tzinfo is not None:
-            return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+            return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
         return value.isoformat()
     if hasattr(value, "isoformat"):
         return value.isoformat()
@@ -606,7 +684,7 @@ def _build_task_label(description: str) -> str:
     return normalized or "Task"
 
 
-def _extract_vision_excerpt(vision: Optional[str]) -> Optional[str]:
+def _extract_vision_excerpt(vision: str | None) -> str | None:
     if not vision or not vision.strip():
         return None
     for paragraph in re.split(r"\n\s*\n", vision.strip()):
@@ -616,11 +694,11 @@ def _extract_vision_excerpt(vision: Optional[str]) -> Optional[str]:
     return None
 
 
-def _normalize_acceptance_criteria(text: Optional[str]) -> List[str]:
+def _normalize_acceptance_criteria(text: str | None) -> list[str]:
     if not text or not text.strip():
         return []
 
-    items: List[str] = []
+    items: list[str] = []
     for raw_line in text.splitlines():
         stripped = raw_line.strip()
         if not stripped:
@@ -636,7 +714,9 @@ def _normalize_acceptance_criteria(text: Optional[str]) -> List[str]:
     return [collapsed] if collapsed else []
 
 
-def _load_validation_evidence(raw_value: Optional[str]) -> Optional[ValidationEvidence]:
+def _load_validation_evidence(
+    raw_value: str | None,
+) -> ValidationEvidence | None:
     if not raw_value:
         return None
     try:
@@ -648,8 +728,8 @@ def _load_validation_evidence(raw_value: Optional[str]) -> Optional[ValidationEv
 
 def _load_pinned_authority(
     session: Session,
-    accepted_spec_version_id: Optional[int],
-) -> Optional[CompiledSpecAuthority]:
+    accepted_spec_version_id: int | None,
+) -> CompiledSpecAuthority | None:
     if accepted_spec_version_id is None:
         return None
     return session.exec(
@@ -660,12 +740,12 @@ def _load_pinned_authority(
 
 
 def _build_packet_findings(
-    evidence: Optional[ValidationEvidence],
-) -> List[Dict[str, Optional[str]]]:
+    evidence: ValidationEvidence | None,
+) -> list[dict[str, str | None]]:
     if not evidence:
         return []
 
-    findings: List[Dict[str, Optional[str]]] = []
+    findings: list[dict[str, str | None]] = []
     for failure in evidence.failures:
         findings.append(
             {
@@ -718,9 +798,9 @@ def _build_packet_findings(
 
 
 def _build_story_compliance_boundaries(
-    authority: Optional[CompiledSpecAuthority],
-    evidence: Optional[ValidationEvidence],
-) -> List[Dict[str, Any]]:
+    authority: CompiledSpecAuthority | None,
+    evidence: ValidationEvidence | None,
+) -> list[dict[str, Any]]:
     if not authority or not evidence:
         return []
 
@@ -729,17 +809,20 @@ def _build_story_compliance_boundaries(
         return []
 
     referenced_ids = set()
-    if hasattr(evidence, "finding_invariant_ids") and evidence.finding_invariant_ids:
+    if (
+        hasattr(evidence, "finding_invariant_ids")
+        and evidence.finding_invariant_ids
+    ):
         referenced_ids.update(evidence.finding_invariant_ids)
 
     if not referenced_ids:
         return []
 
-    source_map: Dict[str, Any] = {}
+    source_map: dict[str, Any] = {}
     for entry in artifact.source_map:
         source_map.setdefault(entry.invariant_id, entry)
 
-    relevant: List[Dict[str, Any]] = []
+    relevant: list[dict[str, Any]] = []
     for invariant in artifact.invariants:
         if invariant.id not in referenced_ids:
             continue
@@ -751,18 +834,22 @@ def _build_story_compliance_boundaries(
                 "invariant_id": invariant.id,
                 "type": invariant.type.value,
                 "parameters": parameters,
-                "source_excerpt": source_entry.excerpt if source_entry else None,
-                "source_location": source_entry.location if source_entry else None,
+                "source_excerpt": source_entry.excerpt
+                if source_entry
+                else None,
+                "source_location": source_entry.location
+                if source_entry
+                else None,
             }
         )
     return relevant
 
 
 def _build_task_hard_constraints(
-    authority: Optional[CompiledSpecAuthority],
+    authority: CompiledSpecAuthority | None,
     *,
     task_metadata,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     if not authority or not task_metadata.relevant_invariant_ids:
         return []
 
@@ -770,12 +857,14 @@ def _build_task_hard_constraints(
     if not artifact:
         return []
 
-    source_map: Dict[str, Any] = {}
+    source_map: dict[str, Any] = {}
     for entry in artifact.source_map:
         source_map.setdefault(entry.invariant_id, entry)
 
-    invariant_map = {invariant.id: invariant for invariant in artifact.invariants}
-    constraints: List[Dict[str, Any]] = []
+    invariant_map = {
+        invariant.id: invariant for invariant in artifact.invariants
+    }
+    constraints: list[dict[str, Any]] = []
     for invariant_id in task_metadata.relevant_invariant_ids:
         invariant = invariant_map.get(invariant_id)
         if invariant is None:
@@ -790,8 +879,12 @@ def _build_task_hard_constraints(
                 "invariant_id": invariant.id,
                 "type": invariant.type.value,
                 "parameters": invariant.parameters.model_dump(mode="json"),
-                "source_excerpt": source_entry.excerpt if source_entry else None,
-                "source_location": source_entry.location if source_entry else None,
+                "source_excerpt": source_entry.excerpt
+                if source_entry
+                else None,
+                "source_location": source_entry.location
+                if source_entry
+                else None,
             }
         )
     return constraints
@@ -802,9 +895,9 @@ def _load_packet_story_context(
     *,
     project_id: int,
     sprint_id: int,
-    story_id: Optional[int] = None,
-    task_id: Optional[int] = None,
-) -> Optional[SimpleNamespace]:
+    story_id: int | None = None,
+    task_id: int | None = None,
+) -> SimpleNamespace | None:
     task = None
     if task_id is not None:
         task = session.exec(
@@ -874,9 +967,15 @@ def _load_packet_story_context(
     )
 
     authority = _load_pinned_authority(session, story.accepted_spec_version_id)
-    compiled_artifact = _load_compiled_artifact(authority) if authority else None
-    spec_binding_status = "pinned" if story.accepted_spec_version_id is not None else "unpinned"
-    authority_status = "available" if compiled_artifact is not None else "missing"
+    compiled_artifact = (
+        _load_compiled_artifact(authority) if authority else None
+    )
+    spec_binding_status = (
+        "pinned" if story.accepted_spec_version_id is not None else "unpinned"
+    )
+    authority_status = (
+        "available" if compiled_artifact is not None else "missing"
+    )
 
     task_metadata = None
     if task is not None:
@@ -910,7 +1009,7 @@ def _build_story_packet(
     project_id: int,
     sprint_id: int,
     story_id: int,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     context = _load_packet_story_context(
         session,
         project_id=project_id,
@@ -955,7 +1054,7 @@ def _build_story_packet(
         "schema_version": "story_packet.v1",
         "metadata": {
             "packet_id": f"sp_{packet_id_hash}",
-            "generated_at": _serialize_temporal(datetime.now(timezone.utc)),
+            "generated_at": _serialize_temporal(datetime.now(UTC)),
             "generator_version": "v1",
             "source_fingerprint": _hash_payload(source_snapshot),
         },
@@ -970,9 +1069,7 @@ def _build_story_packet(
             "rank": story.rank,
             "source_requirement": story.source_requirement,
         },
-        "task_plan": {
-            "tasks": task_plan_tasks
-        },
+        "task_plan": {"tasks": task_plan_tasks},
         "context": {
             "sprint": {
                 "sprint_id": sprint.sprint_id,
@@ -1008,11 +1105,15 @@ def _build_story_packet(
                 "validated_at": _serialize_temporal(
                     evidence.validated_at if evidence else None
                 ),
-                "validator_version": evidence.validator_version if evidence else None,
+                "validator_version": evidence.validator_version
+                if evidence
+                else None,
                 "current_story_input_hash": context.current_story_input_hash,
                 "validation_input_hash": context.validation_input_hash,
                 "input_hash_matches": context.input_hash_matches,
-                "rules_checked": list(evidence.rules_checked) if evidence else [],
+                "rules_checked": list(evidence.rules_checked)
+                if evidence
+                else [],
             },
             "story_compliance_boundaries": _build_story_compliance_boundaries(
                 context.authority,
@@ -1029,7 +1130,7 @@ def _build_task_packet(
     project_id: int,
     sprint_id: int,
     task_id: int,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     context = _load_packet_story_context(
         session,
         project_id=project_id,
@@ -1077,7 +1178,7 @@ def _build_task_packet(
         "schema_version": "task_packet.v2",
         "metadata": {
             "packet_id": f"tp_{packet_id_hash}",
-            "generated_at": _serialize_temporal(datetime.now(timezone.utc)),
+            "generated_at": _serialize_temporal(datetime.now(UTC)),
             "generator_version": "v2",
             "source_fingerprint": _hash_payload(source_snapshot),
         },
@@ -1136,11 +1237,15 @@ def _build_task_packet(
                 "validated_at": _serialize_temporal(
                     evidence.validated_at if evidence else None
                 ),
-                "validator_version": evidence.validator_version if evidence else None,
+                "validator_version": evidence.validator_version
+                if evidence
+                else None,
                 "current_story_input_hash": context.current_story_input_hash,
                 "validation_input_hash": context.validation_input_hash,
                 "input_hash_matches": context.input_hash_matches,
-                "rules_checked": list(evidence.rules_checked) if evidence else [],
+                "rules_checked": list(evidence.rules_checked)
+                if evidence
+                else [],
             },
             "task_hard_constraints": _build_task_hard_constraints(
                 context.authority,
@@ -1163,7 +1268,7 @@ def _vision_state_from_complete(is_complete: bool) -> str:
     )
 
 
-def _ensure_vision_attempts(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _ensure_vision_attempts(state: dict[str, Any]) -> list[dict[str, Any]]:
     attempts = state.get("vision_attempts")
     if not isinstance(attempts, list):
         attempts = []
@@ -1171,13 +1276,13 @@ def _ensure_vision_attempts(state: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _record_vision_attempt(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     *,
     trigger: str,
-    input_context: Dict[str, Any],
-    output_artifact: Dict[str, Any],
+    input_context: dict[str, Any],
+    output_artifact: dict[str, Any],
     is_complete: bool,
-    failure_meta: Optional[Dict[str, Any]] = None,
+    failure_meta: dict[str, Any] | None = None,
 ) -> int:
     attempts = _ensure_vision_attempts(state)
     normalized_failure = _failure_meta(failure_meta)
@@ -1199,14 +1304,16 @@ def _record_vision_attempt(
     return len(attempts)
 
 
-def _set_vision_fsm_state(state: Dict[str, Any], *, is_complete: bool) -> str:
+def _set_vision_fsm_state(state: dict[str, Any], *, is_complete: bool) -> str:
     next_state = _vision_state_from_complete(is_complete)
     state["fsm_state"] = next_state
     state["fsm_state_entered_at"] = _now_iso()
     return next_state
 
 
-async def _run_setup(session_id: str, project_id: int, spec_file_path: str) -> Dict[str, Any]:
+async def _run_setup(
+    session_id: str, project_id: int, spec_file_path: str
+) -> dict[str, Any]:
     context = await _hydrate_context(session_id, project_id)
 
     result = link_spec_to_product(
@@ -1214,16 +1321,18 @@ async def _run_setup(session_id: str, project_id: int, spec_file_path: str) -> D
             "product_id": project_id,
             "spec_path": spec_file_path,
         },
-        tool_context=context,
+        tool_context=_build_tool_context(context),
     )
 
     # Rehydrate after setup attempt to refresh active project + compiled authority cache.
-    select_project(project_id, context)
+    select_project(project_id, _build_tool_context(context))
 
-    setup_passed = bool(result.get("success") and result.get("compile_success"))
+    setup_passed = bool(
+        result.get("success") and result.get("compile_success")
+    )
     error_message = None
     next_state = OrchestratorState.SETUP_REQUIRED.value
-    vision_auto_run: Dict[str, Any] = {
+    vision_auto_run: dict[str, Any] = {
         "attempted": False,
         "success": False,
         "is_complete": None,
@@ -1233,7 +1342,11 @@ async def _run_setup(session_id: str, project_id: int, spec_file_path: str) -> D
     }
 
     if not setup_passed:
-        error_message = result.get("compile_error") or result.get("error") or "Setup failed"
+        error_message = (
+            result.get("compile_error")
+            or result.get("error")
+            or "Setup failed"
+        )
     else:
         latest_product = product_repo.get_by_id(project_id)
         blocker = _setup_blocker(latest_product)
@@ -1246,7 +1359,11 @@ async def _run_setup(session_id: str, project_id: int, spec_file_path: str) -> D
                 project_id=project_id,
                 user_input="",
             )
-            attempt_is_complete = bool(vision_result.get("is_complete")) if vision_result.get("success") else False
+            attempt_is_complete = (
+                bool(vision_result.get("is_complete"))
+                if vision_result.get("success")
+                else False
+            )
             _record_vision_attempt(
                 context.state,
                 trigger="auto_setup_transition",
@@ -1262,10 +1379,14 @@ async def _run_setup(session_id: str, project_id: int, spec_file_path: str) -> D
             vision_auto_run = {
                 "attempted": True,
                 "success": bool(vision_result.get("success")),
-                "is_complete": vision_result.get("is_complete") if vision_result.get("success") else None,
+                "is_complete": vision_result.get("is_complete")
+                if vision_result.get("success")
+                else None,
                 "error": vision_result.get("error"),
                 "trigger": "auto_setup_transition",
-                **_failure_meta(vision_result, fallback_summary=vision_result.get("error")),
+                **_failure_meta(
+                    vision_result, fallback_summary=vision_result.get("error")
+                ),
             }
 
     if not setup_passed:
@@ -1296,7 +1417,9 @@ async def _run_setup(session_id: str, project_id: int, spec_file_path: str) -> D
     }
 
 
-def _effective_project_state(project: Any, raw_state: Dict[str, Any]) -> Dict[str, Any]:
+def _effective_project_state(
+    project: Any, raw_state: dict[str, Any]
+) -> dict[str, Any]:
     state = dict(raw_state)
     blocker = _setup_blocker(project)
     spec_path = getattr(project, "spec_file_path", None)
@@ -1351,17 +1474,32 @@ def get_projects():
                 {
                     "id": product.product_id,
                     "name": product.name,
-                    "summary": product.description or "No description provided",
-                    "fsm_state": effective_state.get("fsm_state", OrchestratorState.SETUP_REQUIRED.value),
-                "setup_status": effective_state.get("setup_status", "failed"),
-                "setup_error": effective_state.get("setup_error"),
-                "setup_failure_artifact_id": effective_state.get("setup_failure_artifact_id"),
-                "setup_failure_stage": effective_state.get("setup_failure_stage"),
-                "setup_failure_summary": effective_state.get("setup_failure_summary"),
-                "setup_raw_output_preview": effective_state.get("setup_raw_output_preview"),
-                "setup_has_full_artifact": effective_state.get("setup_has_full_artifact", False),
-            }
-        )
+                    "summary": product.description
+                    or "No description provided",
+                    "fsm_state": effective_state.get(
+                        "fsm_state", OrchestratorState.SETUP_REQUIRED.value
+                    ),
+                    "setup_status": effective_state.get(
+                        "setup_status", "failed"
+                    ),
+                    "setup_error": effective_state.get("setup_error"),
+                    "setup_failure_artifact_id": effective_state.get(
+                        "setup_failure_artifact_id"
+                    ),
+                    "setup_failure_stage": effective_state.get(
+                        "setup_failure_stage"
+                    ),
+                    "setup_failure_summary": effective_state.get(
+                        "setup_failure_summary"
+                    ),
+                    "setup_raw_output_preview": effective_state.get(
+                        "setup_raw_output_preview"
+                    ),
+                    "setup_has_full_artifact": effective_state.get(
+                        "setup_has_full_artifact", False
+                    ),
+                }
+            )
 
         return {"status": "success", "data": payload}
     except Exception as exc:
@@ -1376,23 +1514,31 @@ async def create_project(req: CreateProjectRequest):
         session_id = str(new_product.product_id)
         await workflow_service.initialize_session(session_id=session_id)
 
-        setup_result = await _run_setup(session_id, int(new_product.product_id), req.spec_file_path)
+        setup_result = await _run_setup(
+            session_id, int(new_product.product_id), req.spec_file_path
+        )
 
         return {
             "status": "success",
             "data": {
                 "id": new_product.product_id,
                 "name": new_product.name,
-                "setup_status": "passed" if setup_result["passed"] else "failed",
+                "setup_status": "passed"
+                if setup_result["passed"]
+                else "failed",
                 "setup_error": setup_result["error"],
                 "fsm_state": setup_result["fsm_state"],
                 "vision_auto_run": setup_result.get("vision_auto_run"),
-                **_failure_meta(setup_result, fallback_summary=setup_result["error"]),
+                **_failure_meta(
+                    setup_result, fallback_summary=setup_result["error"]
+                ),
             },
         }
     except Exception as exc:
         logger.error("Error creating project: %s", exc)
-        raise HTTPException(status_code=500, detail="Failed to create project") from exc
+        raise HTTPException(
+            status_code=500, detail="Failed to create project"
+        ) from exc
 
 
 @app.delete("/api/projects/{project_id}")
@@ -1407,11 +1553,19 @@ async def delete_project(project_id: int):
         # Cascade delete products and all artifacts
         success = product_repo.delete_project(project_id)
         if not success:
-            raise HTTPException(status_code=500, detail="Failed to delete project due to database error.")
-        return {"status": "success", "data": {"message": f"Project {project_id} deleted."}}
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to delete project due to database error.",
+            )
+        return {
+            "status": "success",
+            "data": {"message": f"Project {project_id} deleted."},
+        }
     except Exception as exc:
         logger.error("Error deleting project %d: %s", project_id, exc)
-        raise HTTPException(status_code=500, detail="Failed to delete project") from exc
+        raise HTTPException(
+            status_code=500, detail="Failed to delete project"
+        ) from exc
 
 
 @app.post("/api/projects/{project_id}/setup/retry")
@@ -1430,12 +1584,14 @@ async def retry_project_setup(project_id: int, req: RetrySetupRequest):
             "id": project_id,
             "name": product.name,
             "setup_status": "passed" if setup_result["passed"] else "failed",
-                "setup_error": setup_result["error"],
-                "fsm_state": setup_result["fsm_state"],
-                "vision_auto_run": setup_result.get("vision_auto_run"),
-                **_failure_meta(setup_result, fallback_summary=setup_result["error"]),
-            },
-        }
+            "setup_error": setup_result["error"],
+            "fsm_state": setup_result["fsm_state"],
+            "vision_auto_run": setup_result.get("vision_auto_run"),
+            **_failure_meta(
+                setup_result, fallback_summary=setup_result["error"]
+            ),
+        },
+    }
 
 
 @app.get("/api/projects/{project_id}/state")
@@ -1461,10 +1617,14 @@ async def get_project_failure_artifact(project_id: int, artifact_id: str):
 
     artifact = read_failure_artifact(artifact_id)
     if artifact is None:
-        raise HTTPException(status_code=404, detail="Failure artifact not found")
+        raise HTTPException(
+            status_code=404, detail="Failure artifact not found"
+        )
 
     if artifact.get("project_id") != project_id:
-        raise HTTPException(status_code=404, detail="Failure artifact not found for project")
+        raise HTTPException(
+            status_code=404, detail="Failure artifact not found for project"
+        )
 
     return {"status": "success", "data": artifact}
 
@@ -1477,7 +1637,9 @@ async def generate_project_vision(project_id: int, req: VisionGenerateRequest):
 
     blocker = _setup_blocker(product)
     if blocker:
-        raise HTTPException(status_code=409, detail=f"Setup required: {blocker}")
+        raise HTTPException(
+            status_code=409, detail=f"Setup required: {blocker}"
+        )
 
     session_id = str(project_id)
     context = await _hydrate_context(session_id, project_id)
@@ -1496,7 +1658,11 @@ async def generate_project_vision(project_id: int, req: VisionGenerateRequest):
         project_id=project_id,
         user_input=user_input,
     )
-    is_complete = bool(vision_result.get("is_complete")) if vision_result.get("success") else False
+    is_complete = (
+        bool(vision_result.get("is_complete"))
+        if vision_result.get("success")
+        else False
+    )
 
     attempt_count = _record_vision_attempt(
         context.state,
@@ -1524,7 +1690,9 @@ async def generate_project_vision(project_id: int, req: VisionGenerateRequest):
             "input_context": vision_result.get("input_context"),
             "output_artifact": vision_result.get("output_artifact"),
             "attempt_count": attempt_count,
-            **_failure_meta(vision_result, fallback_summary=vision_result.get("error")),
+            **_failure_meta(
+                vision_result, fallback_summary=vision_result.get("error")
+            ),
         },
     }
 
@@ -1558,14 +1726,18 @@ async def save_project_vision(project_id: int):
 
     blocker = _setup_blocker(product)
     if blocker:
-        raise HTTPException(status_code=409, detail=f"Setup required: {blocker}")
+        raise HTTPException(
+            status_code=409, detail=f"Setup required: {blocker}"
+        )
 
     session_id = str(project_id)
     state = await _ensure_session(session_id)
 
     assessment = state.get("product_vision_assessment")
     if not isinstance(assessment, dict):
-        raise HTTPException(status_code=409, detail="No vision draft available to save")
+        raise HTTPException(
+            status_code=409, detail="No vision draft available to save"
+        )
 
     if not bool(assessment.get("is_complete", False)):
         raise HTTPException(
@@ -1575,7 +1747,9 @@ async def save_project_vision(project_id: int):
 
     statement = assessment.get("product_vision_statement")
     if not isinstance(statement, str) or not statement.strip():
-        raise HTTPException(status_code=409, detail="Vision statement is empty")
+        raise HTTPException(
+            status_code=409, detail="Vision statement is empty"
+        )
 
     context = await _hydrate_context(session_id, project_id)
     result = save_vision_tool(
@@ -1584,11 +1758,14 @@ async def save_project_vision(project_id: int):
             project_name=product.name,
             product_vision_statement=statement,
         ),
-        context,
+        _build_tool_context(context),
     )
 
     if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to save vision"))
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to save vision"),
+        )
 
     context.state["fsm_state"] = OrchestratorState.VISION_PERSISTENCE.value
     context.state["fsm_state_entered_at"] = _now_iso()
@@ -1614,7 +1791,7 @@ def _backlog_state_from_complete(is_complete: bool) -> str:
     )
 
 
-def _ensure_backlog_attempts(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _ensure_backlog_attempts(state: dict[str, Any]) -> list[dict[str, Any]]:
     attempts = state.get("backlog_attempts")
     if not isinstance(attempts, list):
         attempts = []
@@ -1622,13 +1799,13 @@ def _ensure_backlog_attempts(state: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _record_backlog_attempt(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     *,
     trigger: str,
-    input_context: Dict[str, Any],
-    output_artifact: Dict[str, Any],
+    input_context: dict[str, Any],
+    output_artifact: dict[str, Any],
     is_complete: bool,
-    failure_meta: Optional[Dict[str, Any]] = None,
+    failure_meta: dict[str, Any] | None = None,
 ) -> int:
     attempts = _ensure_backlog_attempts(state)
     normalized_failure = _failure_meta(failure_meta)
@@ -1650,7 +1827,7 @@ def _record_backlog_attempt(
     return len(attempts)
 
 
-def _set_backlog_fsm_state(state: Dict[str, Any], *, is_complete: bool) -> str:
+def _set_backlog_fsm_state(state: dict[str, Any], *, is_complete: bool) -> str:
     next_state = _backlog_state_from_complete(is_complete)
     state["fsm_state"] = next_state
     state["fsm_state_entered_at"] = _now_iso()
@@ -1658,7 +1835,9 @@ def _set_backlog_fsm_state(state: Dict[str, Any], *, is_complete: bool) -> str:
 
 
 @app.post("/api/projects/{project_id}/backlog/generate")
-async def generate_project_backlog(project_id: int, req: BacklogGenerateRequest):
+async def generate_project_backlog(
+    project_id: int, req: BacklogGenerateRequest
+):
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1666,17 +1845,24 @@ async def generate_project_backlog(project_id: int, req: BacklogGenerateRequest)
     session_id = str(project_id)
     context = await _hydrate_context(session_id, project_id)
 
-    if context.state.get("fsm_state") in [OrchestratorState.SETUP_REQUIRED.value]:
-         raise HTTPException(status_code=409, detail="Setup required before backlog")
-         
+    if context.state.get("fsm_state") in [
+        OrchestratorState.SETUP_REQUIRED.value
+    ]:
+        raise HTTPException(
+            status_code=409, detail="Setup required before backlog"
+        )
+
     if context.state.get("fsm_state") not in [
         OrchestratorState.VISION_PERSISTENCE.value,
         OrchestratorState.BACKLOG_INTERVIEW.value,
         OrchestratorState.BACKLOG_REVIEW.value,
         OrchestratorState.BACKLOG_PERSISTENCE.value,
-        OrchestratorState.ROADMAP_INTERVIEW.value, 
+        OrchestratorState.ROADMAP_INTERVIEW.value,
     ]:
-         raise HTTPException(status_code=409, detail=f"Invalid FSM State for backlog: {context.state.get('fsm_state')}")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Invalid FSM State for backlog: {context.state.get('fsm_state')}",
+        )
 
     attempts = _ensure_backlog_attempts(context.state)
     has_attempts = len(attempts) > 0
@@ -1692,7 +1878,11 @@ async def generate_project_backlog(project_id: int, req: BacklogGenerateRequest)
         project_id=project_id,
         user_input=user_input,
     )
-    is_complete = bool(backlog_result.get("is_complete")) if backlog_result.get("success") else False
+    is_complete = (
+        bool(backlog_result.get("is_complete"))
+        if backlog_result.get("success")
+        else False
+    )
 
     attempt_count = _record_backlog_attempt(
         context.state,
@@ -1720,7 +1910,9 @@ async def generate_project_backlog(project_id: int, req: BacklogGenerateRequest)
             "input_context": backlog_result.get("input_context"),
             "output_artifact": backlog_result.get("output_artifact"),
             "attempt_count": attempt_count,
-            **_failure_meta(backlog_result, fallback_summary=backlog_result.get("error")),
+            **_failure_meta(
+                backlog_result, fallback_summary=backlog_result.get("error")
+            ),
         },
     }
 
@@ -1757,7 +1949,9 @@ async def save_project_backlog(project_id: int):
 
     assessment = state.get("product_backlog_assessment")
     if not isinstance(assessment, dict):
-        raise HTTPException(status_code=409, detail="No backlog draft available to save")
+        raise HTTPException(
+            status_code=409, detail="No backlog draft available to save"
+        )
 
     if not bool(assessment.get("is_complete", False)):
         raise HTTPException(
@@ -1775,11 +1969,14 @@ async def save_project_backlog(project_id: int):
             product_id=project_id,
             backlog_items=items,
         ),
-        context,
+        _build_tool_context(context),
     )
 
     if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to save backlog"))
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to save backlog"),
+        )
 
     context.state["fsm_state"] = OrchestratorState.BACKLOG_PERSISTENCE.value
     context.state["fsm_state_entered_at"] = _now_iso()
@@ -1804,7 +2001,7 @@ def _roadmap_state_from_complete(is_complete: bool) -> str:
     )
 
 
-def _ensure_roadmap_attempts(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _ensure_roadmap_attempts(state: dict[str, Any]) -> list[dict[str, Any]]:
     attempts = state.get("roadmap_attempts")
     if not isinstance(attempts, list):
         attempts = []
@@ -1812,13 +2009,13 @@ def _ensure_roadmap_attempts(state: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _record_roadmap_attempt(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     *,
     trigger: str,
-    input_context: Dict[str, Any],
-    output_artifact: Dict[str, Any],
+    input_context: dict[str, Any],
+    output_artifact: dict[str, Any],
     is_complete: bool,
-    failure_meta: Optional[Dict[str, Any]] = None,
+    failure_meta: dict[str, Any] | None = None,
 ) -> int:
     attempts = _ensure_roadmap_attempts(state)
     normalized_failure = _failure_meta(failure_meta)
@@ -1840,7 +2037,7 @@ def _record_roadmap_attempt(
     return len(attempts)
 
 
-def _set_roadmap_fsm_state(state: Dict[str, Any], *, is_complete: bool) -> str:
+def _set_roadmap_fsm_state(state: dict[str, Any], *, is_complete: bool) -> str:
     current_state = _normalize_fsm_state(state.get("fsm_state"))
     if current_state in (
         OrchestratorState.ROADMAP_PERSISTENCE.value,
@@ -1861,7 +2058,9 @@ def _set_roadmap_fsm_state(state: Dict[str, Any], *, is_complete: bool) -> str:
 
 
 @app.post("/api/projects/{project_id}/roadmap/generate")
-async def generate_project_roadmap(project_id: int, req: RoadmapGenerateRequest):
+async def generate_project_roadmap(
+    project_id: int, req: RoadmapGenerateRequest
+):
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1911,7 +2110,9 @@ async def generate_project_roadmap(project_id: int, req: RoadmapGenerateRequest)
             "input_context": roadmap_result.get("input_context"),
             "output_artifact": roadmap_result.get("output_artifact"),
             "attempt_count": attempt_count,
-            **_failure_meta(roadmap_result, fallback_summary=roadmap_result.get("error")),
+            **_failure_meta(
+                roadmap_result, fallback_summary=roadmap_result.get("error")
+            ),
         },
     }
 
@@ -1948,7 +2149,9 @@ async def save_project_roadmap(project_id: int):
 
     assessment = state.get("product_roadmap_assessment")
     if not isinstance(assessment, dict):
-        raise HTTPException(status_code=409, detail="No roadmap draft available to save")
+        raise HTTPException(
+            status_code=409, detail="No roadmap draft available to save"
+        )
 
     if not bool(assessment.get("is_complete", False)):
         raise HTTPException(
@@ -1956,24 +2159,32 @@ async def save_project_roadmap(project_id: int):
             detail="Roadmap cannot be saved until is_complete is true",
         )
 
-    from orchestrator_agent.agent_tools.roadmap_builder.schemes import RoadmapBuilderOutput
+    from orchestrator_agent.agent_tools.roadmap_builder.schemes import (
+        RoadmapBuilderOutput,
+    )
+
     context = await _hydrate_context(session_id, project_id)
-    
+
     try:
         roadmap_data = RoadmapBuilderOutput.model_validate(assessment)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Invalid roadmap data in session: {str(e)}")
-        
+        raise HTTPException(
+            status_code=500, detail=f"Invalid roadmap data in session: {e!s}"
+        )
+
     result = save_roadmap_tool(
         SaveRoadmapToolInput(
             product_id=project_id,
             roadmap_data=roadmap_data,
         ),
-        context,
+        _build_tool_context(context),
     )
 
     if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to save roadmap"))
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to save roadmap"),
+        )
 
     state["fsm_state"] = OrchestratorState.ROADMAP_PERSISTENCE.value
     state["fsm_state_entered_at"] = _now_iso()
@@ -1994,24 +2205,27 @@ async def save_project_roadmap(project_id: int):
 # STORY ENDPOINTS
 # ==============================================================================
 
-def _get_all_roadmap_requirements(state: Dict[str, Any]) -> List[str]:
+
+def _get_all_roadmap_requirements(state: dict[str, Any]) -> list[str]:
     """Helper: extract all assigned backlog items from saved roadmap releases."""
     releases = state.get("roadmap_releases") or []
-    reqs: List[str] = []
+    reqs: list[str] = []
     for rel in releases:
         items = rel.get("items") or []
         reqs.extend(items)
     return reqs
 
 
-def _ensure_story_attempts(state: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+def _ensure_story_attempts(
+    state: dict[str, Any],
+) -> dict[str, list[dict[str, Any]]]:
     attempts = state.get("story_attempts")
     if not isinstance(attempts, dict):
         attempts = {}
     return attempts
 
 
-def _story_retryable(classification: Optional[str]) -> bool:
+def _story_retryable(classification: str | None) -> bool:
     return classification in {
         "nonreusable_provider_failure",
         "nonreusable_transport_failure",
@@ -2019,10 +2233,10 @@ def _story_retryable(classification: Optional[str]) -> bool:
 
 
 def _ensure_story_runtime(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     *,
     parent_requirement: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     return hydrate_story_runtime_from_legacy(
         state,
         parent_requirement=parent_requirement,
@@ -2030,9 +2244,9 @@ def _ensure_story_runtime(
 
 
 def _find_attempt_by_id(
-    runtime: Dict[str, Any],
+    runtime: dict[str, Any],
     attempt_id: str,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     for attempt in reversed(runtime.get("attempt_history") or []):
         if not isinstance(attempt, dict):
             continue
@@ -2041,7 +2255,7 @@ def _find_attempt_by_id(
     return None
 
 
-def _story_save_payload(runtime: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _story_save_payload(runtime: dict[str, Any]) -> dict[str, Any] | None:
     draft_projection = runtime.get("draft_projection") or {}
     if draft_projection.get("kind") != "complete_draft":
         return None
@@ -2063,7 +2277,7 @@ def _story_save_payload(runtime: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return artifact
 
 
-def _story_has_working_state(runtime: Dict[str, Any]) -> bool:
+def _story_has_working_state(runtime: dict[str, Any]) -> bool:
     draft_projection = runtime.get("draft_projection") or {}
     if draft_projection:
         return True
@@ -2086,7 +2300,7 @@ def _story_has_working_state(runtime: Dict[str, Any]) -> bool:
     )
 
 
-def _story_retry_target_attempt_id(runtime: Dict[str, Any]) -> Optional[str]:
+def _story_retry_target_attempt_id(runtime: dict[str, Any]) -> str | None:
     attempts = runtime.get("attempt_history") or []
     latest_attempt = attempts[-1] if attempts else {}
     request_projection = runtime.get("request_projection") or {}
@@ -2103,7 +2317,7 @@ def _story_retry_target_attempt_id(runtime: Dict[str, Any]) -> Optional[str]:
     return attempt_id
 
 
-def _story_interview_summary(runtime: Dict[str, Any]) -> Dict[str, Any]:
+def _story_interview_summary(runtime: dict[str, Any]) -> dict[str, Any]:
     draft_projection = runtime.get("draft_projection") or {}
     retry_target_attempt_id = _story_retry_target_attempt_id(runtime)
 
@@ -2127,7 +2341,7 @@ def _story_interview_summary(runtime: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _story_unabsorbed_feedback_ids(runtime: Dict[str, Any]) -> List[str]:
+def _story_unabsorbed_feedback_ids(runtime: dict[str, Any]) -> list[str]:
     feedback_projection = runtime.get("feedback_projection") or {}
     if not isinstance(feedback_projection, dict):
         return []
@@ -2136,7 +2350,7 @@ def _story_unabsorbed_feedback_ids(runtime: Dict[str, Any]) -> List[str]:
     if not isinstance(items, list):
         return []
 
-    feedback_ids: List[str] = []
+    feedback_ids: list[str] = []
     for item in items:
         if not isinstance(item, dict):
             continue
@@ -2149,10 +2363,10 @@ def _story_unabsorbed_feedback_ids(runtime: Dict[str, Any]) -> List[str]:
 
 
 def _sync_story_legacy_mirrors(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     *,
     parent_requirement: str,
-    runtime: Dict[str, Any],
+    runtime: dict[str, Any],
 ) -> None:
     story_attempts = state.get("story_attempts")
     if not isinstance(story_attempts, dict):
@@ -2170,9 +2384,11 @@ def _sync_story_legacy_mirrors(
             ),
             "output_artifact": attempt.get("output_artifact"),
             "is_complete": bool(
-                ((attempt.get("output_artifact") or {}) if isinstance(attempt, dict) else {}).get(
-                    "is_complete"
-                )
+                (
+                    (attempt.get("output_artifact") or {})
+                    if isinstance(attempt, dict)
+                    else {}
+                ).get("is_complete")
             ),
             "failure_artifact_id": attempt.get("failure_artifact_id"),
             "failure_stage": attempt.get("failure_stage"),
@@ -2204,10 +2420,12 @@ async def get_project_story_pending(project_id: int):
 
     session_id = str(project_id)
     state = await _ensure_session(session_id)
-    
+
     roadmap_releases = state.get("roadmap_releases") or []
     attempts_dict = _ensure_story_attempts(state)
-    saved_reqs_dict = state.get("story_saved", {})  # track which ones successfully saved
+    saved_reqs_dict = state.get(
+        "story_saved", {}
+    )  # track which ones successfully saved
 
     grouped_items = []
     total_count = 0
@@ -2218,14 +2436,14 @@ async def get_project_story_pending(project_id: int):
         reqs = rel.get("items") or []
         theme = rel.get("theme", "Milestone Context")
         reasoning = rel.get("reasoning", "")
-        
+
         milestone_group = {
             "group_id": f"milestone_{release_index}",
             "theme": theme,
             "reasoning": reasoning,
-            "requirements": []
+            "requirements": [],
         }
-        
+
         for req in reqs:
             req_attempts = attempts_dict.get(req, [])
             runtime = _ensure_story_runtime(
@@ -2239,14 +2457,16 @@ async def get_project_story_pending(project_id: int):
                 status = "Attempted"
             else:
                 status = "Pending"
-                
-            milestone_group["requirements"].append({
-                "requirement": req,
-                "status": status,
-                "attempt_count": len(req_attempts)
-            })
+
+            milestone_group["requirements"].append(
+                {
+                    "requirement": req,
+                    "status": status,
+                    "attempt_count": len(req_attempts),
+                }
+            )
             total_count += 1
-            
+
         grouped_items.append(milestone_group)
 
     return {
@@ -2260,7 +2480,9 @@ async def get_project_story_pending(project_id: int):
 
 
 @app.post("/api/projects/{project_id}/story/generate")
-async def generate_project_story(project_id: int, parent_requirement: str, req: StoryGenerateRequest):
+async def generate_project_story(
+    project_id: int, parent_requirement: str, req: StoryGenerateRequest
+):
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -2278,14 +2500,19 @@ async def generate_project_story(project_id: int, parent_requirement: str, req: 
                     parent_requirement = r
                     break
         else:
-            raise HTTPException(status_code=400, detail=f"Requirement '{parent_requirement}' not found in saved roadmap.")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Requirement '{parent_requirement}' not found in saved roadmap.",
+            )
 
     runtime = _ensure_story_runtime(
         state,
         parent_requirement=parent_requirement,
     )
     has_attempts = _story_has_working_state(runtime)
-    normalized_user_input = req.user_input.strip() if isinstance(req.user_input, str) else None
+    normalized_user_input = (
+        req.user_input.strip() if isinstance(req.user_input, str) else None
+    )
 
     if has_attempts and not normalized_user_input:
         raise HTTPException(
@@ -2336,17 +2563,26 @@ async def generate_project_story(project_id: int, parent_requirement: str, req: 
         {
             "attempt_id": attempt_id,
             "created_at": created_at,
-            "trigger": "manual_refine" if normalized_user_input else "auto_transition",
-            "request_snapshot_id": request_projection.get("request_snapshot_id"),
-            "draft_basis_attempt_id": request_projection.get("draft_basis_attempt_id"),
+            "trigger": "manual_refine"
+            if normalized_user_input
+            else "auto_transition",
+            "request_snapshot_id": request_projection.get(
+                "request_snapshot_id"
+            ),
+            "draft_basis_attempt_id": request_projection.get(
+                "draft_basis_attempt_id"
+            ),
             "included_feedback_ids": list(included_feedback_ids),
-            "input_context": story_result.get("input_context") or request_payload,
+            "input_context": story_result.get("input_context")
+            or request_payload,
             "classification": story_result.get("classification"),
             "is_reusable": bool(story_result.get("is_reusable", False)),
             "retryable": _story_retryable(story_result.get("classification")),
             "draft_kind": story_result.get("draft_kind"),
             "output_artifact": story_result.get("output_artifact") or {},
-            **_failure_meta(story_result, fallback_summary=story_result.get("error")),
+            **_failure_meta(
+                story_result, fallback_summary=story_result.get("error")
+            ),
         },
     )
 
@@ -2414,7 +2650,9 @@ async def retry_project_story(project_id: int, parent_requirement: str):
     )
 
     created_at = _now_iso()
-    included_feedback_ids = list(request_projection.get("included_feedback_ids") or [])
+    included_feedback_ids = list(
+        request_projection.get("included_feedback_ids") or []
+    )
     attempt_id = f"attempt-{len(runtime.get('attempt_history') or []) + 1}"
     append_attempt(
         runtime,
@@ -2422,16 +2660,23 @@ async def retry_project_story(project_id: int, parent_requirement: str):
             "attempt_id": attempt_id,
             "created_at": created_at,
             "trigger": "retry_same_input",
-            "request_snapshot_id": request_projection.get("request_snapshot_id"),
-            "draft_basis_attempt_id": request_projection.get("draft_basis_attempt_id"),
+            "request_snapshot_id": request_projection.get(
+                "request_snapshot_id"
+            ),
+            "draft_basis_attempt_id": request_projection.get(
+                "draft_basis_attempt_id"
+            ),
             "included_feedback_ids": included_feedback_ids,
-            "input_context": story_result.get("input_context") or request_payload,
+            "input_context": story_result.get("input_context")
+            or request_payload,
             "classification": story_result.get("classification"),
             "is_reusable": bool(story_result.get("is_reusable", False)),
             "retryable": _story_retryable(story_result.get("classification")),
             "draft_kind": story_result.get("draft_kind"),
             "output_artifact": story_result.get("output_artifact") or {},
-            **_failure_meta(story_result, fallback_summary=story_result.get("error")),
+            **_failure_meta(
+                story_result, fallback_summary=story_result.get("error")
+            ),
         },
     )
 
@@ -2504,9 +2749,12 @@ async def save_project_story(project_id: int, parent_requirement: str):
         parent_requirement=parent_requirement,
     )
     assessment = _story_save_payload(runtime)
-    
+
     if not assessment:
-        raise HTTPException(status_code=409, detail=f"No story draft available for '{parent_requirement}'")
+        raise HTTPException(
+            status_code=409,
+            detail=f"No story draft available for '{parent_requirement}'",
+        )
 
     stories = assessment.get("user_stories")
     if not isinstance(stories, list) or len(stories) == 0:
@@ -2519,11 +2767,14 @@ async def save_project_story(project_id: int, parent_requirement: str):
             parent_requirement=parent_requirement,
             stories=stories,
         ),
-        context,
+        _build_tool_context(context),
     )
 
     if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to save stories"))
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to save stories"),
+        )
 
     # Record that this specific requirement was saved successfully
     saved_reqs_dict = context.state.get("story_saved", {})
@@ -2536,7 +2787,7 @@ async def save_project_story(project_id: int, parent_requirement: str):
         parent_requirement=parent_requirement,
         runtime=runtime,
     )
-    
+
     _save_session_state(session_id, context.state)
 
     return {
@@ -2565,10 +2816,10 @@ async def delete_project_story(project_id: int, parent_requirement: str):
         # 1. Get the list of story IDs to delete
         stmt = select(UserStory.story_id).where(
             UserStory.product_id == project_id,
-            UserStory.source_requirement == normalized_requirement
+            UserStory.source_requirement == normalized_requirement,
         )
         story_ids = session.exec(stmt).all()
-        
+
         deleted_count = len(story_ids)
 
         if story_ids:
@@ -2577,30 +2828,46 @@ async def delete_project_story(project_id: int, parent_requirement: str):
             # Chunking the IN clause is a good practice to avoid SQLite limits
             chunk_size = 500
             for i in range(0, len(story_ids), chunk_size):
-                chunk_ids = story_ids[i:i + chunk_size]
-                
+                chunk_ids = story_ids[i : i + chunk_size]
+
                 # Delete sprint mappings
-                session.exec(delete(SprintStory).where(SprintStory.story_id.in_(chunk_ids)))
+                session.exec(
+                    delete(SprintStory).where(
+                        SprintStory.story_id.in_(chunk_ids)
+                    )
+                )
 
                 # Delete completion logs
-                session.exec(delete(StoryCompletionLog).where(StoryCompletionLog.story_id.in_(chunk_ids)))
+                session.exec(
+                    delete(StoryCompletionLog).where(
+                        StoryCompletionLog.story_id.in_(chunk_ids)
+                    )
+                )
 
                 # Delete tasks (and potentially their execution logs if they exist)
                 # First get task IDs to delete any task execution logs
 
-                task_ids_stmt = select(Task.task_id).where(Task.story_id.in_(chunk_ids))
+                task_ids_stmt = select(Task.task_id).where(
+                    Task.story_id.in_(chunk_ids)
+                )
                 task_ids = session.exec(task_ids_stmt).all()
                 if task_ids:
                     for j in range(0, len(task_ids), chunk_size):
-                        task_chunk = task_ids[j:j + chunk_size]
-                        session.exec(delete(TaskExecutionLog).where(TaskExecutionLog.task_id.in_(task_chunk)))
+                        task_chunk = task_ids[j : j + chunk_size]
+                        session.exec(
+                            delete(TaskExecutionLog).where(
+                                TaskExecutionLog.task_id.in_(task_chunk)
+                            )
+                        )
 
                 # Now delete tasks
                 session.exec(delete(Task).where(Task.story_id.in_(chunk_ids)))
 
                 # Delete the stories
-                session.exec(delete(UserStory).where(UserStory.story_id.in_(chunk_ids)))
-                
+                session.exec(
+                    delete(UserStory).where(UserStory.story_id.in_(chunk_ids))
+                )
+
         session.commit()
 
     # Clean up session state
@@ -2632,8 +2899,8 @@ async def delete_project_story(project_id: int, parent_requirement: str):
         "parent_requirement": parent_requirement,
         "data": {
             "deleted_count": deleted_count,
-            "message": "Stories deleted successfully"
-        }
+            "message": "Stories deleted successfully",
+        },
     }
 
 
@@ -2649,16 +2916,16 @@ async def complete_story_phase(project_id: int):
 
     session_id = str(project_id)
     state = await _ensure_session(session_id)
-    
+
     req_names = _get_all_roadmap_requirements(state)
     saved_reqs_dict = state.get("story_saved", {})
-    
+
     saved = [r for r in req_names if saved_reqs_dict.get(r)]
-    
+
     if len(saved) == 0:
         raise HTTPException(
-            status_code=409, 
-            detail="Cannot complete phase. No requirements have saved stories."
+            status_code=409,
+            detail="Cannot complete phase. No requirements have saved stories.",
         )
 
     # All pass, transition into Sprint Setup for explicit planning inputs.
@@ -2674,34 +2941,72 @@ async def complete_story_phase(project_id: int):
         state["fsm_state_entered_at"] = _now_iso()
         state["story_phase_completed_at"] = _now_iso()
         _save_session_state(session_id, state)
-    
-    return {
-        "status": "success",
-        "data": {
-            "fsm_state": state.get("fsm_state")
-        }
-    }
+
+    return {"status": "success", "data": {"fsm_state": state.get("fsm_state")}}
 
 
 # ==============================================================================
 # SPRINT ENDPOINTS
 # ==============================================================================
 
-def _ensure_sprint_attempts(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+
+def _ensure_sprint_attempts(state: dict[str, Any]) -> list[dict[str, Any]]:
     attempts = state.get("sprint_attempts")
     if not isinstance(attempts, list):
         attempts = []
     return attempts
 
 
+def _load_current_planned_sprint_id(project_id: int) -> int | None:
+    with Session(get_engine()) as session:
+        planned_sprint = session.exec(
+            select(Sprint.sprint_id)
+            .where(
+                Sprint.product_id == project_id,
+                Sprint.status == SprintStatus.PLANNED,
+            )
+            .order_by(
+                Sprint.updated_at.desc(),
+                Sprint.created_at.desc(),
+                Sprint.sprint_id.desc(),
+            )
+        ).first()
+    return planned_sprint
+
+
+def _reset_sprint_planner_working_set(state: dict[str, Any]) -> None:
+    state["sprint_attempts"] = []
+    state["sprint_last_input_context"] = None
+    state["sprint_plan_assessment"] = None
+    state["sprint_saved_at"] = None
+    state["sprint_planner_owner_sprint_id"] = None
+
+
+def _reset_stale_saved_sprint_planner_working_set(
+    state: dict[str, Any],
+    *,
+    project_id: int,
+) -> bool:
+    owner_sprint_id = state.get("sprint_planner_owner_sprint_id")
+    if owner_sprint_id is None:
+        return False
+
+    planned_sprint_id = _load_current_planned_sprint_id(project_id)
+    if owner_sprint_id == planned_sprint_id:
+        return False
+
+    _reset_sprint_planner_working_set(state)
+    return True
+
+
 def _record_sprint_attempt(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     *,
     trigger: str,
-    input_context: Dict[str, Any],
-    output_artifact: Dict[str, Any],
+    input_context: dict[str, Any],
+    output_artifact: dict[str, Any],
     is_complete: bool,
-    failure_meta: Optional[Dict[str, Any]] = None,
+    failure_meta: dict[str, Any] | None = None,
 ) -> int:
     attempts = _ensure_sprint_attempts(state)
     normalized_failure = _failure_meta(failure_meta)
@@ -2753,6 +3058,10 @@ async def generate_project_sprint(project_id: int, req: SprintGenerateRequest):
 
     session_id = str(project_id)
     state = await _ensure_session(session_id)
+    _reset_stale_saved_sprint_planner_working_set(
+        state,
+        project_id=project_id,
+    )
 
     # Validate valid FSM state to allow sprint planning
     valid_states = [
@@ -2762,7 +3071,10 @@ async def generate_project_sprint(project_id: int, req: SprintGenerateRequest):
         OrchestratorState.SPRINT_PERSISTENCE.value,
     ]
     if state.get("fsm_state") not in valid_states:
-        raise HTTPException(status_code=409, detail=f"Invalid phase for sprint generation (state: {state.get('fsm_state')})")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Invalid phase for sprint generation (state: {state.get('fsm_state')})",
+        )
 
     attempts = _ensure_sprint_attempts(state)
     has_attempts = len(attempts) > 0
@@ -2807,7 +3119,9 @@ async def generate_project_sprint(project_id: int, req: SprintGenerateRequest):
             "input_context": sprint_result.get("input_context"),
             "output_artifact": sprint_result.get("output_artifact"),
             "attempt_count": attempt_count,
-            **_failure_meta(sprint_result, fallback_summary=sprint_result.get("error")),
+            **_failure_meta(
+                sprint_result, fallback_summary=sprint_result.get("error")
+            ),
             "fsm_state": state.get("fsm_state"),
         },
     }
@@ -2821,6 +3135,11 @@ async def get_project_sprint_history(project_id: int):
 
     session_id = str(project_id)
     state = await _ensure_session(session_id)
+    if _reset_stale_saved_sprint_planner_working_set(
+        state,
+        project_id=project_id,
+    ):
+        _save_session_state(session_id, state)
     attempts = _ensure_sprint_attempts(state)
 
     return {
@@ -2828,6 +3147,33 @@ async def get_project_sprint_history(project_id: int):
         "data": {
             "items": attempts,
             "count": len(attempts),
+        },
+    }
+
+
+@app.post("/api/projects/{project_id}/sprint/planner/reset")
+async def reset_project_sprint_planner(project_id: int):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    planned_sprint_id = _load_current_planned_sprint_id(project_id)
+    if planned_sprint_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="A planned sprint already exists. Modify it instead of creating another.",
+        )
+
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+    _reset_sprint_planner_working_set(state)
+    _save_session_state(session_id, state)
+
+    return {
+        "status": "success",
+        "data": {
+            "items": [],
+            "count": 0,
         },
     }
 
@@ -2915,13 +3261,17 @@ def get_sprint_close(project_id: int, sprint_id: int):
     "/api/projects/{project_id}/sprints/{sprint_id}/close",
     response_model=SprintCloseReadResponse,
 )
-def post_sprint_close(project_id: int, sprint_id: int, req: SprintCloseWriteRequest):
+def post_sprint_close(
+    project_id: int, sprint_id: int, req: SprintCloseWriteRequest
+):
     with Session(get_engine()) as session:
         sprint = _get_saved_sprint(session, project_id, sprint_id)
         if not sprint:
             raise HTTPException(status_code=404, detail="Sprint not found")
         if sprint.status != SprintStatus.ACTIVE:
-            raise HTTPException(status_code=409, detail="Only active sprints can be closed.")
+            raise HTTPException(
+                status_code=409, detail="Only active sprints can be closed."
+            )
 
         readiness = _build_sprint_close_readiness(list(sprint.stories))
         snapshot = {
@@ -2931,11 +3281,13 @@ def post_sprint_close(project_id: int, sprint_id: int, req: SprintCloseWriteRequ
             "completed_story_count": readiness.completed_story_count,
             "open_story_count": readiness.open_story_count,
             "unfinished_story_ids": readiness.unfinished_story_ids,
-            "stories": [story.model_dump(mode="json") for story in readiness.stories],
+            "stories": [
+                story.model_dump(mode="json") for story in readiness.stories
+            ],
         }
 
         sprint.status = SprintStatus.COMPLETED
-        sprint.completed_at = datetime.now(timezone.utc)
+        sprint.completed_at = datetime.now(UTC)
         sprint.close_snapshot_json = json.dumps(snapshot)
         session.add(sprint)
         session.add(
@@ -2962,8 +3314,12 @@ def post_sprint_close(project_id: int, sprint_id: int, req: SprintCloseWriteRequ
         )
 
 
-@app.get("/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet")
-async def get_project_task_packet(project_id: int, sprint_id: int, task_id: int, flavor: Optional[str] = None):
+@app.get(
+    "/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet"
+)
+async def get_project_task_packet(
+    project_id: int, sprint_id: int, task_id: int, flavor: str | None = None
+):
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -2976,11 +3332,14 @@ async def get_project_task_packet(project_id: int, sprint_id: int, task_id: int,
             task_id=task_id,
         )
         if not packet:
-            raise HTTPException(status_code=404, detail="Task packet context not found")
+            raise HTTPException(
+                status_code=404, detail="Task packet context not found"
+            )
 
         payload = dict(packet)
         if flavor:
             from services.packet_renderer import render_packet
+
             payload["render"] = render_packet(packet, flavor)
 
         return {
@@ -2989,12 +3348,14 @@ async def get_project_task_packet(project_id: int, sprint_id: int, task_id: int,
         }
 
 
-@app.get("/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/packet")
+@app.get(
+    "/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/packet"
+)
 async def get_project_story_packet(
     project_id: int,
     sprint_id: int,
     story_id: int,
-    flavor: Optional[str] = None,
+    flavor: str | None = None,
 ):
     product = product_repo.get_by_id(project_id)
     if not product:
@@ -3008,7 +3369,9 @@ async def get_project_story_packet(
             story_id=story_id,
         )
         if not packet:
-            raise HTTPException(status_code=404, detail="Story packet context not found")
+            raise HTTPException(
+                status_code=404, detail="Story packet context not found"
+            )
 
         payload = dict(packet)
         if flavor:
@@ -3022,30 +3385,40 @@ async def get_project_story_packet(
         }
 
 
-@app.get("/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/execution", response_model=TaskExecutionReadResponse)
+@app.get(
+    "/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/execution",
+    response_model=TaskExecutionReadResponse,
+)
 def get_task_execution(project_id: int, sprint_id: int, task_id: int):
     with Session(get_engine()) as session:
         task = session.get(Task, task_id)
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
-        
+
         sprint = session.get(Sprint, sprint_id)
         if not sprint or sprint.product_id != project_id:
-            raise HTTPException(status_code=404, detail="Sprint not found in this project")
-        
-        sprint_story = session.exec(select(SprintStory).where(
-            SprintStory.sprint_id == sprint_id,
-            SprintStory.story_id == task.story_id
-        )).first()
+            raise HTTPException(
+                status_code=404, detail="Sprint not found in this project"
+            )
+
+        sprint_story = session.exec(
+            select(SprintStory).where(
+                SprintStory.sprint_id == sprint_id,
+                SprintStory.story_id == task.story_id,
+            )
+        ).first()
 
         if not sprint_story:
-            raise HTTPException(status_code=404, detail="Task does not belong to the given sprint")
+            raise HTTPException(
+                status_code=404,
+                detail="Task does not belong to the given sprint",
+            )
 
         logs = session.exec(
             select(TaskExecutionLog)
             .where(
                 TaskExecutionLog.task_id == task_id,
-                TaskExecutionLog.sprint_id == sprint_id
+                TaskExecutionLog.sprint_id == sprint_id,
             )
             .order_by(TaskExecutionLog.changed_at.desc())
         ).all()
@@ -3058,19 +3431,21 @@ def get_task_execution(project_id: int, sprint_id: int, task_id: int):
                     artifact_refs = json.loads(log.artifact_refs_json)
                 except Exception:
                     pass
-            history.append(TaskExecutionLogEntry(
-                log_id=log.log_id,
-                task_id=log.task_id,
-                sprint_id=log.sprint_id,
-                old_status=log.old_status,
-                new_status=log.new_status,
-                outcome_summary=log.outcome_summary,
-                artifact_refs=artifact_refs,
-                acceptance_result=log.acceptance_result,
-                notes=log.notes,
-                changed_by=log.changed_by,
-                changed_at=log.changed_at,
-            ))
+            history.append(
+                TaskExecutionLogEntry(
+                    log_id=log.log_id,
+                    task_id=log.task_id,
+                    sprint_id=log.sprint_id,
+                    old_status=log.old_status,
+                    new_status=log.new_status,
+                    outcome_summary=log.outcome_summary,
+                    artifact_refs=artifact_refs,
+                    acceptance_result=log.acceptance_result,
+                    notes=log.notes,
+                    changed_by=log.changed_by,
+                    changed_at=log.changed_at,
+                )
+            )
 
         return TaskExecutionReadResponse(
             success=True,
@@ -3078,12 +3453,20 @@ def get_task_execution(project_id: int, sprint_id: int, task_id: int):
             sprint_id=sprint_id,
             current_status=task.status,
             latest_entry=history[0] if history else None,
-            history=history
+            history=history,
         )
 
 
-@app.post("/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/execution", response_model=TaskExecutionReadResponse)
-def post_task_execution(project_id: int, sprint_id: int, task_id: int, req: TaskExecutionWriteRequest):
+@app.post(
+    "/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/execution",
+    response_model=TaskExecutionReadResponse,
+)
+def post_task_execution(
+    project_id: int,
+    sprint_id: int,
+    task_id: int,
+    req: TaskExecutionWriteRequest,
+):
     with Session(get_engine()) as session:
         task = session.get(Task, task_id)
         if not task:
@@ -3091,15 +3474,22 @@ def post_task_execution(project_id: int, sprint_id: int, task_id: int, req: Task
 
         sprint = session.get(Sprint, sprint_id)
         if not sprint or sprint.product_id != project_id:
-            raise HTTPException(status_code=404, detail="Sprint not found in this project")
+            raise HTTPException(
+                status_code=404, detail="Sprint not found in this project"
+            )
 
-        sprint_story = session.exec(select(SprintStory).where(
-            SprintStory.sprint_id == sprint_id,
-            SprintStory.story_id == task.story_id
-        )).first()
+        sprint_story = session.exec(
+            select(SprintStory).where(
+                SprintStory.sprint_id == sprint_id,
+                SprintStory.story_id == task.story_id,
+            )
+        ).first()
 
         if not sprint_story:
-            raise HTTPException(status_code=404, detail="Task does not belong to the given sprint")
+            raise HTTPException(
+                status_code=404,
+                detail="Task does not belong to the given sprint",
+            )
 
         task_metadata = parse_task_metadata(task.metadata_json)
         if not task_metadata.checklist_items:
@@ -3131,7 +3521,8 @@ def post_task_execution(project_id: int, sprint_id: int, task_id: int, req: Task
             outcome_summary=req.outcome_summary,
             artifact_refs_json=artifact_refs_json,
             notes=req.notes,
-            acceptance_result=req.acceptance_result or TaskAcceptanceResult.NOT_CHECKED,
+            acceptance_result=req.acceptance_result
+            or TaskAcceptanceResult.NOT_CHECKED,
             changed_by=req.changed_by or "manual-ui",
         )
         session.add(log_entry)
@@ -3140,37 +3531,49 @@ def post_task_execution(project_id: int, sprint_id: int, task_id: int, req: Task
     return get_task_execution(project_id, sprint_id, task_id)
 
 
-@app.get("/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/close", response_model=StoryCloseReadResponse)
+@app.get(
+    "/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/close",
+    response_model=StoryCloseReadResponse,
+)
 def get_story_close(project_id: int, sprint_id: int, story_id: int):
     with Session(get_engine()) as session:
         story = session.get(UserStory, story_id)
         if not story:
             raise HTTPException(status_code=404, detail="Story not found")
-        
+
         sprint = session.get(Sprint, sprint_id)
         if not sprint or sprint.product_id != project_id:
-            raise HTTPException(status_code=404, detail="Sprint not found in this project")
+            raise HTTPException(
+                status_code=404, detail="Sprint not found in this project"
+            )
 
-        sprint_story = session.exec(select(SprintStory).where(
-            SprintStory.sprint_id == sprint_id,
-            SprintStory.story_id == story_id
-        )).first()
+        sprint_story = session.exec(
+            select(SprintStory).where(
+                SprintStory.sprint_id == sprint_id,
+                SprintStory.story_id == story_id,
+            )
+        ).first()
 
         if not sprint_story:
-            raise HTTPException(status_code=404, detail="Story does not belong to the given sprint")
+            raise HTTPException(
+                status_code=404,
+                detail="Story does not belong to the given sprint",
+            )
 
-        tasks = session.exec(select(Task).where(Task.story_id == story_id)).all()
-        total_tasks, done_tasks, cancelled_tasks, all_actionable_done = _story_task_progress(
-            tasks
+        tasks = session.exec(
+            select(Task).where(Task.story_id == story_id)
+        ).all()
+        total_tasks, done_tasks, cancelled_tasks, all_actionable_done = (
+            _story_task_progress(tasks)
         )
-        
+
         readiness = StoryTaskProgressSummary(
             total_tasks=total_tasks,
             done_tasks=done_tasks,
             cancelled_tasks=cancelled_tasks,
-            all_actionable_tasks_done=all_actionable_done
+            all_actionable_tasks_done=all_actionable_done,
         )
-        
+
         close_eligible = all_actionable_done
         ineligible_reason = (
             None
@@ -3196,40 +3599,54 @@ def get_story_close(project_id: int, sprint_id: int, story_id: int):
             completed_at=story.completed_at,
             readiness=readiness,
             close_eligible=close_eligible,
-            ineligible_reason=ineligible_reason
+            ineligible_reason=ineligible_reason,
         )
 
 
-@app.post("/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/close", response_model=StoryCloseReadResponse)
-def post_story_close(project_id: int, sprint_id: int, story_id: int, req: StoryCloseWriteRequest):
+@app.post(
+    "/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/close",
+    response_model=StoryCloseReadResponse,
+)
+def post_story_close(
+    project_id: int, sprint_id: int, story_id: int, req: StoryCloseWriteRequest
+):
     with Session(get_engine()) as session:
         story = session.get(UserStory, story_id)
         if not story:
             raise HTTPException(status_code=404, detail="Story not found")
-            
+
         sprint = session.get(Sprint, sprint_id)
         if not sprint or sprint.product_id != project_id:
-            raise HTTPException(status_code=404, detail="Sprint not found in this project")
+            raise HTTPException(
+                status_code=404, detail="Sprint not found in this project"
+            )
 
-        sprint_story = session.exec(select(SprintStory).where(
-            SprintStory.sprint_id == sprint_id,
-            SprintStory.story_id == story_id
-        )).first()
+        sprint_story = session.exec(
+            select(SprintStory).where(
+                SprintStory.sprint_id == sprint_id,
+                SprintStory.story_id == story_id,
+            )
+        ).first()
 
         if not sprint_story:
-            raise HTTPException(status_code=404, detail="Story does not belong to the given sprint")
+            raise HTTPException(
+                status_code=404,
+                detail="Story does not belong to the given sprint",
+            )
 
-        tasks = session.exec(select(Task).where(Task.story_id == story_id)).all()
-        total_tasks, done_tasks, cancelled_tasks, all_actionable_done = _story_task_progress(
-            tasks
+        tasks = session.exec(
+            select(Task).where(Task.story_id == story_id)
+        ).all()
+        total_tasks, done_tasks, cancelled_tasks, all_actionable_done = (
+            _story_task_progress(tasks)
         )
-        
+
         if total_tasks == 0:
             raise HTTPException(
                 status_code=409,
                 detail="Cannot close a story with no executable tasks.",
             )
-            
+
         if not all_actionable_done:
             raise HTTPException(
                 status_code=409,
@@ -3238,7 +3655,10 @@ def post_story_close(project_id: int, sprint_id: int, story_id: int, req: StoryC
 
         old_status = story.status
         if old_status in (StoryStatus.ACCEPTED, StoryStatus.DONE):
-            raise HTTPException(status_code=409, detail=f"Cannot modify an already {old_status.value} story.")
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot modify an already {old_status.value} story.",
+            )
 
         evidence_json = None
         if req.evidence_links:
@@ -3248,7 +3668,7 @@ def post_story_close(project_id: int, sprint_id: int, story_id: int, req: StoryC
         story.resolution = req.resolution
         story.completion_notes = req.completion_notes
         story.evidence_links = evidence_json
-        story.completed_at = datetime.now(timezone.utc)
+        story.completed_at = datetime.now(UTC)
 
         log = StoryCompletionLog(
             story_id=story_id,
@@ -3260,7 +3680,7 @@ def post_story_close(project_id: int, sprint_id: int, story_id: int, req: StoryC
             known_gaps=req.known_gaps,
             follow_ups_created=req.follow_up_notes,
             changed_by=req.changed_by or "manual-ui",
-            changed_at=datetime.now(timezone.utc)
+            changed_at=datetime.now(UTC),
         )
         session.add(log)
         session.commit()
@@ -3276,10 +3696,17 @@ async def save_project_sprint(project_id: int, req: SprintSaveRequest):
 
     session_id = str(project_id)
     state = await _ensure_session(session_id)
+    if _reset_stale_saved_sprint_planner_working_set(
+        state,
+        project_id=project_id,
+    ):
+        _save_session_state(session_id, state)
 
     assessment = state.get("sprint_plan_assessment")
     if not isinstance(assessment, dict):
-        raise HTTPException(status_code=409, detail="No sprint draft available to save")
+        raise HTTPException(
+            status_code=409, detail="No sprint draft available to save"
+        )
 
     if not bool(assessment.get("is_complete", False)):
         raise HTTPException(
@@ -3287,14 +3714,18 @@ async def save_project_sprint(project_id: int, req: SprintSaveRequest):
             detail="Sprint cannot be saved until is_complete is true",
         )
 
-    from orchestrator_agent.agent_tools.sprint_planner_tool.schemes import SprintPlannerOutput
+    from orchestrator_agent.agent_tools.sprint_planner_tool.schemes import (
+        SprintPlannerOutput,
+    )
 
     team_name = req.team_name.strip()
     sprint_start_date = req.sprint_start_date.strip()
     if not team_name:
         raise HTTPException(status_code=422, detail="team_name is required")
     if not sprint_start_date:
-        raise HTTPException(status_code=422, detail="sprint_start_date is required")
+        raise HTTPException(
+            status_code=422, detail="sprint_start_date is required"
+        )
 
     assessment_payload = dict(assessment)
     assessment_payload.pop("is_complete", None)
@@ -3302,7 +3733,9 @@ async def save_project_sprint(project_id: int, req: SprintSaveRequest):
     try:
         sprint_data = SprintPlannerOutput.model_validate(assessment_payload)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Invalid sprint data in session: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Invalid sprint data in session: {e!s}"
+        )
 
     context = await _hydrate_context(session_id, project_id)
     context.state["sprint_plan"] = sprint_data.model_dump(exclude_none=True)
@@ -3314,7 +3747,7 @@ async def save_project_sprint(project_id: int, req: SprintSaveRequest):
             sprint_start_date=sprint_start_date,
             sprint_duration_days=sprint_data.duration_days,
         ),
-        context,
+        _build_tool_context(context),
     )
 
     if not result.get("success"):
@@ -3331,6 +3764,7 @@ async def save_project_sprint(project_id: int, req: SprintSaveRequest):
     state["fsm_state"] = OrchestratorState.SPRINT_PERSISTENCE.value
     state["fsm_state_entered_at"] = _now_iso()
     state["sprint_saved_at"] = _now_iso()
+    state["sprint_planner_owner_sprint_id"] = result.get("sprint_id")
 
     _save_session_state(session_id, state)
 
@@ -3373,7 +3807,10 @@ async def start_project_sprint(project_id: int, sprint_id: int):
                 detail="Completed sprints cannot be restarted.",
             )
 
-        if sprint.status == SprintStatus.ACTIVE and sprint.started_at is not None:
+        if (
+            sprint.status == SprintStatus.ACTIVE
+            and sprint.started_at is not None
+        ):
             all_sprints = session.exec(
                 _saved_sprint_query()
                 .where(Sprint.product_id == project_id)
@@ -3391,7 +3828,7 @@ async def start_project_sprint(project_id: int, sprint_id: int):
             }
 
         if sprint.started_at is None:
-            sprint.started_at = datetime.now(timezone.utc)
+            sprint.started_at = datetime.now(UTC)
             sprint.status = SprintStatus.ACTIVE
             session.add(sprint)
             session.add(
