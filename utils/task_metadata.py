@@ -29,6 +29,12 @@ TaskKind = Literal[
     "other",
 ]
 
+_TASK_KIND_SYNONYMS = {
+    "review": "testing",
+    "qa": "testing",
+    "validation": "testing",
+}
+
 
 def _normalize_string_list(value: Any) -> List[str]:
     if value is None:
@@ -51,6 +57,13 @@ def _normalize_string_list(value: Any) -> List[str]:
     return normalized
 
 
+def _canonicalize_task_kind(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    normalized = value.strip().lower()
+    return _TASK_KIND_SYNONYMS.get(normalized, normalized)
+
+
 class TaskMetadata(BaseModel):
     """Canonical metadata persisted with a task row."""
 
@@ -62,6 +75,11 @@ class TaskMetadata(BaseModel):
     workstream_tags: List[str] = Field(default_factory=list)
     relevant_invariant_ids: List[str] = Field(default_factory=list)
     checklist_items: List[str] = Field(default_factory=list)
+
+    @field_validator("task_kind", mode="before")
+    @classmethod
+    def _validate_task_kind(cls, value: Any) -> Any:
+        return _canonicalize_task_kind(value)
 
     @field_validator(
         "artifact_targets",
@@ -96,6 +114,11 @@ class StructuredTaskSpec(BaseModel):
         if not trimmed:
             raise ValueError("description must not be empty.")
         return trimmed
+
+    @field_validator("task_kind", mode="before")
+    @classmethod
+    def _validate_task_kind(cls, value: Any) -> Any:
+        return _canonicalize_task_kind(value)
 
     @field_validator(
         "artifact_targets",
