@@ -2255,11 +2255,10 @@ def _find_attempt_by_id(
     return None
 
 
-def _story_save_payload(runtime: dict[str, Any]) -> dict[str, Any] | None:
+def _story_current_draft_artifact(
+    runtime: dict[str, Any],
+) -> dict[str, Any] | None:
     draft_projection = runtime.get("draft_projection") or {}
-    if draft_projection.get("kind") != "complete_draft":
-        return None
-
     attempt_id = draft_projection.get("latest_reusable_attempt_id")
     if not isinstance(attempt_id, str) or not attempt_id:
         return None
@@ -2268,8 +2267,6 @@ def _story_save_payload(runtime: dict[str, Any]) -> dict[str, Any] | None:
     artifact = (attempt or {}).get("output_artifact")
     if not isinstance(artifact, dict):
         return None
-    if not artifact.get("is_complete"):
-        return None
 
     stories = artifact.get("user_stories")
     if not isinstance(stories, list) or len(stories) == 0:
@@ -2277,7 +2274,127 @@ def _story_save_payload(runtime: dict[str, Any]) -> dict[str, Any] | None:
     return artifact
 
 
+def _story_merge_recommendation_from_artifact(
+    artifact: dict[str, Any],
+) -> dict[str, Any] | None:
+    stories = artifact.get("user_stories")
+    if not isinstance(stories, list):
+        return None
+
+    for story in stories:
+        if not isinstance(story, dict):
+            continue
+        if story.get("invest_score") != "Low":
+            continue
+
+        warning = story.get("decomposition_warning")
+        if not isinstance(warning, str) or not warning.strip():
+            continue
+
+        normalized_warning = " ".join(warning.lower().split())
+        if not any(
+            signal in normalized_warning
+            for signal in (
+                "recommend consolidating",
+                "merge this",
+                "retire this separate requirement",
+                "retire this requirement",
+                "merge into",
+                "consolidated into",
+                "may be redundant",
+                "requirement may be redundant",
+            )
+        ):
+            continue
+
+        owner_match = re.search(r"owned by '([^']+)'", warning, flags=re.IGNORECASE)
+        if not owner_match:
+            continue
+
+        acceptance_criteria = story.get("acceptance_criteria")
+        if not isinstance(acceptance_criteria, list):
+            acceptance_criteria = []
+
+        return {
+            "action": "merge_into_requirement",
+            "owner_requirement": owner_match.group(1).strip(),
+            "reason": warning.strip(),
+            "acceptance_criteria_to_move": [
+                item
+                for item in acceptance_criteria
+                if isinstance(item, str) and item.strip()
+            ],
+        }
+
+    return None
+
+
+def _story_save_payload(runtime: dict[str, Any]) -> dict[str, Any] | None:
+    draft_projection = runtime.get("draft_projection") or {}
+    if draft_projection.get("kind") != "complete_draft":
+        return None
+
+    artifact = _story_current_draft_artifact(runtime)
+    if not isinstance(artifact, dict):
+        return None
+    if _story_merge_recommendation_from_artifact(artifact):
+        return None
+    if not artifact.get("is_complete"):
+        return None
+    return artifact
+
+
+def _story_current_resolution(
+    runtime: dict[str, Any],
+) -> dict[str, Any] | None:
+    resolution_projection = runtime.get("resolution_projection") or {}
+    if not isinstance(resolution_projection, dict) or not resolution_projection:
+        return None
+    if resolution_projection.get("status") != "merged":
+        return None
+    owner_requirement = resolution_projection.get("owner_requirement")
+    reason = resolution_projection.get("reason")
+    criteria = resolution_projection.get("acceptance_criteria_to_move")
+    if not isinstance(owner_requirement, str) or not owner_requirement.strip():
+        return None
+    if not isinstance(reason, str) or not reason.strip():
+        return None
+    if not isinstance(criteria, list):
+        criteria = []
+    return {
+        "status": "merged",
+        "owner_requirement": owner_requirement,
+        "reason": reason,
+        "acceptance_criteria_to_move": [
+            item for item in criteria if isinstance(item, str) and item.strip()
+        ],
+        "resolved_at": resolution_projection.get("resolved_at"),
+    }
+
+
+def _story_merge_recommendation_payload(
+    runtime: dict[str, Any],
+) -> dict[str, Any] | None:
+    artifact = _story_current_draft_artifact(runtime)
+    if not isinstance(artifact, dict):
+        return None
+    return _story_merge_recommendation_from_artifact(artifact)
+
+
+def _story_resolution_summary(runtime: dict[str, Any]) -> dict[str, Any]:
+    current = _story_current_resolution(runtime)
+    recommendation = None if current else _story_merge_recommendation_payload(runtime)
+    return {
+        "available": bool(recommendation),
+        "current": current,
+        "recommendation": recommendation,
+    }
+
+
 def _story_has_working_state(runtime: dict[str, Any]) -> bool:
+    if _story_current_resolution(runtime):
+        return True
+
     draft_projection = runtime.get("draft_projection") or {}
     if draft_projection:
         return True
@@ -2338,6 +2455,7 @@ def _story_interview_summary(runtime: dict[str, Any]) -> dict[str, Any]:
         "save": {
             "available": bool(_story_save_payload(runtime)),
         },
+        "resolution": _story_resolution_summary(runtime),
     }
 
 
@@ -2453,6 +2571,8 @@ async def get_project_story_pending(project_id: int):
             if saved_reqs_dict.get(req):
                 status = "Saved"
                 saved_count += 1
+            elif _story_current_resolution(runtime):
+                status = "Merged"
             elif _story_has_working_state(runtime):
                 status = "Attempted"
             else:
@@ -2587,6 +2707,7 @@ async def generate_project_story(
     )
 
     if story_result.get("is_reusable"):
+        runtime["resolution_projection"] = {}
         promote_reusable_draft(
             runtime,
             attempt_id=attempt_id,
@@ -2681,6 +2802,7 @@ async def retry_project_story(project_id: int, parent_requirement: str):
     )
 
     if story_result.get("is_reusable"):
+        runtime["resolution_projection"] = {}
         promote_reusable_draft(
             runtime,
             attempt_id=attempt_id,
@@ -2795,6 +2917,51 @@ async def save_project_story(project_id: int, parent_requirement: str):
         "parent_requirement": parent_requirement,
         "data": {
             "save_result": result,
+        },
+    }
+
+
+@app.post("/api/projects/{project_id}/story/merge")
+async def merge_project_story(project_id: int, parent_requirement: str):
+    product = product_repo.get_by_id(project_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    session_id = str(project_id)
+    state = await _ensure_session(session_id)
+    runtime = _ensure_story_runtime(
+        state,
+        parent_requirement=parent_requirement,
+    )
+
+    recommendation = _story_merge_recommendation_payload(runtime)
+    if not recommendation:
+        raise HTTPException(
+            status_code=409,
+            detail="No merge recommendation is available for this requirement.",
+        )
+
+    resolution = {
+        "status": "merged",
+        "owner_requirement": recommendation["owner_requirement"],
+        "reason": recommendation["reason"],
+        "acceptance_criteria_to_move": recommendation["acceptance_criteria_to_move"],
+        "resolved_at": _now_iso(),
+    }
+    runtime["resolution_projection"] = resolution
+
+    _sync_story_legacy_mirrors(
+        state,
+        parent_requirement=parent_requirement,
+        runtime=runtime,
+    )
+    _save_session_state(session_id, state)
+
+    return {
+        "status": "success",
+        "parent_requirement": parent_requirement,
+        "data": {
+            "resolution": _story_resolution_summary(runtime),
         },
     }
 
