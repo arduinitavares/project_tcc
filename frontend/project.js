@@ -3379,6 +3379,33 @@ function renderSprintAttemptPanels(inputContext, outputArtifact) {
     }
 }
 
+function renderSprintValidationErrors(validationErrors) {
+    const items = Array.isArray(validationErrors)
+        ? validationErrors.filter((error) => typeof error === 'string' && error.trim().length > 0)
+        : [];
+
+    if (items.length === 0) return '';
+
+    const escapeValidationText = (value) => String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    return `
+        <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
+            <div class="flex items-center gap-2 text-amber-800 dark:text-amber-300 font-bold mb-2">
+                <span class="material-symbols-outlined text-[18px]">rule</span>
+                What to fix
+            </div>
+            <ul class="space-y-1.5 text-[11px] text-amber-900 dark:text-amber-200 list-disc list-inside">
+                ${items.map((error) => `<li>${escapeValidationText(error.trim())}</li>`).join('')}
+            </ul>
+        </div>
+    `;
+}
+
 function renderSprintArtifactHtml(artifact, inputContext) {
     let html = '';
     const availableStories = Array.isArray(inputContext?.available_stories) ? inputContext.available_stories : [];
@@ -3393,6 +3420,7 @@ function renderSprintArtifactHtml(artifact, inputContext) {
                 </div>
                 <p class="text-[11px] font-mono text-red-600 dark:text-red-300 whitespace-pre-wrap">${artifact.message || 'Unknown error'}</p>
         `;
+        html += renderSprintValidationErrors(artifact.validation_errors);
         if (rawOutput) {
             const safeRaw = rawOutput.replace(/</g, "&lt;").replace(/>/g, "&gt;");
             html += `

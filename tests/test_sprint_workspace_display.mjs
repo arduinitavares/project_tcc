@@ -5,6 +5,8 @@ import test from 'node:test';
 
 const projectJsPath = path.resolve(import.meta.dirname, '../frontend/project.js');
 const projectJsSource = fs.readFileSync(projectJsPath, 'utf8');
+const projectHtmlPath = path.resolve(import.meta.dirname, '../frontend/project.html');
+const projectHtmlSource = fs.readFileSync(projectHtmlPath, 'utf8');
 
 function loadSprintFunction(name, patterns) {
     const source = patterns.map((pattern) => {
@@ -65,4 +67,29 @@ test('chooseLandingSprint prefers active, then planned, then latest completed', 
         { id: 4, status: 'Completed', completed_at: '2026-03-15T12:00:00Z', created_at: '2026-03-11T12:00:00Z' },
     ];
     assert.equal(chooseLandingSprint().id, 4);
+});
+
+test('renderSprintValidationErrors lists actionable retry guidance', () => {
+    const renderSprintValidationErrors = loadSprintFunction(
+        'renderSprintValidationErrors',
+        [/function renderSprintValidationErrors\(validationErrors\) \{[\s\S]*?\n\}/],
+    );
+
+    const html = renderSprintValidationErrors([
+        'Add acceptance criteria for the login task',
+        'Separate the API work from the UI work',
+        '',
+        null,
+    ]);
+
+    assert.match(html, /What to fix/);
+    assert.match(html, /Add acceptance criteria for the login task/);
+    assert.match(html, /Separate the API work from the UI work/);
+    assert.doesNotMatch(html, /<li[^>]*>\s*<\/li>/);
+});
+
+test('sprint planning notes copy mentions retry guidance', () => {
+    assert.match(projectHtmlSource, /Planning or Retry Notes/);
+    assert.match(projectHtmlSource, /retry guidance from the latest failed attempt/);
+    assert.match(projectHtmlSource, /retry instructions/);
 });
