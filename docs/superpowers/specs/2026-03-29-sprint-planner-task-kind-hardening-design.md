@@ -140,6 +140,8 @@ This layer is intentionally not repaired automatically.
 
 [`services/sprint_runtime.py`](../../../services/sprint_runtime.py) should continue to fail sprint generation when validation fails, but it should package clearer structured retry hints.
 
+For failed sprint responses and sprint history, the public wire shape of `validation_errors` should be pinned as `list[str]`. Those strings should be short user-facing retry hints, not raw Pydantic error dictionaries. Full structured validation details should stay in the persisted failure artifact for debugging.
+
 For task-kind validation failures, the returned failure payload should include:
 
 - the invalid emitted value when available from validation details
@@ -152,7 +154,12 @@ For decomposition-quality failures, the top-level error should remain strict, bu
 - duplicate sibling tasks detected
 - artifact target looks like a file path
 
-The failed sprint response and any sprint-history surface derived from it should expose those compact structured `validation_errors`, while the full failure artifact continues to preserve raw exception and validation context for debugging.
+The failed sprint response and any sprint-history surface derived from it should expose those compact `validation_errors: list[str]`, while the full failure artifact continues to preserve raw exception and validation context for debugging.
+
+The sprint setup UI should also make the retry path clearer. The current `Planning Notes` input in [`frontend/project.html`](../../../frontend/project.html) should be renamed or clarified so users understand it is the place to provide either normal planning guidance or retry guidance after a failed sprint run. A recommended contract is:
+
+- label: `Planning or Retry Notes`
+- helper or placeholder text that explicitly invites users to paste or summarize retry guidance from the latest failure
 
 ## Detailed Contract
 
@@ -162,6 +169,7 @@ The failed sprint response and any sprint-history surface derived from it should
 - The planner should emit only `analysis`, `design`, `implementation`, `testing`, `documentation`, or `refactor`.
 - `other` remains part of the schema literal set for compatibility with the shared task model, but it is not valid planner output for sprint task decomposition.
 - Known surface mismatches should normalize before they become hard validation failures.
+- The same canonicalization helper should apply when `TaskMetadata` parses persisted values, so legacy values such as `review` are read back as canonical `testing`.
 - Unknown invalid values must still fail validation.
 
 ### Decomposition Rules
@@ -175,8 +183,10 @@ The failed sprint response and any sprint-history surface derived from it should
 ### Failure Reporting Rules
 
 - Failed sprint responses should continue to return a concise summary message.
-- Structured `validation_errors` should carry short actionable retry hints for the UI.
+- Failed sprint responses and sprint history should expose `validation_errors` as `list[str]` carrying short actionable retry hints for the UI.
+- Raw Pydantic error dictionaries or mixed validation payload shapes should not be exposed on those public surfaces.
 - Full failure artifacts should continue to retain raw exception text, detailed validation context, and raw output previews when available.
+- The sprint setup form should clearly signal that its freeform notes field can be used for retry guidance after a failed attempt.
 
 ## Test Strategy
 
@@ -206,7 +216,14 @@ In [`tests/test_sprint_runtime.py`](../../../tests/test_sprint_runtime.py), add 
 - trivial surface variants with whitespace or casing also succeed
 - unknown invalid values still fail validation
 - decomposition-quality failures still fail
-- failed output artifacts include actionable `validation_errors`
+- failed output artifacts expose actionable `validation_errors` in the public `list[str]` shape
+
+### API and Frontend Contract Tests
+
+Add coverage for the serialization and display path so retry guidance does not regress outside the runtime unit tests:
+
+- in [`tests/test_api_sprint_flow.py`](../../../tests/test_api_sprint_flow.py), add at least one test showing that a failed sprint response and `/sprint/history` both expose `validation_errors` as `list[str]`
+- in [`tests/test_sprint_workspace_display.mjs`](../../../tests/test_sprint_workspace_display.mjs), add at least one rendering test showing that retry guidance from `validation_errors` is visible in the sprint UI and that the retry-notes affordance remains understandable after failure
 
 ### Existing Quality Tests
 
@@ -223,7 +240,8 @@ Existing decomposition-quality checks should remain unchanged in spirit. The cha
 - Known surface mismatches for `task_kind` normalize to canonical allowed values before sprint output validation fails.
 - The planner prompt explicitly tells the model to use only the six normal sprint task kinds and not emit `other`.
 - Structural decomposition problems still fail loudly.
-- Failed sprint responses and sprint history expose compact structured retry guidance in `validation_errors`.
+- Failed sprint responses and sprint history expose compact retry guidance in `validation_errors: list[str]`.
+- The sprint setup UI makes it clear where retry guidance should be entered for the next attempt.
 - Full failure artifacts retain detailed exception and validation context for debugging.
 
 ## Implementation Notes for Planning
