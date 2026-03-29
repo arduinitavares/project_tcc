@@ -30,6 +30,7 @@ def _empty_projection(phase: str, subject_key: str) -> Dict[str, Any]:
         "subject_key": subject_key,
         "attempt_history": [],
         "draft_projection": {},
+        "resolution_projection": {},
         "feedback_projection": {"items": [], "next_feedback_sequence": 0},
         "request_projection": {},
     }
@@ -84,6 +85,9 @@ def ensure_interview_subject(
     draft_projection = projection.get("draft_projection")
     if not isinstance(draft_projection, dict):
         projection["draft_projection"] = {}
+    resolution_projection = projection.get("resolution_projection")
+    if not isinstance(resolution_projection, dict):
+        projection["resolution_projection"] = {}
     request_projection = projection.get("request_projection")
     if not isinstance(request_projection, dict):
         projection["request_projection"] = {}
@@ -201,6 +205,7 @@ def reset_subject_working_set(
     feedback_projection = _normalize_feedback_projection(runtime)
     feedback_projection["items"] = []
     runtime["draft_projection"] = {}
+    runtime["resolution_projection"] = {}
 
     attempts = runtime.setdefault("attempt_history", [])
     if not isinstance(attempts, list):

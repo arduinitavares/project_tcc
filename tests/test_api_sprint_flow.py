@@ -209,6 +209,29 @@ def _seed_saved_sprint(
     return product.product_id, sprint.sprint_id
 
 
+def _seed_completed_sprint(
+    session,
+    repo: DummyProductRepository,
+    *,
+    created_title: str,
+) -> tuple[int, int]:
+    product_id, sprint_id = _seed_saved_sprint(
+        session,
+        repo,
+        started=True,
+        created_title=created_title,
+    )
+
+    sprint = session.get(Sprint, sprint_id)
+    assert sprint is not None
+    sprint.status = SprintStatus.COMPLETED
+    sprint.completed_at = datetime(2026, 3, 15, 18, 0, tzinfo=timezone.utc)
+    session.add(sprint)
+    session.commit()
+
+    return product_id, sprint_id
+
+
 def _seed_task_packet_context(
     session,
     repo: DummyProductRepository,
@@ -698,6 +721,187 @@ def test_sprint_generate_success_moves_to_draft_and_marks_assessment_complete(mo
     assert workflow.states[str(project_id)]["sprint_plan_assessment"]["is_complete"] is True
     assert captured["selected_story_ids"] == [12]
     assert captured["team_velocity_assumption"] == "High"
+
+
+def test_sprint_history_resets_stale_saved_working_set_after_completed_sprint(
+    session,
+    monkeypatch,
+):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id, completed_sprint_id = _seed_completed_sprint(
+        session,
+        repo,
+        created_title="Completed Sprint",
+    )
+    workflow.states[str(project_id)] = {
+        "fsm_state": "SPRINT_PERSISTENCE",
+        "sprint_planner_owner_sprint_id": completed_sprint_id,
+        "sprint_attempts": [
+            {
+                "created_at": "2026-03-20T09:00:00Z",
+                "trigger": "auto_transition",
+                "input_context": {"available_stories": []},
+                "output_artifact": _build_sprint_assessment(is_complete=True),
+                "is_complete": True,
+            }
+        ],
+        "sprint_last_input_context": {"available_stories": []},
+        "sprint_plan_assessment": _build_sprint_assessment(is_complete=True),
+    }
+
+    response = client.get(f"/api/projects/{project_id}/sprint/history")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["count"] == 0
+    assert payload["data"]["items"] == []
+    state = workflow.states[str(project_id)]
+    assert state["sprint_attempts"] == []
+    assert state["sprint_last_input_context"] is None
+    assert state["sprint_plan_assessment"] is None
+    assert state["sprint_planner_owner_sprint_id"] is None
+
+
+def test_sprint_generate_resets_stale_saved_working_set_before_next_cycle(
+    session,
+    monkeypatch,
+):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id, completed_sprint_id = _seed_completed_sprint(
+        session,
+        repo,
+        created_title="Completed Sprint",
+    )
+    workflow.states[str(project_id)] = {
+        "fsm_state": "SPRINT_PERSISTENCE",
+        "sprint_planner_owner_sprint_id": completed_sprint_id,
+        "sprint_attempts": [
+            {
+                "created_at": "2026-03-20T09:00:00Z",
+                "trigger": "auto_transition",
+                "input_context": {"available_stories": []},
+                "output_artifact": _build_sprint_assessment(is_complete=True),
+                "is_complete": True,
+            }
+        ],
+        "sprint_plan_assessment": _build_sprint_assessment(is_complete=True),
+    }
+
+    async def fake_run_sprint_agent_from_state(
+        state,
+        *,
+        project_id,
+        team_velocity_assumption,
+        sprint_duration_days,
+        max_story_points,
+        include_task_decomposition,
+        selected_story_ids,
+        user_input,
+    ):
+        return {
+            "success": True,
+            "input_context": {
+                "available_stories": [],
+                "team_velocity_assumption": team_velocity_assumption,
+                "selected_story_ids": selected_story_ids,
+            },
+            "output_artifact": _build_sprint_assessment(is_complete=True),
+            "is_complete": True,
+            "error": None,
+        }
+
+    monkeypatch.setattr(api_module, "run_sprint_agent_from_state", fake_run_sprint_agent_from_state)
+
+    response = client.post(
+        f"/api/projects/{project_id}/sprint/generate",
+        json={
+            "team_velocity_assumption": "Medium",
+            "sprint_duration_days": 14,
+            "include_task_decomposition": True,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["trigger"] == "auto_transition"
+    attempts = workflow.states[str(project_id)]["sprint_attempts"]
+    assert len(attempts) == 1
+    assert attempts[0]["trigger"] == "auto_transition"
+    assert workflow.states[str(project_id)]["sprint_planner_owner_sprint_id"] is None
+
+
+def test_sprint_history_preserves_matching_planned_sprint_working_set(
+    session,
+    monkeypatch,
+):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id, planned_sprint_id = _seed_saved_sprint(
+        session,
+        repo,
+        started=False,
+        created_title="Planned Sprint",
+    )
+    attempt = {
+        "created_at": "2026-03-20T09:00:00Z",
+        "trigger": "manual_refine",
+        "input_context": {"available_stories": []},
+        "output_artifact": _build_sprint_assessment(is_complete=True),
+        "is_complete": True,
+    }
+    workflow.states[str(project_id)] = {
+        "fsm_state": "SPRINT_PERSISTENCE",
+        "sprint_planner_owner_sprint_id": planned_sprint_id,
+        "sprint_attempts": [attempt],
+        "sprint_plan_assessment": _build_sprint_assessment(is_complete=True),
+    }
+
+    response = client.get(f"/api/projects/{project_id}/sprint/history")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["count"] == 1
+    assert payload["data"]["items"][0]["trigger"] == "manual_refine"
+    state = workflow.states[str(project_id)]
+    assert state["sprint_attempts"] == [attempt]
+    assert state["sprint_planner_owner_sprint_id"] == planned_sprint_id
+
+
+def test_create_next_sprint_reset_clears_legacy_ownerless_working_set(
+    session,
+    monkeypatch,
+):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id, _completed_sprint_id = _seed_completed_sprint(
+        session,
+        repo,
+        created_title="Completed Sprint",
+    )
+    workflow.states[str(project_id)] = {
+        "fsm_state": "SPRINT_PERSISTENCE",
+        "sprint_attempts": [
+            {
+                "created_at": "2026-03-20T09:00:00Z",
+                "trigger": "auto_transition",
+                "input_context": {"available_stories": []},
+                "output_artifact": _build_sprint_assessment(is_complete=True),
+                "is_complete": True,
+            }
+        ],
+        "sprint_last_input_context": {"available_stories": []},
+        "sprint_plan_assessment": _build_sprint_assessment(is_complete=True),
+    }
+
+    response = client.post(f"/api/projects/{project_id}/sprint/planner/reset")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["count"] == 0
+    assert payload["data"]["items"] == []
+    state = workflow.states[str(project_id)]
+    assert state["sprint_attempts"] == []
+    assert state["sprint_last_input_context"] is None
+    assert state["sprint_plan_assessment"] is None
+    assert state["sprint_planner_owner_sprint_id"] is None
 
 
 def test_sprint_save_sanitizes_assessment_and_uses_tool_contract(monkeypatch):

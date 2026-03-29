@@ -69,6 +69,119 @@ test('chooseLandingSprint prefers active, then planned, then latest completed', 
     assert.equal(chooseLandingSprint().id, 4);
 });
 
+<<<<<<< HEAD
+test('openSprintPlanner resets planner working state for create-next mode', async () => {
+    const openSprintPlanner = loadSprintFunction(
+        'openSprintPlanner',
+        [
+            /function resetSprintPlannerWorkingSet\(\) \{[\s\S]*?\n\}/,
+            /async function openSprintPlanner\(\) \{[\s\S]*?\n\}/,
+        ],
+    );
+
+    const calls = {
+        resetClose: 0,
+        resetCycle: 0,
+        renderPhase: 0,
+        nextButton: 0,
+        loadCandidates: 0,
+        loadHistory: 0,
+        historyRender: null,
+        attemptPanels: null,
+        saveButton: 0,
+    };
+
+    globalThis.resetSprintClosePanel = () => { calls.resetClose += 1; };
+    globalThis.resetSprintPlannerStateForCreateNext = async () => { calls.resetCycle += 1; };
+    globalThis.renderPhaseSection = () => { calls.renderPhase += 1; };
+    globalThis.updateNextButton = () => { calls.nextButton += 1; };
+    globalThis.loadSprintCandidates = async () => { calls.loadCandidates += 1; };
+    globalThis.loadSprintHistory = async () => { calls.loadHistory += 1; };
+    globalThis.renderSprintHistory = (items) => { calls.historyRender = items; };
+    globalThis.renderSprintAttemptPanels = (inputContext, outputArtifact) => {
+        calls.attemptPanels = [inputContext, outputArtifact];
+    };
+    globalThis.updateSprintSaveButton = () => { calls.saveButton += 1; };
+
+    globalThis.sprintRuntimeSummary = { can_create_next_sprint: true };
+    globalThis.selectedSprintStoryIds = new Set([12, 18]);
+    globalThis.latestSprintIsComplete = true;
+    globalThis.sprintAttemptCount = 4;
+    globalThis.currentSprintArtifactJSON = { sprint_goal: 'Old sprint' };
+    globalThis.currentSprintInputContextJSON = { available_stories: [{ story_id: 12 }] };
+    globalThis.viewPhaseId = 'overview';
+    globalThis.showSprintPlanner = false;
+
+    await openSprintPlanner();
+
+    assert.deepEqual(Array.from(globalThis.selectedSprintStoryIds), []);
+    assert.equal(globalThis.latestSprintIsComplete, false);
+    assert.equal(globalThis.sprintAttemptCount, 0);
+    assert.equal(globalThis.currentSprintArtifactJSON, null);
+    assert.equal(globalThis.currentSprintInputContextJSON, null);
+    assert.equal(globalThis.viewPhaseId, 'sprint');
+    assert.equal(globalThis.showSprintPlanner, true);
+    assert.deepEqual(calls.historyRender, []);
+    assert.deepEqual(calls.attemptPanels, [null, null]);
+    assert.equal(calls.saveButton, 1);
+    assert.equal(calls.resetClose, 1);
+    assert.equal(calls.resetCycle, 1);
+    assert.equal(calls.renderPhase, 1);
+    assert.equal(calls.nextButton, 1);
+    assert.equal(calls.loadCandidates, 1);
+    assert.equal(calls.loadHistory, 1);
+});
+
+test('openSprintPlanner preserves planner working state for modify-planned mode', async () => {
+    const openSprintPlanner = loadSprintFunction(
+        'openSprintPlanner',
+        [
+            /function resetSprintPlannerWorkingSet\(\) \{[\s\S]*?\n\}/,
+            /async function openSprintPlanner\(\) \{[\s\S]*?\n\}/,
+        ],
+    );
+
+    const calls = {
+        resetCycle: 0,
+        historyRender: null,
+        attemptPanels: null,
+    };
+
+    globalThis.resetSprintClosePanel = () => {};
+    globalThis.resetSprintPlannerStateForCreateNext = async () => { calls.resetCycle += 1; };
+    globalThis.renderPhaseSection = () => {};
+    globalThis.updateNextButton = () => {};
+    globalThis.loadSprintCandidates = async () => {};
+    globalThis.loadSprintHistory = async () => {};
+    globalThis.renderSprintHistory = (items) => { calls.historyRender = items; };
+    globalThis.renderSprintAttemptPanels = (inputContext, outputArtifact) => {
+        calls.attemptPanels = [inputContext, outputArtifact];
+    };
+    globalThis.updateSprintSaveButton = () => {};
+
+    globalThis.sprintRuntimeSummary = { can_create_next_sprint: false };
+    globalThis.selectedSprintStoryIds = new Set([12, 18]);
+    globalThis.latestSprintIsComplete = true;
+    globalThis.sprintAttemptCount = 4;
+    globalThis.currentSprintArtifactJSON = { sprint_goal: 'Existing planned sprint' };
+    globalThis.currentSprintInputContextJSON = { available_stories: [{ story_id: 12 }] };
+    globalThis.viewPhaseId = 'overview';
+    globalThis.showSprintPlanner = false;
+
+    await openSprintPlanner();
+
+    assert.deepEqual(Array.from(globalThis.selectedSprintStoryIds), [12, 18]);
+    assert.equal(globalThis.latestSprintIsComplete, true);
+    assert.equal(globalThis.sprintAttemptCount, 4);
+    assert.deepEqual(globalThis.currentSprintArtifactJSON, { sprint_goal: 'Existing planned sprint' });
+    assert.deepEqual(globalThis.currentSprintInputContextJSON, { available_stories: [{ story_id: 12 }] });
+    assert.equal(globalThis.viewPhaseId, 'sprint');
+    assert.equal(globalThis.showSprintPlanner, true);
+    assert.equal(calls.resetCycle, 0);
+    assert.equal(calls.historyRender, null);
+    assert.equal(calls.attemptPanels, null);
+});
+
 test('renderSprintValidationErrors lists actionable retry guidance', () => {
     const renderSprintValidationErrors = loadSprintFunction(
         'renderSprintValidationErrors',

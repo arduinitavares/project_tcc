@@ -76,6 +76,76 @@ def _story_artifact(parent_requirement: str, title: str, *, is_complete: bool = 
     }
 
 
+def _merge_recommended_artifact(parent_requirement: str) -> Dict[str, Any]:
+    artifact = _story_artifact(
+        parent_requirement,
+        "Validate execution evidence meets submission standards",
+        is_complete=False,
+    )
+    artifact["user_stories"][0]["invest_score"] = "Low"
+    artifact["user_stories"][0]["produced_artifacts"] = [
+        "execution_evidence_validation_report"
+    ]
+    artifact["user_stories"][0]["acceptance_criteria"] = [
+        "Verify that execution evidence exists and is captured as screenshots or a short video as specified in project rubric.",
+        "Ensure that evidence demonstrates at least three core parking workflows: vehicle entry, payment processing, and exit.",
+        "Confirm visual evidence is clear, legible, and demonstrates Python 3 compatibility in the execution environment.",
+        "Validate that evidence shows no errors or crashes during demonstration.",
+    ]
+    artifact["user_stories"][0]["decomposition_warning"] = (
+        "Artifact 'application_execution_evidence' is owned by "
+        "'Updated Source Code Package (refactored prototype for submission)' "
+        "which already has a creation story. This story validates that artifact "
+        "rather than producing it, creating a hard dependency and fragmentation. "
+        "Recommend consolidating: merge this validation into the evidence "
+        "creation story (adding these acceptance criteria there) and retire "
+        "this separate requirement to improve cohesion and eliminate waste."
+    )
+    return artifact
+
+
+def _merge_recommended_complete_artifact(parent_requirement: str) -> Dict[str, Any]:
+    return {
+        "parent_requirement": parent_requirement,
+        "user_stories": [
+            {
+                "story_title": "Validate execution evidence meets submission standards",
+                "statement": (
+                    "As a Student Developer, I want to validate that my application "
+                    "execution evidence meets all project submission requirements, "
+                    "so that I can confirm the grader will have clear proof of "
+                    "behavioral parity and avoid submission rejection."
+                ),
+                "acceptance_criteria": [
+                    "Verify that execution evidence exists in the required format (screenshots or short video) as specified in the submission guidelines",
+                    "Ensure evidence demonstrates at least three core parking workflows: vehicle entry with ticket issuance, payment processing, and vehicle exit with barrier control",
+                    "Confirm visual evidence clearly shows Python 3.x execution environment and command-line or GUI interactions are legible at 1080p resolution",
+                    "Validate that evidence presentation shows zero runtime errors, crashes, or unhandled exceptions during demonstration",
+                    "Document validation results in a checklist format indicating pass/fail status for each submission criterion",
+                ],
+                "invest_score": "Low",
+                "estimated_effort": "S",
+                "produced_artifacts": [
+                    "execution_evidence_validation_checklist",
+                    "execution_evidence_validation_report",
+                ],
+                "decomposition_warning": (
+                    "This story produces validation artifacts for "
+                    "'application_execution_evidence' which is owned by "
+                    "'Updated Source Code Package (refactored prototype for submission)' "
+                    "requirement. This creates cross-requirement dependency and "
+                    "fragmented responsibility. The validation activity should be "
+                    "consolidated into the evidence creation story within the owning "
+                    "requirement to eliminate waste and improve cohesion. This "
+                    "requirement may be redundant."
+                ),
+            }
+        ],
+        "is_complete": True,
+        "clarifying_questions": [],
+    }
+
+
 def _build_client(monkeypatch):
     repo = DummyProductRepository()
     workflow = DummyWorkflowService()
@@ -771,6 +841,166 @@ def test_story_history_returns_projection_attempt_history_and_summary(monkeypatc
         "target_attempt_id": "attempt-2",
     }
     assert payload["save"] == {"available": True}
+
+
+def test_story_history_surfaces_merge_recommendation_for_incomplete_draft(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    product = repo.create("Story Project")
+    merge_artifact = _merge_recommended_artifact("Requirement A")
+    workflow.states[str(product.product_id)] = {
+        "fsm_state": "STORY_INTERVIEW",
+        "interview_runtime": {
+            "story": {
+                "Requirement A": {
+                    "phase": "story",
+                    "subject_key": "Requirement A",
+                    "attempt_history": [
+                        {
+                            "attempt_id": "attempt-1",
+                            "classification": "reusable_content_result",
+                            "is_reusable": True,
+                            "retryable": False,
+                            "draft_kind": "incomplete_draft",
+                            "output_artifact": merge_artifact,
+                        }
+                    ],
+                    "draft_projection": {
+                        "latest_reusable_attempt_id": "attempt-1",
+                        "kind": "incomplete_draft",
+                        "is_complete": False,
+                    },
+                    "feedback_projection": {"items": [], "next_feedback_sequence": 0},
+                    "request_projection": {},
+                }
+            }
+        },
+    }
+
+    response = client.get(
+        f"/api/projects/{product.product_id}/story/history",
+        params={"parent_requirement": "Requirement A"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["save"] == {"available": False}
+    assert payload["resolution"]["available"] is True
+    assert payload["resolution"]["current"] is None
+    assert payload["resolution"]["recommendation"] == {
+        "action": "merge_into_requirement",
+        "owner_requirement": "Updated Source Code Package (refactored prototype for submission)",
+        "reason": merge_artifact["user_stories"][0]["decomposition_warning"],
+        "acceptance_criteria_to_move": merge_artifact["user_stories"][0]["acceptance_criteria"],
+    }
+
+
+def test_story_merge_accepts_recommendation_and_marks_requirement_resolved(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    product = repo.create("Story Project")
+    merge_artifact = _merge_recommended_artifact("Requirement A")
+    workflow.states[str(product.product_id)] = {
+        "fsm_state": "STORY_INTERVIEW",
+        "roadmap_releases": [{"items": ["Requirement A"]}],
+        "interview_runtime": {
+            "story": {
+                "Requirement A": {
+                    "phase": "story",
+                    "subject_key": "Requirement A",
+                    "attempt_history": [
+                        {
+                            "attempt_id": "attempt-1",
+                            "classification": "reusable_content_result",
+                            "is_reusable": True,
+                            "retryable": False,
+                            "draft_kind": "incomplete_draft",
+                            "output_artifact": merge_artifact,
+                        }
+                    ],
+                    "draft_projection": {
+                        "latest_reusable_attempt_id": "attempt-1",
+                        "kind": "incomplete_draft",
+                        "is_complete": False,
+                    },
+                    "feedback_projection": {"items": [], "next_feedback_sequence": 0},
+                    "request_projection": {},
+                }
+            }
+        },
+    }
+
+    response = client.post(
+        f"/api/projects/{product.product_id}/story/merge",
+        params={"parent_requirement": "Requirement A"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["resolution"]["available"] is False
+    assert payload["resolution"]["current"] == {
+        "status": "merged",
+        "owner_requirement": "Updated Source Code Package (refactored prototype for submission)",
+        "reason": merge_artifact["user_stories"][0]["decomposition_warning"],
+        "acceptance_criteria_to_move": merge_artifact["user_stories"][0]["acceptance_criteria"],
+        "resolved_at": payload["resolution"]["current"]["resolved_at"],
+    }
+
+    runtime = workflow.states[str(product.product_id)]["interview_runtime"]["story"]["Requirement A"]
+    assert runtime["resolution_projection"] == payload["resolution"]["current"]
+
+    pending = client.get(f"/api/projects/{product.product_id}/story/pending")
+    assert pending.status_code == 200
+    requirement = pending.json()["data"]["grouped_items"][0]["requirements"][0]
+    assert requirement["status"] == "Merged"
+
+
+def test_story_history_offers_merge_for_complete_low_invest_duplicate(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    product = repo.create("Story Project")
+    merge_artifact = _merge_recommended_complete_artifact("Requirement A")
+    workflow.states[str(product.product_id)] = {
+        "fsm_state": "STORY_INTERVIEW",
+        "interview_runtime": {
+            "story": {
+                "Requirement A": {
+                    "phase": "story",
+                    "subject_key": "Requirement A",
+                    "attempt_history": [
+                        {
+                            "attempt_id": "attempt-1",
+                            "classification": "reusable_content_result",
+                            "is_reusable": True,
+                            "retryable": False,
+                            "draft_kind": "complete_draft",
+                            "output_artifact": merge_artifact,
+                        }
+                    ],
+                    "draft_projection": {
+                        "latest_reusable_attempt_id": "attempt-1",
+                        "kind": "complete_draft",
+                        "is_complete": True,
+                    },
+                    "feedback_projection": {"items": [], "next_feedback_sequence": 0},
+                    "request_projection": {},
+                }
+            }
+        },
+    }
+
+    response = client.get(
+        f"/api/projects/{product.product_id}/story/history",
+        params={"parent_requirement": "Requirement A"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["save"] == {"available": False}
+    assert payload["resolution"]["available"] is True
+    assert payload["resolution"]["recommendation"] == {
+        "action": "merge_into_requirement",
+        "owner_requirement": "Updated Source Code Package (refactored prototype for submission)",
+        "reason": merge_artifact["user_stories"][0]["decomposition_warning"],
+        "acceptance_criteria_to_move": merge_artifact["user_stories"][0]["acceptance_criteria"],
+    }
 
 
 def test_story_generate_allows_fresh_run_after_reset_without_manual_refinement_input(
