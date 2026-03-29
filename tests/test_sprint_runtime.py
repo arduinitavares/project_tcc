@@ -448,7 +448,9 @@ async def test_runtime_exposes_compact_public_task_kind_retry_hints(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_runtime_falls_back_to_validation_msg_for_non_string_task_kind(monkeypatch) -> None:
+async def test_runtime_uses_canonical_public_hint_for_non_string_task_kind(
+    monkeypatch,
+) -> None:
     def fake_fetch_sprint_candidates(*, product_id):
         assert product_id == 7
         return {
@@ -518,8 +520,9 @@ async def test_runtime_falls_back_to_validation_msg_for_non_string_task_kind(mon
     assert result["success"] is False
     assert result["failure_stage"] == "output_validation"
     assert result["output_artifact"]["validation_errors"] == [
-        "Task 'Get approval' has invalid task_kind. Input should be 'analysis', 'design', 'implementation', 'testing', 'documentation', 'refactor' or 'other'"
+        "Task 'Get approval' has invalid task_kind. Use one of: analysis, design, implementation, testing, documentation, refactor."
     ]
+    assert "other" not in result["output_artifact"]["validation_errors"][0]
 
 
 @pytest.mark.asyncio
@@ -629,4 +632,6 @@ async def test_runtime_falls_back_to_public_hint_for_adk_task_kind_errors_withou
 
     assert result["success"] is False
     assert result["failure_stage"] == "invocation_exception"
-    assert result["output_artifact"]["validation_errors"] == ["Field required"]
+    assert result["output_artifact"]["validation_errors"] == [
+        "Task has invalid task_kind. Use one of: analysis, design, implementation, testing, documentation, refactor."
+    ]

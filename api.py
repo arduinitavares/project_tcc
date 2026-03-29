@@ -80,7 +80,7 @@ from services.interview_runtime import (
 )
 from services.roadmap_runtime import run_roadmap_agent_from_state
 from services.sprint_input import load_sprint_candidates
-from services.sprint_runtime import run_sprint_agent_from_state
+from services.sprint_runtime import PUBLIC_TASK_KIND_VALUES, run_sprint_agent_from_state
 from services.story_runtime import (
     run_story_agent_from_state,
     run_story_agent_request,
@@ -298,6 +298,83 @@ def _failure_meta(
         "raw_output_preview": payload.get("raw_output_preview"),
         "has_full_artifact": bool(payload.get("has_full_artifact", False)),
     }
+
+
+def _normalize_sprint_validation_errors(validation_errors: Any) -> list[str]:
+    if not isinstance(validation_errors, list):
+        return []
+
+    hints: list[str] = []
+    allowed_task_kinds = ", ".join(PUBLIC_TASK_KIND_VALUES)
+    for error in validation_errors:
+        hint: str | None = None
+        if isinstance(error, str):
+            trimmed = error.strip()
+            if not trimmed:
+                hint = None
+            else:
+                described_task_kind = re.match(
+                    r"Task '(?P<description>[^']+)' has invalid task_kind\.",
+                    trimmed,
+                )
+                unsupported_task_kind = re.match(
+                    r"Unsupported task_kind '(?P<value>[^']+)'\.",
+                    trimmed,
+                )
+                if described_task_kind and "other" in trimmed:
+                    hint = (
+                        f"Task '{described_task_kind.group('description')}' has "
+                        f"invalid task_kind. Use one of: {allowed_task_kinds}."
+                    )
+                elif unsupported_task_kind:
+                    hint = (
+                        f"Unsupported task_kind "
+                        f"'{unsupported_task_kind.group('value').strip()}'. "
+                        f"Use one of: {allowed_task_kinds}."
+                    )
+                elif "task_kind" in trimmed and "other" in trimmed:
+                    hint = f"Task has invalid task_kind. Use one of: {allowed_task_kinds}."
+                else:
+                    hint = trimmed
+        elif isinstance(error, dict):
+            loc = error.get("loc")
+            if isinstance(loc, (list, tuple)) and loc and loc[-1] == "task_kind":
+                input_value = error.get("input")
+                if isinstance(input_value, str) and input_value.strip():
+                    hint = (
+                        f"Unsupported task_kind '{input_value.strip()}'. "
+                        f"Use one of: {allowed_task_kinds}."
+                    )
+                else:
+                    hint = f"Task has invalid task_kind. Use one of: {allowed_task_kinds}."
+            else:
+                msg = error.get("msg")
+                if isinstance(msg, str):
+                    trimmed = msg.strip()
+                    hint = trimmed or None
+        if hint and hint not in hints:
+            hints.append(hint)
+    return hints
+
+
+def _normalize_sprint_output_artifact(
+    output_artifact: dict[str, Any] | None,
+) -> dict[str, Any]:
+    artifact = dict(output_artifact or {})
+    if "validation_errors" not in artifact and artifact.get("error") != "SPRINT_GENERATION_FAILED":
+        return artifact
+    artifact["validation_errors"] = _normalize_sprint_validation_errors(
+        artifact.get("validation_errors")
+    )
+    return artifact
+
+
+def _normalize_sprint_attempt(attempt: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(attempt)
+    output_artifact = normalized.get("output_artifact")
+    if isinstance(output_artifact, dict):
+        normalized["output_artifact"] = _normalize_sprint_output_artifact(output_artifact)
+    return normalized
 
 
 def _set_setup_failure_meta(
@@ -3010,19 +3087,20 @@ def _record_sprint_attempt(
 ) -> int:
     attempts = _ensure_sprint_attempts(state)
     normalized_failure = _failure_meta(failure_meta)
+    normalized_output_artifact = _normalize_sprint_output_artifact(output_artifact)
     attempts.append(
         {
             "created_at": _now_iso(),
             "trigger": trigger,
             "input_context": input_context,
-            "output_artifact": output_artifact,
+            "output_artifact": normalized_output_artifact,
             "is_complete": is_complete,
             **normalized_failure,
         }
     )
     state["sprint_attempts"] = attempts
     state["sprint_last_input_context"] = input_context
-    state["sprint_plan_assessment"] = output_artifact
+    state["sprint_plan_assessment"] = normalized_output_artifact
     return len(attempts)
 
 
@@ -3089,13 +3167,16 @@ async def generate_project_sprint(project_id: int, req: SprintGenerateRequest):
         selected_story_ids=req.selected_story_ids,
         user_input=req.user_input,
     )
+    normalized_output_artifact = _normalize_sprint_output_artifact(
+        cast(dict[str, Any] | None, sprint_result.get("output_artifact"))
+    )
 
     is_complete = bool(sprint_result.get("is_complete", False))
     attempt_count = _record_sprint_attempt(
         state,
         trigger="manual_refine" if has_attempts else "auto_transition",
         input_context=sprint_result.get("input_context") or {},
-        output_artifact=sprint_result.get("output_artifact") or {},
+        output_artifact=normalized_output_artifact,
         is_complete=is_complete,
         failure_meta=sprint_result,
     )
@@ -3117,7 +3198,7 @@ async def generate_project_sprint(project_id: int, req: SprintGenerateRequest):
             "error": sprint_result.get("error"),
             "trigger": "manual_refine" if has_attempts else "auto_transition",
             "input_context": sprint_result.get("input_context"),
-            "output_artifact": sprint_result.get("output_artifact"),
+            "output_artifact": normalized_output_artifact,
             "attempt_count": attempt_count,
             **_failure_meta(
                 sprint_result, fallback_summary=sprint_result.get("error")
@@ -3141,6 +3222,15 @@ async def get_project_sprint_history(project_id: int):
     ):
         _save_session_state(session_id, state)
     attempts = _ensure_sprint_attempts(state)
+    normalized_attempts = [
+        _normalize_sprint_attempt(attempt)
+        for attempt in attempts
+        if isinstance(attempt, dict)
+    ]
+    if normalized_attempts != attempts:
+        state["sprint_attempts"] = normalized_attempts
+        _save_session_state(session_id, state)
+    attempts = normalized_attempts
 
     return {
         "status": "success",

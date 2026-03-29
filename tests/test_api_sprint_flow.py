@@ -538,6 +538,91 @@ def test_sprint_failure_validation_errors_are_public_strings_in_history(monkeypa
     )
 
 
+def test_sprint_history_normalizes_legacy_structured_validation_errors(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_sprint_setup_project(repo, workflow)
+    workflow.states[str(project_id)]["sprint_attempts"] = [
+        {
+            "created_at": "2026-03-29T12:00:00Z",
+            "trigger": "manual_refine",
+            "input_context": {"available_stories": []},
+            "output_artifact": {
+                "error": "SPRINT_GENERATION_FAILED",
+                "message": "Sprint output validation failed.",
+                "is_complete": False,
+                "validation_errors": [
+                    {
+                        "loc": ["selected_stories", 0, "tasks", 0, "task_kind"],
+                        "msg": "Input should be 'analysis', 'design', 'implementation', 'testing', 'documentation', 'refactor' or 'other'",
+                        "input": "review",
+                    },
+                    {
+                        "loc": [
+                            "selected_stories",
+                            0,
+                            "tasks",
+                            0,
+                            "artifact_targets",
+                            0,
+                        ],
+                        "msg": "Artifact target looks like a file path.",
+                        "input": "api.py",
+                    },
+                ],
+            },
+            "is_complete": False,
+        }
+    ]
+
+    history_response = client.get(f"/api/projects/{project_id}/sprint/history")
+
+    assert history_response.status_code == 200
+    history_payload = history_response.json()
+    assert history_payload["data"]["items"][0]["output_artifact"]["validation_errors"] == [
+        "Unsupported task_kind 'review'. Use one of: analysis, design, implementation, testing, documentation, refactor.",
+        "Artifact target looks like a file path.",
+    ]
+    assert all(
+        isinstance(item, str)
+        for item in history_payload["data"]["items"][0]["output_artifact"]["validation_errors"]
+    )
+
+
+def test_sprint_history_rewrites_legacy_task_kind_string_hints(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_sprint_setup_project(repo, workflow)
+    workflow.states[str(project_id)]["sprint_attempts"] = [
+        {
+            "created_at": "2026-03-29T12:05:00Z",
+            "trigger": "manual_refine",
+            "input_context": {"available_stories": []},
+            "output_artifact": {
+                "error": "SPRINT_GENERATION_FAILED",
+                "message": "Sprint output validation failed.",
+                "is_complete": False,
+                "validation_errors": [
+                    "Task 'Get approval' has invalid task_kind. Input should be 'analysis', 'design', 'implementation', 'testing', 'documentation', 'refactor' or 'other'",
+                    "Unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor, other.",
+                ],
+            },
+            "is_complete": False,
+        }
+    ]
+
+    history_response = client.get(f"/api/projects/{project_id}/sprint/history")
+
+    assert history_response.status_code == 200
+    history_payload = history_response.json()
+    assert history_payload["data"]["items"][0]["output_artifact"]["validation_errors"] == [
+        "Task 'Get approval' has invalid task_kind. Use one of: analysis, design, implementation, testing, documentation, refactor.",
+        "Unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor.",
+    ]
+    assert all(
+        "other" not in item
+        for item in history_payload["data"]["items"][0]["output_artifact"]["validation_errors"]
+    )
+
+
 def test_sprint_generate_success_moves_to_draft_and_marks_assessment_complete(monkeypatch):
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_setup_project(repo, workflow)

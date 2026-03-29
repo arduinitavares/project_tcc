@@ -114,10 +114,6 @@ def _public_hint_from_structured_error(
             return hint
 
         task_description = _task_description_for_loc(parsed_output, loc)
-        if task_description and message_hint:
-            return f"Task '{task_description}' has invalid task_kind. {message_hint}"
-        if message_hint:
-            return message_hint
         if task_description:
             return (
                 f"Task '{task_description}' has invalid task_kind. "
