@@ -69,7 +69,6 @@ test('chooseLandingSprint prefers active, then planned, then latest completed', 
     assert.equal(chooseLandingSprint().id, 4);
 });
 
-<<<<<<< HEAD
 test('openSprintPlanner resets planner working state for create-next mode', async () => {
     const openSprintPlanner = loadSprintFunction(
         'openSprintPlanner',
