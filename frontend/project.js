@@ -82,6 +82,9 @@ let activeStoryRetryTargetAttemptId = null;
 let activeStorySaveAvailable = false;
 let activeStoryDraftKind = null;
 let activeStoryLatestClassification = null;
+let activeStoryResolutionAvailable = false;
+let activeStoryResolutionCurrent = null;
+let activeStoryResolutionRecommendation = null;
 
 // Variables to hold raw JSON data for the copy feature
 let currentVisionArtifactJSON = null;
@@ -192,6 +195,34 @@ function phaseIndex(phaseId) {
 function capitalizePhase(phaseId) {
     if (phaseId === 'story') return 'Stories';
     return phaseId.charAt(0).toUpperCase() + phaseId.slice(1);
+}
+
+function isResolvedStoryStatus(status) {
+    return status === 'Saved' || status === 'Merged';
+}
+
+function deriveStoryProjectionState(payload) {
+    const currentDraft = payload?.current_draft || null;
+    const retry = payload?.retry || {};
+    const save = payload?.save || {};
+    const resolution = payload?.resolution || {};
+
+    return {
+        isComplete: Boolean(currentDraft?.is_complete),
+        retryAvailable: Boolean(retry.available),
+        retryTargetAttemptId: typeof retry.target_attempt_id === 'string'
+            ? retry.target_attempt_id
+            : null,
+        saveAvailable: Boolean(save.available),
+        draftKind: typeof currentDraft?.kind === 'string' ? currentDraft.kind : null,
+        resolutionAvailable: Boolean(resolution.available),
+        resolutionCurrent: resolution.current && typeof resolution.current === 'object'
+            ? resolution.current
+            : null,
+        resolutionRecommendation: resolution.recommendation && typeof resolution.recommendation === 'object'
+            ? resolution.recommendation
+            : null,
+    };
 }
 
 function getSavedSprintById(sprintId) {
@@ -1725,7 +1756,7 @@ async function loadStoryRequirements() {
 
             // Auto-select first if none selected
             if (!activeStoryReq && storyRequirements.length > 0) {
-                const target = storyRequirements.find(r => r.status !== 'Saved') || storyRequirements[0];
+                const target = storyRequirements.find(r => !isResolvedStoryStatus(r.status)) || storyRequirements[0];
                 selectStoryRequirement(target.requirement);
             }
         }
@@ -1768,6 +1799,9 @@ function renderStoryRequirementsList() {
             if (req.status === 'Saved') {
                 statusColor = 'bg-emerald-500';
                 statusIcon = 'check_circle';
+            } else if (req.status === 'Merged') {
+                statusColor = 'bg-sky-500';
+                statusIcon = 'merge';
             } else if (req.status === 'Attempted') {
                 statusColor = 'bg-amber-500';
                 statusIcon = 'hourglass_bottom';
@@ -1831,17 +1865,16 @@ async function selectStoryRequirement(reqName) {
 }
 
 function applyStoryProjectionState(payload) {
-    const currentDraft = payload?.current_draft || null;
-    const retry = payload?.retry || {};
-    const save = payload?.save || {};
+    const projection = deriveStoryProjectionState(payload);
 
-    activeStoryIsComplete = Boolean(currentDraft?.is_complete);
-    activeStoryRetryAvailable = Boolean(retry.available);
-    activeStoryRetryTargetAttemptId = typeof retry.target_attempt_id === 'string'
-        ? retry.target_attempt_id
-        : null;
-    activeStorySaveAvailable = Boolean(save.available);
-    activeStoryDraftKind = typeof currentDraft?.kind === 'string' ? currentDraft.kind : null;
+    activeStoryIsComplete = projection.isComplete;
+    activeStoryRetryAvailable = projection.retryAvailable;
+    activeStoryRetryTargetAttemptId = projection.retryTargetAttemptId;
+    activeStorySaveAvailable = projection.saveAvailable;
+    activeStoryDraftKind = projection.draftKind;
+    activeStoryResolutionAvailable = projection.resolutionAvailable;
+    activeStoryResolutionCurrent = projection.resolutionCurrent;
+    activeStoryResolutionRecommendation = projection.resolutionRecommendation;
 }
 
 function resolveStoryDisplayAttempt(items, payload) {
@@ -1974,6 +2007,8 @@ function renderStoryAttemptPanels(inputContext, outputArtifact) {
 
 function renderStoryArtifactHtml(artifact) {
     let html = '';
+    const resolutionDetails = activeStoryResolutionCurrent || activeStoryResolutionRecommendation;
+    const resolutionAccepted = Boolean(activeStoryResolutionCurrent);
 
     if (artifact.error) {
         html += `
@@ -2004,6 +2039,35 @@ function renderStoryArtifactHtml(artifact) {
                 <ul class="text-[11px] text-amber-800 dark:text-amber-300 list-disc list-inside space-y-1">
                     ${artifact.clarifying_questions.map(q => `<li>${q}</li>`).join('')}
                 </ul>
+            </div>
+        `;
+    }
+
+    if (resolutionDetails) {
+        const ownerRequirement = resolutionDetails.owner_requirement || 'the owner requirement';
+        const criteria = Array.isArray(resolutionDetails.acceptance_criteria_to_move)
+            ? resolutionDetails.acceptance_criteria_to_move
+            : [];
+
+        html += `
+            <div class="${resolutionAccepted ? 'bg-sky-50 dark:bg-sky-900/30 border-sky-200 dark:border-sky-800/60' : 'bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700'} border p-4 rounded-lg mb-4">
+                <div class="flex items-center gap-2 ${resolutionAccepted ? 'text-sky-700 dark:text-sky-300' : 'text-slate-700 dark:text-slate-200'} font-bold mb-2">
+                    <span class="material-symbols-outlined">${resolutionAccepted ? 'check_circle' : 'merge'}</span>
+                    ${resolutionAccepted ? 'Requirement marked as merged' : 'Merge recommended'}
+                </div>
+                <p class="text-[11px] ${resolutionAccepted ? 'text-sky-800 dark:text-sky-200' : 'text-slate-600 dark:text-slate-300'}">
+                    ${resolutionAccepted ? 'This requirement has been resolved as a merged duplicate.' : 'This draft should not be saved as a standalone story.'}
+                    Move the acceptance criteria into <strong>${ownerRequirement}</strong>.
+                </p>
+                ${resolutionDetails.reason ? `<p class="mt-2 text-[10px] text-slate-500 dark:text-slate-400">${resolutionDetails.reason}</p>` : ''}
+                ${criteria.length > 0 ? `
+                    <div class="mt-3">
+                        <h5 class="text-[10px] uppercase font-bold text-slate-500 mb-2">Acceptance Criteria To Move</h5>
+                        <ul class="text-[11px] text-slate-700 dark:text-slate-300 space-y-1.5 list-disc pl-4">
+                            ${criteria.map(item => `<li>${item}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
             </div>
         `;
     }
@@ -2090,6 +2154,7 @@ function renderStoryArtifactHtml(artifact) {
 
 function updateStorySaveButton() {
     const button = document.getElementById('btn-save-story');
+    const mergeButton = document.getElementById('btn-merge-story');
     const retryButton = document.getElementById('btn-retry-story');
     const deleteBtn = document.getElementById('btn-delete-story');
     const hint = document.getElementById('story-save-hint');
@@ -2097,6 +2162,7 @@ function updateStorySaveButton() {
 
     const canSave = Boolean(selectedProjectId) && activeStoryReq && activeStorySaveAvailable;
     const canRetry = Boolean(selectedProjectId) && activeStoryReq && activeStoryRetryAvailable;
+    const canMerge = Boolean(selectedProjectId) && activeStoryReq && activeStoryResolutionAvailable && !activeStoryResolutionCurrent;
     button.disabled = !canSave;
     retryButton.disabled = !canRetry;
     retryButton.classList.toggle('hidden', !activeStoryRetryAvailable);
@@ -2104,19 +2170,33 @@ function updateStorySaveButton() {
     // Check if it's already saved to change text
     const reqObj = storyRequirements.find(r => r.requirement === activeStoryReq);
     const isSaved = reqObj?.status === 'Saved';
+    const isMerged = reqObj?.status === 'Merged' || Boolean(activeStoryResolutionCurrent);
     const resetOnlyState = activeStoryAttemptCount > 0
         && activeStoryLatestClassification === 'reset_marker'
         && !activeStoryRetryAvailable
         && !activeStorySaveAvailable
-        && !activeStoryDraftKind;
+        && !activeStoryDraftKind
+        && !activeStoryResolutionCurrent;
 
     // Toggle delete button
     if (deleteBtn) {
-        if ((activeStoryAttemptCount > 0 && !resetOnlyState) || isSaved) {
+        if ((activeStoryAttemptCount > 0 && !resetOnlyState) || isSaved || isMerged) {
             deleteBtn.classList.remove('hidden');
         } else {
             deleteBtn.classList.add('hidden');
         }
+    }
+
+    if (mergeButton) {
+        const showMerge = Boolean(activeStoryResolutionAvailable || activeStoryResolutionCurrent);
+        mergeButton.classList.toggle('hidden', !showMerge);
+        mergeButton.disabled = !canMerge;
+        mergeButton.className = canMerge
+            ? 'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold transition-all shadow-sm'
+            : 'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-sky-200 text-sky-600 dark:bg-sky-900/30 dark:text-sky-300 font-bold cursor-not-allowed transition-all';
+        mergeButton.innerHTML = activeStoryResolutionCurrent
+            ? '<span class="material-symbols-outlined text-sm">merge</span> Marked as Merged'
+            : '<span class="material-symbols-outlined text-sm">merge</span> Mark as Merged';
     }
 
     button.className = canSave
@@ -2128,12 +2208,19 @@ function updateStorySaveButton() {
         hint.innerText = activeStoryRetryAvailable
             ? 'Reusable complete draft is already saved. You can retry the latest failed input or save again to overwrite.'
             : 'Reusable complete draft is already saved. Save again to overwrite if needed.';
+    } else if (isMerged) {
+        const ownerRequirement = activeStoryResolutionCurrent?.owner_requirement || activeStoryResolutionRecommendation?.owner_requirement;
+        hint.innerText = ownerRequirement
+            ? `This requirement is resolved by merging it into "${ownerRequirement}". Use Reset Draft if you want to reconsider.`
+            : 'This requirement is resolved as a merged duplicate. Use Reset Draft if you want to reconsider.';
     } else {
         button.innerHTML = '<span class="material-symbols-outlined text-sm">save</span> Save Stories';
         if (activeStorySaveAvailable && activeStoryRetryAvailable) {
             hint.innerText = 'Reusable complete draft is ready to save. You can also retry the latest failed input.';
         } else if (activeStorySaveAvailable) {
             hint.innerText = 'Reusable complete draft is ready to save.';
+        } else if (canMerge && activeStoryResolutionRecommendation?.owner_requirement) {
+            hint.innerText = `This draft recommends merging the requirement into "${activeStoryResolutionRecommendation.owner_requirement}" instead of saving duplicate stories.`;
         } else if (activeStoryRetryAvailable) {
             hint.innerText = 'Latest attempt failed without a reusable complete draft. Retry the same input or keep refining.';
         } else {
@@ -2276,6 +2363,41 @@ async function saveStoryDraft() {
     } catch (error) {
         console.error(error);
         alert(error.message || 'Failed to save stories.');
+        if (button) {
+            button.innerHTML = original;
+            button.disabled = false;
+        }
+    }
+}
+
+async function markStoryAsMerged() {
+    if (!selectedProjectId || !activeStoryReq || !activeStoryResolutionAvailable) return;
+
+    const button = document.getElementById('btn-merge-story');
+    const original = button?.innerHTML;
+    if (button) {
+        button.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">merge</span> Marking...';
+        button.disabled = true;
+    }
+
+    try {
+        const response = await fetch(`/api/projects/${selectedProjectId}/story/merge?parent_requirement=${encodeURIComponent(activeStoryReq)}`, {
+            method: 'POST',
+        });
+
+        if (response.status >= 400) {
+            const body = await response.json();
+            throw new Error(body.detail || 'Failed to mark requirement as merged.');
+        }
+
+        const data = await response.json();
+        if (data.status !== 'success') throw new Error('Failed to mark requirement as merged.');
+
+        await loadStoryRequirements();
+        await loadStoryHistory(activeStoryReq);
+    } catch (error) {
+        console.error(error);
+        alert(error.message || 'Failed to mark requirement as merged.');
         if (button) {
             button.innerHTML = original;
             button.disabled = false;
@@ -2851,13 +2973,53 @@ async function selectSavedSprintById(sprintId) {
     updateNextButton();
 }
 
-function openSprintPlanner() {
+function resetSprintPlannerWorkingSet() {
+    selectedSprintStoryIds = new Set();
+    latestSprintIsComplete = false;
+    sprintAttemptCount = 0;
+    currentSprintArtifactJSON = null;
+    currentSprintInputContextJSON = null;
+    renderSprintHistory([]);
+    renderSprintAttemptPanels(null, null);
+    updateSprintSaveButton();
+}
+
+async function resetSprintPlannerStateForCreateNext() {
+    if (!selectedProjectId) return;
+
+    const response = await fetch(`/api/projects/${selectedProjectId}/sprint/planner/reset`, {
+        method: 'POST',
+    });
+    const data = await response.json().catch(() => null);
+
+    if (response.status >= 400 || data?.status !== 'success') {
+        throw new Error(data?.detail || 'Failed to reset sprint planner state.');
+    }
+}
+
+async function openSprintPlanner() {
     resetSprintClosePanel();
     viewPhaseId = 'sprint';
     showSprintPlanner = true;
+    const shouldStartFreshCycle = Boolean(sprintRuntimeSummary?.can_create_next_sprint);
+    if (shouldStartFreshCycle) {
+        resetSprintPlannerWorkingSet();
+    }
     renderPhaseSection();
     updateNextButton();
-    loadSprintCandidates();
+
+    try {
+        if (shouldStartFreshCycle) {
+            await resetSprintPlannerStateForCreateNext();
+        }
+        await Promise.all([
+            loadSprintCandidates(),
+            loadSprintHistory(),
+        ]);
+    } catch (error) {
+        console.error('Failed to open sprint planner:', error);
+        alert(error.message || 'Failed to open sprint planner.');
+    }
 }
 
 async function startCurrentSprint() {
