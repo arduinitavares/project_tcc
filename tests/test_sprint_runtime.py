@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
 from orchestrator_agent.fsm import deterministic_tool_adapters as adapters
 from services import sprint_input, sprint_runtime
+from utils import adk_runner
 
 
 class MockToolContext:
@@ -368,3 +370,263 @@ async def test_runtime_rejects_poor_task_decomposition_quality(monkeypatch) -> N
 
     assert result["success"] is False
     assert result["error"] == "Sprint output validation failed: poor task decomposition quality"
+
+
+@pytest.mark.asyncio
+async def test_runtime_exposes_compact_public_task_kind_retry_hints(monkeypatch) -> None:
+    def fake_fetch_sprint_candidates(*, product_id):
+        assert product_id == 7
+        return {
+            "success": True,
+            "count": 1,
+            "stories": [
+                {
+                    "story_id": 12,
+                    "story_title": "Event Delta Persistence",
+                    "priority": 2,
+                    "story_points": 3,
+                    "evaluated_invariant_ids": [],
+                }
+            ],
+        }
+
+    async def fake_invoke(_payload):
+        return json.dumps(
+            {
+                "sprint_goal": "goal",
+                "sprint_number": 1,
+                "duration_days": 14,
+                "selected_stories": [
+                    {
+                        "story_id": 12,
+                        "story_title": "Event Delta Persistence",
+                        "tasks": [
+                            {
+                                "description": "Get approval",
+                                "task_kind": "approval",
+                                "checklist_items": ["Confirm the change can proceed"],
+                                "artifact_targets": ["approval decision"],
+                                "workstream_tags": ["governance"],
+                                "relevant_invariant_ids": [],
+                            }
+                        ],
+                        "reason_for_selection": "reason",
+                    }
+                ],
+                "deselected_stories": [],
+                "capacity_analysis": {
+                    "velocity_assumption": "Medium",
+                    "capacity_band": "4-5 stories",
+                    "selected_count": 1,
+                    "story_points_used": 3,
+                    "max_story_points": 13,
+                    "commitment_note": "Does this scope feel achievable in 2 weeks?",
+                    "reasoning": "Fits the chosen capacity.",
+                },
+            }
+        )
+
+    monkeypatch.setattr(sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(sprint_runtime, "_invoke_sprint_agent", fake_invoke)
+
+    result = await sprint_runtime.run_sprint_agent_from_state(
+        {},
+        project_id=7,
+        team_velocity_assumption="medium",
+        sprint_duration_days=14,
+        max_story_points=13,
+        include_task_decomposition=True,
+        selected_story_ids=[12],
+        user_input=None,
+    )
+
+    assert result["success"] is False
+    assert result["failure_stage"] == "output_validation"
+    assert result["output_artifact"]["validation_errors"] == [
+        "Task 'Get approval' uses unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor."
+    ]
+
+
+@pytest.mark.asyncio
+async def test_runtime_falls_back_to_validation_msg_for_non_string_task_kind(monkeypatch) -> None:
+    def fake_fetch_sprint_candidates(*, product_id):
+        assert product_id == 7
+        return {
+            "success": True,
+            "count": 1,
+            "stories": [
+                {
+                    "story_id": 12,
+                    "story_title": "Event Delta Persistence",
+                    "priority": 2,
+                    "story_points": 3,
+                    "evaluated_invariant_ids": [],
+                }
+            ],
+        }
+
+    async def fake_invoke(_payload):
+        return json.dumps(
+            {
+                "sprint_goal": "goal",
+                "sprint_number": 1,
+                "duration_days": 14,
+                "selected_stories": [
+                    {
+                        "story_id": 12,
+                        "story_title": "Event Delta Persistence",
+                        "tasks": [
+                            {
+                                "description": "Get approval",
+                                "task_kind": None,
+                                "checklist_items": ["Confirm the change can proceed"],
+                                "artifact_targets": ["approval decision"],
+                                "workstream_tags": ["governance"],
+                                "relevant_invariant_ids": [],
+                            }
+                        ],
+                        "reason_for_selection": "reason",
+                    }
+                ],
+                "deselected_stories": [],
+                "capacity_analysis": {
+                    "velocity_assumption": "Medium",
+                    "capacity_band": "4-5 stories",
+                    "selected_count": 1,
+                    "story_points_used": 3,
+                    "max_story_points": 13,
+                    "commitment_note": "Does this scope feel achievable in 2 weeks?",
+                    "reasoning": "Fits the chosen capacity.",
+                },
+            }
+        )
+
+    monkeypatch.setattr(sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(sprint_runtime, "_invoke_sprint_agent", fake_invoke)
+
+    result = await sprint_runtime.run_sprint_agent_from_state(
+        {},
+        project_id=7,
+        team_velocity_assumption="medium",
+        sprint_duration_days=14,
+        max_story_points=13,
+        include_task_decomposition=True,
+        selected_story_ids=[12],
+        user_input=None,
+    )
+
+    assert result["success"] is False
+    assert result["failure_stage"] == "output_validation"
+    assert result["output_artifact"]["validation_errors"] == [
+        "Task 'Get approval' has invalid task_kind. Input should be 'analysis', 'design', 'implementation', 'testing', 'documentation', 'refactor' or 'other'"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_adk_runner_preserves_structured_validation_details(monkeypatch) -> None:
+    structured_errors = [
+        {
+            "type": "literal_error",
+            "loc": ("selected_stories", 0, "tasks", 0, "task_kind"),
+            "msg": "Input should be 'analysis' or 'design'",
+            "input": "approval",
+        }
+    ]
+
+    class FakeSessionService:
+        async def create_session(self, *, app_name, user_id):
+            return SimpleNamespace(id="session-1")
+
+    class FakeRunner:
+        def __init__(self, *, agent, app_name, session_service):
+            self.agent = agent
+            self.app_name = app_name
+            self.session_service = session_service
+
+        async def run_async(self, *, user_id, session_id, new_message):
+            _ = (user_id, session_id, new_message)
+            class FakeStructuredValidationError(Exception):
+                def errors(self):
+                    return structured_errors
+
+            raise RuntimeError("ADK validation failed") from FakeStructuredValidationError()
+            yield None
+
+    class FakePart:
+        @staticmethod
+        def from_text(*, text):
+            return SimpleNamespace(text=text)
+
+    class FakeContent:
+        def __init__(self, *, role, parts):
+            self.role = role
+            self.parts = parts
+
+    monkeypatch.setattr(adk_runner, "InMemorySessionService", FakeSessionService)
+    monkeypatch.setattr(adk_runner, "Runner", FakeRunner)
+    monkeypatch.setattr(
+        adk_runner,
+        "types",
+        SimpleNamespace(Content=FakeContent, Part=FakePart),
+    )
+
+    with pytest.raises(adk_runner.AgentInvocationError) as exc_info:
+        await adk_runner.invoke_agent_to_text(
+            agent=SimpleNamespace(name="sprint"),
+            runner_identity=SimpleNamespace(app_name="app", user_id="user"),
+            payload_json="{}",
+            no_text_error="missing",
+        )
+
+    assert exc_info.value.validation_errors == structured_errors
+
+
+@pytest.mark.asyncio
+async def test_runtime_falls_back_to_public_hint_for_adk_task_kind_errors_without_input(
+    monkeypatch,
+) -> None:
+    def fake_fetch_sprint_candidates(*, product_id):
+        assert product_id == 7
+        return {
+            "success": True,
+            "count": 1,
+            "stories": [
+                {
+                    "story_id": 12,
+                    "story_title": "Event Delta Persistence",
+                    "priority": 2,
+                    "story_points": 3,
+                    "evaluated_invariant_ids": [],
+                }
+            ],
+        }
+
+    async def fake_invoke(_payload):
+        raise adk_runner.AgentInvocationError(
+            "ADK validation failed",
+            validation_errors=[
+                {
+                    "type": "missing",
+                    "loc": ("selected_stories", 0, "tasks", 0, "task_kind"),
+                    "msg": "Field required",
+                }
+            ],
+        )
+
+    monkeypatch.setattr(sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(sprint_runtime, "_invoke_sprint_agent", fake_invoke)
+
+    result = await sprint_runtime.run_sprint_agent_from_state(
+        {},
+        project_id=7,
+        team_velocity_assumption="medium",
+        sprint_duration_days=14,
+        max_story_points=13,
+        include_task_decomposition=True,
+        selected_story_ids=[12],
+        user_input=None,
+    )
+
+    assert result["success"] is False
+    assert result["failure_stage"] == "invocation_exception"
+    assert result["output_artifact"]["validation_errors"] == ["Field required"]

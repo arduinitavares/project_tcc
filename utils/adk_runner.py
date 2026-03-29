@@ -2,13 +2,36 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from utils.failure_artifacts import AgentInvocationError
+
+
+def _iter_exception_chain(exc: BaseException) -> Iterable[BaseException]:
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def _extract_validation_errors(exc: BaseException) -> Optional[List[Dict[str, Any]]]:
+    for candidate in _iter_exception_chain(exc):
+        errors = getattr(candidate, "errors", None)
+        if not callable(errors):
+            continue
+        try:
+            raw_errors = errors()
+        except TypeError:
+            continue
+        if isinstance(raw_errors, list):
+            return raw_errors
+    return None
 
 
 def extract_final_response_text(events: List[Any]) -> str:
@@ -117,6 +140,7 @@ async def invoke_agent_to_text(
             str(exc),
             partial_output=partial_output,
             event_count=len(events),
+            validation_errors=_extract_validation_errors(exc),
         ) from exc
 
     response_text = extract_final_response_text(events)

@@ -460,6 +460,84 @@ def test_sprint_generate_failure_stays_in_setup_and_records_attempt(monkeypatch)
     assert attempts[0]["output_artifact"]["error"] == "SPRINT_GENERATION_FAILED"
 
 
+def test_sprint_failure_validation_errors_are_public_strings_in_history(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_sprint_setup_project(repo, workflow)
+
+    async def fake_run_sprint_agent_from_state(
+        state,
+        *,
+        project_id,
+        team_velocity_assumption,
+        sprint_duration_days,
+        max_story_points,
+        include_task_decomposition,
+        selected_story_ids,
+        user_input,
+    ):
+        _ = (
+            state,
+            project_id,
+            team_velocity_assumption,
+            sprint_duration_days,
+            max_story_points,
+            include_task_decomposition,
+            selected_story_ids,
+            user_input,
+        )
+        return {
+            "success": False,
+            "input_context": {
+                "available_stories": [],
+                "team_velocity_assumption": "Medium",
+            },
+            "output_artifact": {
+                "error": "SPRINT_GENERATION_FAILED",
+                "message": "Sprint output validation failed.",
+                "is_complete": False,
+                "validation_errors": [
+                    "Unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor."
+                ],
+            },
+            "is_complete": None,
+            "error": "Sprint output validation failed.",
+            "failure_stage": "output_validation",
+            "failure_summary": "Sprint output validation failed.",
+            "failure_artifact_id": "artifact-123",
+            "raw_output_preview": None,
+            "has_full_artifact": True,
+        }
+
+    monkeypatch.setattr(api_module, "run_sprint_agent_from_state", fake_run_sprint_agent_from_state)
+
+    generate_response = client.post(
+        f"/api/projects/{project_id}/sprint/generate",
+        json={
+            "team_velocity_assumption": "Medium",
+            "sprint_duration_days": 14,
+            "include_task_decomposition": True,
+        },
+    )
+
+    assert generate_response.status_code == 200
+    generate_payload = generate_response.json()
+    assert generate_payload["data"]["output_artifact"]["validation_errors"] == [
+        "Unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor."
+    ]
+
+    history_response = client.get(f"/api/projects/{project_id}/sprint/history")
+
+    assert history_response.status_code == 200
+    history_payload = history_response.json()
+    assert history_payload["data"]["items"][0]["output_artifact"]["validation_errors"] == [
+        "Unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor."
+    ]
+    assert all(
+        isinstance(item, str)
+        for item in history_payload["data"]["items"][0]["output_artifact"]["validation_errors"]
+    )
+
+
 def test_sprint_generate_success_moves_to_draft_and_marks_assessment_complete(monkeypatch):
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_setup_project(repo, workflow)

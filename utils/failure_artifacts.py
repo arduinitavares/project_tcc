@@ -6,7 +6,7 @@ import traceback
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -36,10 +36,12 @@ class AgentInvocationError(RuntimeError):
         *,
         partial_output: Optional[str] = None,
         event_count: int = 0,
+        validation_errors: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         super().__init__(message)
         self.partial_output = partial_output
         self.event_count = event_count
+        self.validation_errors = validation_errors
 
 
 def _now_iso() -> str:

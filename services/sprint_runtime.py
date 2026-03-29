@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Optional, cast
 
 from pydantic import ValidationError
@@ -21,6 +23,17 @@ from utils.failure_artifacts import AgentInvocationError, write_failure_artifact
 from utils.runtime_config import SPRINT_RUNNER_IDENTITY
 
 logger = logging.getLogger(__name__)
+PUBLIC_TASK_KIND_VALUES = (
+    "analysis",
+    "design",
+    "implementation",
+    "testing",
+    "documentation",
+    "refactor",
+)
+_DECOMP_OTHER_TASK_KIND_PATTERN = re.compile(
+    r"task '(?P<description>[^']+)': 'task_kind' cannot be 'other'",
+)
 
 
 async def _invoke_sprint_agent(payload: SprintPlannerInput) -> str:
@@ -32,6 +45,119 @@ async def _invoke_sprint_agent(payload: SprintPlannerInput) -> str:
     )
 
 
+def _allowed_task_kind_hint() -> str:
+    return ", ".join(PUBLIC_TASK_KIND_VALUES)
+
+
+def _lookup_path(payload: Any, path: Sequence[Any]) -> Any:
+    current = payload
+    for segment in path:
+        if isinstance(segment, int):
+            if not isinstance(current, list) or segment >= len(current):
+                return None
+            current = current[segment]
+            continue
+        if not isinstance(segment, str) or not isinstance(current, Mapping):
+            return None
+        current = current.get(segment)
+    return current
+
+
+def _task_description_for_loc(
+    payload: Optional[Mapping[str, Any]],
+    loc: Sequence[Any],
+) -> Optional[str]:
+    if payload is None or len(loc) < 2 or loc[-1] != "task_kind":
+        return None
+    parent = _lookup_path(payload, loc[:-1])
+    if not isinstance(parent, Mapping):
+        return None
+    description = parent.get("description")
+    if not isinstance(description, str):
+        return None
+    trimmed = description.strip()
+    return trimmed or None
+
+
+def _task_kind_hint(
+    invalid_value: Any,
+    *,
+    task_description: Optional[str] = None,
+) -> Optional[str]:
+    if not isinstance(invalid_value, str):
+        return None
+    trimmed = invalid_value.strip()
+    if not trimmed:
+        return None
+    prefix = (
+        f"Task '{task_description}' uses unsupported task_kind '{trimmed}'."
+        if task_description
+        else f"Unsupported task_kind '{trimmed}'."
+    )
+    return f"{prefix} Use one of: {_allowed_task_kind_hint()}."
+
+
+def _public_hint_from_structured_error(
+    error: Mapping[str, Any],
+    *,
+    parsed_output: Optional[Mapping[str, Any]] = None,
+) -> Optional[str]:
+    msg = error.get("msg")
+    message_hint = msg.strip() if isinstance(msg, str) else None
+    loc = error.get("loc")
+    if isinstance(loc, (list, tuple)) and loc and loc[-1] == "task_kind":
+        hint = _task_kind_hint(
+            error.get("input"),
+            task_description=_task_description_for_loc(parsed_output, loc),
+        )
+        if hint:
+            return hint
+
+        task_description = _task_description_for_loc(parsed_output, loc)
+        if task_description and message_hint:
+            return f"Task '{task_description}' has invalid task_kind. {message_hint}"
+        if message_hint:
+            return message_hint
+        if task_description:
+            return (
+                f"Task '{task_description}' has invalid task_kind. "
+                f"Use one of: {_allowed_task_kind_hint()}."
+            )
+        return f"Task has invalid task_kind. Use one of: {_allowed_task_kind_hint()}."
+
+    return message_hint or None
+
+
+def _compact_public_validation_errors(
+    validation_errors: Sequence[Any] | None,
+    *,
+    parsed_output: Optional[Mapping[str, Any]] = None,
+) -> List[str]:
+    hints: List[str] = []
+    seen: set[str] = set()
+    for error in validation_errors or []:
+        hint: Optional[str] = None
+        if isinstance(error, Mapping):
+            hint = _public_hint_from_structured_error(
+                error,
+                parsed_output=parsed_output,
+            )
+        elif isinstance(error, str):
+            match = _DECOMP_OTHER_TASK_KIND_PATTERN.search(error)
+            if match:
+                hint = _task_kind_hint(
+                    "other",
+                    task_description=match.group("description"),
+                )
+            else:
+                trimmed = error.strip()
+                hint = trimmed or None
+        if hint and hint not in seen:
+            seen.add(hint)
+            hints.append(hint)
+    return hints
+
+
 def _failure(
     *,
     project_id: int,
@@ -39,7 +165,8 @@ def _failure(
     failure_stage: str,
     message: str,
     raw_text: Optional[str] = None,
-    validation_errors: Optional[List[Dict[str, Any]]] = None,
+    validation_errors: Optional[Sequence[Any]] = None,
+    public_validation_errors: Optional[List[str]] = None,
     exception: Optional[BaseException] = None,
 ) -> Dict[str, Any]:
     artifact_result = write_failure_artifact(
@@ -79,6 +206,7 @@ def _failure(
     artifact: Dict[str, Any] = {
         "error": "SPRINT_GENERATION_FAILED",
         "message": message,
+        "validation_errors": list(public_validation_errors or []),
         "is_complete": False,
     }
     artifact.update(metadata)
@@ -89,6 +217,7 @@ def _failure(
         "output_artifact": artifact,
         "is_complete": None,
         "error": message,
+        "validation_errors": list(public_validation_errors or []),
         **metadata,
     }
 
@@ -127,24 +256,29 @@ async def run_sprint_agent_from_state(
     try:
         payload = SprintPlannerInput.model_validate(input_context)
     except ValidationError as exc:
+        public_validation_errors = _compact_public_validation_errors(exc.errors())
         return _failure(
             project_id=project_id,
             input_context=input_context,
             failure_stage="input_validation",
             message=f"Sprint input validation failed: {exc}",
             validation_errors=exc.errors(),
+            public_validation_errors=public_validation_errors,
             exception=exc,
         )
 
     try:
         raw_text = await _invoke_sprint_agent(payload)
     except AgentInvocationError as exc:
+        public_validation_errors = _compact_public_validation_errors(exc.validation_errors)
         return _failure(
             project_id=project_id,
             input_context=input_context,
             failure_stage="invocation_exception",
             message=f"Sprint runtime failed: {exc}",
             raw_text=exc.partial_output,
+            validation_errors=exc.validation_errors,
+            public_validation_errors=public_validation_errors,
             exception=exc,
         )
     except Exception as exc:  # pylint: disable=broad-except
@@ -169,6 +303,10 @@ async def run_sprint_agent_from_state(
     try:
         output_model = SprintPlannerOutput.model_validate(parsed)
     except ValidationError as exc:
+        public_validation_errors = _compact_public_validation_errors(
+            exc.errors(),
+            parsed_output=parsed,
+        )
         return _failure(
             project_id=project_id,
             input_context=input_context,
@@ -176,6 +314,7 @@ async def run_sprint_agent_from_state(
             message=f"Sprint output validation failed: {exc}",
             raw_text=raw_text,
             validation_errors=exc.errors(),
+            public_validation_errors=public_validation_errors,
             exception=exc,
         )
 
@@ -194,13 +333,15 @@ async def run_sprint_agent_from_state(
         acceptance_criteria_items_by_story=acceptance_criteria_items_by_story,
     )
     if decomp_errors:
+        structured_errors = [{"msg": error} for error in decomp_errors]
         return _failure(
             project_id=project_id,
             input_context=input_context,
             failure_stage="output_validation",
             message="Sprint output validation failed: poor task decomposition quality",
             raw_text=raw_text,
-            validation_errors=[{"msg": error} for error in decomp_errors],
+            validation_errors=structured_errors,
+            public_validation_errors=_compact_public_validation_errors(decomp_errors),
         )
 
     allowed_invariant_ids_by_story = {
@@ -212,13 +353,15 @@ async def run_sprint_agent_from_state(
         allowed_invariant_ids_by_story=allowed_invariant_ids_by_story,
     )
     if binding_errors:
+        structured_errors = [{"msg": error} for error in binding_errors]
         return _failure(
             project_id=project_id,
             input_context=input_context,
             failure_stage="output_validation",
             message="Sprint output validation failed: invalid task invariant bindings",
             raw_text=raw_text,
-            validation_errors=[{"msg": error} for error in binding_errors],
+            validation_errors=structured_errors,
+            public_validation_errors=_compact_public_validation_errors(binding_errors),
         )
 
     output_artifact = output_model.model_dump(exclude_none=True)

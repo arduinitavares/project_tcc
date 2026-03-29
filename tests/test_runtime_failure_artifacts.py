@@ -4,7 +4,14 @@ from typing import Any, Callable, Dict
 
 import pytest
 
-from services import backlog_runtime, roadmap_runtime, story_runtime, vision_runtime
+from services import (
+    backlog_runtime,
+    roadmap_runtime,
+    sprint_input,
+    sprint_runtime,
+    story_runtime,
+    vision_runtime,
+)
 from utils.failure_artifacts import AgentInvocationError
 import utils.failure_artifacts as failure_artifacts
 
@@ -169,3 +176,69 @@ async def test_runtime_invocation_exception_persists_partial_output(monkeypatch,
     assert artifact is not None
     assert artifact["phase"] == case["phase"]
     assert artifact["raw_output"] == '{"partial": true}'
+
+
+@pytest.mark.asyncio
+async def test_sprint_failure_artifact_keeps_structured_validation_details(monkeypatch, tmp_path):
+    _patch_failure_dir(monkeypatch, tmp_path)
+
+    def fake_fetch_sprint_candidates(*, product_id):
+        assert product_id == 7
+        return {
+            "success": True,
+            "count": 1,
+            "stories": [
+                {
+                    "story_id": 12,
+                    "story_title": "Event Delta Persistence",
+                    "priority": 2,
+                    "story_points": 3,
+                    "evaluated_invariant_ids": [],
+                }
+            ],
+        }
+
+    async def fake_invoke(_payload):
+        raise AgentInvocationError(
+            "ADK validation failed",
+            validation_errors=[
+                {
+                    "type": "literal_error",
+                    "loc": ["selected_stories", 0, "tasks", 0, "task_kind"],
+                    "msg": "Input should be one of the supported task kinds.",
+                    "input": "approval",
+                }
+            ],
+        )
+
+    monkeypatch.setattr(sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(sprint_runtime, "_invoke_sprint_agent", fake_invoke)
+
+    result = await sprint_runtime.run_sprint_agent_from_state(
+        {},
+        project_id=7,
+        team_velocity_assumption="medium",
+        sprint_duration_days=14,
+        max_story_points=13,
+        include_task_decomposition=True,
+        selected_story_ids=[12],
+        user_input=None,
+    )
+
+    assert result["success"] is False
+    assert result["failure_stage"] == "invocation_exception"
+    assert result["output_artifact"]["validation_errors"] == [
+        "Unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor."
+    ]
+
+    artifact = failure_artifacts.read_failure_artifact(result["failure_artifact_id"])
+    assert artifact is not None
+    assert artifact["phase"] == "sprint"
+    assert artifact["validation_errors"] == [
+        {
+            "type": "literal_error",
+            "loc": ["selected_stories", 0, "tasks", 0, "task_kind"],
+            "msg": "Input should be one of the supported task kinds.",
+            "input": "approval",
+        }
+    ]
