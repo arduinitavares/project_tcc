@@ -4037,7 +4037,7 @@ async function toggleTaskExecution(event, sprintId, taskId) {
             <form onsubmit="submitTaskExecution(event, ${sprintId}, ${taskId})" class="flex flex-col gap-3">
                 <div class="flex gap-2">
                     <label class="flex-1 text-[11px] font-bold text-slate-700 dark:text-slate-300 flex flex-col gap-1">
-                        New Status
+                        <span>New Status <span class="text-red-500">*</span></span>
                         <select id="task-exc-status-${taskId}" required onchange="toggleTaskExecutionFields(${taskId})" class="p-1.5 rounded form-select text-xs dark:bg-slate-800 dark:border-slate-700 focus:ring-1 focus:ring-indigo-500">
                             <option value="To Do" ${data.current_status === 'To Do' ? 'selected' : ''}>To Do</option>
                             <option value="In Progress" ${data.current_status === 'In Progress' ? 'selected' : ''}>In Progress</option>
@@ -4046,7 +4046,7 @@ async function toggleTaskExecution(event, sprintId, taskId) {
                         </select>
                     </label>
                     <label class="flex-1 text-[11px] font-bold text-slate-700 dark:text-slate-300 flex flex-col gap-1">
-                        Checklist Result
+                        <span>Checklist Result <span class="text-red-500">*</span></span>
                         <select id="task-exc-acceptance-${taskId}" required class="p-1.5 rounded form-select text-xs dark:bg-slate-800 dark:border-slate-700 focus:ring-1 focus:ring-indigo-500">
                             <option value="not_checked" ${data.latest_entry?.acceptance_result === 'not_checked' ? 'selected' : ''}>Not Checked</option>
                             <option value="partially_met" ${data.latest_entry?.acceptance_result === 'partially_met' ? 'selected' : ''}>Partially Met</option>
@@ -4211,7 +4211,7 @@ async function toggleStoryClose(event, sprintId, storyId) {
             
             <form onsubmit="submitStoryClose(event, ${sprintId}, ${storyId})" class="flex flex-col gap-3">
                 <label class="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex flex-col gap-1">
-                    Resolution Status
+                    <span>Resolution Status <span class="text-red-500">*</span></span>
                     <select id="story-close-res-${storyId}" required class="p-1.5 rounded form-select text-xs dark:bg-slate-800 dark:border-slate-700 focus:ring-1 focus:ring-emerald-500">
                         <option value="Completed">Completed</option>
                         <option value="Completed with AC changes">Completed (with AC changes)</option>
