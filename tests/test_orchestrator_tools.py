@@ -321,7 +321,11 @@ def test_fetch_sprint_candidates_only_refined_todo(session: Session) -> None:
 
     assert result["success"] is True
     assert result["count"] == 1
-    assert result["excluded_counts"] == {"non_refined": 1, "superseded": 1}
+    assert result["excluded_counts"] == {
+        "non_refined": 1,
+        "superseded": 1,
+        "open_sprint": 0,
+    }
     assert result["stories"][0]["story_title"] == "Refined Story"
     assert result["stories"][0]["priority"] == 2
     assert result["stories"][0]["persona"] == "Document Reviewer"

@@ -17,6 +17,7 @@ def test_ensure_interview_subject_initializes_empty_projection() -> None:
         "subject_key": "req-1",
         "attempt_history": [],
         "draft_projection": {},
+        "resolution_projection": {},
         "feedback_projection": {"items": [], "next_feedback_sequence": 0},
         "request_projection": {},
     }
