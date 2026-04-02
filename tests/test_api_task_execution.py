@@ -1,7 +1,10 @@
 import pytest
+from types import SimpleNamespace
 from httpx import AsyncClient
 from sqlmodel import Session, select
 from agile_sqlmodel import Task, TaskStatus
+
+import api as api_module
 
 def test_task_execution_flow(session, monkeypatch):
     from tests.test_api_sprint_flow import _build_client, _seed_task_packet_context
@@ -139,3 +142,63 @@ def test_task_execution_rejects_non_executable_tasks(session, monkeypatch):
 
     assert resp.status_code == 409
     assert resp.json()["detail"] == "Task has no executable checklist items."
+
+
+def test_get_task_execution_skips_logs_without_primary_key(monkeypatch):
+    task = SimpleNamespace(task_id=7, story_id=11, status=TaskStatus.TO_DO)
+    sprint = SimpleNamespace(sprint_id=3, product_id=2)
+    sprint_story = SimpleNamespace(sprint_id=3, story_id=11)
+    malformed_log = SimpleNamespace(
+        log_id=None,
+        task_id=7,
+        sprint_id=3,
+        old_status="To Do",
+        new_status="In Progress",
+        outcome_summary=None,
+        artifact_refs_json=None,
+        acceptance_result="not_checked",
+        notes="broken row",
+        changed_by="tester",
+        changed_at="2026-03-31T00:00:00Z",
+    )
+
+    class _FakeExecResult:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def first(self):
+            return self._payload
+
+        def all(self):
+            return self._payload
+
+    class _FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, model, key):
+            if model is api_module.Task and key == 7:
+                return task
+            if model is api_module.Sprint and key == 3:
+                return sprint
+            return None
+
+        def exec(self, statement):
+            sql = str(statement)
+            if "FROM sprint_stories" in sql:
+                return _FakeExecResult(sprint_story)
+            if "FROM task_execution_logs" in sql:
+                return _FakeExecResult([malformed_log])
+            raise AssertionError(f"Unexpected statement: {sql}")
+
+    monkeypatch.setattr(api_module, "Session", lambda _engine: _FakeSession())
+    monkeypatch.setattr(api_module, "get_engine", lambda: object())
+
+    response = api_module.get_task_execution(project_id=2, sprint_id=3, task_id=7)
+
+    assert response.success is True
+    assert response.history == []
+    assert response.latest_entry is None

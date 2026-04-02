@@ -5,6 +5,45 @@ from sqlmodel import select
 from agile_sqlmodel import Sprint, SprintStatus, StoryStatus, UserStory, WorkflowEvent, WorkflowEventType
 
 
+def test_build_sprint_close_readiness_handles_unsaved_story_ids():
+    import api as api_module
+
+    readiness = api_module._build_sprint_close_readiness(
+        [
+            UserStory(
+                title="Draft story",
+                status=StoryStatus.TO_DO,
+            )
+        ]
+    )
+
+    assert readiness.completed_story_count == 0
+    assert readiness.open_story_count == 1
+    assert readiness.unfinished_story_ids == []
+    assert readiness.stories[0].story_id == 0
+
+
+def test_story_task_progress_accepts_task_sequences():
+    import api as api_module
+    from agile_sqlmodel import Task, TaskStatus
+
+    total, done, cancelled, all_done = api_module._story_task_progress(
+        (
+            Task(
+                description="Task 1",
+                status=TaskStatus.TO_DO,
+                metadata_json='{"checklist_items":["step"]}',
+                story_id=1,
+            ),
+        )
+    )
+
+    assert total == 1
+    assert done == 0
+    assert cancelled == 0
+    assert all_done is False
+
+
 def test_get_sprint_close_returns_guidance_for_non_active_sprint(session, monkeypatch):
     from tests.test_api_sprint_flow import _build_client, _seed_saved_sprint
 

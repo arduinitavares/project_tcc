@@ -209,6 +209,29 @@ def test_create_project_success_advances_to_vision(monkeypatch):
     assert workflow.states["1"]["fsm_state"] == "VISION_INTERVIEW"
 
 
+def test_create_project_returns_500_when_repository_does_not_persist(monkeypatch):
+    client, repo, _workflow = _build_client(monkeypatch)
+
+    def create_without_id(name: str, description: Optional[str] = None):
+        product = DummyProduct(
+            product_id=None,  # type: ignore[arg-type]
+            name=name,
+            description=description,
+        )
+        repo.products.append(product)
+        return product
+
+    monkeypatch.setattr(repo, "create", create_without_id)
+
+    response = client.post(
+        "/api/projects",
+        json={"name": "Broken Project", "spec_file_path": __file__},
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Failed to create project"
+
+
 def test_create_project_setup_fail_and_retry_same_project(monkeypatch):
     client, repo, workflow = _build_client(monkeypatch)
 

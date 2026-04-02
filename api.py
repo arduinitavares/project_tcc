@@ -1,6 +1,7 @@
 """FastAPI application for AgenticFlow orchestration and workflow management.
 
-Provides REST endpoints for project setup, vision generation, backlog management,
+Provides REST endpoints for project setup, vision generation,
+backlog management,
 roadmap planning, user story creation, and sprint execution.
 """
 
@@ -10,20 +11,30 @@ import hashlib
 import json
 import logging
 import re
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    Protocol,
+    cast,
+    runtime_checkable,
+)
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import delete
+from sqlalchemy import delete, desc
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import QueryableAttribute
 from sqlmodel import Session, select
+from sqlmodel.sql._expression_select_cls import SelectOfScalar
 
 from agile_sqlmodel import (
     CompiledSpecAuthority,
@@ -80,7 +91,10 @@ from services.interview_runtime import (
 )
 from services.roadmap_runtime import run_roadmap_agent_from_state
 from services.sprint_input import load_sprint_candidates
-from services.sprint_runtime import PUBLIC_TASK_KIND_VALUES, run_sprint_agent_from_state
+from services.sprint_runtime import (
+    PUBLIC_TASK_KIND_VALUES,
+    run_sprint_agent_from_state,
+)
 from services.story_runtime import (
     run_story_agent_from_state,
     run_story_agent_request,
@@ -95,6 +109,7 @@ from tools.spec_tools import (
 )
 from utils.failure_artifacts import read_failure_artifact
 from utils.logging_config import configure_logging
+from utils.runtime_config import get_api_host, get_api_port, get_api_reload
 from utils.schemes import (
     SprintCloseReadiness,
     SprintCloseReadResponse,
@@ -108,7 +123,11 @@ from utils.schemes import (
     TaskExecutionWriteRequest,
     ValidationEvidence,
 )
-from utils.task_metadata import hash_task_metadata, parse_task_metadata
+from utils.task_metadata import (
+    TaskMetadata,
+    hash_task_metadata,
+    parse_task_metadata,
+)
 
 if TYPE_CHECKING:
     from google.adk.tools import ToolContext
@@ -122,8 +141,31 @@ product_repo = ProductRepository()
 workflow_service = WorkflowService()
 
 
+@runtime_checkable
+class _SupportsIsoFormat(Protocol):
+    def isoformat(self) -> str: ...
+
+
+def _queryable_attr(attr: object) -> QueryableAttribute[object]:
+    return cast(QueryableAttribute[object], attr)
+
+
+def _require_product_id(product: Product) -> int:
+    if product.product_id is None:
+        raise ValueError("Product creation did not return an id")
+    return product.product_id
+
+
+def _raise_delete_project_failed() -> None:
+    raise HTTPException(
+        status_code=500,
+        detail="Failed to delete project due to database error.",
+    )
+
+
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Initialize runtime services and perform startup migrations."""
     configure_logging()
     ensure_business_db_ready()
     migrated = workflow_service.migrate_legacy_setup_state()
@@ -278,7 +320,7 @@ def _normalize_fsm_state(value: str | None) -> str:
 
 
 def _normalize_shell_fsm_state(value: str | None) -> str:
-    """Normalize shell-visible FSM state while collapsing legacy terminal sprint state."""
+    """Normalize shell-visible FSM state for legacy terminal sprint values."""
     state = _normalize_fsm_state(value)
     if state == OrchestratorState.SPRINT_COMPLETE.value:
         return OrchestratorState.SPRINT_PERSISTENCE.value
@@ -300,58 +342,73 @@ def _failure_meta(
     }
 
 
-def _normalize_sprint_validation_errors(validation_errors: Any) -> list[str]:
+def _normalize_sprint_validation_error(
+    error: object, allowed_task_kinds: str
+) -> str | None:
+    hint: str | None = None
+    if isinstance(error, str):
+        trimmed = error.strip()
+        if trimmed:
+            described_task_kind = re.match(
+                r"Task '(?P<description>[^']+)' has invalid task_kind\.",
+                trimmed,
+            )
+            unsupported_task_kind = re.match(
+                r"Unsupported task_kind '(?P<value>[^']+)'\.",
+                trimmed,
+            )
+            if described_task_kind and "other" in trimmed:
+                hint = (
+                    f"Task '{described_task_kind.group('description')}' has "
+                    f"invalid task_kind. Use one of: {allowed_task_kinds}."
+                )
+            elif unsupported_task_kind:
+                hint = (
+                    f"Unsupported task_kind "
+                    f"'{unsupported_task_kind.group('value').strip()}'. "
+                    f"Use one of: {allowed_task_kinds}."
+                )
+            elif "task_kind" in trimmed and "other" in trimmed:
+                hint = (
+                    f"Task has invalid task_kind. Use one of: "
+                    f"{allowed_task_kinds}."
+                )
+            else:
+                hint = trimmed
+    elif isinstance(error, dict):
+        error_dict = cast(dict[str, object], error)
+        loc = error_dict.get("loc")
+        if isinstance(loc, (list, tuple)) and loc and loc[-1] == "task_kind":
+            input_value = error_dict.get("input")
+            if isinstance(input_value, str) and input_value.strip():
+                hint = (
+                    f"Unsupported task_kind '{input_value.strip()}'. "
+                    f"Use one of: {allowed_task_kinds}."
+                )
+            else:
+                hint = (
+                    f"Task has invalid task_kind. Use one of: "
+                    f"{allowed_task_kinds}."
+                )
+        else:
+            msg = error_dict.get("msg")
+            if isinstance(msg, str):
+                trimmed = msg.strip()
+                hint = trimmed or None
+
+    return hint
+
+
+def _normalize_sprint_validation_errors(
+    validation_errors: object,
+) -> list[str]:
     if not isinstance(validation_errors, list):
         return []
 
     hints: list[str] = []
     allowed_task_kinds = ", ".join(PUBLIC_TASK_KIND_VALUES)
     for error in validation_errors:
-        hint: str | None = None
-        if isinstance(error, str):
-            trimmed = error.strip()
-            if not trimmed:
-                hint = None
-            else:
-                described_task_kind = re.match(
-                    r"Task '(?P<description>[^']+)' has invalid task_kind\.",
-                    trimmed,
-                )
-                unsupported_task_kind = re.match(
-                    r"Unsupported task_kind '(?P<value>[^']+)'\.",
-                    trimmed,
-                )
-                if described_task_kind and "other" in trimmed:
-                    hint = (
-                        f"Task '{described_task_kind.group('description')}' has "
-                        f"invalid task_kind. Use one of: {allowed_task_kinds}."
-                    )
-                elif unsupported_task_kind:
-                    hint = (
-                        f"Unsupported task_kind "
-                        f"'{unsupported_task_kind.group('value').strip()}'. "
-                        f"Use one of: {allowed_task_kinds}."
-                    )
-                elif "task_kind" in trimmed and "other" in trimmed:
-                    hint = f"Task has invalid task_kind. Use one of: {allowed_task_kinds}."
-                else:
-                    hint = trimmed
-        elif isinstance(error, dict):
-            loc = error.get("loc")
-            if isinstance(loc, (list, tuple)) and loc and loc[-1] == "task_kind":
-                input_value = error.get("input")
-                if isinstance(input_value, str) and input_value.strip():
-                    hint = (
-                        f"Unsupported task_kind '{input_value.strip()}'. "
-                        f"Use one of: {allowed_task_kinds}."
-                    )
-                else:
-                    hint = f"Task has invalid task_kind. Use one of: {allowed_task_kinds}."
-            else:
-                msg = error.get("msg")
-                if isinstance(msg, str):
-                    trimmed = msg.strip()
-                    hint = trimmed or None
+        hint = _normalize_sprint_validation_error(error, allowed_task_kinds)
         if hint and hint not in hints:
             hints.append(hint)
     return hints
@@ -361,7 +418,10 @@ def _normalize_sprint_output_artifact(
     output_artifact: dict[str, Any] | None,
 ) -> dict[str, Any]:
     artifact = dict(output_artifact or {})
-    if "validation_errors" not in artifact and artifact.get("error") != "SPRINT_GENERATION_FAILED":
+    if (
+        "validation_errors" not in artifact
+        and artifact.get("error") != "SPRINT_GENERATION_FAILED"
+    ):
         return artifact
     artifact["validation_errors"] = _normalize_sprint_validation_errors(
         artifact.get("validation_errors")
@@ -373,7 +433,9 @@ def _normalize_sprint_attempt(attempt: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(attempt)
     output_artifact = normalized.get("output_artifact")
     if isinstance(output_artifact, dict):
-        normalized["output_artifact"] = _normalize_sprint_output_artifact(output_artifact)
+        normalized["output_artifact"] = _normalize_sprint_output_artifact(
+            output_artifact
+        )
     return normalized
 
 
@@ -400,7 +462,7 @@ def _clear_setup_failure_meta(state: dict[str, Any]) -> None:
     state["setup_has_full_artifact"] = False
 
 
-def _setup_blocker(product: Any) -> str | None:
+def _setup_blocker(product: object) -> str | None:
     if not product:
         return "Project not found."
 
@@ -469,7 +531,7 @@ def _build_story_task_plan(story: UserStory) -> list[dict[str, Any]]:
     )
 
 
-def _story_task_progress(tasks: list[Task]) -> tuple[int, int, int, bool]:
+def _story_task_progress(tasks: Sequence[Task]) -> tuple[int, int, int, bool]:
     actionable_tasks = [
         task
         for task in tasks
@@ -499,6 +561,7 @@ def _build_sprint_close_readiness(
         total_tasks, done_tasks, cancelled_tasks, _all_actionable_done = (
             _story_task_progress(story.tasks)
         )
+        story_id = int(story.story_id) if story.story_id is not None else 0
         completion_state = (
             "completed"
             if story.status in (StoryStatus.DONE, StoryStatus.ACCEPTED)
@@ -507,11 +570,11 @@ def _build_sprint_close_readiness(
         if completion_state == "completed":
             completed_story_count += 1
         elif story.story_id is not None:
-            unfinished_story_ids.append(int(story.story_id))
+            unfinished_story_ids.append(story_id)
 
         summaries.append(
             SprintCloseStorySummary(
-                story_id=int(story.story_id),
+                story_id=story_id,
                 story_title=story.title,
                 story_status=story.status.value,
                 total_tasks=total_tasks,
@@ -546,7 +609,7 @@ def _serialize_sprint_story(story: UserStory) -> dict[str, Any]:
     }
 
 
-def _history_fidelity(sprint: Sprint) -> str:
+def _history_fidelity(sprint: Sprint) -> Literal["snapshotted", "derived"]:
     return "snapshotted" if bool(sprint.close_snapshot_json) else "derived"
 
 
@@ -563,7 +626,9 @@ def _load_sprint_close_snapshot(sprint: Sprint) -> dict[str, Any] | None:
         return None
 
 
-def _build_sprint_runtime_summary(sprints: list[Sprint]) -> dict[str, Any]:
+def _build_sprint_runtime_summary(
+    sprints: Sequence[Sprint],
+) -> dict[str, Any]:
     active = next(
         (sprint for sprint in sprints if sprint.status == SprintStatus.ACTIVE),
         None,
@@ -689,10 +754,12 @@ def _serialize_sprint_detail(
     return payload
 
 
-def _saved_sprint_query():
+def _saved_sprint_query() -> SelectOfScalar[Sprint]:
     return select(Sprint).options(
-        selectinload(Sprint.team),
-        selectinload(Sprint.stories).selectinload(UserStory.tasks),
+        selectinload(_queryable_attr(Sprint.team)),
+        selectinload(_queryable_attr(Sprint.stories)).selectinload(
+            _queryable_attr(UserStory.tasks)
+        ),
     )
 
 
@@ -701,7 +768,7 @@ def _list_saved_sprints(project_id: int) -> dict[str, Any]:
         sprints = session.exec(
             _saved_sprint_query()
             .where(Sprint.product_id == project_id)
-            .order_by(Sprint.created_at.desc())
+            .order_by(desc(_queryable_attr(Sprint.created_at)))
         ).all()
         runtime_summary = _build_sprint_runtime_summary(sprints)
         return {
@@ -727,19 +794,19 @@ def _get_saved_sprint(
     ).first()
 
 
-def _serialize_temporal(value: Any) -> str | None:
+def _serialize_temporal(value: object) -> str | None:
     if value is None:
         return None
     if isinstance(value, datetime):
         if value.tzinfo is not None:
             return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
         return value.isoformat()
-    if hasattr(value, "isoformat"):
+    if isinstance(value, _SupportsIsoFormat):
         return value.isoformat()
     return str(value)
 
 
-def _hash_payload(payload: Any) -> str:
+def _hash_payload(payload: object) -> str:
     serialized = json.dumps(
         payload,
         sort_keys=True,
@@ -822,55 +889,54 @@ def _build_packet_findings(
     if not evidence:
         return []
 
-    findings: list[dict[str, str | None]] = []
-    for failure in evidence.failures:
-        findings.append(
-            {
-                "severity": "failure",
-                "source": "validation_failure",
-                "code": failure.rule,
-                "message": failure.message,
-                "invariant_id": None,
-                "rule": failure.rule,
-                "capability": None,
-            }
-        )
-    for warning in evidence.warnings:
-        findings.append(
-            {
-                "severity": "warning",
-                "source": "validation_warning",
-                "code": warning,
-                "message": warning,
-                "invariant_id": None,
-                "rule": None,
-                "capability": None,
-            }
-        )
-    for finding in evidence.alignment_warnings:
-        findings.append(
-            {
-                "severity": finding.severity,
-                "source": "alignment_warning",
-                "code": finding.code,
-                "message": finding.message,
-                "invariant_id": finding.invariant,
-                "rule": None,
-                "capability": finding.capability,
-            }
-        )
-    for finding in evidence.alignment_failures:
-        findings.append(
-            {
-                "severity": finding.severity,
-                "source": "alignment_failure",
-                "code": finding.code,
-                "message": finding.message,
-                "invariant_id": finding.invariant,
-                "rule": None,
-                "capability": finding.capability,
-            }
-        )
+    findings: list[dict[str, str | None]] = [
+        {
+            "severity": "failure",
+            "source": "validation_failure",
+            "code": failure.rule,
+            "message": failure.message,
+            "invariant_id": None,
+            "rule": failure.rule,
+            "capability": None,
+        }
+        for failure in evidence.failures
+    ]
+    findings.extend(
+        {
+            "severity": "warning",
+            "source": "validation_warning",
+            "code": warning,
+            "message": warning,
+            "invariant_id": None,
+            "rule": None,
+            "capability": None,
+        }
+        for warning in evidence.warnings
+    )
+    findings.extend(
+        {
+            "severity": finding.severity,
+            "source": "alignment_warning",
+            "code": finding.code,
+            "message": finding.message,
+            "invariant_id": finding.invariant,
+            "rule": None,
+            "capability": finding.capability,
+        }
+        for finding in evidence.alignment_warnings
+    )
+    findings.extend(
+        {
+            "severity": finding.severity,
+            "source": "alignment_failure",
+            "code": finding.code,
+            "message": finding.message,
+            "invariant_id": finding.invariant,
+            "rule": None,
+            "capability": finding.capability,
+        }
+        for finding in evidence.alignment_failures
+    )
     return findings
 
 
@@ -925,7 +991,7 @@ def _build_story_compliance_boundaries(
 def _build_task_hard_constraints(
     authority: CompiledSpecAuthority | None,
     *,
-    task_metadata,
+    task_metadata: TaskMetadata,
 ) -> list[dict[str, Any]]:
     if not authority or not task_metadata.relevant_invariant_ids:
         return []
@@ -980,9 +1046,13 @@ def _load_packet_story_context(
         task = session.exec(
             select(Task)
             .options(
-                selectinload(Task.assignee),
-                selectinload(Task.story).selectinload(UserStory.product),
-                selectinload(Task.story).selectinload(UserStory.tasks),
+                selectinload(_queryable_attr(Task.assignee)),
+                selectinload(_queryable_attr(Task.story)).selectinload(
+                    _queryable_attr(UserStory.product)
+                ),
+                selectinload(_queryable_attr(Task.story)).selectinload(
+                    _queryable_attr(UserStory.tasks)
+                ),
             )
             .where(Task.task_id == task_id)
         ).first()
@@ -993,8 +1063,8 @@ def _load_packet_story_context(
         story = session.exec(
             select(UserStory)
             .options(
-                selectinload(UserStory.product),
-                selectinload(UserStory.tasks),
+                selectinload(_queryable_attr(UserStory.product)),
+                selectinload(_queryable_attr(UserStory.tasks)),
             )
             .where(UserStory.story_id == story_id)
         ).first()
@@ -1003,7 +1073,7 @@ def _load_packet_story_context(
 
     sprint = session.exec(
         select(Sprint)
-        .options(selectinload(Sprint.team))
+        .options(selectinload(_queryable_attr(Sprint.team)))
         .where(
             Sprint.product_id == project_id,
             Sprint.sprint_id == sprint_id,
@@ -1495,7 +1565,7 @@ async def _run_setup(
 
 
 def _effective_project_state(
-    project: Any, raw_state: dict[str, Any]
+    project: object, raw_state: dict[str, Any]
 ) -> dict[str, Any]:
     state = dict(raw_state)
     blocker = _setup_blocker(project)
@@ -1522,12 +1592,14 @@ def _effective_project_state(
 
 
 @app.get("/")
-def root():
+def root() -> RedirectResponse:
+    """Redirect the application root to the dashboard UI."""
     return RedirectResponse(url="/dashboard")
 
 
 @app.get("/api/dashboard/config")
-def get_dashboard_config():
+def get_dashboard_config() -> dict[str, object]:
+    """Return static dashboard workflow configuration for the frontend."""
     return {
         "status": "success",
         "data": {
@@ -1537,7 +1609,8 @@ def get_dashboard_config():
 
 
 @app.get("/api/projects")
-def get_projects():
+def get_projects() -> dict[str, object]:
+    """Return a list of all projects."""
     try:
         products = product_repo.get_all()
         payload = []
@@ -1578,27 +1651,32 @@ def get_projects():
                 }
             )
 
-        return {"status": "success", "data": payload}
     except Exception as exc:
-        logger.error("Error fetching projects: %s", exc)
+        logger.exception("Error fetching projects")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    else:
+        return {"status": "success", "data": payload}
 
 
 @app.post("/api/projects")
-async def create_project(req: CreateProjectRequest):
+async def create_project(
+    req: CreateProjectRequest,
+) -> dict[str, object]:
+    """Create a new project and initialize its workflow session."""
     try:
         new_product = product_repo.create(name=req.name)
-        session_id = str(new_product.product_id)
+        project_id = _require_product_id(new_product)
+        session_id = str(project_id)
         await workflow_service.initialize_session(session_id=session_id)
 
         setup_result = await _run_setup(
-            session_id, int(new_product.product_id), req.spec_file_path
+            session_id, project_id, req.spec_file_path
         )
 
         return {
             "status": "success",
             "data": {
-                "id": new_product.product_id,
+                "id": project_id,
                 "name": new_product.name,
                 "setup_status": "passed"
                 if setup_result["passed"]
@@ -1612,14 +1690,14 @@ async def create_project(req: CreateProjectRequest):
             },
         }
     except Exception as exc:
-        logger.error("Error creating project: %s", exc)
+        logger.exception("Error creating project")
         raise HTTPException(
             status_code=500, detail="Failed to create project"
         ) from exc
 
 
 @app.delete("/api/projects/{project_id}")
-async def delete_project(project_id: int):
+async def delete_project(project_id: int) -> dict[str, object]:
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1630,19 +1708,17 @@ async def delete_project(project_id: int):
         # Cascade delete products and all artifacts
         success = product_repo.delete_project(project_id)
         if not success:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to delete project due to database error.",
-            )
+            _raise_delete_project_failed()
+    except Exception as exc:
+        logger.exception("Error deleting project %d", project_id)
+        raise HTTPException(
+            status_code=500, detail="Failed to delete project"
+        ) from exc
+    else:
         return {
             "status": "success",
             "data": {"message": f"Project {project_id} deleted."},
         }
-    except Exception as exc:
-        logger.error("Error deleting project %d: %s", project_id, exc)
-        raise HTTPException(
-            status_code=500, detail="Failed to delete project"
-        ) from exc
 
 
 @app.post("/api/projects/{project_id}/setup/retry")
@@ -2384,7 +2460,9 @@ def _story_merge_recommendation_from_artifact(
         ):
             continue
 
-        owner_match = re.search(r"owned by '([^']+)'", warning, flags=re.IGNORECASE)
+        owner_match = re.search(
+            r"owned by '([^']+)'", warning, flags=re.IGNORECASE
+        )
         if not owner_match:
             continue
 
@@ -2425,7 +2503,10 @@ def _story_current_resolution(
     runtime: dict[str, Any],
 ) -> dict[str, Any] | None:
     resolution_projection = runtime.get("resolution_projection") or {}
-    if not isinstance(resolution_projection, dict) or not resolution_projection:
+    if (
+        not isinstance(resolution_projection, dict)
+        or not resolution_projection
+    ):
         return None
     if resolution_projection.get("status") != "merged":
         return None
@@ -2460,7 +2541,9 @@ def _story_merge_recommendation_payload(
 
 def _story_resolution_summary(runtime: dict[str, Any]) -> dict[str, Any]:
     current = _story_current_resolution(runtime)
-    recommendation = None if current else _story_merge_recommendation_payload(runtime)
+    recommendation = (
+        None if current else _story_merge_recommendation_payload(runtime)
+    )
     return {
         "available": bool(recommendation),
         "current": current,
@@ -3022,7 +3105,9 @@ async def merge_project_story(project_id: int, parent_requirement: str):
         "status": "merged",
         "owner_requirement": recommendation["owner_requirement"],
         "reason": recommendation["reason"],
-        "acceptance_criteria_to_move": recommendation["acceptance_criteria_to_move"],
+        "acceptance_criteria_to_move": recommendation[
+            "acceptance_criteria_to_move"
+        ],
         "resolved_at": _now_iso(),
     }
     runtime["resolution_projection"] = resolution
@@ -3077,14 +3162,16 @@ async def delete_project_story(project_id: int, parent_requirement: str):
                 # Delete sprint mappings
                 session.exec(
                     delete(SprintStory).where(
-                        SprintStory.story_id.in_(chunk_ids)
+                        _queryable_attr(SprintStory.story_id).in_(chunk_ids)
                     )
                 )
 
                 # Delete completion logs
                 session.exec(
                     delete(StoryCompletionLog).where(
-                        StoryCompletionLog.story_id.in_(chunk_ids)
+                        _queryable_attr(StoryCompletionLog.story_id).in_(
+                            chunk_ids
+                        )
                     )
                 )
 
@@ -3092,7 +3179,7 @@ async def delete_project_story(project_id: int, parent_requirement: str):
                 # First get task IDs to delete any task execution logs
 
                 task_ids_stmt = select(Task.task_id).where(
-                    Task.story_id.in_(chunk_ids)
+                    _queryable_attr(Task.story_id).in_(chunk_ids)
                 )
                 task_ids = session.exec(task_ids_stmt).all()
                 if task_ids:
@@ -3100,16 +3187,24 @@ async def delete_project_story(project_id: int, parent_requirement: str):
                         task_chunk = task_ids[j : j + chunk_size]
                         session.exec(
                             delete(TaskExecutionLog).where(
-                                TaskExecutionLog.task_id.in_(task_chunk)
+                                _queryable_attr(TaskExecutionLog.task_id).in_(
+                                    task_chunk
+                                )
                             )
                         )
 
                 # Now delete tasks
-                session.exec(delete(Task).where(Task.story_id.in_(chunk_ids)))
+                session.exec(
+                    delete(Task).where(
+                        _queryable_attr(Task.story_id).in_(chunk_ids)
+                    )
+                )
 
                 # Delete the stories
                 session.exec(
-                    delete(UserStory).where(UserStory.story_id.in_(chunk_ids))
+                    delete(UserStory).where(
+                        _queryable_attr(UserStory.story_id).in_(chunk_ids)
+                    )
                 )
 
         session.commit()
@@ -3210,9 +3305,9 @@ def _load_current_planned_sprint_id(project_id: int) -> int | None:
                 Sprint.status == SprintStatus.PLANNED,
             )
             .order_by(
-                Sprint.updated_at.desc(),
-                Sprint.created_at.desc(),
-                Sprint.sprint_id.desc(),
+                desc(_queryable_attr(Sprint.updated_at)),
+                desc(_queryable_attr(Sprint.created_at)),
+                desc(_queryable_attr(Sprint.sprint_id)),
             )
         ).first()
     return planned_sprint
@@ -3254,7 +3349,9 @@ def _record_sprint_attempt(
 ) -> int:
     attempts = _ensure_sprint_attempts(state)
     normalized_failure = _failure_meta(failure_meta)
-    normalized_output_artifact = _normalize_sprint_output_artifact(output_artifact)
+    normalized_output_artifact = _normalize_sprint_output_artifact(
+        output_artifact
+    )
     attempts.append(
         {
             "created_at": _now_iso(),
@@ -3466,7 +3563,7 @@ async def get_project_sprint(project_id: int, sprint_id: int):
         all_sprints = session.exec(
             _saved_sprint_query()
             .where(Sprint.product_id == project_id)
-            .order_by(Sprint.created_at.desc())
+            .order_by(desc(_queryable_attr(Sprint.created_at)))
         ).all()
         runtime_summary = _build_sprint_runtime_summary(all_sprints)
 
@@ -3677,11 +3774,13 @@ def get_task_execution(project_id: int, sprint_id: int, task_id: int):
                 TaskExecutionLog.task_id == task_id,
                 TaskExecutionLog.sprint_id == sprint_id,
             )
-            .order_by(TaskExecutionLog.changed_at.desc())
+            .order_by(desc(_queryable_attr(TaskExecutionLog.changed_at)))
         ).all()
 
         history = []
         for log in logs:
+            if log.log_id is None:
+                continue
             artifact_refs = []
             if log.artifact_refs_json:
                 try:
@@ -4000,6 +4099,7 @@ async def save_project_sprint(project_id: int, req: SprintSaveRequest):
     result = save_sprint_plan_tool(
         SaveSprintPlanInput(
             product_id=project_id,
+            team_id=None,
             team_name=team_name,
             sprint_start_date=sprint_start_date,
             sprint_duration_days=sprint_data.duration_days,
@@ -4071,7 +4171,7 @@ async def start_project_sprint(project_id: int, sprint_id: int):
             all_sprints = session.exec(
                 _saved_sprint_query()
                 .where(Sprint.product_id == project_id)
-                .order_by(Sprint.created_at.desc())
+                .order_by(desc(_queryable_attr(Sprint.created_at)))
             ).all()
             runtime_summary = _build_sprint_runtime_summary(all_sprints)
             return {
@@ -4112,7 +4212,7 @@ async def start_project_sprint(project_id: int, sprint_id: int):
         all_sprints = session.exec(
             _saved_sprint_query()
             .where(Sprint.product_id == project_id)
-            .order_by(Sprint.created_at.desc())
+            .order_by(desc(_queryable_attr(Sprint.created_at)))
         ).all()
         runtime_summary = _build_sprint_runtime_summary(all_sprints)
 

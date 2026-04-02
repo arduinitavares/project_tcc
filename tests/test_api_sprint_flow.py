@@ -934,6 +934,7 @@ def test_sprint_save_sanitizes_assessment_and_uses_tool_contract(monkeypatch):
     payload = response.json()
     assert payload["data"]["fsm_state"] == "SPRINT_PERSISTENCE"
     assert workflow.states[str(project_id)]["fsm_state"] == "SPRINT_PERSISTENCE"
+    assert captured["input_data"].team_id is None
     assert captured["input_data"].team_name == "Team Alpha"
     assert captured["input_data"].sprint_start_date == "2026-03-15"
     assert captured["input_data"].sprint_duration_days == 14
