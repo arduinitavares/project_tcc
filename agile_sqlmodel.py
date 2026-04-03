@@ -12,23 +12,23 @@ This version fixes the 'utcnow' deprecation warning and the
 """
 
 import enum
-from datetime import date, datetime, timezone  # Import timezone
 import os
-from pathlib import Path
-from typing import List, Optional
+import sys
+from datetime import UTC, date, datetime  # Import timezone
+from typing import Optional
 
 from sqlalchemy import event, func
 from sqlalchemy.engine import Engine
 from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.types import Date, Text
 from sqlmodel import Field, Relationship, SQLModel, create_engine
+
 from db.migrations import ensure_schema_current
-import sys
-from utils.task_metadata import canonical_task_metadata_json
 from utils.runtime_config import (
     get_business_db_target,
     get_database_echo,
 )
+from utils.task_metadata import canonical_task_metadata_json
 
 # --- 1. Enums for Status Fields ---
 
@@ -128,7 +128,9 @@ class TeamMembership(SQLModel, table=True):
 
     __tablename__ = "team_memberships"  # type: ignore
     team_id: int = Field(foreign_key="teams.team_id", primary_key=True)
-    member_id: int = Field(foreign_key="team_members.member_id", primary_key=True)
+    member_id: int = Field(
+        foreign_key="team_members.member_id", primary_key=True
+    )
     role: TeamRole = Field(default=TeamRole.DEVELOPER, nullable=False)
 
 
@@ -136,7 +138,9 @@ class ProductTeam(SQLModel, table=True):
     """Link table for Product <-> Team."""
 
     __tablename__ = "product_teams"  # type: ignore
-    product_id: int = Field(foreign_key="products.product_id", primary_key=True)
+    product_id: int = Field(
+        foreign_key="products.product_id", primary_key=True
+    )
     team_id: int = Field(foreign_key="teams.team_id", primary_key=True)
 
 
@@ -145,9 +149,11 @@ class SprintStory(SQLModel, table=True):
 
     __tablename__ = "sprint_stories"  # type: ignore
     sprint_id: int = Field(foreign_key="sprints.sprint_id", primary_key=True)
-    story_id: int = Field(foreign_key="user_stories.story_id", primary_key=True)
+    story_id: int = Field(
+        foreign_key="user_stories.story_id", primary_key=True
+    )
     added_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2
         nullable=False,
     )
@@ -161,14 +167,14 @@ class ProductPersona(SQLModel, table=True):
 
     __tablename__ = "product_personas"  # type: ignore
 
-    persona_id: Optional[int] = Field(default=None, primary_key=True)
+    persona_id: int | None = Field(default=None, primary_key=True)
     product_id: int = Field(foreign_key="products.product_id")
     persona_name: str = Field(max_length=100, nullable=False)
     is_default: bool = Field(default=False)
     category: str = Field(max_length=50, default="primary_user")
-    description: Optional[str] = Field(default=None, sa_type=Text)
+    description: str | None = Field(default=None, sa_type=Text)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         sa_column_kwargs={"server_default": func.now()},
         nullable=False,
     )
@@ -178,74 +184,75 @@ class ProductPersona(SQLModel, table=True):
 
     # Constraints
     __table_args__ = (
-        UniqueConstraint("product_id", "persona_name", name="unique_product_persona"),
+        UniqueConstraint(
+            "product_id", "persona_name", name="unique_product_persona"
+        ),
     )
 
 
 class SpecRegistry(SQLModel, table=True):
     """Versioned technical specification registry with approval workflow.
-    
+
     Tracks all versions of a product's technical specification. Once approved,
     spec versions become immutable and eligible for compilation.
     """
 
     __tablename__ = "spec_registry"  # type: ignore
-    spec_version_id: Optional[int] = Field(default=None, primary_key=True)
+    spec_version_id: int | None = Field(default=None, primary_key=True)
     product_id: int = Field(foreign_key="products.product_id", index=True)
     spec_hash: str = Field(
         description="SHA-256 hash of spec content for change detection"
     )
     content: str = Field(
         sa_type=Text,
-        description="Full specification content (markdown or plain text)"
+        description="Full specification content (markdown or plain text)",
     )
-    content_ref: Optional[str] = Field(
+    content_ref: str | None = Field(
         default=None,
-        description="Original file path or reference for provenance"
+        description="Original file path or reference for provenance",
     )
     status: str = Field(
         default="draft",
-        description="Lifecycle status: draft | approved | superseded"
+        description="Lifecycle status: draft | approved | superseded",
     )
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         nullable=False,
     )
-    approved_at: Optional[datetime] = Field(
-        default=None,
-        description="Timestamp when spec was approved"
+    approved_at: datetime | None = Field(
+        default=None, description="Timestamp when spec was approved"
     )
-    approved_by: Optional[str] = Field(
+    approved_by: str | None = Field(
         default=None,
-        description="Identifier of approver (e.g., username, email)"
+        description="Identifier of approver (e.g., username, email)",
     )
-    approval_notes: Optional[str] = Field(
+    approval_notes: str | None = Field(
         default=None,
         sa_type=Text,
-        description="Review notes or justification for approval"
+        description="Review notes or justification for approval",
     )
 
     # Relationships
     product: "Product" = Relationship(back_populates="spec_versions")
     compiled_authority: Optional["CompiledSpecAuthority"] = Relationship(
         back_populates="spec_version",
-        sa_relationship_kwargs={"uselist": False}  # One-to-one
+        sa_relationship_kwargs={"uselist": False},  # One-to-one
     )
 
 
 class CompiledSpecAuthority(SQLModel, table=True):
     """Cached compilation output for an approved spec version.
-    
+
     Stores the extracted themes, invariants, and feature eligibility from
     an approved specification. Compilation is explicit and never automatic.
     """
 
     __tablename__ = "compiled_spec_authority"  # type: ignore
-    authority_id: Optional[int] = Field(default=None, primary_key=True)
+    authority_id: int | None = Field(default=None, primary_key=True)
     spec_version_id: int = Field(
         foreign_key="spec_registry.spec_version_id",
         unique=True,  # One compiled authority per spec version
-        index=True
+        index=True,
     )
     compiler_version: str = Field(
         description="Version of compilation logic (e.g., '1.0.0')"
@@ -254,11 +261,11 @@ class CompiledSpecAuthority(SQLModel, table=True):
         description="Hash of LLM prompt used for compilation (reproducibility)"
     )
     compiled_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         nullable=False,
     )
 
-    compiled_artifact_json: Optional[str] = Field(
+    compiled_artifact_json: str | None = Field(
         default=None,
         sa_type=Text,
         description=(
@@ -268,37 +275,37 @@ class CompiledSpecAuthority(SQLModel, table=True):
 
     # Cached compilation outputs (stored as JSON strings)
     scope_themes: str = Field(
-        sa_type=Text,
-        description="JSON array of extracted scope themes"
+        sa_type=Text, description="JSON array of extracted scope themes"
     )
     invariants: str = Field(
-        sa_type=Text,
-        description="JSON array of business rules and invariants"
+        sa_type=Text, description="JSON array of business rules and invariants"
     )
     eligible_feature_ids: str = Field(
         sa_type=Text,
-        description="JSON array of feature IDs that align with spec"
+        description="JSON array of feature IDs that align with spec",
     )
-    rejected_features: Optional[str] = Field(
+    rejected_features: str | None = Field(
         default=None,
         sa_type=Text,
-        description="JSON array of out-of-scope features with rationale"
+        description="JSON array of out-of-scope features with rationale",
     )
-    spec_gaps: Optional[str] = Field(
+    spec_gaps: str | None = Field(
         default=None,
         sa_type=Text,
-        description="JSON array of detected spec ambiguities or gaps"
+        description="JSON array of detected spec ambiguities or gaps",
     )
 
     # Relationships
-    spec_version: "SpecRegistry" = Relationship(back_populates="compiled_authority")
+    spec_version: "SpecRegistry" = Relationship(
+        back_populates="compiled_authority"
+    )
 
 
 class SpecAuthorityAcceptance(SQLModel, table=True):
     """Append-only acceptance decisions for compiled spec authority."""
 
     __tablename__ = "spec_authority_acceptance"  # type: ignore
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     product_id: int = Field(
         foreign_key="products.product_id",
         index=True,
@@ -311,15 +318,17 @@ class SpecAuthorityAcceptance(SQLModel, table=True):
     policy: str = Field(description="Decision policy: auto | human")
     decided_by: str = Field(description="Who or what made the decision")
     decided_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         nullable=False,
     )
-    rationale: Optional[str] = Field(
+    rationale: str | None = Field(
         default=None,
         sa_type=Text,
         description="Optional acceptance rationale",
     )
-    compiler_version: str = Field(description="Compiler version at decision time")
+    compiler_version: str = Field(
+        description="Compiler version at decision time"
+    )
     prompt_hash: str = Field(description="Prompt hash at decision time")
     spec_hash: str = Field(description="Spec hash at decision time")
 
@@ -328,38 +337,38 @@ class Product(SQLModel, table=True):
     """A top-level product container."""
 
     __tablename__ = "products"  # type: ignore
-    product_id: Optional[int] = Field(default=None, primary_key=True)
+    product_id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True, unique=True)
-    description: Optional[str] = Field(default=None, sa_type=Text)
-    vision: Optional[str] = Field(default=None, sa_type=Text)
-    roadmap: Optional[str] = Field(default=None, sa_type=Text)
+    description: str | None = Field(default=None, sa_type=Text)
+    vision: str | None = Field(default=None, sa_type=Text)
+    roadmap: str | None = Field(default=None, sa_type=Text)
 
     # NEW: Specification persistence fields
-    technical_spec: Optional[str] = Field(
+    technical_spec: str | None = Field(
         default=None,
-        sa_type=Text  # Use Text for large content (>65KB)
+        sa_type=Text,  # Use Text for large content (>65KB)
     )
-    compiled_authority_json: Optional[str] = Field(
+    compiled_authority_json: str | None = Field(
         default=None,
         sa_type=Text,
-        description="Latest compiled spec authority JSON artifact (cached)"
+        description="Latest compiled spec authority JSON artifact (cached)",
     )
-    spec_file_path: Optional[str] = Field(
+    spec_file_path: str | None = Field(
         default=None,
-        description="Path to original spec file or generated backup file"
+        description="Path to original spec file or generated backup file",
     )
-    spec_loaded_at: Optional[datetime] = Field(
+    spec_loaded_at: datetime | None = Field(
         default=None,
-        description="When the specification was saved to this product"
+        description="When the specification was saved to this product",
     )
 
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2
         nullable=False,
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={
             "server_default": func.now(),
             "onupdate": func.now(),
@@ -368,29 +377,31 @@ class Product(SQLModel, table=True):
     )
 
     # Relationships
-    teams: List["Team"] = Relationship(
+    teams: list["Team"] = Relationship(
         back_populates="products", link_model=ProductTeam
     )
-    themes: List["Theme"] = Relationship(back_populates="product")
-    stories: List["UserStory"] = Relationship(back_populates="product")
-    sprints: List["Sprint"] = Relationship(back_populates="product")
-    personas: List["ProductPersona"] = Relationship(back_populates="product")
-    spec_versions: List["SpecRegistry"] = Relationship(back_populates="product")
+    themes: list["Theme"] = Relationship(back_populates="product")
+    stories: list["UserStory"] = Relationship(back_populates="product")
+    sprints: list["Sprint"] = Relationship(back_populates="product")
+    personas: list["ProductPersona"] = Relationship(back_populates="product")
+    spec_versions: list["SpecRegistry"] = Relationship(
+        back_populates="product"
+    )
 
 
 class Team(SQLModel, table=True):
     """A stable group of members."""
 
     __tablename__ = "teams"  # type: ignore
-    team_id: Optional[int] = Field(default=None, primary_key=True)
+    team_id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True, unique=True)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2
         nullable=False,
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={
             "server_default": func.now(),
             "onupdate": func.now(),
@@ -399,29 +410,29 @@ class Team(SQLModel, table=True):
     )
 
     # Relationships
-    products: List["Product"] = Relationship(
+    products: list["Product"] = Relationship(
         back_populates="teams", link_model=ProductTeam
     )
-    members: List["TeamMember"] = Relationship(
+    members: list["TeamMember"] = Relationship(
         back_populates="teams", link_model=TeamMembership
     )
-    sprints: List["Sprint"] = Relationship(back_populates="team")
+    sprints: list["Sprint"] = Relationship(back_populates="team")
 
 
 class TeamMember(SQLModel, table=True):
     """An individual member of a team."""
 
     __tablename__ = "team_members"  # type: ignore
-    member_id: Optional[int] = Field(default=None, primary_key=True)
+    member_id: int | None = Field(default=None, primary_key=True)
     name: str
     email: str = Field(unique=True, index=True)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2
         nullable=False,
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={
             "server_default": func.now(),
             "onupdate": func.now(),
@@ -430,10 +441,10 @@ class TeamMember(SQLModel, table=True):
     )
 
     # Relationships
-    teams: List["Team"] = Relationship(
+    teams: list["Team"] = Relationship(
         back_populates="members", link_model=TeamMembership
     )
-    tasks: List["Task"] = Relationship(back_populates="assignee")
+    tasks: list["Task"] = Relationship(back_populates="assignee")
 
 
 class Theme(SQLModel, table=True):
@@ -442,18 +453,18 @@ class Theme(SQLModel, table=True):
     __tablename__ = "themes"  # type: ignore
     __table_args__ = (UniqueConstraint("product_id", "title"),)
 
-    theme_id: Optional[int] = Field(default=None, primary_key=True)
+    theme_id: int | None = Field(default=None, primary_key=True)
     title: str
-    description: Optional[str] = Field(default=None, sa_type=Text)
+    description: str | None = Field(default=None, sa_type=Text)
     # NEW: Roadmap time frame for prioritization (Now/Next/Later)
-    time_frame: Optional[TimeFrame] = Field(default=None)
+    time_frame: TimeFrame | None = Field(default=None)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2
         nullable=False,
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={
             "server_default": func.now(),
             "onupdate": func.now(),
@@ -466,23 +477,23 @@ class Theme(SQLModel, table=True):
 
     # Relationships
     product: "Product" = Relationship(back_populates="themes")
-    epics: List["Epic"] = Relationship(back_populates="theme")
+    epics: list["Epic"] = Relationship(back_populates="theme")
 
 
 class Epic(SQLModel, table=True):
     """A large body of work (project) contributing to a theme."""
 
     __tablename__ = "epics"  # type: ignore
-    epic_id: Optional[int] = Field(default=None, primary_key=True)
+    epic_id: int | None = Field(default=None, primary_key=True)
     title: str
-    summary: Optional[str] = Field(default=None, sa_type=Text)
+    summary: str | None = Field(default=None, sa_type=Text)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2
         nullable=False,
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={
             "server_default": func.now(),
             "onupdate": func.now(),
@@ -495,23 +506,23 @@ class Epic(SQLModel, table=True):
 
     # Relationships
     theme: "Theme" = Relationship(back_populates="epics")
-    features: List["Feature"] = Relationship(back_populates="epic")
+    features: list["Feature"] = Relationship(back_populates="epic")
 
 
 class Feature(SQLModel, table=True):
     """A component or part of an epic."""
 
     __tablename__ = "features"  # type: ignore
-    feature_id: Optional[int] = Field(default=None, primary_key=True)
+    feature_id: int | None = Field(default=None, primary_key=True)
     title: str
-    description: Optional[str] = Field(default=None, sa_type=Text)
+    description: str | None = Field(default=None, sa_type=Text)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2
         nullable=False,
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={
             "server_default": func.now(),
             "onupdate": func.now(),
@@ -524,28 +535,28 @@ class Feature(SQLModel, table=True):
 
     # Relationships
     epic: "Epic" = Relationship(back_populates="features")
-    stories: List["UserStory"] = Relationship(back_populates="feature")
+    stories: list["UserStory"] = Relationship(back_populates="feature")
 
 
 class Sprint(SQLModel, table=True):
     """A time-boxed iteration of work for a team."""
 
     __tablename__ = "sprints"  # type: ignore
-    sprint_id: Optional[int] = Field(default=None, primary_key=True)
-    goal: Optional[str] = Field(default=None, sa_type=Text)
+    sprint_id: int | None = Field(default=None, primary_key=True)
+    goal: str | None = Field(default=None, sa_type=Text)
     start_date: date = Field(sa_type=Date)
     end_date: date = Field(sa_type=Date)
     status: SprintStatus = Field(default=SprintStatus.PLANNED, nullable=False)
-    started_at: Optional[datetime] = Field(default=None)
-    completed_at: Optional[datetime] = Field(default=None)
-    close_snapshot_json: Optional[str] = Field(default=None, sa_type=Text)
+    started_at: datetime | None = Field(default=None)
+    completed_at: datetime | None = Field(default=None)
+    close_snapshot_json: str | None = Field(default=None, sa_type=Text)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2
         nullable=False,
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={
             "server_default": func.now(),
             "onupdate": func.now(),
@@ -560,7 +571,7 @@ class Sprint(SQLModel, table=True):
     # Relationships
     product: "Product" = Relationship(back_populates="sprints")
     team: "Team" = Relationship(back_populates="sprints")
-    stories: List["UserStory"] = Relationship(
+    stories: list["UserStory"] = Relationship(
         back_populates="sprints", link_model=SprintStory
     )
 
@@ -569,24 +580,24 @@ class UserStory(SQLModel, table=True):
     """A single item in the product backlog."""
 
     __tablename__ = "user_stories"  # type: ignore
-    story_id: Optional[int] = Field(default=None, primary_key=True)
+    story_id: int | None = Field(default=None, primary_key=True)
     title: str
-    story_description: Optional[str] = Field(default=None, sa_type=Text)
-    acceptance_criteria: Optional[str] = Field(default=None, sa_type=Text)
+    story_description: str | None = Field(default=None, sa_type=Text)
+    acceptance_criteria: str | None = Field(default=None, sa_type=Text)
     status: StoryStatus = Field(default=StoryStatus.TO_DO, nullable=False)
-    story_points: Optional[int] = Field(default=None)
-    rank: Optional[str] = Field(default=None, index=True)  # For ordering
-    source_requirement: Optional[str] = Field(
+    story_points: int | None = Field(default=None)
+    rank: str | None = Field(default=None, index=True)  # For ordering
+    source_requirement: str | None = Field(
         default=None,
         index=True,
         description="Normalized parent requirement key for refinement linkage",
     )
-    refinement_slot: Optional[int] = Field(
+    refinement_slot: int | None = Field(
         default=None,
         index=True,
         description="1-based deterministic slot inside requirement decomposition",
     )
-    story_origin: Optional[str] = Field(
+    story_origin: str | None = Field(
         default=None,
         description="Origin marker: backlog_seed or refined",
     )
@@ -600,14 +611,14 @@ class UserStory(SQLModel, table=True):
         nullable=False,
         description="Soft supersede marker for duplicate legacy rows",
     )
-    superseded_by_story_id: Optional[int] = Field(
+    superseded_by_story_id: int | None = Field(
         default=None,
         foreign_key="user_stories.story_id",
         description="Canonical replacement story when this row is superseded",
     )
 
     # NEW: Persona field (auto-extracted from description)
-    persona: Optional[str] = Field(
+    persona: str | None = Field(
         default=None,
         max_length=100,
         index=True,
@@ -615,34 +626,36 @@ class UserStory(SQLModel, table=True):
     )
 
     # Completion tracking fields
-    resolution: Optional[StoryResolution] = Field(default=None)
-    completion_notes: Optional[str] = Field(default=None, sa_type=Text)
-    evidence_links: Optional[str] = Field(default=None, sa_type=Text)
-    completed_at: Optional[datetime] = Field(default=None)
+    resolution: StoryResolution | None = Field(default=None)
+    completion_notes: str | None = Field(default=None, sa_type=Text)
+    evidence_links: str | None = Field(default=None, sa_type=Text)
+    completed_at: datetime | None = Field(default=None)
     # AC change tracking
-    original_acceptance_criteria: Optional[str] = Field(default=None, sa_type=Text)
-    ac_updated_at: Optional[datetime] = Field(default=None)
-    ac_update_reason: Optional[str] = Field(default=None, sa_type=Text)
+    original_acceptance_criteria: str | None = Field(
+        default=None, sa_type=Text
+    )
+    ac_updated_at: datetime | None = Field(default=None)
+    ac_update_reason: str | None = Field(default=None, sa_type=Text)
 
     # NEW: Specification Authority v1 fields
-    accepted_spec_version_id: Optional[int] = Field(
+    accepted_spec_version_id: int | None = Field(
         default=None,
         foreign_key="spec_registry.spec_version_id",
-        description="Spec version this story was validated/accepted against"
+        description="Spec version this story was validated/accepted against",
     )
-    validation_evidence: Optional[str] = Field(
+    validation_evidence: str | None = Field(
         default=None,
         sa_type=Text,
-        description="JSON: validation results, rules checked, invariants applied"
+        description="JSON: validation results, rules checked, invariants applied",
     )
 
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2
         nullable=False,
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={
             "server_default": func.now(),
             "onupdate": func.now(),
@@ -654,16 +667,19 @@ class UserStory(SQLModel, table=True):
     # 1. Must belong to a product (for the backlog)
     product_id: int = Field(foreign_key="products.product_id", index=True)
     # 2. Can optionally belong to a feature
-    feature_id: Optional[int] = Field(default=None, foreign_key="features.feature_id")
+    feature_id: int | None = Field(
+        default=None, foreign_key="features.feature_id"
+    )
 
     # Relationships
     product: "Product" = Relationship(back_populates="stories")
     feature: Optional["Feature"] = Relationship(back_populates="stories")
-    sprints: List["Sprint"] = Relationship(
+    sprints: list["Sprint"] = Relationship(
         back_populates="stories", link_model=SprintStory
     )
-    tasks: List["Task"] = Relationship(
-        back_populates="story", sa_relationship_kwargs={"cascade": "all, delete"}
+    tasks: list["Task"] = Relationship(
+        back_populates="story",
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
 
 
@@ -671,20 +687,20 @@ class Task(SQLModel, table=True):
     """A granular sub-task for a user story."""
 
     __tablename__ = "tasks"  # type: ignore
-    task_id: Optional[int] = Field(default=None, primary_key=True)
+    task_id: int | None = Field(default=None, primary_key=True)
     description: str = Field(sa_type=Text)
-    metadata_json: Optional[str] = Field(
+    metadata_json: str | None = Field(
         default_factory=canonical_task_metadata_json,
         sa_type=Text,
     )
     status: TaskStatus = Field(default=TaskStatus.TO_DO, nullable=False)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={"server_default": func.now()},  # FIX 2
         nullable=False,
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),  # FIX 1
+        default_factory=lambda: datetime.now(UTC),  # FIX 1
         sa_column_kwargs={
             "server_default": func.now(),
             "onupdate": func.now(),
@@ -694,7 +710,7 @@ class Task(SQLModel, table=True):
 
     # Foreign Keys
     story_id: int = Field(foreign_key="user_stories.story_id")
-    assigned_to_member_id: Optional[int] = Field(
+    assigned_to_member_id: int | None = Field(
         default=None, foreign_key="team_members.member_id"
     )
 
@@ -708,22 +724,24 @@ class TaskExecutionLog(SQLModel, table=True):
 
     __tablename__ = "task_execution_logs"  # type: ignore
 
-    log_id: Optional[int] = Field(default=None, primary_key=True)
-    
+    log_id: int | None = Field(default=None, primary_key=True)
+
     # Task metadata at time of log
-    old_status: Optional[TaskStatus] = Field(default=None)
+    old_status: TaskStatus | None = Field(default=None)
     new_status: TaskStatus = Field(nullable=False)
-    
+
     # Execution delivery
-    outcome_summary: Optional[str] = Field(default=None, sa_type=Text)
-    artifact_refs_json: Optional[str] = Field(default=None, sa_type=Text)
-    acceptance_result: TaskAcceptanceResult = Field(default=TaskAcceptanceResult.NOT_CHECKED)
-    notes: Optional[str] = Field(default=None, sa_type=Text)
-    
+    outcome_summary: str | None = Field(default=None, sa_type=Text)
+    artifact_refs_json: str | None = Field(default=None, sa_type=Text)
+    acceptance_result: TaskAcceptanceResult = Field(
+        default=TaskAcceptanceResult.NOT_CHECKED
+    )
+    notes: str | None = Field(default=None, sa_type=Text)
+
     # Audit
     changed_by: str = Field(default="manual-ui", max_length=100)
     changed_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         sa_column_kwargs={"server_default": func.now()},
         nullable=False,
     )
@@ -742,18 +760,18 @@ class StoryCompletionLog(SQLModel, table=True):
 
     __tablename__ = "story_completion_logs"  # type: ignore
 
-    log_id: Optional[int] = Field(default=None, primary_key=True)
+    log_id: int | None = Field(default=None, primary_key=True)
     story_id: int = Field(foreign_key="user_stories.story_id", index=True)
     old_status: StoryStatus
     new_status: StoryStatus
-    resolution: Optional[StoryResolution] = Field(default=None)
-    delivered: Optional[str] = Field(default=None, sa_type=Text)
-    evidence: Optional[str] = Field(default=None, sa_type=Text)
-    known_gaps: Optional[str] = Field(default=None, sa_type=Text)
-    follow_ups_created: Optional[str] = Field(default=None, sa_type=Text)
-    changed_by: Optional[str] = Field(default=None)
+    resolution: StoryResolution | None = Field(default=None)
+    delivered: str | None = Field(default=None, sa_type=Text)
+    evidence: str | None = Field(default=None, sa_type=Text)
+    known_gaps: str | None = Field(default=None, sa_type=Text)
+    follow_ups_created: str | None = Field(default=None, sa_type=Text)
+    changed_by: str | None = Field(default=None)
     changed_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         sa_column_kwargs={"server_default": func.now()},
         nullable=False,
     )
@@ -772,27 +790,29 @@ class WorkflowEvent(SQLModel, table=True):
     """
 
     __tablename__ = "workflow_events"  # type: ignore
-    event_id: Optional[int] = Field(default=None, primary_key=True)
+    event_id: int | None = Field(default=None, primary_key=True)
     event_type: WorkflowEventType = Field(nullable=False, index=True)
     timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         sa_column_kwargs={"server_default": func.now()},
         nullable=False,
     )
     # Optional timing metrics
-    duration_seconds: Optional[float] = Field(default=None)
-    turn_count: Optional[int] = Field(default=None)
+    duration_seconds: float | None = Field(default=None)
+    turn_count: int | None = Field(default=None)
     # Context references
-    product_id: Optional[int] = Field(default=None, foreign_key="products.product_id")
-    sprint_id: Optional[int] = Field(default=None, foreign_key="sprints.sprint_id")
-    session_id: Optional[str] = Field(default=None, index=True)
+    product_id: int | None = Field(
+        default=None, foreign_key="products.product_id"
+    )
+    sprint_id: int | None = Field(
+        default=None, foreign_key="sprints.sprint_id"
+    )
+    session_id: str | None = Field(default=None, index=True)
     # Extra data (JSON string for flexibility) - named event_metadata to avoid SQLAlchemy reserved name
-    event_metadata: Optional[str] = Field(default=None, sa_type=Text)
+    event_metadata: str | None = Field(default=None, sa_type=Text)
 
 
 # --- 4. Database Engine and Main Function ---
-
-
 
 
 def _is_pytest_running() -> bool:
@@ -821,25 +841,25 @@ def _create_production_engine():
 def get_engine():
     """
     Return the database engine with test safety guard.
-    
+
     When running under pytest, this function raises an error unless:
     - ALLOW_PROD_DB_IN_TEST=1 environment variable is set, or
     - Tests monkey-patch the engine (recommended)
-    
+
     This prevents accidental writes to production database during tests.
-    
+
     For tests, use the 'engine' fixture from conftest.py which provides
     an in-memory database, then monkey-patch this module:
         monkeypatch.setattr(module, "engine", test_engine)
-    
+
     Returns:
         Engine: SQLAlchemy database engine
-        
+
     Raises:
         RuntimeError: If called during pytest without explicit override
     """
     global _production_engine
-    
+
     if _is_pytest_running():
         if not os.environ.get("ALLOW_PROD_DB_IN_TEST"):
             raise RuntimeError(
@@ -847,10 +867,10 @@ def get_engine():
                 "Tests should use the 'engine' fixture and monkey-patch the module. "
                 "Example: monkeypatch.setattr(save_mod, 'engine', test_engine)"
             )
-    
+
     if _production_engine is None:
         _production_engine = _create_production_engine()
-    
+
     return _production_engine
 
 
@@ -879,7 +899,7 @@ def create_db_and_tables():
     print("Tables created successfully.")
 
 
-def ensure_business_db_ready(engine_override: Optional[Engine] = None) -> None:
+def ensure_business_db_ready(engine_override: Engine | None = None) -> None:
     """Create core business tables and apply idempotent migrations."""
     target_engine = engine_override or engine
     SQLModel.metadata.create_all(target_engine)
