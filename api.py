@@ -12,7 +12,7 @@ import json
 import logging
 import re
 from collections.abc import AsyncIterator, Sequence
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -62,9 +62,15 @@ from orchestrator_agent.agent_tools.product_vision_tool.tools import (
     SaveVisionInput,
     save_vision_tool,
 )
+from orchestrator_agent.agent_tools.roadmap_builder.schemes import (
+    RoadmapBuilderOutput,
+)
 from orchestrator_agent.agent_tools.roadmap_builder.tools import (
     SaveRoadmapToolInput,
     save_roadmap_tool,
+)
+from orchestrator_agent.agent_tools.sprint_planner_tool.schemes import (
+    SprintPlannerOutput,
 )
 from orchestrator_agent.agent_tools.sprint_planner_tool.tools import (
     SaveSprintPlanInput,
@@ -89,6 +95,7 @@ from services.interview_runtime import (
     reset_subject_working_set,
     set_request_projection,
 )
+from services.packet_renderer import render_packet
 from services.roadmap_runtime import run_roadmap_agent_from_state
 from services.sprint_input import load_sprint_candidates
 from services.sprint_runtime import (
@@ -150,9 +157,19 @@ def _queryable_attr(attr: object) -> QueryableAttribute[object]:
     return cast(QueryableAttribute[object], attr)
 
 
+class ProductIDError(ValueError):
+    """Exception raised when a product ID is missing."""
+
+    def __init__(
+        self, message: str = "Product creation did not return an id"
+    ) -> None:
+        """Initialize the exception with a default or custom error message."""
+        super().__init__(message)
+
+
 def _require_product_id(product: Product) -> int:
     if product.product_id is None:
-        raise ValueError("Product creation did not return an id")
+        raise ProductIDError()
     return product.product_id
 
 
@@ -662,7 +679,10 @@ def _build_sprint_runtime_summary(
         "create_next_sprint_disabled_reason": (
             None
             if planned is None
-            else "A planned sprint already exists. Modify it instead of creating another."
+            else (
+                "A planned sprint already exists. "
+                "Modify it instead of creating another."
+            )
         ),
     }
 
@@ -684,7 +704,10 @@ def _allowed_actions_for_sprint(
         "start_disabled_reason": (
             None
             if can_start
-            else "Only planned sprints without another active sprint can be started."
+            else (
+                "Only planned sprints without another "
+                "active sprint can be started."
+            )
         ),
         "can_close": can_close,
         "close_disabled_reason": (
@@ -1012,7 +1035,8 @@ def _build_task_hard_constraints(
         invariant = invariant_map.get(invariant_id)
         if invariant is None:
             logger.warning(
-                "Ignoring unknown invariant id '%s' while building task packet hard constraints.",
+                "Ignoring unknown invariant id '%s' while building "
+                "task packet hard constraints.",
                 invariant_id,
             )
             continue
@@ -1471,7 +1495,8 @@ async def _run_setup(
         tool_context=_build_tool_context(context),
     )
 
-    # Rehydrate after setup attempt to refresh active project + compiled authority cache.
+    # Rehydrate after setup attempt to refresh active project +
+    # compiled authority cache.
     select_project(project_id, _build_tool_context(context))
 
     setup_passed = bool(
@@ -1698,6 +1723,7 @@ async def create_project(
 
 @app.delete("/api/projects/{project_id}")
 async def delete_project(project_id: int) -> dict[str, object]:
+    """Delete a project and all its associated data."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1722,7 +1748,10 @@ async def delete_project(project_id: int) -> dict[str, object]:
 
 
 @app.post("/api/projects/{project_id}/setup/retry")
-async def retry_project_setup(project_id: int, req: RetrySetupRequest):
+async def retry_project_setup(
+    project_id: int, req: RetrySetupRequest
+) -> dict[str, object]:
+    """Retry project setup after a failure."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1748,7 +1777,8 @@ async def retry_project_setup(project_id: int, req: RetrySetupRequest):
 
 
 @app.get("/api/projects/{project_id}/state")
-async def get_project_state(project_id: int):
+async def get_project_state(project_id: int) -> dict[str, object]:
+    """Get the current state of a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1763,7 +1793,10 @@ async def get_project_state(project_id: int):
 
 
 @app.get("/api/projects/{project_id}/debug/failures/{artifact_id}")
-async def get_project_failure_artifact(project_id: int, artifact_id: str):
+async def get_project_failure_artifact(
+    project_id: int, artifact_id: str
+) -> dict[str, object]:
+    """Get a failure artifact for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1783,7 +1816,10 @@ async def get_project_failure_artifact(project_id: int, artifact_id: str):
 
 
 @app.post("/api/projects/{project_id}/vision/generate")
-async def generate_project_vision(project_id: int, req: VisionGenerateRequest):
+async def generate_project_vision(
+    project_id: int, req: VisionGenerateRequest
+) -> dict[str, object]:
+    """Generate product vision for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1851,7 +1887,8 @@ async def generate_project_vision(project_id: int, req: VisionGenerateRequest):
 
 
 @app.get("/api/projects/{project_id}/vision/history")
-async def get_project_vision_history(project_id: int):
+async def get_project_vision_history(project_id: int) -> dict[str, Any]:
+    """Get the history of vision generation attempts for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1872,7 +1909,10 @@ async def get_project_vision_history(project_id: int):
 
 
 @app.post("/api/projects/{project_id}/vision/save")
-async def save_project_vision(project_id: int):
+async def save_project_vision(
+    project_id: int,
+) -> dict[str, Any]:
+    """Save the current product vision for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1990,7 +2030,8 @@ def _set_backlog_fsm_state(state: dict[str, Any], *, is_complete: bool) -> str:
 @app.post("/api/projects/{project_id}/backlog/generate")
 async def generate_project_backlog(
     project_id: int, req: BacklogGenerateRequest
-):
+) -> dict[str, Any]:
+    """Generate or refine the product backlog for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -2014,7 +2055,10 @@ async def generate_project_backlog(
     ]:
         raise HTTPException(
             status_code=409,
-            detail=f"Invalid FSM State for backlog: {context.state.get('fsm_state')}",
+            detail=(
+                "Invalid FSM State for backlog: "
+                f"{context.state.get('fsm_state')}"
+            ),
         )
 
     attempts = _ensure_backlog_attempts(context.state)
@@ -2071,7 +2115,8 @@ async def generate_project_backlog(
 
 
 @app.get("/api/projects/{project_id}/backlog/history")
-async def get_project_backlog_history(project_id: int):
+async def get_project_backlog_history(project_id: int) -> dict[str, Any]:
+    """Get the history of backlog generation attempts for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -2092,7 +2137,8 @@ async def get_project_backlog_history(project_id: int):
 
 
 @app.post("/api/projects/{project_id}/backlog/save")
-async def save_project_backlog(project_id: int):
+async def save_project_backlog(project_id: int) -> dict[str, Any]:
+    """Save the current product backlog for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -2213,7 +2259,8 @@ def _set_roadmap_fsm_state(state: dict[str, Any], *, is_complete: bool) -> str:
 @app.post("/api/projects/{project_id}/roadmap/generate")
 async def generate_project_roadmap(
     project_id: int, req: RoadmapGenerateRequest
-):
+) -> dict[str, Any]:
+    """Generate or refine the product roadmap for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -2271,7 +2318,8 @@ async def generate_project_roadmap(
 
 
 @app.get("/api/projects/{project_id}/roadmap/history")
-async def get_project_roadmap_history(project_id: int):
+async def get_project_roadmap_history(project_id: int) -> dict[str, Any]:
+    """Get the history of roadmap generation attempts for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -2292,7 +2340,8 @@ async def get_project_roadmap_history(project_id: int):
 
 
 @app.post("/api/projects/{project_id}/roadmap/save")
-async def save_project_roadmap(project_id: int):
+async def save_project_roadmap(project_id: int) -> dict[str, Any]:
+    """Save the current product roadmap for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -2312,10 +2361,6 @@ async def save_project_roadmap(project_id: int):
             detail="Roadmap cannot be saved until is_complete is true",
         )
 
-    from orchestrator_agent.agent_tools.roadmap_builder.schemes import (
-        RoadmapBuilderOutput,
-    )
-
     context = await _hydrate_context(session_id, project_id)
 
     try:
@@ -2323,7 +2368,7 @@ async def save_project_roadmap(project_id: int):
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Invalid roadmap data in session: {e!s}"
-        )
+        ) from e
 
     result = save_roadmap_tool(
         SaveRoadmapToolInput(
@@ -2354,13 +2399,13 @@ async def save_project_roadmap(project_id: int):
     }
 
 
-# ==============================================================================
+# ===========================================================================
 # STORY ENDPOINTS
-# ==============================================================================
+# ===========================================================================
 
 
 def _get_all_roadmap_requirements(state: dict[str, Any]) -> list[str]:
-    """Helper: extract all assigned backlog items from saved roadmap releases."""
+    """Extract all assigned backlog items from saved roadmap releases."""
     releases = state.get("roadmap_releases") or []
     reqs: list[str] = []
     for rel in releases:
@@ -2691,7 +2736,8 @@ def _sync_story_legacy_mirrors(
 
 
 @app.get("/api/projects/{project_id}/story/pending")
-async def get_project_story_pending(project_id: int):
+async def get_project_story_pending(project_id: int) -> dict[str, Any]:
+    """Get the list of requirements with pending story generation."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -2762,7 +2808,8 @@ async def get_project_story_pending(project_id: int):
 @app.post("/api/projects/{project_id}/story/generate")
 async def generate_project_story(
     project_id: int, parent_requirement: str, req: StoryGenerateRequest
-):
+) -> dict[str, Any]:
+    """Generate or refine a user story for a parent requirement."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -2782,7 +2829,10 @@ async def generate_project_story(
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"Requirement '{parent_requirement}' not found in saved roadmap.",
+                detail=(
+                    f"Requirement '{parent_requirement}' "
+                    "not found in saved roadmap."
+                ),
             )
 
     runtime = _ensure_story_runtime(
@@ -2824,7 +2874,9 @@ async def generate_project_story(
     )
     request_projection = set_request_projection(
         runtime,
-        request_snapshot_id=f"request-{len(runtime.get('attempt_history') or []) + 1}",
+        request_snapshot_id=(
+            f"request-{len(runtime.get('attempt_history') or []) + 1}"
+        ),
         payload=request_payload,
         request_hash=hashlib.sha256(
             json.dumps(request_payload, sort_keys=True).encode("utf-8")
@@ -2900,7 +2952,10 @@ async def generate_project_story(
 
 
 @app.post("/api/projects/{project_id}/story/retry")
-async def retry_project_story(project_id: int, parent_requirement: str):
+async def retry_project_story(
+    project_id: int, parent_requirement: str
+) -> dict[str, Any]:
+    """Retry user story generation for a parent requirement."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -2994,7 +3049,10 @@ async def retry_project_story(project_id: int, parent_requirement: str):
 
 
 @app.get("/api/projects/{project_id}/story/history")
-async def get_project_story_history(project_id: int, parent_requirement: str):
+async def get_project_story_history(
+    project_id: int, parent_requirement: str
+) -> dict[str, Any]:
+    """Get the history of story generation attempts for a requirement."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -3019,7 +3077,10 @@ async def get_project_story_history(project_id: int, parent_requirement: str):
 
 
 @app.post("/api/projects/{project_id}/story/save")
-async def save_project_story(project_id: int, parent_requirement: str):
+async def save_project_story(
+    project_id: int, parent_requirement: str
+) -> dict[str, Any]:
+    """Save the current user story draft for a specific requirement."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -3082,7 +3143,10 @@ async def save_project_story(project_id: int, parent_requirement: str):
 
 
 @app.post("/api/projects/{project_id}/story/merge")
-async def merge_project_story(project_id: int, parent_requirement: str):
+async def merge_project_story(
+    project_id: int, parent_requirement: str
+) -> dict[str, Any]:
+    """Merge a user story into another based on agent recommendations."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -3098,7 +3162,9 @@ async def merge_project_story(project_id: int, parent_requirement: str):
     if not recommendation:
         raise HTTPException(
             status_code=409,
-            detail="No merge recommendation is available for this requirement.",
+            detail=(
+                "No merge recommendation is available for this requirement."
+            ),
         )
 
     resolution = {
@@ -3129,10 +3195,10 @@ async def merge_project_story(project_id: int, parent_requirement: str):
 
 
 @app.delete("/api/projects/{project_id}/story")
-async def delete_project_story(project_id: int, parent_requirement: str):
-    """
-    Deletes all generated stories for a specific requirement and resets its state.
-    """
+async def delete_project_story(
+    project_id: int, parent_requirement: str
+) -> dict[str, Any]:
+    """Delete all generated stories for a specific requirement."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -3152,8 +3218,9 @@ async def delete_project_story(project_id: int, parent_requirement: str):
         deleted_count = len(story_ids)
 
         if story_ids:
-            # When batch deleting, we must explicitly delete child records to satisfy foreign keys
-            # since bulk delete operations bypass SQLAlchemy ORM-level cascades.
+            # When batch deleting, we must explicitly delete child records
+            # to satisfy foreign keys since bulk delete operations bypass
+            # SQLAlchemy ORM-level cascades.
             # Chunking the IN clause is a good practice to avoid SQLite limits
             chunk_size = 500
             for i in range(0, len(story_ids), chunk_size):
@@ -3175,7 +3242,7 @@ async def delete_project_story(project_id: int, parent_requirement: str):
                     )
                 )
 
-                # Delete tasks (and potentially their execution logs if they exist)
+                # Delete tasks (and potentially their execution logs)
                 # First get task IDs to delete any task execution logs
 
                 task_ids_stmt = select(Task.task_id).where(
@@ -3244,11 +3311,8 @@ async def delete_project_story(project_id: int, parent_requirement: str):
 
 
 @app.post("/api/projects/{project_id}/story/complete_phase")
-async def complete_story_phase(project_id: int):
-    """
-    Called when the user has verified/saved all requirements and wants to advance
-    to the Sprint phase.
-    """
+async def complete_story_phase(project_id: int) -> dict[str, Any]:
+    """Complete the story phase and transition to sprint setup."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -3264,7 +3328,9 @@ async def complete_story_phase(project_id: int):
     if len(saved) == 0:
         raise HTTPException(
             status_code=409,
-            detail="Cannot complete phase. No requirements have saved stories.",
+            detail=(
+                "Cannot complete phase. No requirements have saved stories."
+            ),
         )
 
     # All pass, transition into Sprint Setup for explicit planning inputs.
@@ -3284,9 +3350,9 @@ async def complete_story_phase(project_id: int):
     return {"status": "success", "data": {"fsm_state": state.get("fsm_state")}}
 
 
-# ==============================================================================
+# ===========================================================================
 # SPRINT ENDPOINTS
-# ==============================================================================
+# ===========================================================================
 
 
 def _ensure_sprint_attempts(state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -3298,7 +3364,7 @@ def _ensure_sprint_attempts(state: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _load_current_planned_sprint_id(project_id: int) -> int | None:
     with Session(get_engine()) as session:
-        planned_sprint = session.exec(
+        return session.exec(
             select(Sprint.sprint_id)
             .where(
                 Sprint.product_id == project_id,
@@ -3310,7 +3376,6 @@ def _load_current_planned_sprint_id(project_id: int) -> int | None:
                 desc(_queryable_attr(Sprint.sprint_id)),
             )
         ).first()
-    return planned_sprint
 
 
 def _reset_sprint_planner_working_set(state: dict[str, Any]) -> None:
@@ -3369,7 +3434,8 @@ def _record_sprint_attempt(
 
 
 @app.get("/api/projects/{project_id}/sprint/candidates")
-async def get_project_sprint_candidates(project_id: int):
+async def get_project_sprint_candidates(project_id: int) -> dict[str, Any]:
+    """Get the list of stories eligible for the next sprint."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -3393,7 +3459,10 @@ async def get_project_sprint_candidates(project_id: int):
 
 
 @app.post("/api/projects/{project_id}/sprint/generate")
-async def generate_project_sprint(project_id: int, req: SprintGenerateRequest):
+async def generate_project_sprint(
+    project_id: int, req: SprintGenerateRequest
+) -> dict[str, Any]:
+    """Generate or refine a sprint plan for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -3415,7 +3484,10 @@ async def generate_project_sprint(project_id: int, req: SprintGenerateRequest):
     if state.get("fsm_state") not in valid_states:
         raise HTTPException(
             status_code=409,
-            detail=f"Invalid phase for sprint generation (state: {state.get('fsm_state')})",
+            detail=(
+                "Invalid phase for sprint generation "
+                f"(state: {state.get('fsm_state')})"
+            ),
         )
 
     attempts = _ensure_sprint_attempts(state)
@@ -3473,7 +3545,8 @@ async def generate_project_sprint(project_id: int, req: SprintGenerateRequest):
 
 
 @app.get("/api/projects/{project_id}/sprint/history")
-async def get_project_sprint_history(project_id: int):
+async def get_project_sprint_history(project_id: int) -> dict[str, Any]:
+    """Get the history of sprint planning attempts for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -3506,7 +3579,8 @@ async def get_project_sprint_history(project_id: int):
 
 
 @app.post("/api/projects/{project_id}/sprint/planner/reset")
-async def reset_project_sprint_planner(project_id: int):
+async def reset_project_sprint_planner(project_id: int) -> dict[str, Any]:
+    """Reset the sprint planner working set for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -3515,7 +3589,10 @@ async def reset_project_sprint_planner(project_id: int):
     if planned_sprint_id is not None:
         raise HTTPException(
             status_code=409,
-            detail="A planned sprint already exists. Modify it instead of creating another.",
+            detail=(
+                "A planned sprint already exists. "
+                "Modify it instead of creating another."
+            ),
         )
 
     session_id = str(project_id)
@@ -3533,7 +3610,8 @@ async def reset_project_sprint_planner(project_id: int):
 
 
 @app.get("/api/projects/{project_id}/sprints")
-async def list_project_sprints(project_id: int):
+async def list_project_sprints(project_id: int) -> dict[str, Any]:
+    """List all saved sprints for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -3550,7 +3628,10 @@ async def list_project_sprints(project_id: int):
 
 
 @app.get("/api/projects/{project_id}/sprints/{sprint_id}")
-async def get_project_sprint(project_id: int, sprint_id: int):
+async def get_project_sprint(
+    project_id: int, sprint_id: int
+) -> dict[str, Any]:
+    """Get detailed information for a specific sprint."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -3579,11 +3660,10 @@ async def get_project_sprint(project_id: int, sprint_id: int):
         }
 
 
-@app.get(
-    "/api/projects/{project_id}/sprints/{sprint_id}/close",
-    response_model=SprintCloseReadResponse,
-)
-def get_sprint_close(project_id: int, sprint_id: int):
+def get_sprint_close(
+    project_id: int, sprint_id: int
+) -> SprintCloseReadResponse:
+    """Get readiness information for closing an active sprint."""
     with Session(get_engine()) as session:
         sprint = _get_saved_sprint(session, project_id, sprint_id)
         if not sprint:
@@ -3611,13 +3691,10 @@ def get_sprint_close(project_id: int, sprint_id: int):
         )
 
 
-@app.post(
-    "/api/projects/{project_id}/sprints/{sprint_id}/close",
-    response_model=SprintCloseReadResponse,
-)
 def post_sprint_close(
     project_id: int, sprint_id: int, req: SprintCloseWriteRequest
-):
+) -> SprintCloseReadResponse:
+    """Close an active sprint and record the final snapshot."""
     with Session(get_engine()) as session:
         sprint = _get_saved_sprint(session, project_id, sprint_id)
         if not sprint:
@@ -3668,12 +3745,10 @@ def post_sprint_close(
         )
 
 
-@app.get(
-    "/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet"
-)
 async def get_project_task_packet(
     project_id: int, sprint_id: int, task_id: int, flavor: str | None = None
-):
+) -> dict[str, Any]:
+    """Get the execution context packet for a specific sprint task."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -3692,8 +3767,6 @@ async def get_project_task_packet(
 
         payload = dict(packet)
         if flavor:
-            from services.packet_renderer import render_packet
-
             payload["render"] = render_packet(packet, flavor)
 
         return {
@@ -3702,15 +3775,13 @@ async def get_project_task_packet(
         }
 
 
-@app.get(
-    "/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/packet"
-)
 async def get_project_story_packet(
     project_id: int,
     sprint_id: int,
     story_id: int,
     flavor: str | None = None,
-):
+) -> dict[str, Any]:
+    """Get the context packet for a specific user story in a sprint."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -3729,8 +3800,6 @@ async def get_project_story_packet(
 
         payload = dict(packet)
         if flavor:
-            from services.packet_renderer import render_packet
-
             payload["render"] = render_packet(packet, flavor)
 
         return {
@@ -3739,11 +3808,10 @@ async def get_project_story_packet(
         }
 
 
-@app.get(
-    "/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/execution",
-    response_model=TaskExecutionReadResponse,
-)
-def get_task_execution(project_id: int, sprint_id: int, task_id: int):
+def get_task_execution(
+    project_id: int, sprint_id: int, task_id: int
+) -> TaskExecutionReadResponse:
+    """Get the execution history for a specific sprint task."""
     with Session(get_engine()) as session:
         task = session.get(Task, task_id)
         if not task:
@@ -3783,10 +3851,8 @@ def get_task_execution(project_id: int, sprint_id: int, task_id: int):
                 continue
             artifact_refs = []
             if log.artifact_refs_json:
-                try:
+                with suppress(Exception):
                     artifact_refs = json.loads(log.artifact_refs_json)
-                except Exception:
-                    pass
             history.append(
                 TaskExecutionLogEntry(
                     log_id=log.log_id,
@@ -3813,16 +3879,13 @@ def get_task_execution(project_id: int, sprint_id: int, task_id: int):
         )
 
 
-@app.post(
-    "/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/execution",
-    response_model=TaskExecutionReadResponse,
-)
 def post_task_execution(
     project_id: int,
     sprint_id: int,
     task_id: int,
     req: TaskExecutionWriteRequest,
-):
+) -> TaskExecutionReadResponse:
+    """Record a progress log entry for an active sprint task."""
     with Session(get_engine()) as session:
         task = session.get(Task, task_id)
         if not task:
@@ -3887,11 +3950,10 @@ def post_task_execution(
     return get_task_execution(project_id, sprint_id, task_id)
 
 
-@app.get(
-    "/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/close",
-    response_model=StoryCloseReadResponse,
-)
-def get_story_close(project_id: int, sprint_id: int, story_id: int):
+def get_story_close(
+    project_id: int, sprint_id: int, story_id: int
+) -> StoryCloseReadResponse:
+    """Get readiness information for closing a user story in a sprint."""
     with Session(get_engine()) as session:
         story = session.get(UserStory, story_id)
         if not story:
@@ -3919,14 +3981,14 @@ def get_story_close(project_id: int, sprint_id: int, story_id: int):
         tasks = session.exec(
             select(Task).where(Task.story_id == story_id)
         ).all()
-        total_tasks, done_tasks, cancelled_tasks, all_actionable_done = (
+        total_tasks, _done, _cancelled, all_actionable_done = (
             _story_task_progress(tasks)
         )
 
         readiness = StoryTaskProgressSummary(
             total_tasks=total_tasks,
-            done_tasks=done_tasks,
-            cancelled_tasks=cancelled_tasks,
+            done_tasks=_done,
+            cancelled_tasks=_cancelled,
             all_actionable_tasks_done=all_actionable_done,
         )
 
@@ -3959,13 +4021,10 @@ def get_story_close(project_id: int, sprint_id: int, story_id: int):
         )
 
 
-@app.post(
-    "/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/close",
-    response_model=StoryCloseReadResponse,
-)
 def post_story_close(
     project_id: int, sprint_id: int, story_id: int, req: StoryCloseWriteRequest
-):
+) -> StoryCloseReadResponse:
+    """Close a user story and record the final resolution notes."""
     with Session(get_engine()) as session:
         story = session.get(UserStory, story_id)
         if not story:
@@ -3993,9 +4052,7 @@ def post_story_close(
         tasks = session.exec(
             select(Task).where(Task.story_id == story_id)
         ).all()
-        total_tasks, done_tasks, cancelled_tasks, all_actionable_done = (
-            _story_task_progress(tasks)
-        )
+        total_tasks, _, _, all_actionable_done = _story_task_progress(tasks)
 
         if total_tasks == 0:
             raise HTTPException(
@@ -4006,7 +4063,10 @@ def post_story_close(
         if not all_actionable_done:
             raise HTTPException(
                 status_code=409,
-                detail="Cannot close a story unless all actionable tasks are Done or Cancelled.",
+                detail=(
+                    "Cannot close a story unless all "
+                    "actionable tasks are Done or Cancelled."
+                ),
             )
 
         old_status = story.status
@@ -4045,7 +4105,10 @@ def post_story_close(
 
 
 @app.post("/api/projects/{project_id}/sprint/save")
-async def save_project_sprint(project_id: int, req: SprintSaveRequest):
+async def save_project_sprint(
+    project_id: int, req: SprintSaveRequest
+) -> dict[str, Any]:
+    """Save the current sprint planning draft for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -4070,10 +4133,6 @@ async def save_project_sprint(project_id: int, req: SprintSaveRequest):
             detail="Sprint cannot be saved until is_complete is true",
         )
 
-    from orchestrator_agent.agent_tools.sprint_planner_tool.schemes import (
-        SprintPlannerOutput,
-    )
-
     team_name = req.team_name.strip()
     sprint_start_date = req.sprint_start_date.strip()
     if not team_name:
@@ -4091,7 +4150,7 @@ async def save_project_sprint(project_id: int, req: SprintSaveRequest):
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Invalid sprint data in session: {e!s}"
-        )
+        ) from e
 
     context = await _hydrate_context(session_id, project_id)
     context.state["sprint_plan"] = sprint_data.model_dump(exclude_none=True)
@@ -4135,7 +4194,10 @@ async def save_project_sprint(project_id: int, req: SprintSaveRequest):
 
 
 @app.patch("/api/projects/{project_id}/sprints/{sprint_id}/start")
-async def start_project_sprint(project_id: int, sprint_id: int):
+async def start_project_sprint(
+    project_id: int, sprint_id: int
+) -> dict[str, Any]:
+    """Start an active sprint for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -4231,5 +4293,5 @@ if __name__ == "__main__":
     host = get_api_host()
     port = get_api_port()
     reload_enabled = get_api_reload()
-    print(f"Starting AgenticFlow Dashboard on http://{host}:{port}")
+    logger.info("Starting AgenticFlow Dashboard on http://%s:%s", host, port)
     uvicorn.run("api:app", host=host, port=port, reload=reload_enabled)
