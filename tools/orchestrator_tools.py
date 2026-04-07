@@ -8,38 +8,33 @@ small summaries in ADK's persistent session state to reduce latency.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
-from sqlalchemy import func
 from sqlmodel import Session, select
 
-from agile_sqlmodel import (
-    CompiledSpecAuthority,
-    Epic,
-    Feature,
-    Product,
-    SpecRegistry,
-    Sprint,
-    SprintStatus,
-    SprintStory,
-    StoryStatus,
-    Theme,
-    UserStory,
-    get_engine,
+from models.core import Product, UserStory
+from models.db import get_engine
+from models.enums import StoryStatus
+from services.orchestrator_context_service import (
+    get_project_details as _get_project_details_service,
+    select_project as _select_project_service,
 )
-from utils.schemes import ValidationEvidence
-
-# --- Cache configuration ---
-CACHE_TTL_MINUTES: int = 5
+from services.orchestrator_query_service import (
+    CACHE_TTL_MINUTES,
+    fetch_sprint_candidates as _fetch_sprint_candidates_service,
+    get_real_business_state as _get_real_business_state_service,
+    is_projects_cache_fresh as _is_projects_cache_fresh_service,
+    refresh_projects_cache as _refresh_projects_cache_service,
+    utc_now_iso as _utc_now_iso_service,
+)
 
 
 def _utc_now_iso() -> str:
-    """Return current UTC time in RFC3339/ISO format with 'Z' suffix."""
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    """Compatibility shim over the orchestrator query service helper."""
+    return _utc_now_iso_service()
 
 
 def _normalize_params(params: Any) -> Dict[str, Any]:
@@ -78,107 +73,15 @@ def _normalize_params(params: Any) -> Dict[str, Any]:
 def _is_fresh(
     state: Dict[str, Any], ttl_minutes: int = CACHE_TTL_MINUTES
 ) -> bool:
-    """Return True if state['projects_last_refreshed_utc'] is within TTL."""
-    ts = state.get("projects_last_refreshed_utc")
-    if not ts:
-        return False
-    last = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
-    return datetime.now(timezone.utc) - last <= timedelta(minutes=ttl_minutes)
-
-
-def _query_products(session: Session) -> List[Product]:
-    """Fetch all products."""
-    return list(session.exec(select(Product)).all())
-
-
-def _story_evaluated_invariant_ids(story: UserStory) -> List[str]:
-    """Return the evaluated invariant IDs already validated for a story."""
-
-    if not story.validation_evidence:
-        return []
-    try:
-        evidence = ValidationEvidence.model_validate_json(story.validation_evidence)
-    except Exception:  # pylint: disable=broad-except
-        return []
-    return list(evidence.evaluated_invariant_ids or [])
-
-
-def _story_compliance_boundary_summaries(story: UserStory) -> List[str]:
-    """Return the evaluated compliance boundaries for a story."""
-    if not story.validation_evidence:
-        return []
-    try:
-        evidence = ValidationEvidence.model_validate_json(story.validation_evidence)
-    except Exception:  # pylint: disable=broad-except
-        return []
-    
-    findings = evidence.alignment_failures + evidence.alignment_warnings
-    return [finding.message for finding in findings if finding.message]
-
-
-def _build_projects_payload(
-    session: Session, products: Iterable[Product]
-) -> Tuple[int, List[Dict[str, Any]]]:
-    """Build (count, projects_list) from DB rows."""
-    projects: List[Dict[str, Any]] = []
-
-    # 1. Collect product IDs
-    product_ids = [p.product_id for p in products]
-
-    if not product_ids:
-        return 0, []
-
-    # 2. Fetch counts in one query
-    story_counts_query = (
-        select(UserStory.product_id, func.count(cast(Any, UserStory.story_id)))
-        .where(cast(Any, UserStory.product_id).in_(product_ids))
-        .group_by(cast(Any, UserStory.product_id))
-    )
-    sprint_counts_query = (
-        select(Sprint.product_id, func.count(cast(Any, Sprint.sprint_id)))
-        .where(cast(Any, Sprint.product_id).in_(product_ids))
-        .group_by(cast(Any, Sprint.product_id))
-    )
-
-    # Map product_id -> count
-    story_counts: Dict[int, int] = {
-        pid: count for pid, count in session.exec(story_counts_query).all()
-    }
-    sprint_counts: Dict[int, int] = {
-        pid: count for pid, count in session.exec(sprint_counts_query).all()
-    }
-
-    for product in products:
-        projects.append(
-            {
-                "product_id": product.product_id,
-                "name": product.name,
-                "vision": product.vision or "(No vision set)",
-                "roadmap": product.roadmap or "(No roadmap set)",
-                "user_stories_count": story_counts.get(
-                    cast(int, product.product_id), 0
-                ),
-                "sprint_count": sprint_counts.get(
-                    cast(int, product.product_id), 0
-                ),
-            }
-        )
-    return len(projects), projects
+    """Compatibility shim over the orchestrator query service cache TTL helper."""
+    return _is_projects_cache_fresh_service(state, ttl_minutes=ttl_minutes)
 
 
 def _refresh_projects_cache(
     state: Dict[str, Any],
 ) -> Tuple[int, List[Dict[str, Any]]]:
-    """Hit the DB and update the persistent cache in `state`."""
-    print("   [Cache] Cache miss or expired. Querying Database...")
-    with Session(get_engine()) as session:
-        products = _query_products(session)
-        count, projects = _build_projects_payload(session, products)
-
-    state["projects_summary"] = count
-    state["projects_list"] = projects
-    state["projects_last_refreshed_utc"] = _utc_now_iso()
-    return count, projects
+    """Compatibility shim over the orchestrator query service cache refresher."""
+    return _refresh_projects_cache_service(state)
 
 
 class CountProjectsInput(BaseModel):
@@ -268,93 +171,8 @@ def list_projects(params: Any, tool_context: ToolContext) -> Dict[str, Any]:
 
 
 def get_project_details(product_id: int) -> Dict[str, Any]:
-    """Agent tool: Get detailed breakdown of a project."""
-    print(f"\n[Tool: get_project_details] Querying ID: {product_id}")
-    with Session(get_engine()) as session:
-        product = session.get(Product, product_id)
-        if not product:
-            print("   [DB] Product not found.")
-            return {
-                "success": False,
-                "error": f"Product {product_id} not found",
-            }
-
-        # Optimized count queries using aggregations
-        theme_count = session.exec(
-            select(func.count(cast(Any, Theme.theme_id))).where(
-                Theme.product_id == product_id
-            )
-        ).one()
-
-        epic_count = session.exec(
-            select(func.count(cast(Any, Epic.epic_id)))
-            .join(Theme)
-            .where(Theme.product_id == product_id)
-        ).one()
-
-        feature_count = session.exec(
-            select(func.count(cast(Any, Feature.feature_id)))
-            .join(Epic)
-            .join(Theme)
-            .where(Theme.product_id == product_id)
-        ).one()
-
-        story_count = session.exec(
-            select(func.count(cast(Any, UserStory.story_id))).where(
-                UserStory.product_id == product_id
-            )
-        ).one()
-        sprint_count = session.exec(
-            select(func.count(cast(Any, Sprint.sprint_id))).where(
-                Sprint.product_id == product_id
-            )
-        ).one()
-
-        latest_spec_version_id = session.exec(
-            select(SpecRegistry.spec_version_id)
-            .where(
-                SpecRegistry.product_id == product_id,
-                SpecRegistry.status == "approved",
-            )
-            .order_by(
-                SpecRegistry.approved_at.desc(),
-                SpecRegistry.spec_version_id.desc(),
-            )
-            .limit(1)
-        ).first()
-
-        print(f"   [DB] Success. Found '{product.name}'.")
-        return {
-            "success": True,
-            "product": {
-                "id": product.product_id,
-                "name": product.name,
-                "description": product.description,
-                "vision": product.vision,
-                "roadmap": product.roadmap,
-                "technical_spec": product.technical_spec,
-                "compiled_authority_json": product.compiled_authority_json,
-                "spec_file_path": product.spec_file_path,
-                "spec_loaded_at": (
-                    product.spec_loaded_at.isoformat()
-                    if product.spec_loaded_at
-                    else None
-                ),
-                "latest_spec_version_id": latest_spec_version_id,
-            },
-            "structure": {
-                "themes": theme_count,
-                "epics": epic_count,
-                "features": feature_count,
-                "user_stories": story_count,
-                "sprints": sprint_count,
-            },
-            "message": (
-                f"Project '{product.name}' has {theme_count} theme(s), "
-                f"{epic_count} epic(s), {feature_count} feature(s), "
-                f"{story_count} story(ies), {sprint_count} sprint(s)"
-            ),
-        }
+    """Compatibility adapter over the orchestrator context service boundary."""
+    return _get_project_details_service(product_id)
 
 
 def get_project_by_name(project_name: str) -> Dict[str, Any]:
@@ -457,115 +275,8 @@ def fetch_product_backlog(product_id: int) -> Dict[str, Any]:
 
 
 def fetch_sprint_candidates(product_id: int) -> Dict[str, Any]:
-    """
-    Fetch sprint-eligible stories for a product.
-
-    Eligibility rule:
-    - status == TO_DO
-    - is_refined == True
-    - is_superseded == False
-    """
-    print(
-        f"\n[Tool: fetch_sprint_candidates] Fetching refined sprint candidates for product ID: {product_id}"
-    )
-    with Session(get_engine()) as session:
-        open_sprint_story_ids = {
-            int(story_id)
-            for story_id in session.exec(
-                select(SprintStory.story_id)
-                .join(Sprint, Sprint.sprint_id == SprintStory.sprint_id)
-                .where(
-                    Sprint.product_id == product_id,
-                    Sprint.status.in_([SprintStatus.PLANNED, SprintStatus.ACTIVE]),
-                )
-            ).all()
-            if story_id is not None
-        }
-        stories = list(
-            session.exec(
-                select(UserStory)
-                .where(UserStory.product_id == product_id)
-                .where(UserStory.status == StoryStatus.TO_DO)
-                .order_by(UserStory.rank, UserStory.story_id)
-            ).all()
-        )
-
-    if not stories:
-        print("   [DB] No stories found.")
-        return {
-            "success": True,
-            "count": 0,
-            "stories": [],
-            "excluded_counts": {
-                "non_refined": 0,
-                "superseded": 0,
-                "open_sprint": 0,
-            },
-            "message": "No stories found in backlog.",
-        }
-
-    refined: List[UserStory] = []
-    excluded_non_refined = 0
-    excluded_superseded = 0
-    excluded_open_sprint = 0
-
-    for story in stories:
-        if bool(story.is_superseded):
-            excluded_superseded += 1
-            continue
-        if not bool(story.is_refined):
-            excluded_non_refined += 1
-            continue
-        if int(story.story_id or 0) in open_sprint_story_ids:
-            excluded_open_sprint += 1
-            continue
-        refined.append(story)
-
-    refined.sort(key=_story_order_key)
-
-    candidate_list: List[Dict[str, Any]] = []
-    for story in refined:
-        candidate_list.append(
-            {
-                "story_id": story.story_id,
-                "story_title": story.title,
-                "priority": _priority_to_int(story.rank),
-                "story_points": story.story_points,
-                "persona": story.persona,
-                "source_requirement": story.source_requirement,
-                "story_origin": story.story_origin,
-                "story_description": story.story_description,
-                "acceptance_criteria": story.acceptance_criteria,
-                "evaluated_invariant_ids": _story_evaluated_invariant_ids(story),
-                "story_compliance_boundary_summaries": _story_compliance_boundary_summaries(story),
-            }
-        )
-
-    print(
-        "   [DB] Found %s sprint candidates (excluded: non_refined=%s, superseded=%s, open_sprint=%s)."
-        % (
-            len(candidate_list),
-            excluded_non_refined,
-            excluded_superseded,
-            excluded_open_sprint,
-        )
-    )
-
-    return {
-        "success": True,
-        "count": len(candidate_list),
-        "stories": candidate_list,
-        "excluded_counts": {
-            "non_refined": excluded_non_refined,
-            "superseded": excluded_superseded,
-            "open_sprint": excluded_open_sprint,
-        },
-        "message": (
-            f"Found {len(candidate_list)} refined sprint candidate(s) in backlog "
-            f"(excluded non-refined={excluded_non_refined}, superseded={excluded_superseded}, "
-            f"open_sprint={excluded_open_sprint})."
-        ),
-    }
+    """Compatibility adapter over the orchestrator query service boundary."""
+    return _fetch_sprint_candidates_service(product_id)
 
 
 def load_specification_from_file(
@@ -632,227 +343,12 @@ def load_specification_from_file(
 
 
 def get_real_business_state() -> Dict[str, Any]:
-    """
-    Hydrates the initial session state by querying the Business DB.
-    Used by the FastAPI workflow service to seed session state before processing.
-    """
-    print("[*] Hydrating Session State from Business Database...")
-    with Session(get_engine()) as session:
-        products = _query_products(session)
-        count, projects = _build_projects_payload(session, products)
-
-    print(f"   Found {count} existing projects.")
-    return {
-        "projects_summary": count,
-        "projects_list": projects,
-        "projects_last_refreshed_utc": _utc_now_iso(),
-        "current_context": "idle",
-        "active_project": None,  # Tracks currently selected project
-    }
+    """Compatibility adapter over the orchestrator query service boundary."""
+    return _get_real_business_state_service()
 
 
 def select_project(
     product_id: int, tool_context: ToolContext
 ) -> Dict[str, Any]:
-    """
-    Agent tool: Select a project as the active context and load its full details
-    into volatile memory. This sets the working context for subsequent operations.
-
-    Hydrates all FSM-relevant state keys so that downstream phases
-    (vision, backlog, sprint, roadmap, stories) can proceed without
-    missing context:
-        - active_project          (product dict + structure counts)
-        - current_project_name
-        - pending_spec_content    (spec text from DB column or disk)
-        - pending_spec_path       (original file path if file-linked)
-        - compiled_authority_cached
-        - latest_spec_version_id
-        - spec_persisted          (True when a spec is already linked)
-        - current_context         ("project_selected")
-    """
-    print(
-        f"\n[Tool: select_project] Setting project ID {product_id} as active..."
-    )
-
-    # Get full project details
-    details = get_project_details(product_id)
-
-    if not details["success"]:
-        print("   [Context] Failed to set active project.")
-        return details
-
-    # --- Populate session state ---
-    state: Dict[str, Any] = cast(Dict[str, Any], tool_context.state)
-    product_details = details["product"]
-
-    # Core active-project snapshot
-    state["active_project"] = {
-        "product_id": product_id,
-        "name": product_details["name"],
-        "description": product_details.get("description"),
-        "vision": product_details.get("vision"),
-        "roadmap": product_details.get("roadmap"),
-        "technical_spec": product_details.get("technical_spec"),
-        "compiled_authority_json": product_details.get(
-            "compiled_authority_json"
-        ),
-        "spec_file_path": product_details.get("spec_file_path"),
-        "spec_loaded_at": product_details.get("spec_loaded_at"),
-        "latest_spec_version_id": product_details.get(
-            "latest_spec_version_id"
-        ),
-        "structure": details["structure"],
-    }
-    state["current_project_name"] = product_details["name"]
-
-    # --- Specification hydration ---
-    _hydrate_spec_state(state, product_details)
-
-    # --- Compiled authority ---
-    authority_json = product_details.get("compiled_authority_json")
-    # Fallback: if Product column is null but a compiled authority exists in the
-    # dedicated table, load it from there and backfill the Product column.
-    if authority_json is None and product_details.get(
-        "latest_spec_version_id"
-    ):
-        authority_json = _load_authority_fallback(
-            product_id, product_details["latest_spec_version_id"]
-        )
-        if authority_json:
-            # Update the snapshot so the return value is also correct
-            state["active_project"]["compiled_authority_json"] = authority_json
-    _set_or_clear(state, "compiled_authority_cached", authority_json)
-
-    # --- Spec version ---
-    _set_or_clear(
-        state,
-        "latest_spec_version_id",
-        product_details.get("latest_spec_version_id"),
-    )
-
-    # --- Guard: mark spec as already linked when applicable ---
-    if product_details.get("spec_file_path") or product_details.get(
-        "technical_spec"
-    ):
-        state["spec_persisted"] = True
-
-    state["current_context"] = "project_selected"
-
-    print(f"   [Context] Active project set to '{product_details['name']}'")
-
-    return {
-        "success": True,
-        "active_project": state["active_project"],
-        "message": f"Selected '{product_details['name']}' as active project",
-    }
-
-
-# ------------------------------------------------------------------
-# Internal helpers for select_project state hydration
-# ------------------------------------------------------------------
-
-
-def _set_or_clear(state: Dict[str, Any], key: str, value: Any) -> None:
-    """Set *key* in state when *value* is not None, otherwise delete it."""
-    if value is not None:
-        state[key] = value
-    elif key in state:
-        del state[key]
-
-
-def _hydrate_spec_state(
-    state: Dict[str, Any], product_details: Dict[str, Any]
-) -> None:
-    """Populate pending_spec_content and pending_spec_path from DB or disk."""
-    # 1. Inline blob takes precedence
-    if product_details.get("technical_spec") is not None:
-        state["pending_spec_content"] = product_details["technical_spec"]
-        _set_or_clear(
-            state, "pending_spec_path", product_details.get("spec_file_path")
-        )
-        return
-
-    # 2. File-linked spec: read from disk
-    spec_file = product_details.get("spec_file_path")
-    if spec_file:
-        _spec_path = Path(spec_file)
-        state["pending_spec_path"] = spec_file
-        if _spec_path.exists():
-            try:
-                state["pending_spec_content"] = _spec_path.read_text(
-                    encoding="utf-8"
-                )
-                return
-            except (OSError, UnicodeDecodeError):
-                pass  # fall through to clear
-        # File missing or unreadable
-        if "pending_spec_content" in state:
-            del state["pending_spec_content"]
-        return
-
-    # 3. No spec at all — clean up
-    if "pending_spec_content" in state:
-        del state["pending_spec_content"]
-    if "pending_spec_path" in state:
-        del state["pending_spec_path"]
-
-
-def _load_authority_fallback(
-    product_id: int, spec_version_id: int
-) -> Optional[str]:
-    """
-    Query CompiledSpecAuthority for the given spec version.  If none exists
-    but the spec version is approved, trigger an on-demand compilation.
-    Backfills Product.compiled_authority_json so future loads are instant.
-    Returns the compiled-authority JSON string, or None.
-    """
-    with Session(get_engine()) as session:
-        # 1. Try loading an existing compiled authority
-        authority = session.exec(
-            select(CompiledSpecAuthority)
-            .where(CompiledSpecAuthority.spec_version_id == spec_version_id)
-            .limit(1)
-        ).first()
-        if authority and authority.compiled_artifact_json:
-            # Backfill the Product column
-            product = session.get(Product, product_id)
-            if product:
-                product.compiled_authority_json = (
-                    authority.compiled_artifact_json
-                )
-                session.add(product)
-                session.commit()
-                print(
-                    "   [Context] Backfilled compiled_authority_json from authority table"
-                )
-            return authority.compiled_artifact_json
-
-    # 2. No compiled authority exists — try to compile on demand
-    try:
-        from tools.spec_tools import (
-            CompileSpecAuthorityForVersionInput,
-            compile_spec_authority_for_version,
-        )
-
-        print(
-            f"   [Context] No compiled authority found — compiling spec version {spec_version_id}..."
-        )
-        result = compile_spec_authority_for_version(
-            CompileSpecAuthorityForVersionInput(
-                spec_version_id=spec_version_id, force_recompile=False
-            ),
-            tool_context=None,
-        )
-        if result.get("success"):
-            # Re-read the Product column which compile_spec just backfilled
-            with Session(get_engine()) as session:
-                product = session.get(Product, product_id)
-                if product and product.compiled_authority_json:
-                    print(
-                        "   [Context] Compiled and cached authority on demand"
-                    )
-                    return product.compiled_authority_json
-    except Exception as exc:
-        print(f"   [Context] On-demand authority compilation failed: {exc}")
-
-    return None
+    """Compatibility adapter over the orchestrator context service boundary."""
+    return _select_project_service(product_id, tool_context)

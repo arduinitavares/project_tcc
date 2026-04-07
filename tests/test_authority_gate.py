@@ -34,7 +34,7 @@ from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_s
     SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
     SPEC_AUTHORITY_COMPILER_VERSION,
 )
-from utils.schemes import (
+from utils.spec_schemas import (
     Invariant,
     InvariantType,
     RequiredFieldParams,
@@ -230,6 +230,39 @@ def _create_spec_with_failure_authority(
 
 class TestAuthorityGateExistingAccepted:
     """Tests for when an accepted authority already exists."""
+
+    def test_ensure_accepted_spec_authority_delegates_to_service_adapter(
+        self,
+        sample_product: Product,
+        monkeypatch,
+    ) -> None:
+        """Tool adapter should delegate to the service while preserving legacy seams."""
+        captured: dict[str, Any] = {}
+
+        def fake_service_ensure(**kwargs: Any) -> int:
+            captured.update(kwargs)
+            return 321
+
+        monkeypatch.setattr(
+            spec_tools,
+            "_service_ensure_accepted_spec_authority",
+            fake_service_ensure,
+        )
+
+        result = spec_tools.ensure_accepted_spec_authority(
+            product_id=sample_product.product_id,
+            spec_content="# Spec",
+            recompile=True,
+        )
+
+        assert result == 321
+        assert captured["product_id"] == sample_product.product_id
+        assert captured["spec_content"] == "# Spec"
+        assert captured["recompile"] is True
+        assert captured["_update_spec_and_compile_authority"] is (
+            spec_tools.update_spec_and_compile_authority
+        )
+        assert captured["_logger"] is spec_tools.logger
 
     def test_ensure_accepted_spec_authority_returns_existing_version_id(
         self, session: Session, sample_product: Product, engine

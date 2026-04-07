@@ -12,8 +12,6 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from agile_sqlmodel import (
     CompiledSpecAuthority,
-    Epic,
-    Feature,
     Product,
     ProductTeam,
     SpecRegistry,
@@ -22,10 +20,9 @@ from agile_sqlmodel import (
     StoryCompletionLog,
     StoryStatus,
     Task,
-    Team,
-    Theme,
     UserStory,
 )
+from models.core import Epic, Feature, Team, Theme
 from scripts.delete_project import delete_project, resolve_db_path
 from utils.runtime_config import RuntimeConfigError, clear_runtime_config_cache
 

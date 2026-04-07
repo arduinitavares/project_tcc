@@ -12,7 +12,8 @@ import pytest
 from sqlmodel import Session, select
 
 import tools.db_tools as db_tools
-from agile_sqlmodel import Epic, Feature, Product, Task, Theme, UserStory
+from agile_sqlmodel import Product, Task, UserStory
+from models.core import Epic, Feature, Theme
 from tools.db_tools import (
     create_or_get_product,
     create_task,

@@ -8,6 +8,13 @@ from fastapi.testclient import TestClient
 import api as api_module
 
 
+def test_api_uses_public_spec_lifecycle_wrapper():
+    assert (
+        api_module.link_spec_to_product.__module__
+        == "services.specs.lifecycle_service"
+    )
+
+
 @dataclass
 class DummyProduct:
     product_id: int

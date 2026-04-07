@@ -17,13 +17,13 @@ from agile_sqlmodel import (
     SprintStory,
     Task,
     TaskStatus,
-    Team,
     UserStory,
     WorkflowEvent,
     WorkflowEventType,
 )
+from models.core import Team
 from tools.spec_tools import _compute_story_input_hash
-from utils.schemes import (
+from utils.spec_schemas import (
     AlignmentFinding,
     Invariant,
     InvariantType,

@@ -823,10 +823,11 @@ def test_story_history_returns_projection_attempt_history_and_summary(monkeypatc
 
     response = client.get(
         f"/api/projects/{product.product_id}/story/history",
-        params={"parent_requirement": "Requirement A"},
+        params={"parent_requirement": "  Requirement A  "},
     )
 
     assert response.status_code == 200
+    assert response.json()["parent_requirement"] == "Requirement A"
     payload = response.json()["data"]
     assert payload["count"] == 2
     assert payload["items"][0]["attempt_id"] == "attempt-1"
@@ -892,6 +893,33 @@ def test_story_history_surfaces_merge_recommendation_for_incomplete_draft(monkey
         "reason": merge_artifact["user_stories"][0]["decomposition_warning"],
         "acceptance_criteria_to_move": merge_artifact["user_stories"][0]["acceptance_criteria"],
     }
+
+
+def test_story_history_translates_story_phase_error(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    product = repo.create("Story Project")
+    workflow.states[str(product.product_id)] = {
+        "fsm_state": "STORY_INTERVIEW",
+        "interview_runtime": {"story": {}},
+    }
+
+    async def fake_get_story_history_service(*, parent_requirement, load_state):
+        raise api_module.StoryPhaseError(
+            f"Requirement '{parent_requirement}' not found in saved story state.",
+            status_code=400,
+        )
+
+    monkeypatch.setattr(api_module, "get_story_history_service", fake_get_story_history_service)
+
+    response = client.get(
+        f"/api/projects/{product.product_id}/story/history",
+        params={"parent_requirement": "  Requirement A  "},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Requirement '  Requirement A  ' not found in saved story state."
+    )
 
 
 def test_story_merge_accepts_recommendation_and_marks_requirement_resolved(monkeypatch):

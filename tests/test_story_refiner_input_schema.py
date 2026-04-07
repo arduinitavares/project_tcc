@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict
 
-from utils.schemes import StoryRefinerInput
+from utils.spec_schemas import StoryRefinerInput
 
 
 def test_story_refiner_input_schema_round_trip() -> None:

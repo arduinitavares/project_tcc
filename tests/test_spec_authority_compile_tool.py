@@ -2,6 +2,7 @@
 Tests for Spec Authority compile tool used by the orchestrator.
 """
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -9,14 +10,28 @@ import pytest
 from sqlmodel import Session, select
 
 from agile_sqlmodel import CompiledSpecAuthority, Product
+from services.specs.compiler_service import (
+    CheckSpecAuthorityStatusInput as ServiceCheckSpecAuthorityStatusInput,
+    CompileSpecAuthorityForVersionInput as ServiceCompileSpecAuthorityForVersionInput,
+    CompileSpecAuthorityInput as ServiceCompileSpecAuthorityInput,
+    GetCompiledAuthorityInput as ServiceGetCompiledAuthorityInput,
+    PreviewSpecAuthorityInput as ServicePreviewSpecAuthorityInput,
+    UpdateSpecAndCompileAuthorityInput as ServiceUpdateSpecAndCompileAuthorityInput,
+)
 import tools.spec_tools as spec_tools
 import utils.failure_artifacts as failure_artifacts
 from tools.spec_tools import (
+    CheckSpecAuthorityStatusInput,
+    CompileSpecAuthorityForVersionInput,
+    CompileSpecAuthorityInput,
+    GetCompiledAuthorityInput,
+    PreviewSpecAuthorityInput,
+    UpdateSpecAndCompileAuthorityInput,
     approve_spec_version,
     compile_spec_authority_for_version,
     register_spec_version,
 )
-from utils.schemes import (
+from utils.spec_schemas import (
     SpecAuthorityCompilationSuccess,
     SpecAuthorityCompilerOutput,
     SourceMapEntry,
@@ -98,6 +113,193 @@ def test_compile_tool_blocks_unapproved_spec(
 
     assert result["success"] is False
     assert "not approved" in result["error"].lower()
+
+
+def test_tool_compile_input_models_alias_service_models() -> None:
+    """Tool-facing compiler input models should be compatibility aliases."""
+    assert PreviewSpecAuthorityInput is ServicePreviewSpecAuthorityInput
+    assert CompileSpecAuthorityInput is ServiceCompileSpecAuthorityInput
+    assert (
+        CompileSpecAuthorityForVersionInput
+        is ServiceCompileSpecAuthorityForVersionInput
+    )
+    assert (
+        UpdateSpecAndCompileAuthorityInput
+        is ServiceUpdateSpecAndCompileAuthorityInput
+    )
+    assert CheckSpecAuthorityStatusInput is ServiceCheckSpecAuthorityStatusInput
+    assert GetCompiledAuthorityInput is ServiceGetCompiledAuthorityInput
+
+
+def test_tool_runtime_helpers_delegate_to_compiler_service(monkeypatch) -> None:
+    """Legacy tool helper names should forward directly to compiler_service."""
+    captured: dict[str, object] = {}
+
+    def fake_run_async_task(coro):
+        captured["run_async_task"] = coro
+        return "ran"
+
+    def fake_extract_compiler_response_text(events):
+        captured["extract_compiler_response_text"] = events
+        return "text"
+
+    async def fake_invoke_async(input_payload):
+        captured["invoke_async"] = input_payload
+        return "async-raw-json"
+
+    def fake_invoke(
+        spec_content: str,
+        content_ref: str | None,
+        product_id: int | None,
+        spec_version_id: int | None,
+    ) -> str:
+        captured["invoke"] = {
+            "spec_content": spec_content,
+            "content_ref": content_ref,
+            "product_id": product_id,
+            "spec_version_id": spec_version_id,
+        }
+        return "raw-json"
+
+    monkeypatch.setattr(
+        spec_tools,
+        "_service_run_async_task",
+        fake_run_async_task,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        spec_tools,
+        "_service_extract_compiler_response_text",
+        fake_extract_compiler_response_text,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        spec_tools,
+        "_service_invoke_spec_authority_compiler_async",
+        fake_invoke_async,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        spec_tools,
+        "_service_invoke_spec_authority_compiler",
+        fake_invoke,
+        raising=False,
+    )
+
+    coro_token = object()
+    payload_token = object()
+    events_token = [object()]
+
+    assert spec_tools._run_async_task(coro_token) == "ran"
+    assert captured["run_async_task"] is coro_token
+
+    assert spec_tools._extract_compiler_response_text(events_token) == "text"
+    assert captured["extract_compiler_response_text"] == events_token
+
+    assert (
+        asyncio.run(spec_tools._invoke_spec_authority_compiler_async(payload_token))
+        == "async-raw-json"
+    )
+    assert captured["invoke_async"] is payload_token
+
+    assert (
+        spec_tools._invoke_spec_authority_compiler(
+            spec_content="spec text",
+            content_ref="spec.md",
+            product_id=7,
+            spec_version_id=11,
+        )
+        == "raw-json"
+    )
+    assert captured["invoke"] == {
+        "spec_content": "spec text",
+        "content_ref": "spec.md",
+        "product_id": 7,
+        "spec_version_id": 11,
+    }
+
+
+def test_tool_compiler_failure_and_extractor_helpers_delegate_to_service(
+    monkeypatch,
+) -> None:
+    """Tool compatibility helpers should forward failure shaping and extraction."""
+    captured: dict[str, object] = {}
+    failure_result = {"success": False, "error": "boom"}
+    extractor_result = object()
+
+    def fake_failure(**kwargs):
+        captured["failure"] = kwargs
+        return failure_result
+
+    def fake_extract(
+        *,
+        spec_content: str,
+        content_ref: str | None,
+        product_id: int,
+        spec_version_id: int,
+    ):
+        captured["extract"] = {
+            "spec_content": spec_content,
+            "content_ref": content_ref,
+            "product_id": product_id,
+            "spec_version_id": spec_version_id,
+        }
+        return extractor_result
+
+    monkeypatch.setattr(
+        spec_tools,
+        "_service_compiler_failure_result",
+        fake_failure,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        spec_tools,
+        "_service_extract_spec_authority_llm",
+        fake_extract,
+        raising=False,
+    )
+
+    assert (
+        spec_tools._compiler_failure_result(
+            product_id=3,
+            spec_version_id=5,
+            content_ref="spec.md",
+            failure_stage="compile",
+            error="boom",
+            reason="bad data",
+            raw_output="{}",
+            blocking_gaps=["gap"],
+            exception=None,
+        )
+        == failure_result
+    )
+    assert captured["failure"] == {
+        "product_id": 3,
+        "spec_version_id": 5,
+        "content_ref": "spec.md",
+        "failure_stage": "compile",
+        "error": "boom",
+        "reason": "bad data",
+        "raw_output": "{}",
+        "blocking_gaps": ["gap"],
+        "exception": None,
+    }
+
+    assert (
+        spec_tools._extract_spec_authority_llm(
+            spec_content="spec text",
+            content_ref="spec.md",
+            product_id=13,
+            spec_version_id=21,
+        )
+        is extractor_result
+    )
+    assert captured["extract"] == {
+        "spec_content": "spec text",
+        "content_ref": "spec.md",
+        "product_id": 13,
+        "spec_version_id": 21,
+    }
 
 
 def test_compile_tool_compiles_and_returns_summary(
@@ -350,7 +552,11 @@ def test_compile_cache_hit_does_not_change_compiled_artifact(
         call_count["count"] += 1
         return raw_json_1 if call_count["count"] == 1 else raw_json_2
 
-    monkeypatch.setattr(spec_tools, "_invoke_spec_authority_compiler", _fake_invoke)
+    monkeypatch.setattr(
+        spec_tools,
+        "_invoke_spec_authority_compiler",
+        _fake_invoke,
+    )
 
     first = compile_spec_authority_for_version(
         {"spec_version_id": spec_version_id},

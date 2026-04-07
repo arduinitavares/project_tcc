@@ -1,6 +1,20 @@
 from typing import List, Optional
 from sqlmodel import Session, select
-from agile_sqlmodel import Product, get_engine
+from models.core import (
+    Epic,
+    Feature,
+    Product,
+    ProductPersona,
+    ProductTeam,
+    Sprint,
+    SprintStory,
+    Task,
+    Theme,
+    UserStory,
+)
+from models.events import StoryCompletionLog, WorkflowEvent
+from models.db import get_engine
+from models.specs import CompiledSpecAuthority, SpecAuthorityAcceptance, SpecRegistry
 import logging
 
 logger = logging.getLogger(__name__)
@@ -87,13 +101,6 @@ class ProductRepository:
 
     def delete_project(self, product_id: int) -> bool:
         """Fully delete a product and all of its associated agile entities."""
-        from agile_sqlmodel import (
-            ProductTeam, Theme, Epic, Feature, Sprint, SprintStory, 
-            UserStory, Task, StoryCompletionLog, SpecRegistry, 
-            SpecAuthorityAcceptance, CompiledSpecAuthority, ProductPersona,
-            WorkflowEvent
-        )
-
         session = self._get_session()
         try:
             product = session.get(Product, product_id)

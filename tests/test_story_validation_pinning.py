@@ -12,20 +12,16 @@ These tests validate that:
 """
 
 import json
+from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
 from sqlmodel import Session
 
-from agile_sqlmodel import (
-    Epic,
-    Feature,
-    Product,
-    SpecRegistry,
-    Theme,
-    UserStory,
-)
+from agile_sqlmodel import Product, SpecRegistry, UserStory
+from models.core import Epic, Feature, Theme
 import tools.spec_tools as spec_tools
 from tools.spec_tools import (
     VALIDATOR_VERSION,
@@ -35,7 +31,7 @@ from tools.spec_tools import (
     register_spec_version,
     validate_story_with_spec_authority,
 )
-from utils.schemes import (
+from utils.spec_schemas import (
     ValidationEvidence,
     SpecAuthorityCompilationSuccess,
     InvariantType,
@@ -171,6 +167,132 @@ def sample_story(session: Session, sample_product: Product) -> UserStory:
 
 class TestFailFastWithoutSpecVersionId:
     """Tests that validation fails immediately without spec_version_id."""
+
+    def test_validation_tool_delegates_to_story_validation_service(
+        self, monkeypatch
+    ):
+        expected = {"success": True, "passed": True, "message": "from service"}
+        captured = {}
+
+        def fake_service_validate(params, **kwargs):
+            captured["params"] = params
+            captured["kwargs"] = kwargs
+            return expected
+
+        monkeypatch.setattr(
+            spec_tools,
+            "_service_validate_story_with_spec_authority",
+            fake_service_validate,
+            raising=False,
+        )
+
+        result = validate_story_with_spec_authority(
+            {"story_id": 1, "spec_version_id": 2},
+            tool_context=None,
+        )
+
+        assert result is expected
+        assert captured["params"] == {"story_id": 1, "spec_version_id": 2}
+        assert captured["kwargs"]["tool_context"] is None
+        assert (
+            captured["kwargs"]["compute_story_input_hash_fn"]
+            is spec_tools._compute_story_input_hash
+        )
+        assert (
+            captured["kwargs"]["render_invariant_summary_fn"]
+            is spec_tools._render_invariant_summary
+        )
+        assert (
+            captured["kwargs"]["run_structural_story_checks"]
+            is spec_tools._run_structural_story_checks
+        )
+        assert (
+            captured["kwargs"]["run_llm_spec_validation"]
+            is spec_tools._run_llm_spec_validation
+        )
+        assert (
+            captured["kwargs"]["run_deterministic_alignment_checks"]
+            is spec_tools._run_deterministic_alignment_checks
+        )
+
+    def test_resolve_default_validation_mode_wrapper_delegates_to_service(
+        self, monkeypatch
+    ):
+        called = {}
+
+        def fake_service_resolver():
+            called["value"] = True
+            return "llm"
+
+        monkeypatch.setattr(
+            spec_tools,
+            "_service_resolve_default_validation_mode",
+            fake_service_resolver,
+            raising=False,
+        )
+
+        assert spec_tools._resolve_default_validation_mode() == "llm"
+        assert called["value"] is True
+
+    def test_persist_validation_evidence_wrapper_delegates_to_service(
+        self, monkeypatch, session, sample_story
+    ):
+        captured = {}
+
+        def fake_service_persist(session_arg, story_arg, evidence_arg, passed_arg):
+            captured["session"] = session_arg
+            captured["story"] = story_arg
+            captured["evidence"] = evidence_arg
+            captured["passed"] = passed_arg
+
+        monkeypatch.setattr(
+            spec_tools,
+            "_service_persist_validation_evidence",
+            fake_service_persist,
+            raising=False,
+        )
+
+        evidence = ValidationEvidence(
+            spec_version_id=1,
+            validated_at=datetime.now(timezone.utc),
+            passed=True,
+            rules_checked=["SPEC_VERSION_EXISTS"],
+            invariants_checked=[],
+            validator_version=VALIDATOR_VERSION,
+            input_hash="abc123",
+        )
+
+        spec_tools._persist_validation_evidence(session, sample_story, evidence, True)
+
+        assert captured["session"] is session
+        assert captured["story"] is sample_story
+        assert captured["evidence"] is evidence
+        assert captured["passed"] is True
+
+    def test_compute_story_input_hash_wrapper_delegates_to_service(
+        self, monkeypatch
+    ):
+        called = {}
+
+        def fake_service_hash(story_arg):
+            called["story"] = story_arg
+            return "service-hash"
+
+        monkeypatch.setattr(
+            spec_tools,
+            "_service_compute_story_input_hash",
+            fake_service_hash,
+            raising=False,
+        )
+
+        story = SimpleNamespace(
+            title="Story",
+            story_description="Description",
+            acceptance_criteria="Criteria",
+        )
+
+        assert spec_tools._compute_story_input_hash(story) == "service-hash"
+        assert called["story"] is story
 
     def test_validation_requires_spec_version_id_in_schema(self):
         """Input schema requires spec_version_id (no default)."""

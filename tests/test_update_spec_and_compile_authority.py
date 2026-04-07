@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from agile_sqlmodel import CompiledSpecAuthority, Product, SpecRegistry
 import tools.spec_tools as spec_tools
 from tools.spec_tools import update_spec_and_compile_authority
-from utils.schemes import (
+from utils.spec_schemas import (
     SpecAuthorityCompilationSuccess,
     SpecAuthorityCompilerOutput,
     SourceMapEntry,

@@ -10,21 +10,18 @@ from sqlmodel import Session
 
 from agile_sqlmodel import (
     CompiledSpecAuthority,
-    Epic,
-    Feature,
     Product,
     Sprint,
     SprintStatus,
     SprintStory,
     SpecRegistry,
-    Team,
-    Theme,
     TimeFrame,
     UserStory,
 )
 from scripts.export_snapshot import export_snapshot_command
+from models.core import Epic, Feature, Team, Theme
 from tools.export_snapshot import export_project_snapshot_html
-from utils.schemes import (
+from utils.spec_schemas import (
     Invariant,
     InvariantType,
     RequiredFieldParams,

@@ -11,10 +11,8 @@ import os
 sys.path.append(os.getcwd())
 
 import agile_sqlmodel
-from agile_sqlmodel import (
-    Product, Theme, Epic, Feature, UserStory, StoryStatus,
-    Team, Sprint, SprintStatus
-)
+from agile_sqlmodel import Product, UserStory, StoryStatus, Sprint, SprintStatus
+from models.core import Epic, Feature, Team, Theme
 import orchestrator_agent.agent_tools.sprint_planning.tools as tools_module
 from orchestrator_agent.agent_tools.sprint_planning.tools import get_backlog_for_planning, BacklogQueryInput
 

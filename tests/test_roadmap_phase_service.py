@@ -1,0 +1,411 @@
+from types import SimpleNamespace
+
+import pytest
+
+from services.phases.roadmap_service import (
+    RoadmapPhaseError,
+    ensure_roadmap_attempts,
+    generate_roadmap_draft,
+    get_roadmap_history,
+    record_roadmap_attempt,
+    roadmap_state_from_complete,
+    save_roadmap_draft,
+    set_roadmap_fsm_state,
+)
+
+
+def test_record_roadmap_attempt_updates_working_state():
+    state = {}
+
+    count = record_roadmap_attempt(
+        state,
+        trigger="manual_refine",
+        input_context={"user_raw_text": "refine"},
+        output_artifact={
+            "roadmap_releases": [{"release_name": "M1"}],
+            "is_complete": False,
+        },
+        is_complete=False,
+        failure_meta={"failure_stage": "output_validation"},
+        created_at="2026-04-04T00:00:00Z",
+    )
+
+    assert count == 1
+    assert state["roadmap_last_input_context"] == {
+        "user_raw_text": "refine"
+    }
+    assert state["product_roadmap_assessment"]["roadmap_releases"][0][
+        "release_name"
+    ] == "M1"
+    assert state["roadmap_releases"][0]["release_name"] == "M1"
+    assert state["roadmap_attempts"][0]["failure_stage"] == "output_validation"
+
+
+def test_roadmap_state_from_complete_maps_to_review_and_interview():
+    assert roadmap_state_from_complete(True) == "ROADMAP_REVIEW"
+    assert roadmap_state_from_complete(False) == "ROADMAP_INTERVIEW"
+
+
+def test_set_roadmap_fsm_state_updates_state():
+    state = {}
+
+    next_state = set_roadmap_fsm_state(
+        state,
+        is_complete=True,
+        now_iso=lambda: "2026-04-04T00:00:00Z",
+    )
+
+    assert next_state == "ROADMAP_REVIEW"
+    assert state["fsm_state"] == "ROADMAP_REVIEW"
+    assert state["fsm_state_entered_at"] == "2026-04-04T00:00:00Z"
+
+
+def test_set_roadmap_fsm_state_preserves_story_phase_states():
+    state = {"fsm_state": " story_review "}
+
+    next_state = set_roadmap_fsm_state(
+        state,
+        is_complete=False,
+        now_iso=lambda: "2026-04-04T00:00:00Z",
+    )
+
+    assert next_state == "STORY_REVIEW"
+    assert state["fsm_state"] == "STORY_REVIEW"
+    assert "fsm_state_entered_at" not in state
+
+
+def test_set_roadmap_fsm_state_preserves_sprint_modify_state():
+    state = {"fsm_state": " sprint_modify "}
+
+    next_state = set_roadmap_fsm_state(
+        state,
+        is_complete=True,
+        now_iso=lambda: "2026-04-04T00:00:00Z",
+    )
+
+    assert next_state == "SPRINT_MODIFY"
+    assert state["fsm_state"] == "SPRINT_MODIFY"
+    assert "fsm_state_entered_at" not in state
+
+
+def test_ensure_roadmap_attempts_returns_existing_list():
+    attempts = [{"created_at": "2026-04-04T00:00:00Z"}]
+    state = {"roadmap_attempts": attempts}
+
+    assert ensure_roadmap_attempts(state) is attempts
+
+
+@pytest.mark.asyncio
+async def test_generate_roadmap_draft_allows_empty_input_on_first_attempt():
+    state = {"fsm_state": "VISION_PERSISTENCE"}
+    saved: dict[str, object] = {}
+    captured: dict[str, object] = {}
+
+    async def load_state() -> dict[str, object]:
+        return state
+
+    def save_state(updated: dict[str, object]) -> None:
+        saved["state"] = dict(updated)
+
+    async def fake_run_roadmap_agent_from_state(state, *, project_id, user_input):
+        captured["state"] = state
+        captured["project_id"] = project_id
+        captured["user_input"] = user_input
+        return {
+            "success": True,
+            "input_context": {"user_input": user_input or ""},
+            "output_artifact": {
+                "roadmap_releases": [{"release_name": "M1"}],
+                "roadmap_summary": "Draft roadmap",
+                "is_complete": False,
+                "clarifying_questions": ["Need more detail"],
+            },
+            "is_complete": False,
+            "error": None,
+            "failure_artifact_id": None,
+            "failure_stage": None,
+            "failure_summary": None,
+            "raw_output_preview": None,
+            "has_full_artifact": False,
+        }
+
+    payload = await generate_roadmap_draft(
+        project_id=7,
+        load_state=load_state,
+        save_state=save_state,
+        now_iso=lambda: "2026-04-04T00:00:00Z",
+        run_roadmap_agent=fake_run_roadmap_agent_from_state,
+        user_input=None,
+    )
+
+    assert captured["user_input"] == ""
+    assert payload["trigger"] == "auto_transition"
+    assert payload["fsm_state"] == "ROADMAP_INTERVIEW"
+    assert payload["attempt_count"] == 1
+    assert saved["state"]["roadmap_attempts"][0]["trigger"] == "auto_transition"
+
+
+@pytest.mark.asyncio
+async def test_generate_roadmap_draft_requires_feedback_after_first_attempt():
+    state = {
+        "fsm_state": "ROADMAP_INTERVIEW",
+        "roadmap_attempts": [{"created_at": "2026-04-03T00:00:00Z"}],
+    }
+
+    async def load_state() -> dict[str, object]:
+        return state
+
+    async def fake_run_roadmap_agent_from_state(**_kwargs):
+        raise AssertionError("runner should not be called")
+
+    with pytest.raises(RoadmapPhaseError) as exc_info:
+        await generate_roadmap_draft(
+            project_id=7,
+            load_state=load_state,
+            save_state=lambda _state: None,
+            now_iso=lambda: "2026-04-04T00:00:00Z",
+            run_roadmap_agent=fake_run_roadmap_agent_from_state,
+            user_input="   ",
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == (
+        "User input is required to refine an existing roadmap."
+    )
+
+
+@pytest.mark.asyncio
+async def test_generate_roadmap_draft_failed_run_cannot_mark_complete():
+    state = {"fsm_state": "VISION_PERSISTENCE"}
+
+    async def load_state() -> dict[str, object]:
+        return state
+
+    async def fake_run_roadmap_agent_from_state(state, *, project_id, user_input):
+        return {
+            "success": False,
+            "input_context": {"user_input": user_input or ""},
+            "output_artifact": {
+                "error": "ROADMAP_GENERATION_FAILED",
+                "message": "provider timeout",
+                "is_complete": True,
+                "clarifying_questions": [],
+            },
+            "is_complete": True,
+            "error": "provider timeout",
+            "failure_artifact_id": "roadmap-failure-1",
+            "failure_stage": "invocation_exception",
+            "failure_summary": "provider timeout",
+            "raw_output_preview": '{"partial": true}',
+            "has_full_artifact": True,
+        }
+
+    payload = await generate_roadmap_draft(
+        project_id=7,
+        load_state=load_state,
+        save_state=lambda _state: None,
+        now_iso=lambda: "2026-04-04T00:00:00Z",
+        run_roadmap_agent=fake_run_roadmap_agent_from_state,
+        user_input="complete roadmap",
+    )
+
+    assert payload["roadmap_run_success"] is False
+    assert payload["is_complete"] is False
+    assert payload["fsm_state"] == "ROADMAP_INTERVIEW"
+
+
+@pytest.mark.asyncio
+async def test_get_roadmap_history_returns_count_and_items():
+    state = {
+        "roadmap_attempts": [
+            {"created_at": "2026-04-03T00:00:00Z", "trigger": "manual_refine"}
+        ]
+    }
+
+    payload = await get_roadmap_history(load_state=lambda: _async_value(state))
+
+    assert payload["count"] == 1
+    assert payload["items"][0]["trigger"] == "manual_refine"
+
+
+@pytest.mark.asyncio
+async def test_get_roadmap_history_defaults_to_empty_list():
+    payload = await get_roadmap_history(load_state=lambda: _async_value({}))
+
+    assert payload["count"] == 0
+    assert payload["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_save_roadmap_draft_requires_assessment_dict():
+    async def hydrate_context():
+        return SimpleNamespace(state={})
+
+    with pytest.raises(RoadmapPhaseError) as exc_info:
+        await save_roadmap_draft(
+            project_id=7,
+            save_state=lambda _state: None,
+            now_iso=lambda: "2026-04-04T00:00:00Z",
+            hydrate_context=hydrate_context,
+            build_tool_context=lambda context: context,
+            save_roadmap_tool=_fake_save_roadmap_tool,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "No roadmap draft available to save"
+
+
+@pytest.mark.asyncio
+async def test_save_roadmap_draft_requires_complete_assessment():
+    state = {
+        "product_roadmap_assessment": {
+            "roadmap_releases": [{"release_name": "M1"}],
+            "roadmap_summary": "Draft",
+            "is_complete": False,
+        }
+    }
+
+    async def hydrate_context():
+        return SimpleNamespace(state=dict(state))
+
+    with pytest.raises(RoadmapPhaseError) as exc_info:
+        await save_roadmap_draft(
+            project_id=7,
+            save_state=lambda _state: None,
+            now_iso=lambda: "2026-04-04T00:00:00Z",
+            hydrate_context=hydrate_context,
+            build_tool_context=lambda context: context,
+            save_roadmap_tool=_fake_save_roadmap_tool,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == (
+        "Roadmap cannot be saved until is_complete is true"
+    )
+
+
+@pytest.mark.asyncio
+async def test_save_roadmap_draft_rejects_invalid_session_data():
+    state = {
+        "product_roadmap_assessment": {
+            "roadmap_summary": "Draft",
+            "is_complete": True,
+        }
+    }
+
+    async def hydrate_context():
+        return SimpleNamespace(state=dict(state))
+
+    with pytest.raises(RoadmapPhaseError) as exc_info:
+        await save_roadmap_draft(
+            project_id=7,
+            save_state=lambda _state: None,
+            now_iso=lambda: "2026-04-04T00:00:00Z",
+            hydrate_context=hydrate_context,
+            build_tool_context=lambda context: context,
+            save_roadmap_tool=_fake_save_roadmap_tool,
+        )
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail.startswith("Invalid roadmap data in session: ")
+
+
+@pytest.mark.asyncio
+async def test_save_roadmap_draft_persists_persistence_state():
+    state = {
+        "product_roadmap_assessment": {
+            "roadmap_releases": [
+                {
+                    "release_name": "Milestone 1",
+                    "theme": "Foundation",
+                    "focus_area": "Technical Foundation",
+                    "items": ["Seed backlog item"],
+                    "reasoning": "Start here",
+                }
+            ],
+            "roadmap_summary": "Final roadmap",
+            "is_complete": True,
+            "clarifying_questions": [],
+        },
+        "fsm_state": "ROADMAP_REVIEW",
+    }
+    saved: dict[str, object] = {}
+    captured: dict[str, object] = {}
+
+    async def hydrate_context():
+        context = SimpleNamespace(state=dict(state), session_id="7")
+        return context
+
+    def save_state(updated: dict[str, object]) -> None:
+        saved["state"] = dict(updated)
+
+    def fake_save_roadmap_tool(roadmap_input, tool_context):
+        captured["roadmap_input"] = roadmap_input
+        captured["tool_context"] = tool_context
+        return {
+            "success": True,
+            "product_id": roadmap_input.product_id,
+            "message": "saved",
+        }
+
+    payload = await save_roadmap_draft(
+        project_id=7,
+        save_state=save_state,
+        now_iso=lambda: "2026-04-04T00:00:00Z",
+        hydrate_context=hydrate_context,
+        build_tool_context=lambda context: context,
+        save_roadmap_tool=fake_save_roadmap_tool,
+    )
+
+    assert payload["fsm_state"] == "ROADMAP_PERSISTENCE"
+    assert payload["save_result"]["success"] is True
+    assert captured["roadmap_input"].roadmap_data.is_complete is True
+    assert saved["state"]["fsm_state"] == "ROADMAP_PERSISTENCE"
+    assert saved["state"]["roadmap_saved_at"] == "2026-04-04T00:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_save_roadmap_draft_translates_save_failure():
+    state = {
+        "product_roadmap_assessment": {
+            "roadmap_releases": [
+                {
+                    "release_name": "Milestone 1",
+                    "theme": "Foundation",
+                    "focus_area": "Technical Foundation",
+                    "items": ["Seed backlog item"],
+                    "reasoning": "Start here",
+                }
+            ],
+            "roadmap_summary": "Final roadmap",
+            "is_complete": True,
+            "clarifying_questions": [],
+        }
+    }
+
+    async def hydrate_context():
+        return SimpleNamespace(state=dict(state))
+
+    def fake_save_roadmap_tool(_roadmap_input, _tool_context):
+        return {"success": False, "error": "roadmap save failed"}
+
+    with pytest.raises(RoadmapPhaseError) as exc_info:
+        await save_roadmap_draft(
+            project_id=7,
+            save_state=lambda _state: None,
+            now_iso=lambda: "2026-04-04T00:00:00Z",
+            hydrate_context=hydrate_context,
+            build_tool_context=lambda context: context,
+            save_roadmap_tool=fake_save_roadmap_tool,
+        )
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == "roadmap save failed"
+
+
+async def _async_value(value):
+    return value
+
+
+def _fake_save_roadmap_tool(*_args, **_kwargs):
+    raise AssertionError("save_roadmap_tool should not be called")

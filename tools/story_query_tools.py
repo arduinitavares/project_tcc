@@ -15,7 +15,8 @@ from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
-from agile_sqlmodel import Epic, Feature, Product, Theme, UserStory, get_engine
+from models.core import Epic, Feature, Product, Theme, UserStory
+from models.db import get_engine
 
 
 # --- Schemas for querying features ---

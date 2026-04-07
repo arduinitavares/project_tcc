@@ -25,7 +25,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlmodel import Session, select
-from agile_sqlmodel import UserStory, Product, Feature, get_engine
+from agile_sqlmodel import UserStory, Product, get_engine
+from models.core import Feature
 from orchestrator_agent.agent_tools.story_pipeline.steps.persona_checker import (
     extract_persona_from_story,
     validate_persona,

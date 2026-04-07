@@ -8,10 +8,11 @@ from pathlib import Path
 import pytest
 from sqlmodel import Session
 
-from agile_sqlmodel import CompiledSpecAuthority, Epic, Feature, Product, SpecRegistry, Theme, UserStory
+from agile_sqlmodel import CompiledSpecAuthority, Product, SpecRegistry, UserStory
+from models.core import Epic, Feature, Theme
 from scripts import export_benchmark_for_labeling as exporter
 from scripts import import_human_labels as importer
-from utils.schemes import (
+from utils.spec_schemas import (
     Invariant,
     InvariantType,
     RequiredFieldParams,

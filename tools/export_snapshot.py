@@ -15,20 +15,11 @@ def _markdown(text: str, extensions: Optional[List[str]] = None) -> str:
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, select
 
-from agile_sqlmodel import (
-    CompiledSpecAuthority,
-    Epic,
-    Feature,
-    Product,
-    SpecRegistry,
-    Sprint,
-    SprintStory,
-    StoryStatus,
-    Theme,
-    UserStory,
-    engine as default_engine,
-)
-from utils.schemes import (
+from models.core import Epic, Feature, Product, Sprint, SprintStory, Theme, UserStory
+from models.db import engine as default_engine
+from models.enums import StoryStatus
+from models.specs import CompiledSpecAuthority, SpecRegistry
+from utils.spec_schemas import (
     Invariant,
     InvariantType,
     SpecAuthorityCompilationFailure,

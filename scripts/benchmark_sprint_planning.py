@@ -9,7 +9,8 @@ from sqlalchemy import Engine, event
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from orchestrator_agent.agent_tools.sprint_planning.tools import plan_sprint_tool, PlanSprintInput
-from agile_sqlmodel import Product, UserStory, StoryStatus, Team, ProductTeam, Feature
+from agile_sqlmodel import Product, UserStory, StoryStatus
+from models.core import ProductTeam, Epic, Feature, Team, Theme
 
 # Setup in-memory DB for benchmarking
 engine = create_engine("sqlite:///:memory:")
@@ -46,7 +47,7 @@ def seed_database():
         # Actually agile_sqlmodel enforces FKs via PRAGMA, so I should probably be careful or just create structure properly.
         # But wait, Feature requires Epic. Epic requires Theme.
         # Let's create full hierarchy to be safe and test join performance.
-        from agile_sqlmodel import Theme, Epic
+        from models.core import Theme, Epic
 
         theme = Theme(title="Theme 1", product_id=p1.product_id)
         session.add(theme)

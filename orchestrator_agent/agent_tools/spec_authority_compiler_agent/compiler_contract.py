@@ -6,7 +6,7 @@ import hashlib
 import re
 from typing import Optional
 
-from utils.schemes import (
+from utils.spec_schemas import (
     Invariant,
     InvariantType,
     ForbiddenCapabilityParams,

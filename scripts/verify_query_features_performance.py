@@ -8,7 +8,8 @@ from typing import Dict, Any
 # Ensure we can import from root
 sys.path.append(os.getcwd())
 
-from agile_sqlmodel import Product, Theme, Epic, Feature, UserStory, engine
+from agile_sqlmodel import Product, UserStory, engine
+from models.core import Theme, Epic, Feature
 from tools.story_query_tools import query_features_for_stories, QueryFeaturesInput
 
 # Setup In-Memory DB for Benchmark

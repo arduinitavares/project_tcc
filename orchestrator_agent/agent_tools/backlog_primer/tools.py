@@ -8,13 +8,10 @@ from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session, select
 
-from agile_sqlmodel import (
-    StoryStatus,
-    UserStory,
-    WorkflowEvent,
-    WorkflowEventType,
-    get_engine,
-)
+from models.db import get_engine
+from models.core import UserStory
+from models.enums import StoryStatus, WorkflowEventType
+from models.events import WorkflowEvent
 from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_key
 
 

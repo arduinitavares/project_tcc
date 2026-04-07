@@ -33,7 +33,7 @@ from tools.spec_tools import (
     get_compiled_authority_by_version,
     register_spec_version,
 )
-from utils.schemes import (
+from utils.spec_schemas import (
     SpecAuthorityCompilationSuccess,
     SpecAuthorityCompilerOutput,
     SourceMapEntry,
@@ -221,6 +221,66 @@ class TestSpecRegistryVersioning:
 class TestExplicitApprovalGate:
     """AC2 — Explicit Approval Gate"""
 
+    def test_register_spec_version_delegates_to_lifecycle_service(
+        self, monkeypatch
+    ):
+        """Tool entrypoint should remain a thin compatibility adapter."""
+        expected = {"success": True, "spec_version_id": 77}
+        captured: dict[str, object] = {}
+
+        def fake_service(params, *, tool_context=None):
+            captured["params"] = params
+            captured["tool_context"] = tool_context
+            return expected
+
+        monkeypatch.setattr(
+            spec_tools,
+            "_service_register_spec_version",
+            fake_service,
+            raising=False,
+        )
+
+        sentinel_context = object()
+        params = {"product_id": 3, "content": "spec-content"}
+        result = register_spec_version(
+            params,
+            tool_context=sentinel_context,
+        )
+
+        assert result is expected
+        assert captured["params"] == params
+        assert captured["tool_context"] is sentinel_context
+
+    def test_approve_spec_version_delegates_to_lifecycle_service(
+        self, monkeypatch
+    ):
+        """Tool approval entrypoint should delegate through lifecycle service."""
+        expected = {"success": True, "spec_version_id": 88}
+        captured: dict[str, object] = {}
+
+        def fake_service(params, *, tool_context=None):
+            captured["params"] = params
+            captured["tool_context"] = tool_context
+            return expected
+
+        monkeypatch.setattr(
+            spec_tools,
+            "_service_approve_spec_version",
+            fake_service,
+            raising=False,
+        )
+
+        sentinel_context = object()
+        params = {"spec_version_id": 88, "approved_by": "adapter@test"}
+        result = approve_spec_version(
+            params,
+            tool_context=sentinel_context,
+        )
+
+        assert result is expected
+        assert captured["params"] == params
+        assert captured["tool_context"] is sentinel_context
+
     def test_approve_spec_version_records_metadata(
         self, session: Session, sample_product: Product, sample_spec_content: str
     ):
@@ -265,6 +325,50 @@ class TestExplicitApprovalGate:
 
 class TestExplicitCompilation:
     """AC3 — Explicit Compilation Produces Cached Authority (No Auto-Compile)"""
+
+    def test_compile_delegates_to_service_boundary_with_legacy_extractor_seam(
+        self, monkeypatch
+    ):
+        """compile_spec_authority remains a thin adapter over compiler service."""
+        expected = {"success": True, "authority_id": 123}
+        captured: dict[str, object] = {}
+
+        def fake_service(
+            params,
+            *,
+            tool_context=None,
+            extract_authority=None,
+        ):
+            captured["params"] = params
+            captured["tool_context"] = tool_context
+            captured["extract_authority"] = extract_authority
+            return expected
+
+        legacy_extractor = object()
+        monkeypatch.setattr(
+            spec_tools,
+            "_service_compile_spec_authority",
+            fake_service,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            spec_tools,
+            "_extract_spec_authority_llm",
+            legacy_extractor,
+            raising=False,
+        )
+
+        sentinel_context = object()
+        params = {"spec_version_id": 99}
+        result = compile_spec_authority(
+            params,
+            tool_context=sentinel_context,
+        )
+
+        assert result == expected
+        assert captured["params"] == params
+        assert captured["tool_context"] is sentinel_context
+        assert captured["extract_authority"] is legacy_extractor
 
     def test_compile_fails_for_unapproved_spec(
         self, session: Session, sample_product: Product, sample_spec_content: str
@@ -366,6 +470,39 @@ class TestExplicitCompilation:
 
 class TestAuthorityStatusCheck:
     """AC4 — Authority Status Check (Staleness)"""
+
+    def test_status_tool_delegates_to_compiler_service(
+        self, sample_product: Product, monkeypatch
+    ):
+        """Tool entrypoint should remain a thin compatibility adapter."""
+        expected = {
+            "success": True,
+            "status": SpecAuthorityStatus.CURRENT.value,
+            "status_details": "delegated",
+            "message": "Status: CURRENT (authority ID: 999)",
+        }
+        captured: dict[str, object] = {}
+
+        def fake_service_status(params, tool_context=None):
+            captured["params"] = params
+            captured["tool_context"] = tool_context
+            return expected
+
+        monkeypatch.setattr(
+            spec_tools,
+            "_service_check_spec_authority_status",
+            fake_service_status,
+            raising=False,
+        )
+
+        result = check_spec_authority_status(
+            {"product_id": sample_product.product_id},
+            tool_context=None,
+        )
+
+        assert result is expected
+        assert captured["params"] == {"product_id": sample_product.product_id}
+        assert captured["tool_context"] is None
 
     def test_status_not_compiled_when_no_spec_exists(
         self, sample_product: Product
@@ -589,6 +726,41 @@ class TestDeterministicRetrieval:
 
         assert result["success"] is False
         assert "mismatch" in result["error"].lower() or "not found" in result["error"].lower()
+
+    def test_get_compiled_authority_adapter_delegates_to_compiler_service(
+        self, monkeypatch
+    ):
+        """Adapter path should delegate through the public compiler service boundary."""
+        expected = {
+            "success": True,
+            "authority_id": 123,
+            "message": "from service",
+        }
+        captured: Dict[str, object] = {}
+
+        def fake_service(params, tool_context=None):
+            captured["params"] = params
+            captured["tool_context"] = tool_context
+            return expected
+
+        monkeypatch.setattr(
+            spec_tools,
+            "_service_get_compiled_authority_by_version",
+            fake_service,
+            raising=False,
+        )
+
+        params = {"product_id": 9, "spec_version_id": 12}
+        tool_context = object()
+
+        result = spec_tools.get_compiled_authority_by_version(
+            params,
+            tool_context=tool_context,
+        )
+
+        assert result is expected
+        assert captured["params"] == params
+        assert captured["tool_context"] is tool_context
 
 
 class TestValidationRequiresSpecVersion:

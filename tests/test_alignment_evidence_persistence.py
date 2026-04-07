@@ -10,25 +10,23 @@ import tools.spec_tools as spec_tools
 from agile_sqlmodel import (
     CompiledSpecAuthority,
     Product,
-    Theme,
-    Epic,
-    Feature,
     UserStory,
     SpecRegistry,
 )
+from models.core import Epic, Feature, Theme
 from tools.spec_tools import (
     register_spec_version,
     approve_spec_version,
     validate_story_with_spec_authority,
 )
-from utils.schemes import SpecAuthorityCompilationSuccess, SpecAuthorityCompilerOutput
+from utils.spec_schemas import SpecAuthorityCompilationSuccess, SpecAuthorityCompilerOutput
 
 
 @pytest.fixture
 def product_with_spec(session: Session, engine) -> tuple[Product, int]:
     """Create product with pre-compiled spec authority containing FORBIDDEN_CAPABILITY."""
     from agile_sqlmodel import CompiledSpecAuthority
-    from utils.schemes import (
+    from utils.spec_schemas import (
         Invariant,
         InvariantType,
         ForbiddenCapabilityParams,

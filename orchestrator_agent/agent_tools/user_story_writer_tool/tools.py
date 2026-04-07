@@ -11,13 +11,10 @@ from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session, select
 
-from agile_sqlmodel import (
-    Product,
-    UserStory,
-    WorkflowEvent,
-    WorkflowEventType,
-    get_engine,
-)
+from models.core import Product, UserStory
+from models.db import get_engine
+from models.enums import WorkflowEventType
+from models.events import WorkflowEvent
 from orchestrator_agent.agent_tools.story_linkage import (
     normalize_requirement_key,
     title_changed_significantly,

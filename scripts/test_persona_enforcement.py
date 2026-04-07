@@ -6,7 +6,8 @@ import asyncio
 import json
 from unittest.mock import MagicMock, patch, AsyncMock
 from sqlmodel import Session, select
-from agile_sqlmodel import Product, ProductPersona, engine, create_db_and_tables
+from agile_sqlmodel import Product, engine, create_db_and_tables
+from models.core import ProductPersona
 from orchestrator_agent.agent_tools.story_pipeline.tools import ProcessStoryInput, process_single_story
 
 # Mock Iterator for Runner

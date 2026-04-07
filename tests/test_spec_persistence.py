@@ -456,6 +456,85 @@ class TestReadProjectSpecification:
         assert "hint" in result
         assert "ask user" in result["hint"].lower()
 
+    def test_read_spec_prefers_db_blob_when_file_path_also_exists(
+        self, db_session, tmp_path
+    ):
+        """When both DB content and file path exist, read uses the DB blob.
+
+        This keeps the public read tool aligned with select_project hydration.
+        """
+        if not read_project_specification:
+            pytest.fail("Tool not implemented yet")
+
+        spec_path = tmp_path / "backing_spec.md"
+        spec_path.write_text("# File Spec\n\nFile body", encoding="utf-8")
+
+        product = Product(
+            name="Dual Source Product",
+            vision="Dual source vision",
+            technical_spec="# DB Spec\n\nDatabase body",
+            spec_file_path=str(spec_path),
+            spec_loaded_at=datetime.now(timezone.utc),
+        )
+        db_session.add(product)
+        db_session.commit()
+        db_session.refresh(product)
+
+        context = MockToolContext(
+            state={
+                "active_project": {
+                    "product_id": product.product_id,
+                    "name": product.name,
+                }
+            }
+        )
+
+        result = read_project_specification({}, context)
+
+        assert result["success"] is True
+        assert result["spec_content"] == "# DB Spec\n\nDatabase body"
+        assert result["spec_path"] == str(spec_path)
+        assert context.state["pending_spec_content"] == "# DB Spec\n\nDatabase body"
+        assert context.state["pending_spec_path"] == str(spec_path)
+
+    def test_read_spec_falls_back_to_file_when_db_blob_is_empty(
+        self, db_session, tmp_path
+    ):
+        """When the DB blob is empty, read falls back to the saved file path."""
+        if not read_project_specification:
+            pytest.fail("Tool not implemented yet")
+
+        spec_path = tmp_path / "fallback_spec.md"
+        spec_path.write_text("# File Spec\n\nFile body", encoding="utf-8")
+
+        product = Product(
+            name="Fallback Source Product",
+            vision="Fallback source vision",
+            technical_spec="",
+            spec_file_path=str(spec_path),
+            spec_loaded_at=datetime.now(timezone.utc),
+        )
+        db_session.add(product)
+        db_session.commit()
+        db_session.refresh(product)
+
+        context = MockToolContext(
+            state={
+                "active_project": {
+                    "product_id": product.product_id,
+                    "name": product.name,
+                }
+            }
+        )
+
+        result = read_project_specification({}, context)
+
+        assert result["success"] is True
+        assert result["spec_content"] == "# File Spec\n\nFile body"
+        assert result["spec_path"] == str(spec_path)
+        assert context.state["pending_spec_content"] == "# File Spec\n\nFile body"
+        assert context.state["pending_spec_path"] == str(spec_path)
+
 
 # ============================================================================
 # Test Class 3: Integration Workflows

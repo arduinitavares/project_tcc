@@ -15,7 +15,7 @@ from orchestrator_agent.fsm.controller import FSMController
 from orchestrator_agent.fsm.states import OrchestratorState
 from repositories.product import ProductRepository
 from repositories.session import WorkflowSessionRepository
-from tools.orchestrator_tools import get_real_business_state
+from services.orchestrator_query_service import get_real_business_state
 from utils.runtime_config import RunnerIdentity, WORKFLOW_RUNNER_IDENTITY
 
 logger = logging.getLogger(__name__)

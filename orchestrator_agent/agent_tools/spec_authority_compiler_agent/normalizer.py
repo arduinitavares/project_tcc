@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import ValidationError
 
-from utils.schemes import (
+from utils.spec_schemas import (
     SpecAuthorityCompilerOutput,
     SpecAuthorityCompilerEnvelope,
     SpecAuthorityCompilationFailure,

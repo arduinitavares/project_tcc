@@ -292,6 +292,27 @@ def test_generate_error_history_stays_compact(monkeypatch):
     assert "raw_output" not in item["output_artifact"]
 
 
+def test_generate_route_translates_vision_phase_error(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+    project_id = _seed_setup_passed_project(repo, workflow)
+
+    async def failing_service(**_kwargs):
+        raise api_module.VisionPhaseError("service boom", status_code=418)
+
+    monkeypatch.setattr(
+        api_module,
+        "generate_vision_draft_service",
+        failing_service,
+    )
+
+    response = client.post(
+        f"/api/projects/{project_id}/vision/generate",
+        json={"user_input": "complete this"},
+    )
+    assert response.status_code == 418
+    assert response.json()["detail"] == "service boom"
+
+
 def test_vision_history_endpoint_returns_attempts(monkeypatch):
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_setup_passed_project(repo, workflow)

@@ -7,9 +7,10 @@ import pytest
 from sqlmodel import Session
 
 import tools.spec_tools as spec_tools
-from agile_sqlmodel import CompiledSpecAuthority, Epic, Feature, Product, SpecRegistry, Theme, UserStory
+from agile_sqlmodel import CompiledSpecAuthority, Product, SpecRegistry, UserStory
+from models.core import Epic, Feature, Theme
 from tools.spec_tools import validate_story_with_spec_authority
-from utils.schemes import (
+from utils.spec_schemas import (
     ForbiddenCapabilityParams,
     Invariant,
     InvariantType,

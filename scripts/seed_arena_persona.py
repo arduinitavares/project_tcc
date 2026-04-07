@@ -5,7 +5,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlalchemy import select
 from sqlmodel import Session
-from agile_sqlmodel import engine, ProductPersona
+from agile_sqlmodel import engine
+from models.core import ProductPersona
 
 def seed_arena_persona():
     """Add 'gestor da arena' persona to product ID 4."""

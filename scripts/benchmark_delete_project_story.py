@@ -30,10 +30,10 @@ from agile_sqlmodel import (  # noqa: E402
     Task,
     TaskExecutionLog,
     TaskStatus,
-    Team,
     UserStory,
     get_engine,
 )
+from models.core import Team
 
 
 def setup_data(

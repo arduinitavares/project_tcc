@@ -27,13 +27,10 @@ if str(REPO_ROOT) not in sys.path:
 import agile_sqlmodel
 from agile_sqlmodel import (
     Product,
-    Theme,
-    Epic,
-    Feature,
-    ProductPersona,
     SpecRegistry,
     CompiledSpecAuthority,
 )
+from models.core import ProductPersona, Theme, Epic, Feature
 
 import tools.spec_tools as spec_tools
 from tools.spec_tools import (
@@ -55,7 +52,7 @@ from orchestrator_agent.agent_tools.story_pipeline.steps.alignment_checker impor
     check_alignment_violation,
     derive_forbidden_capabilities_from_authority,
 )
-from utils.schemes import SpecAuthorityCompilerOutput, SpecAuthorityCompilationFailure
+from utils.spec_schemas import SpecAuthorityCompilerOutput, SpecAuthorityCompilationFailure
 from utils.smoke_schema import parse_smoke_run_record
 from pydantic import ValidationError
 

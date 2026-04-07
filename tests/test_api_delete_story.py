@@ -16,11 +16,11 @@ from agile_sqlmodel import (
     Task,
     TaskExecutionLog,
     TaskStatus,
-    Team,
     UserStory,
 )
 from api import app
 from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_key
+from models.core import Team
 
 
 @pytest.fixture
@@ -140,6 +140,7 @@ async def test_delete_project_story(
     monkeypatch.setattr("agile_sqlmodel.get_engine", lambda: engine)
 
     product_id, parent_req, story_ids, task_ids = setup_test_data
+    normalized_parent_req = normalize_requirement_key(parent_req)
 
     # 1. Seed session state data to ensure cleanup works
     str(product_id)
@@ -282,11 +283,12 @@ async def test_delete_project_story(
     ) as client:
         response = await client.delete(
             f"/api/projects/{product_id}/story",
-            params={"parent_requirement": parent_req},
+            params={"parent_requirement": f"  {parent_req}  "},
         )
 
     assert response.status_code == 200
     assert response.json()["status"] == "success"
+    assert response.json()["parent_requirement"] == parent_req
     assert response.json()["data"]["deleted_count"] == len(story_ids)
 
     # Assert data is completely removed

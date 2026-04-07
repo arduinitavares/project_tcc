@@ -10,15 +10,8 @@ from sqlmodel import Session, SQLModel, create_engine, select
 # Add repo root to path
 sys.path.append(os.getcwd())
 
-from agile_sqlmodel import (
-    Product,
-    Sprint,
-    SprintStatus,
-    SprintStory,
-    StoryStatus,
-    Team,
-    UserStory,
-)
+from agile_sqlmodel import Product, Sprint, SprintStatus, SprintStory, StoryStatus, UserStory
+from models.core import Team
 
 # Import the function to be tested
 from orchestrator_agent.agent_tools.sprint_planning import sprint_query_tools

@@ -10,19 +10,11 @@ from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session, col, select
 
-from agile_sqlmodel import (
-    Product,
-    Sprint,
-    SprintStatus,
-    SprintStory,
-    Task,
-    Team,
-    UserStory,
-    WorkflowEvent,
-    WorkflowEventType,
-    get_engine,
-)
-from utils.schemes import ValidationEvidence
+from models.core import Product, Sprint, SprintStory, Task, Team, UserStory
+from models.db import get_engine
+from models.enums import SprintStatus, WorkflowEventType
+from models.events import WorkflowEvent
+from utils.spec_schemas import ValidationEvidence
 from utils.task_metadata import metadata_from_structured_task, serialize_task_metadata
 
 from .schemes import (

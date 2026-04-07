@@ -68,11 +68,13 @@ def engine(test_db_url: str):  # pylint: disable=redefined-outer-name
         SprintStory,
         SpecRegistry,
         Task,
-        Team,
-        TeamMember,
         Theme,
         UserStory,
         WorkflowEvent,
+    )
+    from models.core import (  # pylint: disable=import-outside-toplevel, unused-import
+        Team,
+        TeamMember,
     )
 
     # Create all tables
@@ -95,11 +97,15 @@ def patch_get_engine_globally(engine, monkeypatch):
     # Patch the agile_sqlmodel module's get_engine function
     import agile_sqlmodel
     monkeypatch.setattr(agile_sqlmodel, "get_engine", lambda: engine)
+    from models import db as model_db
+    monkeypatch.setattr(model_db, "get_engine", lambda: engine)
     
     # Also patch in all modules that import get_engine
     # These need explicit patching because they import at module load time
     modules_to_patch = [
         "api",
+        "repositories.product",
+        "repositories.story",
         "orchestrator_agent.agent_tools.product_vision_tool.tools",
         "orchestrator_agent.agent_tools.product_roadmap_agent.tools",
         "orchestrator_agent.agent_tools.sprint_planner_tool.tools",
@@ -108,6 +114,8 @@ def patch_get_engine_globally(engine, monkeypatch):
         "tools.orchestrator_tools",
         "tools.db_tools",
         "tools.spec_tools",
+        "services.orchestrator_context_service",
+        "services.orchestrator_query_service",
     ]
     
     for module_path in modules_to_patch:

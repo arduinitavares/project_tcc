@@ -1,0 +1,73 @@
+"""Boundary tests for extracted spec/compiler/story-validation schema modules."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+
+def _python_files_importing_compat_schemes() -> list[str]:
+    root = Path(__file__).resolve().parents[1]
+    current_file = Path(__file__).resolve()
+    compat_import = "from utils" ".schemes import"
+    offenders: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        if path == root / "utils" / "schemes.py" or path.resolve() == current_file:
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if compat_import in text:
+            offenders.append(str(path.relative_to(root)))
+    return offenders
+
+
+def test_spec_schema_module_exports_validation_and_compiler_models() -> None:
+    from utils import schemes, spec_schemas
+
+    assert spec_schemas.ValidationFailure.__module__ == "utils.spec_schemas"
+    assert spec_schemas.AlignmentFinding.__module__ == "utils.spec_schemas"
+    assert spec_schemas.ValidationEvidence.__module__ == "utils.spec_schemas"
+    assert spec_schemas.SpecAuthorityCompilerInput.__module__ == "utils.spec_schemas"
+    assert spec_schemas.InvariantType.__module__ == "utils.spec_schemas"
+    assert spec_schemas.RequiredFieldParams.__module__ == "utils.spec_schemas"
+    assert spec_schemas.Invariant.__module__ == "utils.spec_schemas"
+    assert (
+        spec_schemas.SpecAuthorityCompilationSuccess.__module__
+        == "utils.spec_schemas"
+    )
+    assert spec_schemas.SpecAuthorityCompilerOutput.__module__ == "utils.spec_schemas"
+    assert spec_schemas.StoryDraft.__module__ == "utils.spec_schemas"
+    assert spec_schemas.StoryDraftInput.__module__ == "utils.spec_schemas"
+    assert spec_schemas.StoryRefinerInput.__module__ == "utils.spec_schemas"
+
+    assert schemes.ValidationFailure is spec_schemas.ValidationFailure
+    assert schemes.AlignmentFinding is spec_schemas.AlignmentFinding
+    assert schemes.ValidationEvidence is spec_schemas.ValidationEvidence
+    assert schemes.SpecAuthorityCompilerInput is spec_schemas.SpecAuthorityCompilerInput
+    assert schemes.InvariantType is spec_schemas.InvariantType
+    assert schemes.RequiredFieldParams is spec_schemas.RequiredFieldParams
+    assert schemes.Invariant is spec_schemas.Invariant
+    assert (
+        schemes.SpecAuthorityCompilationSuccess
+        is spec_schemas.SpecAuthorityCompilationSuccess
+    )
+    assert schemes.SpecAuthorityCompilerOutput is spec_schemas.SpecAuthorityCompilerOutput
+    assert schemes.StoryDraft is spec_schemas.StoryDraft
+    assert schemes.StoryDraftInput is spec_schemas.StoryDraftInput
+    assert schemes.StoryRefinerInput is spec_schemas.StoryRefinerInput
+
+
+def test_services_and_agents_import_spec_schema_module_boundary() -> None:
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent import agent
+    from services import orchestrator_query_service
+    from services.specs import compiler_service, story_validation_service
+
+    assert (
+        orchestrator_query_service.ValidationEvidence.__module__
+        == "utils.spec_schemas"
+    )
+    assert compiler_service.SpecAuthorityCompilerInput.__module__ == "utils.spec_schemas"
+    assert story_validation_service.AlignmentFinding.__module__ == "utils.spec_schemas"
+    assert agent.SpecAuthorityCompilerInput.__module__ == "utils.spec_schemas"
+
+
+def test_python_modules_do_not_import_compat_schemes_directly() -> None:
+    assert _python_files_importing_compat_schemes() == []

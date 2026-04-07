@@ -9,7 +9,8 @@ from sqlalchemy import Engine, event
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tools.db_tools import query_product_structure
-from agile_sqlmodel import Product, Theme, Epic, Feature, UserStory, StoryStatus
+from agile_sqlmodel import Product, UserStory, StoryStatus
+from models.core import Theme, Epic, Feature
 
 # Setup in-memory DB for benchmarking
 engine = create_engine("sqlite:///:memory:")

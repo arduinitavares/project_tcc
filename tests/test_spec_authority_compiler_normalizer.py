@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 import pytest
 
-from utils.schemes import (
+from utils.spec_schemas import (
     SpecAuthorityCompilationFailure,
     SpecAuthorityCompilationSuccess,
     SpecAuthorityCompilerOutput,

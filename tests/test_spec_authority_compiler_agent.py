@@ -12,7 +12,7 @@ import pytest
 from google.genai import types
 from pydantic import ValidationError
 
-from utils.schemes import (
+from utils.spec_schemas import (
     SpecAuthorityCompilerInput,
     SpecAuthorityCompilerOutput,
     SpecAuthorityCompilerEnvelope,

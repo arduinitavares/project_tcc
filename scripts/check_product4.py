@@ -55,7 +55,7 @@ def main():
                 print(f"  spec_version_id={sv.spec_version_id}: has_artifact={has_artifact}, artifact_len={artifact_len}")
                 if has_artifact:
                     # Try to validate it
-                    from utils.schemes import SpecAuthorityCompilerOutput, SpecAuthorityCompilationFailure, SpecAuthorityCompilationSuccess
+                    from utils.spec_schemas import SpecAuthorityCompilerOutput, SpecAuthorityCompilationFailure, SpecAuthorityCompilationSuccess
                     try:
                         parsed = SpecAuthorityCompilerOutput.model_validate_json(compiled.compiled_artifact_json)
                         if isinstance(parsed.root, SpecAuthorityCompilationFailure):

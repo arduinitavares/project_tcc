@@ -1,0 +1,143 @@
+"""Shared workflow state helpers for phase services."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Collection
+from typing import Any
+
+from orchestrator_agent.fsm.states import OrchestratorState
+
+
+def failure_meta(
+    source: dict[str, Any] | None,
+    *,
+    fallback_summary: str | None = None,
+) -> dict[str, Any]:
+    payload = source or {}
+    return {
+        "failure_artifact_id": payload.get("failure_artifact_id"),
+        "failure_stage": payload.get("failure_stage"),
+        "failure_summary": payload.get("failure_summary") or fallback_summary,
+        "raw_output_preview": payload.get("raw_output_preview"),
+        "has_full_artifact": bool(payload.get("has_full_artifact", False)),
+    }
+
+
+def phase_state_from_complete(
+    is_complete: bool,
+    *,
+    review_state: str,
+    interview_state: str,
+) -> str:
+    return review_state if is_complete else interview_state
+
+
+def sprint_state_from_complete(is_complete: bool) -> str:
+    return phase_state_from_complete(
+        is_complete,
+        review_state=OrchestratorState.SPRINT_DRAFT.value,
+        interview_state=OrchestratorState.SPRINT_SETUP.value,
+    )
+
+
+def ensure_phase_attempts(
+    state: dict[str, Any],
+    *,
+    attempts_key: str,
+) -> list[dict[str, Any]]:
+    attempts = state.get(attempts_key)
+    if not isinstance(attempts, list):
+        attempts = []
+    return attempts
+
+
+def record_phase_attempt(
+    state: dict[str, Any],
+    *,
+    attempts_key: str,
+    last_input_context_key: str,
+    assessment_key: str,
+    trigger: str,
+    input_context: dict[str, Any],
+    output_artifact: dict[str, Any],
+    is_complete: bool,
+    created_at: str,
+    failure_source: dict[str, Any] | None = None,
+    failure_summary_fallback: str | None = None,
+    mirrored_output_field: str | None = None,
+    mirrored_state_key: str | None = None,
+    mirrored_output_types: tuple[type, ...] | None = None,
+) -> int:
+    attempts = ensure_phase_attempts(state, attempts_key=attempts_key)
+    normalized_output_artifact = dict(output_artifact)
+    attempts.append(
+        {
+            "created_at": created_at,
+            "trigger": trigger,
+            "input_context": input_context,
+            "output_artifact": normalized_output_artifact,
+            "is_complete": is_complete,
+            **failure_meta(
+                failure_source,
+                fallback_summary=failure_summary_fallback,
+            ),
+        }
+    )
+    state[attempts_key] = attempts
+    state[last_input_context_key] = input_context
+    state[assessment_key] = normalized_output_artifact
+
+    if mirrored_output_field and mirrored_state_key:
+        mirrored_value = normalized_output_artifact.get(mirrored_output_field)
+        if mirrored_output_types is None:
+            if mirrored_value is not None:
+                state[mirrored_state_key] = mirrored_value
+        elif isinstance(mirrored_value, mirrored_output_types):
+            state[mirrored_state_key] = mirrored_value
+
+    return len(attempts)
+
+
+def set_phase_fsm_state(
+    state: dict[str, Any],
+    *,
+    is_complete: bool,
+    now_iso: Callable[[], str],
+    review_state: str,
+    interview_state: str,
+    current_state: str | None = None,
+    preserved_states: Collection[str] | None = None,
+    persist_current_state: bool = False,
+) -> str:
+    if (
+        current_state is not None
+        and preserved_states is not None
+        and current_state in preserved_states
+    ):
+        if persist_current_state:
+            state["fsm_state"] = current_state
+        return current_state
+
+    next_state = phase_state_from_complete(
+        is_complete,
+        review_state=review_state,
+        interview_state=interview_state,
+    )
+    state["fsm_state"] = next_state
+    state["fsm_state_entered_at"] = now_iso()
+    return next_state
+
+
+def set_sprint_fsm_state(
+    state: dict[str, Any],
+    *,
+    is_complete: bool,
+    now_iso: Callable[[], str],
+) -> str:
+    return set_phase_fsm_state(
+        state,
+        is_complete=is_complete,
+        now_iso=now_iso,
+        review_state=OrchestratorState.SPRINT_DRAFT.value,
+        interview_state=OrchestratorState.SPRINT_SETUP.value,
+    )

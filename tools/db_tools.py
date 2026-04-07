@@ -11,16 +11,8 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from agile_sqlmodel import (
-    Epic,
-    Feature,
-    Product,
-    Task,
-    Theme,
-    UserStory,
-    get_engine,
-    ProductPersona,
-)
+from models.core import Epic, Feature, Product, ProductPersona, Task, Theme, UserStory
+from models.db import get_engine
 
 
 class SeedProductPersonasInput(BaseModel):

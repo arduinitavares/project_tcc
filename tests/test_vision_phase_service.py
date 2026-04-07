@@ -1,0 +1,255 @@
+from types import SimpleNamespace
+
+import pytest
+
+from services.phases.vision_service import (
+    VisionPhaseError,
+    ensure_vision_attempts,
+    generate_vision_draft,
+    get_vision_history,
+    record_vision_attempt,
+    save_vision_draft,
+    set_vision_fsm_state,
+    vision_state_from_complete,
+)
+
+
+def test_record_vision_attempt_updates_state_and_failure_metadata():
+    state = {}
+
+    count = record_vision_attempt(
+        state,
+        trigger="manual_refine",
+        input_context={"user_raw_text": ""},
+        output_artifact={
+            "updated_components": {"project_name": "Vision Project"},
+            "product_vision_statement": "A clear vision.",
+            "is_complete": False,
+        },
+        is_complete=False,
+        failure_meta={
+            "failure_artifact_id": "vision-failure-1",
+            "failure_stage": "invalid_json",
+            "failure_summary": "Vision response is not valid JSON",
+            "raw_output_preview": '{"broken": true}',
+            "has_full_artifact": True,
+        },
+        now_iso=lambda: "2026-04-04T00:00:00Z",
+    )
+
+    assert count == 1
+    assert state["vision_attempts"][0]["created_at"] == "2026-04-04T00:00:00Z"
+    assert state["vision_last_input_context"] == {"user_raw_text": ""}
+    assert state["product_vision_assessment"]["product_vision_statement"] == (
+        "A clear vision."
+    )
+    assert state["vision_components"] == {"project_name": "Vision Project"}
+    assert state["vision_attempts"][0]["failure_artifact_id"] == "vision-failure-1"
+
+
+def test_vision_state_from_complete_maps_to_review_and_interview():
+    assert vision_state_from_complete(True) == "VISION_REVIEW"
+    assert vision_state_from_complete(False) == "VISION_INTERVIEW"
+
+
+def test_set_vision_fsm_state_updates_state():
+    state = {}
+
+    next_state = set_vision_fsm_state(
+        state,
+        is_complete=True,
+        now_iso=lambda: "2026-04-04T00:00:00Z",
+    )
+
+    assert next_state == "VISION_REVIEW"
+    assert state["fsm_state"] == "VISION_REVIEW"
+    assert state["fsm_state_entered_at"] == "2026-04-04T00:00:00Z"
+
+
+def test_ensure_vision_attempts_returns_existing_list():
+    attempts = [{"created_at": "2026-04-04T00:00:00Z"}]
+    state = {"vision_attempts": attempts}
+
+    assert ensure_vision_attempts(state) is attempts
+
+
+@pytest.mark.asyncio
+async def test_generate_vision_draft_allows_empty_input_on_first_attempt():
+    state = {"fsm_state": "VISION_INTERVIEW"}
+    saved: dict[str, object] = {}
+    captured: dict[str, object] = {}
+
+    async def load_state() -> dict[str, object]:
+        return state
+
+    def save_state(updated: dict[str, object]) -> None:
+        saved["state"] = dict(updated)
+
+    async def fake_run_vision_agent_from_state(state, *, project_id, user_input):
+        captured["state"] = state
+        captured["project_id"] = project_id
+        captured["user_input"] = user_input
+        return {
+            "success": True,
+            "input_context": {
+                "user_raw_text": user_input or "",
+                "prior_vision_state": "NO_HISTORY",
+                "specification_content": "SPEC",
+                "compiled_authority": '{"ok": true}',
+            },
+            "output_artifact": {
+                "updated_components": {"project_name": "Vision Project"},
+                "product_vision_statement": "Draft vision",
+                "is_complete": False,
+                "clarifying_questions": ["Need more detail"],
+            },
+            "is_complete": False,
+            "error": None,
+            "failure_artifact_id": None,
+            "failure_stage": None,
+            "failure_summary": None,
+            "raw_output_preview": None,
+            "has_full_artifact": False,
+        }
+
+    payload = await generate_vision_draft(
+        project_id=7,
+        setup_blocker=None,
+        load_state=load_state,
+        save_state=save_state,
+        now_iso=lambda: "2026-04-04T00:00:00Z",
+        run_vision_agent=fake_run_vision_agent_from_state,
+        user_input=None,
+    )
+
+    assert captured["user_input"] == ""
+    assert payload["fsm_state"] == "VISION_INTERVIEW"
+    assert payload["is_complete"] is False
+    assert payload["attempt_count"] == 1
+    assert saved["state"]["vision_attempts"][0]["trigger"] == "manual_refine"
+
+
+@pytest.mark.asyncio
+async def test_generate_vision_draft_requires_feedback_after_first_attempt():
+    state = {
+        "fsm_state": "VISION_INTERVIEW",
+        "vision_attempts": [{"created_at": "2026-04-03T00:00:00Z"}],
+    }
+
+    async def load_state() -> dict[str, object]:
+        return state
+
+    async def fake_run_vision_agent_from_state(**_kwargs):
+        raise AssertionError("runner should not be called")
+
+    with pytest.raises(VisionPhaseError) as exc_info:
+        await generate_vision_draft(
+            project_id=7,
+            setup_blocker=None,
+            load_state=load_state,
+            save_state=lambda _state: None,
+            now_iso=lambda: "2026-04-04T00:00:00Z",
+            run_vision_agent=fake_run_vision_agent_from_state,
+            user_input="   ",
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "Feedback is required" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_get_vision_history_returns_count_and_items():
+    state = {
+        "vision_attempts": [
+            {"created_at": "2026-04-03T00:00:00Z", "trigger": "manual_refine"}
+        ]
+    }
+
+    payload = await get_vision_history(load_state=lambda: _async_value(state))
+
+    assert payload["count"] == 1
+    assert payload["items"][0]["trigger"] == "manual_refine"
+
+
+@pytest.mark.asyncio
+async def test_save_vision_draft_requires_complete_assessment():
+    state = {
+        "product_vision_assessment": {
+            "product_vision_statement": "Draft",
+            "is_complete": False,
+        }
+    }
+
+    async def hydrate_context():
+        return SimpleNamespace(state=dict(state))
+
+    with pytest.raises(VisionPhaseError) as exc_info:
+        await save_vision_draft(
+            project_id=7,
+            project_name="Vision Project",
+            setup_blocker=None,
+            save_state=lambda _state: None,
+            now_iso=lambda: "2026-04-04T00:00:00Z",
+            hydrate_context=hydrate_context,
+            build_tool_context=lambda context: context,
+            save_vision_tool=_fake_save_vision_tool,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "is_complete is true" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_save_vision_draft_persists_persistence_state():
+    state = {
+        "product_vision_assessment": {
+            "product_vision_statement": "Final vision",
+            "is_complete": True,
+        },
+        "setup_status": "failed",
+    }
+    saved: dict[str, object] = {}
+    captured: dict[str, object] = {}
+
+    async def hydrate_context():
+        context = SimpleNamespace(state=dict(state), session_id="7")
+        context.state["pending_spec_content"] = "SPEC"
+        return context
+
+    def save_state(updated: dict[str, object]) -> None:
+        saved["state"] = dict(updated)
+
+    def fake_save_vision_tool(vision_input, tool_context):
+        captured["vision_input"] = vision_input
+        captured["tool_context"] = tool_context
+        return {
+            "success": True,
+            "product_id": vision_input.product_id,
+            "project_name": vision_input.project_name,
+            "message": "saved",
+        }
+
+    payload = await save_vision_draft(
+        project_id=7,
+        project_name="Vision Project",
+        setup_blocker=None,
+        save_state=save_state,
+        now_iso=lambda: "2026-04-04T00:00:00Z",
+        hydrate_context=hydrate_context,
+        build_tool_context=lambda context: context,
+        save_vision_tool=fake_save_vision_tool,
+    )
+
+    assert payload["fsm_state"] == "VISION_PERSISTENCE"
+    assert payload["save_result"]["success"] is True
+    assert captured["vision_input"].product_vision_statement == "Final vision"
+    assert saved["state"]["fsm_state"] == "VISION_PERSISTENCE"
+    assert saved["state"]["vision_saved_at"] == "2026-04-04T00:00:00Z"
+
+
+async def _async_value(value):
+    return value
+
+
+def _fake_save_vision_tool(*_args, **_kwargs):
+    raise AssertionError("save_vision_tool should not be called")

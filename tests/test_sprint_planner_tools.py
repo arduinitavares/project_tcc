@@ -15,17 +15,17 @@ from agile_sqlmodel import (
     SprintStatus,
     SprintStory,
     Task,
-    Team,
     UserStory,
     WorkflowEvent,
     WorkflowEventType,
 )
+from models.core import Team
 from orchestrator_agent.agent_tools.sprint_planner_tool.tools import (
     SaveSprintPlanInput,
     save_sprint_plan_tool,
 )
 from tools.orchestrator_tools import fetch_sprint_candidates
-from utils.schemes import ValidationEvidence
+from utils.spec_schemas import ValidationEvidence
 from utils.task_metadata import TaskMetadata, serialize_task_metadata
 
 

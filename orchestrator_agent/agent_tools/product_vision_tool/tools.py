@@ -14,12 +14,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
-from agile_sqlmodel import (
-    Product,
-    WorkflowEvent,
-    WorkflowEventType,
-    get_engine,
-)
+from models.core import Product
+from models.db import get_engine
+from models.enums import WorkflowEventType
+from models.events import WorkflowEvent
 from tools.spec_tools import (
     UpdateSpecAndCompileAuthorityInput,
     update_spec_and_compile_authority,

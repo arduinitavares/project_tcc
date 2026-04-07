@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable, Dict, List, Optional
 
-from tools.orchestrator_tools import fetch_sprint_candidates
+from services.orchestrator_query_service import fetch_sprint_candidates
 
 
 def as_text(value: Any) -> str:

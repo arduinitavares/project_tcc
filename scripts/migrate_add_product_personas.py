@@ -9,7 +9,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlalchemy import create_engine, text
-from agile_sqlmodel import ProductPersona, SQLModel, get_database_url
+from agile_sqlmodel import SQLModel, get_database_url
+from models.core import ProductPersona
 
 def migrate_add_product_personas():
     """Add product_personas table to existing database."""
