@@ -2,19 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 import hashlib
 import json
 import re
+from collections.abc import Awaitable, Callable
 from typing import Any
 
+from orchestrator_agent.agent_tools.story_linkage import (
+    normalize_requirement_key,
+)
 from orchestrator_agent.agent_tools.user_story_writer_tool.tools import (
     SaveStoriesInput,
 )
-from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_key
 from orchestrator_agent.fsm.states import OrchestratorState
 from services.interview_runtime import hydrate_story_runtime_from_legacy
-
 
 VALID_FSM_STATES = {state.value for state in OrchestratorState}
 
@@ -340,7 +341,10 @@ def _normalize_story_requirement(
     if parent_requirement in candidate_names:
         return parent_requirement
 
-    if isinstance(normalized_parent_requirement, str) and normalized_parent_requirement:
+    if (
+        isinstance(normalized_parent_requirement, str)
+        and normalized_parent_requirement
+    ):
         for candidate in candidate_names:
             if candidate.strip() == normalized_parent_requirement:
                 return candidate
@@ -551,7 +555,9 @@ async def generate_story_draft(
         user_input=None if included_feedback_ids else user_input,
     )
 
-    request_payload = _story_request_payload(story_result.get("request_payload"))
+    request_payload = _story_request_payload(
+        story_result.get("request_payload")
+    )
     created_at = now_iso()
     draft_basis_attempt_id = (runtime.get("draft_projection") or {}).get(
         "latest_reusable_attempt_id"
@@ -580,12 +586,15 @@ async def generate_story_draft(
             "trigger": "manual_refine"
             if normalized_user_input
             else "auto_transition",
-            "request_snapshot_id": request_projection.get("request_snapshot_id"),
+            "request_snapshot_id": request_projection.get(
+                "request_snapshot_id"
+            ),
             "draft_basis_attempt_id": request_projection.get(
                 "draft_basis_attempt_id"
             ),
             "included_feedback_ids": list(included_feedback_ids),
-            "input_context": story_result.get("input_context") or request_payload,
+            "input_context": story_result.get("input_context")
+            or request_payload,
             "classification": story_result.get("classification"),
             "is_reusable": bool(story_result.get("is_reusable", False)),
             "retryable": story_retryable(story_result.get("classification")),
@@ -681,12 +690,15 @@ async def retry_story_draft(
             "attempt_id": attempt_id,
             "created_at": created_at,
             "trigger": "retry_same_input",
-            "request_snapshot_id": request_projection.get("request_snapshot_id"),
+            "request_snapshot_id": request_projection.get(
+                "request_snapshot_id"
+            ),
             "draft_basis_attempt_id": request_projection.get(
                 "draft_basis_attempt_id"
             ),
             "included_feedback_ids": included_feedback_ids,
-            "input_context": story_result.get("input_context") or request_payload,
+            "input_context": story_result.get("input_context")
+            or request_payload,
             "classification": story_result.get("classification"),
             "is_reusable": bool(story_result.get("is_reusable", False)),
             "retryable": story_retryable(story_result.get("classification")),
@@ -932,7 +944,11 @@ async def complete_story_phase(
     if not isinstance(saved_reqs_dict, dict):
         saved_reqs_dict = {}
 
-    saved = [requirement for requirement in req_names if saved_reqs_dict.get(requirement)]
+    saved = [
+        requirement
+        for requirement in req_names
+        if saved_reqs_dict.get(requirement)
+    ]
     if len(saved) == 0:
         raise StoryPhaseError(
             "Cannot complete phase. No requirements have saved stories.",

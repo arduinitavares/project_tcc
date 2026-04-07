@@ -37,20 +37,20 @@ from sqlmodel import Session, select
 from sqlmodel.sql._expression_select_cls import SelectOfScalar
 
 from models.core import Product, Sprint, SprintStory, Task, UserStory
+from models.db import ensure_business_db_ready, get_engine
 from models.enums import (
     SprintStatus,
     StoryStatus,
     TaskStatus,
     WorkflowEventType,
 )
-from models.db import ensure_business_db_ready, get_engine
 from models.events import StoryCompletionLog, TaskExecutionLog, WorkflowEvent
 from models.specs import CompiledSpecAuthority
-from orchestrator_agent.agent_tools.product_vision_tool.tools import (
-    save_vision_tool,
-)
 from orchestrator_agent.agent_tools.backlog_primer.tools import (
     save_backlog_tool,
+)
+from orchestrator_agent.agent_tools.product_vision_tool.tools import (
+    save_vision_tool,
 )
 from orchestrator_agent.agent_tools.roadmap_builder.tools import (
     save_roadmap_tool,
@@ -65,6 +65,7 @@ from orchestrator_agent.fsm.states import OrchestratorState
 from repositories.product import ProductRepository
 from repositories.story import StoryRepository
 from routers.sprint import register_sprint_routes
+from services.backlog_runtime import run_backlog_agent_from_state
 from services.interview_runtime import (
     append_attempt,
     append_feedback_entry,
@@ -73,57 +74,113 @@ from services.interview_runtime import (
     reset_subject_working_set,
     set_request_projection,
 )
-from services.backlog_runtime import run_backlog_agent_from_state
+from services.packet_renderer import render_packet
 from services.packets.packet_service import (
-    get_story_packet as get_story_packet_service,
-    get_task_packet as get_task_packet_service,
     PacketServiceError,
 )
-from services.phases.sprint_service import (
-    close_sprint as close_sprint_service,
-    generate_sprint_plan as generate_sprint_plan_service,
-    get_saved_sprint_detail as get_saved_sprint_detail_service,
-    get_sprint_close_readiness as get_sprint_close_readiness_service,
-    get_sprint_history as get_sprint_history_service,
-    list_saved_sprints as list_saved_sprints_service,
-    reset_sprint_planner as reset_sprint_planner_service,
-    save_sprint_plan as save_sprint_plan_service,
-    start_saved_sprint as start_saved_sprint_service,
-    SprintPhaseError,
+from services.packets.packet_service import (
+    get_story_packet as get_story_packet_service,
+)
+from services.packets.packet_service import (
+    get_task_packet as get_task_packet_service,
 )
 from services.phases.backlog_service import (
     BacklogPhaseError,
+)
+from services.phases.backlog_service import (
     generate_backlog_draft as generate_backlog_draft_service,
+)
+from services.phases.backlog_service import (
     get_backlog_history as get_backlog_history_service,
+)
+from services.phases.backlog_service import (
     save_backlog_draft as save_backlog_draft_service,
 )
 from services.phases.roadmap_service import (
-    generate_roadmap_draft as generate_roadmap_draft_service,
-    get_roadmap_history as get_roadmap_history_service,
     RoadmapPhaseError,
+)
+from services.phases.roadmap_service import (
+    generate_roadmap_draft as generate_roadmap_draft_service,
+)
+from services.phases.roadmap_service import (
+    get_roadmap_history as get_roadmap_history_service,
+)
+from services.phases.roadmap_service import (
     save_roadmap_draft as save_roadmap_draft_service,
 )
-from services.phases.vision_service import (
-    VisionPhaseError,
-    generate_vision_draft as generate_vision_draft_service,
-    get_vision_history as get_vision_history_service,
-    save_vision_draft as save_vision_draft_service,
+from services.phases.sprint_service import (
+    SprintPhaseError,
+)
+from services.phases.sprint_service import (
+    close_sprint as close_sprint_service,
+)
+from services.phases.sprint_service import (
+    generate_sprint_plan as generate_sprint_plan_service,
+)
+from services.phases.sprint_service import (
+    get_saved_sprint_detail as get_saved_sprint_detail_service,
+)
+from services.phases.sprint_service import (
+    get_sprint_close_readiness as get_sprint_close_readiness_service,
+)
+from services.phases.sprint_service import (
+    get_sprint_history as get_sprint_history_service,
+)
+from services.phases.sprint_service import (
+    list_saved_sprints as list_saved_sprints_service,
+)
+from services.phases.sprint_service import (
+    reset_sprint_planner as reset_sprint_planner_service,
+)
+from services.phases.sprint_service import (
+    save_sprint_plan as save_sprint_plan_service,
+)
+from services.phases.sprint_service import (
+    start_saved_sprint as start_saved_sprint_service,
+)
+from services.phases.story_service import (
+    StoryPhaseError,
 )
 from services.phases.story_service import (
     complete_story_phase as complete_story_phase_service,
-    delete_story_requirement as delete_story_requirement_service,
-    get_story_history as get_story_history_service,
-    get_story_pending as get_story_pending_service,
-    generate_story_draft as generate_story_draft_service,
-    merge_story_resolution as merge_story_resolution_service,
-    save_story_draft as save_story_draft_service,
-    story_interview_summary,
-    retry_story_draft as retry_story_draft_service,
-    StoryPhaseError,
 )
-from services.setup_service import run_project_setup as run_project_setup_service
-from services.packet_renderer import render_packet
+from services.phases.story_service import (
+    delete_story_requirement as delete_story_requirement_service,
+)
+from services.phases.story_service import (
+    generate_story_draft as generate_story_draft_service,
+)
+from services.phases.story_service import (
+    get_story_history as get_story_history_service,
+)
+from services.phases.story_service import (
+    get_story_pending as get_story_pending_service,
+)
+from services.phases.story_service import (
+    merge_story_resolution as merge_story_resolution_service,
+)
+from services.phases.story_service import (
+    retry_story_draft as retry_story_draft_service,
+)
+from services.phases.story_service import (
+    save_story_draft as save_story_draft_service,
+)
+from services.phases.vision_service import (
+    VisionPhaseError,
+)
+from services.phases.vision_service import (
+    generate_vision_draft as generate_vision_draft_service,
+)
+from services.phases.vision_service import (
+    get_vision_history as get_vision_history_service,
+)
+from services.phases.vision_service import (
+    save_vision_draft as save_vision_draft_service,
+)
 from services.roadmap_runtime import run_roadmap_agent_from_state
+from services.setup_service import (
+    run_project_setup as run_project_setup_service,
+)
 from services.specs.compiler_service import load_compiled_artifact
 from services.specs.lifecycle_service import link_spec_to_product
 from services.specs.story_validation_service import (
@@ -132,38 +189,44 @@ from services.specs.story_validation_service import (
 from services.sprint_input import load_sprint_candidates
 from services.sprint_runtime import run_sprint_agent_from_state
 from services.story_close_service import (
-    close_story as close_story_service,
-    get_story_close_readiness as get_story_close_readiness_service,
     StoryCloseServiceError,
 )
-from services.task_execution_service import (
-    get_task_execution_history as get_task_execution_history_service,
-    record_task_execution as record_task_execution_service,
-    TaskExecutionServiceError,
+from services.story_close_service import (
+    close_story as close_story_service,
+)
+from services.story_close_service import (
+    get_story_close_readiness as get_story_close_readiness_service,
 )
 from services.story_runtime import (
     run_story_agent_from_state,
     run_story_agent_request,
 )
+from services.task_execution_service import (
+    TaskExecutionServiceError,
+)
+from services.task_execution_service import (
+    get_task_execution_history as get_task_execution_history_service,
+)
+from services.task_execution_service import (
+    record_task_execution as record_task_execution_service,
+)
 from services.vision_runtime import run_vision_agent_from_state
 from services.workflow import WorkflowService
 from tools.orchestrator_tools import select_project
-from utils.failure_artifacts import read_failure_artifact
-from utils.logging_config import configure_logging
-from utils.runtime_config import get_api_host, get_api_port, get_api_reload
 from utils.api_schemas import (
+    SprintCloseReadiness,
     SprintCloseReadResponse,
+    SprintCloseStorySummary,
     SprintCloseWriteRequest,
     StoryCloseReadResponse,
     StoryCloseWriteRequest,
     TaskExecutionReadResponse,
     TaskExecutionWriteRequest,
 )
+from utils.failure_artifacts import read_failure_artifact
+from utils.logging_config import configure_logging
+from utils.runtime_config import get_api_host, get_api_port, get_api_reload
 from utils.spec_schemas import ValidationEvidence
-from utils.api_schemas import (
-    SprintCloseReadiness,
-    SprintCloseStorySummary,
-)
 from utils.task_metadata import (
     TaskMetadata,
     hash_task_metadata,
@@ -1592,7 +1655,9 @@ async def generate_project_vision(
             user_input=req.user_input,
         )
     except VisionPhaseError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail
+        ) from exc
 
     return {
         "status": "success",
@@ -1613,7 +1678,9 @@ async def get_project_vision_history(project_id: int) -> dict[str, Any]:
             load_state=lambda: _ensure_session(session_id)
         )
     except VisionPhaseError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail
+        ) from exc
 
     return {
         "status": "success",
@@ -1644,7 +1711,9 @@ async def save_project_vision(
             save_vision_tool=save_vision_tool,
         )
     except VisionPhaseError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail
+        ) from exc
 
     return {
         "status": "success",
@@ -1672,7 +1741,9 @@ async def generate_project_backlog(
             user_input=req.user_input,
         )
     except BacklogPhaseError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail
+        ) from exc
 
     return {
         "status": "success",
@@ -1693,7 +1764,9 @@ async def get_project_backlog_history(project_id: int) -> dict[str, Any]:
             load_state=lambda: _ensure_session(session_id)
         )
     except BacklogPhaseError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail
+        ) from exc
 
     return {
         "status": "success",
@@ -1720,7 +1793,9 @@ async def save_project_backlog(project_id: int) -> dict[str, Any]:
             save_backlog_tool=save_backlog_tool,
         )
     except BacklogPhaseError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail
+        ) from exc
 
     return {
         "status": "success",
@@ -1748,7 +1823,9 @@ async def generate_project_roadmap(
             user_input=req.user_input,
         )
     except RoadmapPhaseError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail
+        ) from exc
 
     return {
         "status": "success",
@@ -1769,7 +1846,9 @@ async def get_project_roadmap_history(project_id: int) -> dict[str, Any]:
             load_state=lambda: _ensure_session(session_id)
         )
     except RoadmapPhaseError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail
+        ) from exc
 
     return {
         "status": "success",
@@ -1795,7 +1874,9 @@ async def save_project_roadmap(project_id: int) -> dict[str, Any]:
             save_roadmap_tool=save_roadmap_tool,
         )
     except RoadmapPhaseError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail
+        ) from exc
 
     return {
         "status": "success",
@@ -1842,7 +1923,9 @@ async def generate_project_story(
             parent_requirement=parent_requirement,
             user_input=req.user_input,
             load_state=lambda: _ensure_session(session_id),
-            save_state=lambda updated: _save_session_state(session_id, updated),
+            save_state=lambda updated: _save_session_state(
+                session_id, updated
+            ),
             now_iso=_now_iso,
             run_story_agent_from_state=run_story_agent_from_state,
             append_feedback_entry=append_feedback_entry,
@@ -1879,7 +1962,9 @@ async def retry_project_story(
             project_id=project_id,
             parent_requirement=parent_requirement,
             load_state=lambda: _ensure_session(session_id),
-            save_state=lambda updated: _save_session_state(session_id, updated),
+            save_state=lambda updated: _save_session_state(
+                session_id, updated
+            ),
             now_iso=_now_iso,
             run_story_agent_request=run_story_agent_request,
             append_attempt=append_attempt,
@@ -1941,7 +2026,9 @@ async def save_project_story(
             project_id=project_id,
             parent_requirement=parent_requirement,
             load_state=lambda: _ensure_session(session_id),
-            save_state=lambda updated: _save_session_state(session_id, updated),
+            save_state=lambda updated: _save_session_state(
+                session_id, updated
+            ),
             hydrate_context=_hydrate_context,
             build_tool_context=_build_tool_context,
             save_stories_tool=save_stories_tool,
@@ -1972,7 +2059,9 @@ async def merge_project_story(
         data = await merge_story_resolution_service(
             parent_requirement=parent_requirement,
             load_state=lambda: _ensure_session(session_id),
-            save_state=lambda updated: _save_session_state(session_id, updated),
+            save_state=lambda updated: _save_session_state(
+                session_id, updated
+            ),
             now_iso=_now_iso,
         )
     except StoryPhaseError as exc:
@@ -2007,9 +2096,11 @@ async def delete_project_story(
                     session_id, updated
                 ),
                 now_iso=_now_iso,
-                delete_requirement_stories=lambda normalized_requirement: story_repo.delete_by_requirement(
-                    product_id=project_id,
-                    normalized_requirement=normalized_requirement,
+                delete_requirement_stories=lambda normalized_requirement: (
+                    story_repo.delete_by_requirement(
+                        product_id=project_id,
+                        normalized_requirement=normalized_requirement,
+                    )
                 ),
                 reset_subject_working_set=reset_subject_working_set,
             )
@@ -2036,7 +2127,9 @@ async def complete_story_phase(project_id: int) -> dict[str, Any]:
     try:
         data = await complete_story_phase_service(
             load_state=lambda: _ensure_session(session_id),
-            save_state=lambda updated: _save_session_state(session_id, updated),
+            save_state=lambda updated: _save_session_state(
+                session_id, updated
+            ),
             now_iso=_now_iso,
         )
     except StoryPhaseError as exc:
@@ -2110,9 +2203,11 @@ async def generate_project_sprint(
             ),
             now_iso=_now_iso,
             run_sprint_agent=run_sprint_agent_from_state,
-            failure_meta_builder=lambda source, fallback_summary=None: _failure_meta(
-                cast(dict[str, Any] | None, source),
-                fallback_summary=cast(str | None, fallback_summary),
+            failure_meta_builder=lambda source, fallback_summary=None: (
+                _failure_meta(
+                    cast(dict[str, Any] | None, source),
+                    fallback_summary=cast(str | None, fallback_summary),
+                )
             ),
             team_velocity_assumption=req.team_velocity_assumption,
             sprint_duration_days=req.sprint_duration_days,
@@ -2277,6 +2372,7 @@ def post_sprint_close(
 ) -> SprintCloseReadResponse:
     """Close an active sprint and record the final snapshot."""
     with Session(get_engine()) as session:
+
         def _persist_closed_sprint(snapshot: dict[str, Any]) -> Sprint | None:
             sprint = _get_saved_sprint(session, project_id, sprint_id)
             if not sprint:
@@ -2413,7 +2509,9 @@ def get_task_execution(
                         TaskExecutionLog.task_id == task_id,
                         TaskExecutionLog.sprint_id == sprint_id,
                     )
-                    .order_by(desc(_queryable_attr(TaskExecutionLog.changed_at)))
+                    .order_by(
+                        desc(_queryable_attr(TaskExecutionLog.changed_at))
+                    )
                 ).all(),
             )
         except TaskExecutionServiceError as exc:
@@ -2433,6 +2531,7 @@ def post_task_execution(
 ) -> TaskExecutionReadResponse:
     """Record a progress log entry for an active sprint task."""
     with Session(get_engine()) as session:
+
         def _persist_execution_log(**kwargs: Any) -> None:
             task = kwargs["task"]
             session.add(task)
@@ -2476,7 +2575,9 @@ def post_task_execution(
                         TaskExecutionLog.task_id == task_id,
                         TaskExecutionLog.sprint_id == sprint_id,
                     )
-                    .order_by(desc(_queryable_attr(TaskExecutionLog.changed_at)))
+                    .order_by(
+                        desc(_queryable_attr(TaskExecutionLog.changed_at))
+                    )
                 ).all(),
                 parse_task_metadata=parse_task_metadata,
                 persist_execution_log=_persist_execution_log,
@@ -2527,6 +2628,7 @@ def post_story_close(
 ) -> StoryCloseReadResponse:
     """Close a user story and record the final resolution notes."""
     with Session(get_engine()) as session:
+
         def _persist_story_close(**kwargs: Any) -> None:
             story = kwargs["story"]
             session.add(story)
@@ -2593,8 +2695,12 @@ async def save_project_sprint(
         data = await save_sprint_plan_service(
             project_id=project_id,
             load_state=lambda: _ensure_session(str(project_id)),
-            save_state=lambda state: _save_session_state(str(project_id), state),
-            current_planned_sprint_id=_load_current_planned_sprint_id(project_id),
+            save_state=lambda state: _save_session_state(
+                str(project_id), state
+            ),
+            current_planned_sprint_id=_load_current_planned_sprint_id(
+                project_id
+            ),
             now_iso=_now_iso,
             hydrate_context=_hydrate_context,
             build_tool_context=_build_tool_context,
@@ -2623,6 +2729,7 @@ async def start_project_sprint(
         raise HTTPException(status_code=404, detail="Project not found")
 
     with Session(get_engine()) as session:
+
         def _persist_started_sprint() -> Sprint | None:
             sprint = _get_saved_sprint(session, project_id, sprint_id)
             if not sprint:
