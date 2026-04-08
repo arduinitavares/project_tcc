@@ -1456,11 +1456,14 @@ def get_projects() -> dict[str, object]:
     """Return a list of all projects."""
     try:
         products = product_repo.get_all()
+        raw_states = workflow_service.get_session_statuses(
+            [str(product.product_id) for product in products]
+        )
         payload = []
 
         for product in products:
             session_id = str(product.product_id)
-            raw_state = workflow_service.get_session_status(session_id) or {}
+            raw_state = raw_states.get(session_id, {})
             effective_state = _effective_project_state(product, raw_state)
 
             payload.append(

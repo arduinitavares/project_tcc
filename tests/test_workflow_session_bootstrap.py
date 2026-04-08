@@ -101,6 +101,37 @@ def test_get_session_state_returns_existing_row(tmp_path: Path) -> None:
     assert state == {"fsm_state": "VISION_INTERVIEW"}
 
 
+def test_get_session_states_batch_returns_matching_rows(tmp_path: Path) -> None:
+    db_path = tmp_path / "batch_sessions.db"
+    repo = _session_repo(db_path)
+    _create_sessions_table(db_path)
+    _insert_session_row(
+        db_path,
+        app_name="app",
+        user_id="user",
+        session_id="session-1",
+        state_payload=json.dumps({"fsm_state": "VISION_INTERVIEW"}),
+    )
+    _insert_session_row(
+        db_path,
+        app_name="app",
+        user_id="user",
+        session_id="session-2",
+        state_payload=json.dumps({"fsm_state": "SETUP_REQUIRED"}),
+    )
+
+    state_map = repo.get_session_states_batch(
+        "app",
+        "user",
+        ["session-1", "missing", "session-2"],
+    )
+
+    assert state_map == {
+        "session-1": {"fsm_state": "VISION_INTERVIEW"},
+        "session-2": {"fsm_state": "SETUP_REQUIRED"},
+    }
+
+
 def test_migrate_legacy_setup_state_returns_zero_when_sessions_table_missing(
     tmp_path: Path,
     caplog,

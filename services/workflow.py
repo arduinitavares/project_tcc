@@ -67,6 +67,14 @@ class WorkflowService:
             session_id=session_id,
         )
 
+    def get_session_statuses(self, session_ids: list[str]) -> Dict[str, Dict[str, Any]]:
+        """Return current session state payloads keyed by session ID."""
+        return self.session_repo.get_session_states_batch(
+            app_name=self.app_name,
+            user_id=self.user_id,
+            session_ids=session_ids,
+        )
+
     def update_session_status(self, session_id: str, partial_update: Dict[str, Any]) -> None:
         """Apply partial update to session state."""
         self.session_repo.update_session_state(

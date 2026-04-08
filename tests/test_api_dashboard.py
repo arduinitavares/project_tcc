@@ -51,6 +51,8 @@ class DummyProductRepository:
 class DummyWorkflowService:
     def __init__(self) -> None:
         self.states: Dict[str, Dict[str, object]] = {}
+        self.single_calls: list[str] = []
+        self.batch_calls: list[list[str]] = []
 
     async def initialize_session(self, session_id: Optional[str] = None) -> str:
         sid = str(session_id or "generated")
@@ -58,7 +60,16 @@ class DummyWorkflowService:
         return sid
 
     def get_session_status(self, session_id: str):
+        self.single_calls.append(str(session_id))
         return dict(self.states.get(str(session_id), {}))
+
+    def get_session_statuses(self, session_ids: list[str]):
+        normalized = [str(session_id) for session_id in session_ids]
+        self.batch_calls.append(normalized)
+        return {
+            session_id: dict(self.states.get(session_id, {}))
+            for session_id in normalized
+        }
 
     def update_session_status(self, session_id: str, partial_update):
         sid = str(session_id)
@@ -214,6 +225,35 @@ def test_create_project_success_advances_to_vision(monkeypatch):
     assert payload["data"]["vision_auto_run"]["is_complete"] is False
 
     assert workflow.states["1"]["fsm_state"] == "VISION_INTERVIEW"
+
+
+def test_get_projects_uses_batch_session_lookup(monkeypatch):
+    client, repo, workflow = _build_client(monkeypatch)
+
+    repo.products = [
+        DummyProduct(
+            product_id=1,
+            name="Alpha",
+            spec_file_path=__file__,
+            compiled_authority_json='{"ok": true}',
+        ),
+        DummyProduct(product_id=2, name="Beta", description="Second project"),
+    ]
+    workflow.states = {
+        "1": {"fsm_state": "VISION_INTERVIEW", "setup_status": "passed"},
+        "2": {"fsm_state": "SETUP_REQUIRED", "setup_status": "failed"},
+    }
+
+    response = client.get("/api/projects")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert [item["id"] for item in payload["data"]] == [1, 2]
+    assert payload["data"][0]["fsm_state"] == "VISION_INTERVIEW"
+    assert payload["data"][1]["summary"] == "Second project"
+    assert workflow.batch_calls == [["1", "2"]]
+    assert workflow.single_calls == []
 
 
 def test_create_project_returns_500_when_repository_does_not_persist(monkeypatch):
