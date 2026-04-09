@@ -370,6 +370,7 @@ def save_sprint_plan_tool(
                     story_tasks[task_spec.description] = [new_task]
 
         if tasks_to_delete:
+            # Chunking is required to safely stay below SQLite's bind-parameter limits.
             chunk_size = 500
             for i in range(0, len(tasks_to_delete), chunk_size):
                 chunk = tasks_to_delete[i:i + chunk_size]

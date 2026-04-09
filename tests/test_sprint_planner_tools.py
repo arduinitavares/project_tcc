@@ -398,6 +398,72 @@ def test_save_sprint_plan_updates_existing_planned_sprint_in_place(session: Sess
     ]
 
 
+def test_save_sprint_plan_handles_large_task_deletion_volume(session: Session):
+    """Large volumes of task deletions should be chunked safely for SQLite."""
+    product_id, team_id, story_ids = _seed_product_team_stories(session)
+
+    existing_sprint = Sprint(
+        goal="Initial sprint goal",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 14),
+        status=SprintStatus.PLANNED,
+        product_id=product_id,
+        team_id=team_id,
+    )
+    session.add(existing_sprint)
+    session.flush()
+    assert existing_sprint.sprint_id is not None
+
+    session.add(
+        SprintStory(sprint_id=existing_sprint.sprint_id, story_id=story_ids[0])
+    )
+
+    # Add 501 tasks to trigger chunking logic safely past the 500 limit
+    bulk_tasks = []
+    for _ in range(501):
+        bulk_tasks.append(
+            Task(
+                story_id=story_ids[0],
+                description="Obsolete task description",
+                metadata_json=serialize_task_metadata(TaskMetadata())
+            )
+        )
+    session.add_all(bulk_tasks)
+    session.commit()
+
+    sprint_plan = _build_sprint_plan(story_ids)
+    sprint_plan["selected_stories"][0]["tasks"] = [
+        {
+            "description": "Retained task description",
+            "task_kind": "implementation",
+            "checklist_items": ["A valid checklist item"],
+            "artifact_targets": ["Some valid target"],
+            "workstream_tags": ["backend"],
+            "relevant_invariant_ids": [],
+        }
+    ]
+
+    tool_context = cast(
+        ToolContext,
+        SimpleNamespace(state={"sprint_plan": sprint_plan}),
+    )
+    input_data = SaveSprintPlanInput(
+        product_id=product_id,
+        team_id=team_id,
+        sprint_start_date="2026-02-01",
+        sprint_duration_days=14,
+    )
+
+    result = save_sprint_plan_tool(input_data, tool_context)
+    assert result["success"] is True
+
+    story_tasks = session.exec(
+        select(Task).where(Task.story_id == story_ids[0])
+    ).all()
+    assert len(story_tasks) == 1
+    assert story_tasks[0].description == "Retained task description"
+
+
 def test_save_sprint_plan_reconciles_selected_story_tasks_on_planned_update(
     session: Session,
 ):
