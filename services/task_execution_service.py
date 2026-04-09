@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
 import json
+from collections.abc import Callable, Sequence
 from contextlib import suppress
 from typing import Any
 

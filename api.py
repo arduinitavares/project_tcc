@@ -41,6 +41,7 @@ from models.db import ensure_business_db_ready, get_engine
 from models.enums import (
     SprintStatus,
     StoryStatus,
+    TaskAcceptanceResult,
     TaskStatus,
     WorkflowEventType,
 )
@@ -2535,20 +2536,29 @@ def post_task_execution(
     """Record a progress log entry for an active sprint task."""
     with Session(get_engine()) as session:
 
-        def _persist_execution_log(**kwargs: Any) -> None:
-            task = kwargs["task"]
+        def _persist_execution_log(  # noqa: PLR0913
+            *,
+            task: Task,
+            old_status: TaskStatus,
+            new_status: TaskStatus,
+            outcome_summary: str | None,
+            artifact_refs_json: str | None,
+            notes: str | None,
+            acceptance_result: TaskAcceptanceResult,
+            changed_by: str,
+        ) -> None:
             session.add(task)
             session.add(
                 TaskExecutionLog(
                     task_id=task_id,
                     sprint_id=sprint_id,
-                    old_status=kwargs["old_status"],
-                    new_status=kwargs["new_status"],
-                    outcome_summary=kwargs["outcome_summary"],
-                    artifact_refs_json=kwargs["artifact_refs_json"],
-                    notes=kwargs["notes"],
-                    acceptance_result=kwargs["acceptance_result"],
-                    changed_by=kwargs["changed_by"],
+                    old_status=old_status,
+                    new_status=new_status,
+                    outcome_summary=outcome_summary,
+                    artifact_refs_json=artifact_refs_json,
+                    notes=notes,
+                    acceptance_result=acceptance_result,
+                    changed_by=changed_by,
                 )
             )
             session.commit()
@@ -2632,20 +2642,27 @@ def post_story_close(
     """Close a user story and record the final resolution notes."""
     with Session(get_engine()) as session:
 
-        def _persist_story_close(**kwargs: Any) -> None:
-            story = kwargs["story"]
+        def _persist_story_close(  # noqa: PLR0913
+            *,
+            story: UserStory,
+            old_status: StoryStatus,
+            evidence_json: str | None,
+            known_gaps: str | None,
+            follow_up_notes: str | None,
+            changed_by: str,
+        ) -> None:
             session.add(story)
             session.add(
                 StoryCompletionLog(
                     story_id=story_id,
-                    old_status=kwargs["old_status"],
+                    old_status=old_status,
                     new_status=StoryStatus.DONE,
                     resolution=story.resolution,
                     delivered=story.completion_notes,
-                    evidence=kwargs["evidence_json"],
-                    known_gaps=kwargs["known_gaps"],
-                    follow_ups_created=kwargs["follow_up_notes"],
-                    changed_by=kwargs["changed_by"],
+                    evidence=evidence_json,
+                    known_gaps=known_gaps,
+                    follow_ups_created=follow_up_notes,
+                    changed_by=changed_by,
                     changed_at=datetime.now(UTC),
                 )
             )

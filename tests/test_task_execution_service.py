@@ -55,7 +55,7 @@ def test_get_task_execution_history_rejects_cross_project_sprint():
             load_task=lambda: task,
             load_sprint=lambda: sprint,
             load_sprint_story=lambda current_task: None,
-            load_logs=lambda: [],
+            load_logs=list,
         )
 
     assert exc_info.value.status_code == 404
@@ -86,9 +86,11 @@ def test_record_task_execution_rejects_non_executable_tasks():
             load_task=lambda: task,
             load_sprint=lambda: sprint,
             load_sprint_story=lambda current_task: sprint_story,
-            load_logs=lambda: [],
-            parse_task_metadata=lambda _raw: SimpleNamespace(checklist_items=[]),
-            persist_execution_log=lambda **_kwargs: None,
+            load_logs=list,
+            parse_task_metadata=lambda _raw: SimpleNamespace(
+                checklist_items=[]
+            ),
+            persist_execution_log=lambda *args, **kwargs: None,
         )
 
     assert exc_info.value.status_code == 409
@@ -134,7 +136,9 @@ def test_record_task_execution_normalizes_artifact_refs_and_returns_history():
         load_sprint=lambda: sprint,
         load_sprint_story=lambda current_task: sprint_story,
         load_logs=lambda: [log_entry],
-        parse_task_metadata=lambda _raw: SimpleNamespace(checklist_items=["step"]),
+        parse_task_metadata=lambda _raw: SimpleNamespace(
+            checklist_items=["step"]
+        ),
         persist_execution_log=lambda **kwargs: persisted.update(kwargs),
     )
 
