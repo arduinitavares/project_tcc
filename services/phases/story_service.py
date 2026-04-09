@@ -517,12 +517,12 @@ async def generate_story_draft(
     save_state: Callable[[dict[str, Any]], None],
     now_iso: Callable[[], str],
     run_story_agent_from_state: Callable[..., Awaitable[dict[str, Any]]],
-    append_feedback_entry: Callable[[dict[str, Any], str, str], None],
+    append_feedback_entry: Callable[[dict[str, Any], str, str], dict[str, Any]],
     set_request_projection: Callable[..., dict[str, Any]],
-    append_attempt: Callable[[dict[str, Any], dict[str, Any]], None],
-    promote_reusable_draft: Callable[..., None],
-    mark_feedback_absorbed: Callable[..., None],
-    failure_meta: Callable[[dict[str, Any], str | None], dict[str, Any]],
+    append_attempt: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]],
+    promote_reusable_draft: Callable[..., dict[str, Any]],
+    mark_feedback_absorbed: Callable[..., list[dict[str, Any]]],
+    failure_meta: Callable[..., dict[str, Any]],
 ) -> dict[str, Any]:
     state = await load_state()
     normalized_parent_requirement = _normalize_story_requirement(
@@ -645,10 +645,10 @@ async def retry_story_draft(
     save_state: Callable[[dict[str, Any]], None],
     now_iso: Callable[[], str],
     run_story_agent_request: Callable[..., Awaitable[dict[str, Any]]],
-    append_attempt: Callable[[dict[str, Any], dict[str, Any]], None],
-    promote_reusable_draft: Callable[..., None],
-    mark_feedback_absorbed: Callable[..., None],
-    failure_meta: Callable[[dict[str, Any], str | None], dict[str, Any]],
+    append_attempt: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]],
+    promote_reusable_draft: Callable[..., dict[str, Any]],
+    mark_feedback_absorbed: Callable[..., list[dict[str, Any]]],
+    failure_meta: Callable[..., dict[str, Any]],
 ) -> dict[str, Any]:
     state = await load_state()
     normalized_parent_requirement = _normalize_story_requirement(
@@ -889,7 +889,7 @@ async def delete_story_requirement(
     save_state: Callable[[dict[str, Any]], None],
     now_iso: Callable[[], str],
     delete_requirement_stories: Callable[[str], int],
-    reset_subject_working_set: Callable[..., None],
+    reset_subject_working_set: Callable[..., dict[str, Any]],
 ) -> dict[str, Any]:
     state = await load_state()
     normalized_parent_requirement = _normalize_story_requirement(
