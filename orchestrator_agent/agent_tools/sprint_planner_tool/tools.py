@@ -9,6 +9,7 @@ from typing import Annotated, Any, Dict, List, Optional
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session, col, select
+from sqlalchemy import delete
 
 from models.core import Product, Sprint, SprintStory, Task, Team, UserStory
 from models.db import get_engine
@@ -334,6 +335,8 @@ def save_sprint_plan_tool(
             story_task_map = existing_tasks_by_story.setdefault(task.story_id, {})
             story_task_map.setdefault(task.description, []).append(task)
 
+        tasks_to_delete = []
+
         for story in validated_plan.selected_stories:
             session.add(
                 SprintStory(sprint_id=sprint.sprint_id, story_id=story.story_id)
@@ -343,11 +346,9 @@ def save_sprint_plan_tool(
 
             for description, duplicate_tasks in story_tasks.items():
                 if description in desired_descriptions:
-                    for duplicate_task in duplicate_tasks[1:]:
-                        session.delete(duplicate_task)
+                    tasks_to_delete.extend([t.task_id for t in duplicate_tasks[1:] if t.task_id is not None])
                 else:
-                    for obsolete_task in duplicate_tasks:
-                        session.delete(obsolete_task)
+                    tasks_to_delete.extend([t.task_id for t in duplicate_tasks if t.task_id is not None])
 
             for task_spec in story.tasks:
                 metadata_json = serialize_task_metadata(
@@ -367,6 +368,16 @@ def save_sprint_plan_tool(
                     )
                     session.add(new_task)
                     story_tasks[task_spec.description] = [new_task]
+
+        if tasks_to_delete:
+            # Chunking is required to safely stay below SQLite's bind-parameter limits.
+            chunk_size = 500
+            for i in range(0, len(tasks_to_delete), chunk_size):
+                chunk = tasks_to_delete[i:i + chunk_size]
+                session.execute(
+                    delete(Task).where(col(Task.task_id).in_(chunk)),
+                    execution_options={"synchronize_session": False}
+                )
 
         event_metadata = json.dumps(
             {
