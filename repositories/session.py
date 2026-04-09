@@ -43,6 +43,47 @@ class WorkflowSessionRepository:
         logger.debug("Retrieved session state (redacted).")
         return state
 
+    def get_session_states_batch(
+        self,
+        app_name: str,
+        user_id: str,
+        session_ids: list[str],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Fetch multiple raw state payloads in one or more batched SQLite queries."""
+        normalized_ids = list(dict.fromkeys(str(session_id) for session_id in session_ids))
+        if not normalized_ids:
+            return {}
+
+        if not self.has_sessions_table():
+            logger.debug("Session store is not initialized yet; returning empty state map.")
+            return {}
+
+        state_map: Dict[str, Dict[str, Any]] = {}
+        chunk_size = 500
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            for start in range(0, len(normalized_ids), chunk_size):
+                chunk = normalized_ids[start : start + chunk_size]
+                placeholders = ",".join("?" for _ in chunk)
+                cursor.execute(
+                    f"SELECT id, state FROM sessions WHERE app_name=? AND user_id=? AND id IN ({placeholders})",
+                    (app_name, user_id, *chunk),
+                )
+
+                for row_session_id, state_json in cursor.fetchall():
+                    try:
+                        state_map[str(row_session_id)] = json.loads(state_json or "{}")
+                    except json.JSONDecodeError:
+                        logger.warning(
+                            "Skipping malformed session state for %s",
+                            row_session_id,
+                        )
+                        state_map[str(row_session_id)] = {}
+
+        logger.debug("Retrieved %s session states in batch (redacted).", len(state_map))
+        return state_map
+
     def update_session_state(self, app_name: str, user_id: str, session_id: str, partial_update: Dict[str, Any]) -> None:
         """Updates the Volatile State with a partial update dict."""
         if not self.has_sessions_table():
