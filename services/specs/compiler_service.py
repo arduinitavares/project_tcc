@@ -1007,7 +1007,7 @@ def compile_spec_authority(
                 product_id=spec_version.product_id,
                 spec_version_id=spec_version_id,
             )
-        except ValueError as exc:
+        except (SpecAuthorityCompilationError, ValueError) as exc:
             return {
                 "success": False,
                 "error": str(exc),

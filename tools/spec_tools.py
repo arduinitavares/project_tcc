@@ -62,7 +62,7 @@ from services.specs.compiler_service import (
     _invoke_spec_authority_compiler as _service_invoke_spec_authority_compiler,
 )
 from services.specs.compiler_service import (
-    _invoke_spec_authority_compiler_async as _service_invoke_compiler_async,
+    _invoke_spec_authority_compiler_async as _service_invoke_spec_authority_compiler_async,  # noqa: E501
 )
 from services.specs.compiler_service import (
     _run_async_task as _service_run_async_task,
@@ -263,7 +263,7 @@ async def _invoke_spec_authority_compiler_async(
     input_payload: object,
 ) -> str:
     """Compatibility shim over the compiler-service async invoker."""
-    return await _service_invoke_compiler_async(
+    return await _service_invoke_spec_authority_compiler_async(
         cast("SpecAuthorityCompilerInput", input_payload)
     )
 

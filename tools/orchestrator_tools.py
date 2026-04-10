@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Optional, Protocol, cast
 
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
@@ -46,6 +46,11 @@ from services.orchestrator_query_service import (
 
 if TYPE_CHECKING:
     from google.adk.tools import ToolContext
+else:
+    class ToolContext:
+        """Runtime placeholder so ADK can resolve type hints for ignored params."""
+
+        state: dict[str, Any]
 
 logger: logging.Logger = logging.getLogger(name=__name__)
 _MAX_SPEC_FILE_SIZE_KB = 100
@@ -134,7 +139,7 @@ def _refresh_projects_cache(
 class CountProjectsInput(BaseModel):
     """Input schema for count_projects tool."""
 
-    force_refresh: bool | None = Field(
+    force_refresh: Optional[bool] = Field(  # noqa: UP045
         default=None,
         description=(
             "Force refresh from database, bypassing cache. "
@@ -146,7 +151,7 @@ class CountProjectsInput(BaseModel):
 class ListProjectsInput(BaseModel):
     """Input schema for list_projects tool."""
 
-    force_refresh: bool | None = Field(
+    force_refresh: Optional[bool] = Field(  # noqa: UP045
         default=None,
         description=(
             "Force refresh from database, bypassing cache. "
@@ -155,13 +160,21 @@ class ListProjectsInput(BaseModel):
     )
 
 
-def count_projects(params: object, tool_context: ToolContext) -> dict[str, Any]:
+def count_projects(
+    params: Optional[CountProjectsInput] = None,  # noqa: UP045
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Agent tool: Count total projects. Uses a transparent persistent cache."""
-    parsed = CountProjectsInput.model_validate(_normalize_params(params))
+    parsed = (
+        params
+        if isinstance(params, CountProjectsInput)
+        else CountProjectsInput.model_validate(_normalize_params(params))
+    )
     should_refresh = bool(parsed.force_refresh)
     logger.debug("count_projects called with force_refresh=%s", should_refresh)
 
-    state: dict[str, Any] = cast("dict[str, Any]", tool_context.state)
+    stateful_context = cast("ToolContext", tool_context)
+    state: dict[str, Any] = cast("dict[str, Any]", stateful_context.state)
 
     if not should_refresh and _is_fresh(state) and "projects_summary" in state:
         count = int(state.get("projects_summary", 0))
@@ -183,13 +196,21 @@ def count_projects(params: object, tool_context: ToolContext) -> dict[str, Any]:
     }
 
 
-def list_projects(params: object, tool_context: ToolContext) -> dict[str, Any]:
+def list_projects(
+    params: Optional[ListProjectsInput] = None,  # noqa: UP045
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Agent tool: List all projects with summary info. Uses a transparent cache."""
-    parsed = ListProjectsInput.model_validate(_normalize_params(params))
+    parsed = (
+        params
+        if isinstance(params, ListProjectsInput)
+        else ListProjectsInput.model_validate(_normalize_params(params))
+    )
     should_refresh = bool(parsed.force_refresh)
     logger.debug("list_projects called with force_refresh=%s", should_refresh)
 
-    state: dict[str, Any] = cast("dict[str, Any]", tool_context.state)
+    stateful_context = cast("ToolContext", tool_context)
+    state: dict[str, Any] = cast("dict[str, Any]", stateful_context.state)
 
     if not should_refresh and _is_fresh(state) and "projects_list" in state:
         projects: list[dict[str, Any]] = list(state.get("projects_list", []))
