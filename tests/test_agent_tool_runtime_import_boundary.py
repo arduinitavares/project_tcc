@@ -5,12 +5,12 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT: Path = Path(__file__).resolve().parents[1]
 
 
 def _imported_names_from(module_path: Path, import_source: str) -> set[str]:
-    source_text = module_path.read_text(encoding="utf-8")
-    tree = ast.parse(source_text, filename=str(module_path))
+    source_text: str = module_path.read_text(encoding="utf-8")
+    tree: ast.Module = ast.parse(source_text, filename=str(module_path))
     imported_names: set[str] = set()
 
     for node in ast.walk(tree):
@@ -21,8 +21,8 @@ def _imported_names_from(module_path: Path, import_source: str) -> set[str]:
 
 
 def _module_import_aliases(module_path: Path, module_name: str) -> set[str]:
-    source_text = module_path.read_text(encoding="utf-8")
-    tree = ast.parse(source_text, filename=str(module_path))
+    source_text: str = module_path.read_text(encoding="utf-8")
+    tree: ast.Module = ast.parse(source_text, filename=str(module_path))
     aliases: set[str] = set()
 
     for node in ast.walk(tree):
@@ -37,8 +37,8 @@ def _module_import_aliases(module_path: Path, module_name: str) -> set[str]:
 def _attribute_references_from_import(
     module_path: Path, import_names: set[str], attrs: set[str]
 ) -> set[str]:
-    source_text = module_path.read_text(encoding="utf-8")
-    tree = ast.parse(source_text, filename=str(module_path))
+    source_text: str = module_path.read_text(encoding="utf-8")
+    tree: ast.Module = ast.parse(source_text, filename=str(module_path))
     referenced: set[str] = set()
 
     for node in ast.walk(tree):
@@ -54,15 +54,18 @@ def _attribute_references_from_import(
 
 
 def test_product_vision_tool_imports_runtime_surfaces_from_models_packages() -> None:
-    module_path = ROOT / "orchestrator_agent/agent_tools/product_vision_tool/tools.py"
+    """Check that ProductVisionTool imports only from models packages at runtime."""
+    module_path: Path = (
+        ROOT / "orchestrator_agent/agent_tools/product_vision_tool/tools.py"
+    )
 
-    core_imports = _imported_names_from(module_path, "models.core")
-    db_imports = _imported_names_from(module_path, "models.db")
-    event_imports = _imported_names_from(module_path, "models.events")
-    enum_imports = _imported_names_from(module_path, "models.enums")
-    agile_imports = _imported_names_from(module_path, "agile_sqlmodel")
-    agile_aliases = _module_import_aliases(module_path, "agile_sqlmodel")
-    agile_attr_refs = _attribute_references_from_import(
+    core_imports: set[str] = _imported_names_from(module_path, "models.core")
+    db_imports: set[str] = _imported_names_from(module_path, "models.db")
+    event_imports: set[str] = _imported_names_from(module_path, "models.events")
+    enum_imports: set[str] = _imported_names_from(module_path, "models.enums")
+    agile_imports: set[str] = _imported_names_from(module_path, "agile_sqlmodel")
+    agile_aliases: set[str] = _module_import_aliases(module_path, "agile_sqlmodel")
+    agile_attr_refs: set[str] = _attribute_references_from_import(
         module_path,
         {"agile_sqlmodel", *agile_aliases},
         {"Product", "get_engine", "WorkflowEvent", "WorkflowEventType"},
@@ -81,15 +84,16 @@ def test_product_vision_tool_imports_runtime_surfaces_from_models_packages() -> 
 
 
 def test_roadmap_builder_tool_imports_runtime_surfaces_from_models_packages() -> None:
+    """Check that RoadmapBuilderTool imports only from models packages at runtime."""
     module_path = ROOT / "orchestrator_agent/agent_tools/roadmap_builder/tools.py"
 
-    core_imports = _imported_names_from(module_path, "models.core")
-    db_imports = _imported_names_from(module_path, "models.db")
-    event_imports = _imported_names_from(module_path, "models.events")
-    enum_imports = _imported_names_from(module_path, "models.enums")
-    agile_imports = _imported_names_from(module_path, "agile_sqlmodel")
-    agile_aliases = _module_import_aliases(module_path, "agile_sqlmodel")
-    agile_attr_refs = _attribute_references_from_import(
+    core_imports: set[str] = _imported_names_from(module_path, "models.core")
+    db_imports: set[str] = _imported_names_from(module_path, "models.db")
+    event_imports: set[str] = _imported_names_from(module_path, "models.events")
+    enum_imports: set[str] = _imported_names_from(module_path, "models.enums")
+    agile_imports: set[str] = _imported_names_from(module_path, "agile_sqlmodel")
+    agile_aliases: set[str] = _module_import_aliases(module_path, "agile_sqlmodel")
+    agile_attr_refs: set[str] = _attribute_references_from_import(
         module_path,
         {"agile_sqlmodel", *agile_aliases},
         {"Product", "get_engine", "WorkflowEvent", "WorkflowEventType"},
@@ -108,17 +112,18 @@ def test_roadmap_builder_tool_imports_runtime_surfaces_from_models_packages() ->
 
 
 def test_user_story_writer_tool_imports_runtime_surfaces_from_models_packages() -> None:
-    module_path = (
+    """Check that UserStoryWriterTool imports only from models packages at runtime."""
+    module_path: Path = (
         ROOT / "orchestrator_agent/agent_tools/user_story_writer_tool/tools.py"
     )
 
-    core_imports = _imported_names_from(module_path, "models.core")
-    db_imports = _imported_names_from(module_path, "models.db")
-    event_imports = _imported_names_from(module_path, "models.events")
-    enum_imports = _imported_names_from(module_path, "models.enums")
-    agile_imports = _imported_names_from(module_path, "agile_sqlmodel")
-    agile_aliases = _module_import_aliases(module_path, "agile_sqlmodel")
-    agile_attr_refs = _attribute_references_from_import(
+    core_imports: set[str] = _imported_names_from(module_path, "models.core")
+    db_imports: set[str] = _imported_names_from(module_path, "models.db")
+    event_imports: set[str] = _imported_names_from(module_path, "models.events")
+    enum_imports: set[str] = _imported_names_from(module_path, "models.enums")
+    agile_imports: set[str] = _imported_names_from(module_path, "agile_sqlmodel")
+    agile_aliases: set[str] = _module_import_aliases(module_path, "agile_sqlmodel")
+    agile_attr_refs: set[str] = _attribute_references_from_import(
         module_path,
         {"agile_sqlmodel", *agile_aliases},
         {"Product", "UserStory", "get_engine", "WorkflowEvent", "WorkflowEventType"},

@@ -1,10 +1,13 @@
 # tests/test_alignment_evidence_persistence.py
 """Tests for alignment findings persisted in ValidationEvidence."""
 
+import hashlib
 import json
-from datetime import UTC
+from datetime import UTC, datetime
+from typing import Any
 
 import pytest
+from sqlalchemy.engine import Engine
 from sqlmodel import Session
 
 from agile_sqlmodel import (
@@ -21,50 +24,44 @@ from tools.spec_tools import (
     validate_story_with_spec_authority,
 )
 from utils.spec_schemas import (
+    ForbiddenCapabilityParams,
+    Invariant,
+    InvariantType,
+    SourceMapEntry,
     SpecAuthorityCompilationSuccess,
     SpecAuthorityCompilerOutput,
 )
 
 
 @pytest.fixture
-def product_with_spec(session: Session, engine) -> tuple[Product, int]:
-    """Create product with pre-compiled spec authority containing FORBIDDEN_CAPABILITY."""
-    import hashlib
-    from datetime import datetime
-
-    from agile_sqlmodel import CompiledSpecAuthority
-    from utils.spec_schemas import (
-        ForbiddenCapabilityParams,
-        Invariant,
-        InvariantType,
-        SourceMapEntry,
-        SpecAuthorityCompilationSuccess,
-        SpecAuthorityCompilerOutput,
-    )
-
+def product_with_spec(session: Session, engine: Engine) -> tuple[Product, int]:
+    """Create product with a pre-compiled spec authority."""
     spec_tools.engine = engine
 
     product = Product(name="Alignment Product", vision="Test")
     session.add(product)
     session.commit()
     session.refresh(product)
+    product_id = _require_id(product.product_id, "product.product_id")
 
     spec_content = "# Spec\n\n## Invariants\n- Stories MUST NOT include web features."
     spec_hash = hashlib.sha256(spec_content.encode()).hexdigest()
 
     # Create spec registry entry
     spec_version = SpecRegistry(
-        product_id=product.product_id,
+        product_id=product_id,
         content=spec_content,
         spec_hash=spec_hash,
-        version_number=1,
         status="approved",
         approved_by="tester",
     )
     session.add(spec_version)
     session.commit()
     session.refresh(spec_version)
-    spec_version_id = spec_version.spec_version_id
+    spec_version_id = _require_id(
+        spec_version.spec_version_id,
+        "spec_version.spec_version_id",
+    )
 
     # Create pre-compiled authority with explicit FORBIDDEN_CAPABILITY
     invariants = [
@@ -76,6 +73,7 @@ def product_with_spec(session: Session, engine) -> tuple[Product, int]:
     ]
     success = SpecAuthorityCompilationSuccess(
         scope_themes=["core"],
+        domain=None,
         invariants=invariants,
         eligible_feature_rules=[],
         gaps=[],
@@ -84,6 +82,7 @@ def product_with_spec(session: Session, engine) -> tuple[Product, int]:
             SourceMapEntry(
                 invariant_id="INV-0000000000000001",
                 excerpt="Stories MUST NOT include web features.",
+                location=None,
             ),
         ],
         compiler_version="1.0.0",
@@ -109,25 +108,46 @@ def product_with_spec(session: Session, engine) -> tuple[Product, int]:
     return product, spec_version_id
 
 
+def _require_id(value: int | None, label: str) -> int:
+    """Return a non-null integer ID or raise a clear assertion."""
+    assert value is not None, f"{label} unexpectedly None"
+    return value
+
+
+def _load_validation_evidence(story: UserStory) -> dict[str, Any]:
+    """Load persisted validation evidence with a non-null assertion."""
+    evidence_json = story.validation_evidence
+    assert evidence_json is not None, "validation_evidence unexpectedly None"
+    return json.loads(evidence_json)
+
+
 def _create_story(session: Session, product_id: int, title: str) -> UserStory:
     theme = Theme(product_id=product_id, title="Theme", description="")
     session.add(theme)
     session.commit()
     session.refresh(theme)
 
-    epic = Epic(theme_id=theme.theme_id, title="Epic", description="")
+    epic = Epic(
+        theme_id=_require_id(theme.theme_id, "theme.theme_id"),
+        title="Epic",
+        summary="",
+    )
     session.add(epic)
     session.commit()
     session.refresh(epic)
 
-    feature = Feature(epic_id=epic.epic_id, title="Feature", description="")
+    feature = Feature(
+        epic_id=_require_id(epic.epic_id, "epic.epic_id"),
+        title="Feature",
+        description="",
+    )
     session.add(feature)
     session.commit()
     session.refresh(feature)
 
     story = UserStory(
         product_id=product_id,
-        feature_id=feature.feature_id,
+        feature_id=_require_id(feature.feature_id, "feature.feature_id"),
         title=title,
         story_description="As a user, I want a feature.",
         acceptance_criteria="- AC",
@@ -138,13 +158,21 @@ def _create_story(session: Session, product_id: int, title: str) -> UserStory:
     return story
 
 
-def test_alignment_failure_persisted(engine, session: Session, product_with_spec):
+def test_alignment_failure_persisted(
+    engine: Engine,
+    session: Session,
+    product_with_spec: tuple[Product, int],
+) -> None:
     """Alignment rejection persists alignment_failures in evidence."""
-    spec_tools.engine = engine
+    spec_tools.engine: Engine = engine
     product, spec_version_id = product_with_spec
 
-    story = _create_story(session, product.product_id, title="Web dashboard")
-    result = validate_story_with_spec_authority(
+    story: UserStory = _create_story(
+        session,
+        _require_id(product.product_id, "product.product_id"),
+        title="Web dashboard",
+    )
+    result: dict[str, Any] = validate_story_with_spec_authority(
         {"story_id": story.story_id, "spec_version_id": spec_version_id},
         tool_context=None,
     )
@@ -153,14 +181,14 @@ def test_alignment_failure_persisted(engine, session: Session, product_with_spec
     assert result["passed"] is False
 
     session.refresh(story)
-    evidence = json.loads(story.validation_evidence)
+    evidence: dict[str, Any] = _load_validation_evidence(story)
     assert evidence["alignment_failures"]
     assert any(
         f["code"] == "FORBIDDEN_CAPABILITY" for f in evidence["alignment_failures"]
     )
 
 
-def test_alignment_warning_persisted(engine, session: Session):
+def test_alignment_warning_persisted(engine: Engine, session: Session) -> None:
     """Alignment warning persists alignment_warnings in evidence."""
     spec_tools.engine = engine
 
@@ -170,7 +198,7 @@ def test_alignment_warning_persisted(engine, session: Session):
     session.refresh(product)
 
     # Create an approved spec + precompiled authority with zero invariants.
-    reg = register_spec_version(
+    reg: dict[str, Any] = register_spec_version(
         {
             "product_id": product.product_id,
             "content": "# Spec\n\n## Notes\n- No requirements here",
@@ -209,8 +237,12 @@ def test_alignment_warning_persisted(engine, session: Session):
     session.add(authority)
     session.commit()
 
-    story = _create_story(session, product.product_id, title="Normal story")
-    result = validate_story_with_spec_authority(
+    story: UserStory = _create_story(
+        session,
+        _require_id(product.product_id, "product.product_id"),
+        title="Normal story",
+    )
+    result: dict[str, Any] = validate_story_with_spec_authority(
         {"story_id": story.story_id, "spec_version_id": spec_version_id},
         tool_context=None,
     )
@@ -218,25 +250,31 @@ def test_alignment_warning_persisted(engine, session: Session):
     assert result["success"] is True
 
     session.refresh(story)
-    evidence = json.loads(story.validation_evidence)
+    evidence: dict[str, Any] = _load_validation_evidence(story)
     assert evidence["alignment_warnings"]
     assert any(w["code"] == "NO_INVARIANTS" for w in evidence["alignment_warnings"])
 
 
 def test_alignment_evidence_includes_spec_and_hash(
-    engine, session: Session, product_with_spec
-):
+    engine: Engine,
+    session: Session,
+    product_with_spec: tuple[Product, int],
+) -> None:
     """Evidence includes spec_version_id and input_hash without vision access."""
     spec_tools.engine = engine
     product, spec_version_id = product_with_spec
 
-    story = _create_story(session, product.product_id, title="Web dashboard")
+    story: UserStory = _create_story(
+        session,
+        _require_id(product.product_id, "product.product_id"),
+        title="Web dashboard",
+    )
     validate_story_with_spec_authority(
         {"story_id": story.story_id, "spec_version_id": spec_version_id},
         tool_context=None,
     )
 
     session.refresh(story)
-    evidence = json.loads(story.validation_evidence)
+    evidence: dict[str, Any] = _load_validation_evidence(story)
     assert evidence["spec_version_id"] == spec_version_id
     assert evidence["input_hash"]

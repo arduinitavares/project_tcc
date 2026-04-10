@@ -1,10 +1,11 @@
-"""
-Pytest configuration and fixtures.
-"""
+"""Pytest configuration and fixtures."""
 
+import importlib
 import os
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
+from sqlite3 import Connection
 
 import pytest
 from sqlalchemy import event
@@ -24,11 +25,15 @@ os.environ.setdefault(
     f"sqlite:///{_TEST_SESSION_DB_PATH.as_posix()}",
 )
 
-from utils import model_config  # pylint: disable=wrong-import-position
-from utils.runtime_config import (
-    clear_runtime_config_cache,  # pylint: disable=wrong-import-position
-)
-from models.core import Team, TeamMember  # pylint: disable=wrong-import-position
+model_config = importlib.import_module("utils.model_config")
+runtime_config = importlib.import_module("utils.runtime_config")
+core_models = importlib.import_module("models.core")
+agile_sqlmodel = importlib.import_module("agile_sqlmodel")
+model_db = importlib.import_module("models.db")
+
+clear_runtime_config_cache = runtime_config.clear_runtime_config_cache
+Team = core_models.Team
+TeamMember = core_models.TeamMember
 
 _TEST_TEAM_MODELS = (Team, TeamMember)
 
@@ -37,18 +42,21 @@ clear_runtime_config_cache()
 
 
 @pytest.fixture(scope="session")
-def test_db_url():
+def test_db_url() -> str:
     """Return test database URL."""
     return "sqlite:///:memory:"
 
 
-@pytest.fixture(scope="function")
-def engine(test_db_url: str):  # pylint: disable=redefined-outer-name
+@pytest.fixture
+def engine(test_db_url: str) -> Iterator[Engine]:  # pylint: disable=redefined-outer-name
     """Create a fresh in-memory database for each test."""
 
     # Enable foreign key support for SQLite
     @event.listens_for(Engine, "connect")
-    def set_sqlite_pragma(dbapi_connection, _connection_record):
+    def set_sqlite_pragma(
+        dbapi_connection: Connection,
+        _connection_record: object,
+    ) -> None:
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
@@ -76,7 +84,10 @@ def engine(test_db_url: str):  # pylint: disable=redefined-outer-name
 
 
 @pytest.fixture(autouse=True)
-def patch_get_engine_globally(engine, monkeypatch):
+def patch_get_engine_globally(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """
     Automatically patch get_engine() in all modules to return the test engine.
 
@@ -84,11 +95,7 @@ def patch_get_engine_globally(engine, monkeypatch):
     The autouse=True means this runs for every test automatically.
     """
     # Patch the agile_sqlmodel module's get_engine function
-    import agile_sqlmodel
-
     monkeypatch.setattr(agile_sqlmodel, "get_engine", lambda: engine)
-    from models import db as model_db
-
     monkeypatch.setattr(model_db, "get_engine", lambda: engine)
 
     # Also patch in all modules that import get_engine
@@ -111,8 +118,6 @@ def patch_get_engine_globally(engine, monkeypatch):
 
     for module_path in modules_to_patch:
         try:
-            import importlib
-
             module = importlib.import_module(module_path)
             if hasattr(module, "get_engine"):
                 monkeypatch.setattr(module, "get_engine", lambda: engine)
@@ -121,7 +126,7 @@ def patch_get_engine_globally(engine, monkeypatch):
 
 
 @pytest.fixture
-def session(engine: Engine):  # pylint: disable=redefined-outer-name
+def session(engine: Engine) -> Iterator[Session]:  # pylint: disable=redefined-outer-name
     """Create a new database session for each test."""
     # Use _session to avoid redefining the 'session' fixture name
     with Session(engine) as _session:

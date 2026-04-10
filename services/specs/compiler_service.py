@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, Unpack, cast
 
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session, select
@@ -37,7 +37,11 @@ from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer imp
 )
 from services.specs._engine_resolution import resolve_spec_engine
 from utils.adk_runner import get_agent_model_info, invoke_agent_to_text
-from utils.failure_artifacts import AgentInvocationError, write_failure_artifact
+from utils.failure_artifacts import (
+    AgentInvocationError,
+    FailureMetadataDict,
+    write_failure_artifact,
+)
 from utils.runtime_config import SPEC_AUTHORITY_COMPILER_IDENTITY
 from utils.spec_schemas import (
     Invariant,
@@ -853,7 +857,7 @@ def _compiler_failure_result(
             "blocking_gaps": details.blocking_gaps or [],
         },
     )
-    metadata = artifact_result["metadata"]
+    metadata: FailureMetadataDict = artifact_result["metadata"]
     if details.exception is not None:
         logger.exception(
             "Spec authority compilation failed [artifact_id=%s stage=%s]: %s",
@@ -880,14 +884,14 @@ def _compiler_failure_result(
 def _render_invariant_summary(invariant: Invariant) -> str:
     """Render a structured invariant into a stable string for legacy consumers."""
     if invariant.type == InvariantType.FORBIDDEN_CAPABILITY:
-        capability = getattr(invariant.parameters, "capability", "")
+        capability: Any | Literal[""] = getattr(invariant.parameters, "capability", "")
         return f"FORBIDDEN_CAPABILITY:{capability}"
     if invariant.type == InvariantType.REQUIRED_FIELD:
-        field_name = getattr(invariant.parameters, "field_name", "")
+        field_name: Any | Literal[""] = getattr(invariant.parameters, "field_name", "")
         return f"REQUIRED_FIELD:{field_name}"
     if invariant.type == InvariantType.MAX_VALUE:
-        field_name = getattr(invariant.parameters, "field_name", "")
-        max_value = getattr(invariant.parameters, "max_value", "")
+        field_name: Any | Literal[""] = getattr(invariant.parameters, "field_name", "")
+        max_value: Any | Literal[""] = getattr(invariant.parameters, "max_value", "")
         return f"MAX_VALUE:{field_name}<= {max_value}"
     return f"INVARIANT:{invariant.type}"
 
@@ -940,7 +944,7 @@ def _extract_spec_authority_llm(
         spec_version_id=spec_version_id,
     )
 
-    normalized = normalize_compiler_output(raw_json)
+    normalized: SpecAuthorityCompilerOutput = normalize_compiler_output(raw_json)
     if isinstance(normalized.root, SpecAuthorityCompilationFailure):
         raise SpecAuthorityCompilationError.failed(
             normalized.root.error,
@@ -957,12 +961,16 @@ def compile_spec_authority(
 ) -> dict[str, Any]:
     """Compile an approved spec version into cached authority (legacy one-shot path)."""
     del tool_context
-    parsed = CompileSpecAuthorityInput.model_validate(_normalize_input_params(params))
+    parsed: CompileSpecAuthorityInput = CompileSpecAuthorityInput.model_validate(
+        _normalize_input_params(params)
+    )
 
     extractor = extract_authority or _extract_spec_authority_llm
 
     with Session(_resolve_engine()) as session:
-        spec_version = session.get(SpecRegistry, parsed.spec_version_id)
+        spec_version: SpecRegistry | None = session.get(
+            SpecRegistry, parsed.spec_version_id
+        )
         if not spec_version:
             return {
                 "success": False,
@@ -979,14 +987,14 @@ def compile_spec_authority(
                 ),
             }
 
-        spec_version_id = spec_version.spec_version_id
+        spec_version_id: int | None = spec_version.spec_version_id
         if spec_version_id is None:
             return {
                 "success": False,
                 "error": "Spec version is missing its primary key",
             }
 
-        existing_authority = session.exec(
+        existing_authority: CompiledSpecAuthority | None = session.exec(
             select(CompiledSpecAuthority).where(
                 CompiledSpecAuthority.spec_version_id == parsed.spec_version_id
             )
@@ -1001,7 +1009,7 @@ def compile_spec_authority(
             }
 
         try:
-            success_artifact = extractor(
+            success_artifact: SpecAuthorityCompilationSuccess = extractor(
                 spec_content=spec_version.content,
                 content_ref=spec_version.content_ref,
                 product_id=spec_version.product_id,
@@ -1013,9 +1021,9 @@ def compile_spec_authority(
                 "error": str(exc),
             }
 
-        prompt_hash = compute_prompt_hash(SPEC_AUTHORITY_COMPILER_INSTRUCTIONS)
-        scope_themes = success_artifact.scope_themes
-        invariants = [
+        prompt_hash: str = compute_prompt_hash(SPEC_AUTHORITY_COMPILER_INSTRUCTIONS)
+        scope_themes: list[str] = success_artifact.scope_themes
+        invariants: list[str] = [
             _render_invariant_summary(inv) for inv in success_artifact.invariants
         ]
         spec_gaps = success_artifact.gaps
