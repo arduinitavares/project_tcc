@@ -28,6 +28,9 @@ from utils import model_config  # pylint: disable=wrong-import-position
 from utils.runtime_config import (
     clear_runtime_config_cache,  # pylint: disable=wrong-import-position
 )
+from models.core import Team, TeamMember  # pylint: disable=wrong-import-position
+
+_TEST_TEAM_MODELS = (Team, TeamMember)
 
 model_config.clear_config_cache()
 clear_runtime_config_cache()

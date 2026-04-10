@@ -33,6 +33,9 @@ from orchestrator_agent.agent_tools.story_pipeline.steps.persona_checker import 
 from sqlmodel import Session, select
 
 from agile_sqlmodel import Product, UserStory, get_engine
+from models.core import Feature
+
+_MODEL_IMPORT_BOUNDARY = (Feature,)
 
 # --- Configuration ---
 

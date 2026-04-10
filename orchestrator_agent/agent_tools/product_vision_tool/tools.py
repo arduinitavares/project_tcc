@@ -7,7 +7,7 @@ import json
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Optional
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
@@ -30,7 +30,7 @@ class SaveVisionInput(BaseModel):
     """Schema for the 'save_vision' tool."""
 
     product_id: Annotated[
-        int | None,
+        Optional[int],
         Field(
             description="ID of the project to update. If None, creates a NEW project."
         ),
@@ -226,7 +226,7 @@ def save_vision_tool(
 
 
 def _link_spec_if_pending(
-    product_id: int | None,
+    product_id: Optional[int],
     tool_context: ToolContext,
 ) -> None:
     """Link the spec file to the product and compile authority.

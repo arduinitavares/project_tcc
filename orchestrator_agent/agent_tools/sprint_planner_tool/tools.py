@@ -4,7 +4,7 @@ import json
 import re
 import time
 from datetime import date, timedelta
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Optional, cast
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field, ValidationError
@@ -30,14 +30,14 @@ class SaveSprintPlanInput(BaseModel):
 
     product_id: Annotated[int, Field(description="Product ID for the sprint.")]
     team_id: Annotated[
-        int | None,
+        Optional[int],
         Field(
             default=None,
             description="Team ID owning the sprint. Required if team_name is not provided.",
         ),
     ]
     team_name: Annotated[
-        str | None,
+        Optional[str],
         Field(
             default=None,
             description="Team name to lookup or create. Used if team_id is not provided.",

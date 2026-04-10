@@ -21,13 +21,14 @@ Usage:
 
 import logging
 from collections.abc import Callable
-from typing import Any, Literal
+from typing import Any, Literal, Optional, Union, cast, overload
 
 from google.adk.tools import ToolContext
+from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 from models.core import Feature, UserStory
-from models.db import get_engine as _model_get_engine
+from models.db import engine, get_engine
 from models.specs import CompiledSpecAuthority, SpecAuthorityAcceptance
 from services.specs.compiler_service import (
     CheckSpecAuthorityStatusInput as _service_CheckSpecAuthorityStatusInput,
@@ -163,24 +164,42 @@ from utils.spec_schemas import (
     ValidationFailure,
 )
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(name=__name__)
 
 # --- Input Schemas ---
-
-engine: Any | None = None
-
-
-def get_engine() -> Any:
-    """Compatibility shim for legacy spec engine monkeypatch seams."""
-    if engine is not None:
-        return engine
-    return _model_get_engine()
-
 
 SaveProjectSpecificationInput = _service_SaveProjectSpecificationInput
 LinkSpecToProductInput = _service_LinkSpecToProductInput
 ReadProjectSpecificationInput = _service_ReadProjectSpecificationInput
 PreviewSpecAuthorityInput = _service_PreviewSpecAuthorityInput
+
+
+class UpdateSpecAndCompileAuthorityToolInput(BaseModel):
+    """ADK-safe wrapper schema for update+compile tool calls."""
+
+    product_id: int = Field(description="Product ID that owns the specification.")
+    spec_content: Optional[str] = Field(
+        default=None,
+        description="Raw specification content to persist and compile.",
+    )
+    content_ref: Optional[str] = Field(
+        default=None,
+        description="Filesystem path or reference to specification content.",
+    )
+    recompile: bool = Field(
+        default=False,
+        description="Force recompilation even when a compiled authority exists.",
+    )
+
+
+class CompileSpecAuthorityForVersionToolInput(BaseModel):
+    """ADK-safe wrapper schema for compile-by-version tool calls."""
+
+    spec_version_id: int = Field(description="Approved specification version ID.")
+    force_recompile: Optional[bool] = Field(
+        default=None,
+        description="When true, ignore cached compiled authority and recompile.",
+    )
 
 
 def save_project_specification(
@@ -206,7 +225,7 @@ def link_spec_to_product(
 
 
 def read_project_specification(
-    params: dict[str, Any] | None = None,
+    params: Optional[dict[str, Any]] = None,
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Compatibility adapter over the public lifecycle service boundary."""
@@ -343,7 +362,7 @@ GetCompiledAuthorityInput = _service_GetCompiledAuthorityInput
 
 
 def register_spec_version(
-    params: dict[str, Any] | RegisterSpecVersionInput,
+    params: Union[dict[str, Any], RegisterSpecVersionInput],
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Compatibility adapter over the public lifecycle service boundary."""
@@ -354,7 +373,7 @@ def register_spec_version(
 
 
 def approve_spec_version(
-    params: dict[str, Any] | ApproveSpecVersionInput,
+    params: Union[dict[str, Any], ApproveSpecVersionInput],
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Compatibility adapter over the public lifecycle service boundary."""
@@ -365,7 +384,7 @@ def approve_spec_version(
 
 
 def compile_spec_authority(
-    params: dict[str, Any] | CompileSpecAuthorityInput,
+    params: Union[dict[str, Any], CompileSpecAuthorityInput],
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Compatibility adapter over the public compiler service boundary."""
@@ -376,24 +395,62 @@ def compile_spec_authority(
     )
 
 
+@overload
 def compile_spec_authority_for_version(
     params: dict[str, Any] | CompileSpecAuthorityForVersionInput,
     tool_context: ToolContext | None = None,
+) -> dict[str, Any]: ...
+
+
+@overload
+def compile_spec_authority_for_version(
+    params: CompileSpecAuthorityForVersionToolInput,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]: ...
+
+
+def compile_spec_authority_for_version(
+    params: CompileSpecAuthorityForVersionToolInput,
+    tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Compatibility adapter over the public compiler service boundary."""
+    normalized_params: dict[str, Any] | CompileSpecAuthorityForVersionToolInput
+    if isinstance(params, CompileSpecAuthorityForVersionToolInput):
+        normalized_params = params.model_dump(exclude_none=True)
+    else:
+        normalized_params = params
     return _service_compile_spec_authority_for_version(
-        params,
+        normalized_params,
         tool_context=tool_context,
     )
 
 
+@overload
 def update_spec_and_compile_authority(
     params: dict[str, Any] | UpdateSpecAndCompileAuthorityInput,
     tool_context: ToolContext | None = None,
+) -> dict[str, Any]: ...
+
+
+@overload
+def update_spec_and_compile_authority(
+    params: UpdateSpecAndCompileAuthorityToolInput,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]: ...
+
+
+def update_spec_and_compile_authority(
+    params: UpdateSpecAndCompileAuthorityToolInput,
+    tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Compatibility adapter over the public compiler service boundary."""
+    normalized_params: dict[str, Any] | UpdateSpecAndCompileAuthorityToolInput
+    if isinstance(params, UpdateSpecAndCompileAuthorityToolInput):
+        normalized_params = params.model_dump(exclude_none=True)
+    else:
+        normalized_params = params
     return _service_update_spec_and_compile_authority(
-        params,
+        normalized_params,
         tool_context=tool_context,
     )
 
@@ -443,7 +500,7 @@ def ensure_accepted_spec_authority(
 
 
 def check_spec_authority_status(
-    params: dict[str, Any] | CheckSpecAuthorityStatusInput,
+    params: Union[dict[str, Any], CheckSpecAuthorityStatusInput],
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Compatibility adapter over the public compiler service boundary."""
@@ -454,7 +511,7 @@ def check_spec_authority_status(
 
 
 def get_compiled_authority_by_version(
-    params: dict[str, Any] | GetCompiledAuthorityInput,
+    params: Union[dict[str, Any], GetCompiledAuthorityInput],
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Compatibility adapter over the public compiler service boundary."""
@@ -524,7 +581,7 @@ async def _invoke_spec_validator_async(payload_text: str) -> str:
 
 def _parse_llm_validator_response(raw_text: str) -> dict[str, Any]:
     """Compatibility shim over the public story-validation helper."""
-    return _service_parse_llm_validator_response(raw_text)
+    return cast("dict[str, Any]", _service_parse_llm_validator_response(raw_text))
 
 
 def _run_llm_spec_validation(
@@ -534,13 +591,16 @@ def _run_llm_spec_validation(
     feature: Feature | None = None,
 ) -> dict[str, Any]:
     """Compatibility shim over the public story-validation helper."""
-    return _service_run_llm_spec_validation(
-        story,
-        authority,
-        artifact,
-        feature=feature,
-        invoke_spec_validator_async_fn=_invoke_spec_validator_async,
-        parse_llm_validator_response_fn=_parse_llm_validator_response,
+    return cast(
+        "dict[str, Any]",
+        _service_run_llm_spec_validation(
+            story,
+            authority,
+            artifact,
+            feature=feature,
+            invoke_spec_validator_async_fn=_invoke_spec_validator_async,
+            parse_llm_validator_response_fn=_parse_llm_validator_response,
+        ),
     )
 
 

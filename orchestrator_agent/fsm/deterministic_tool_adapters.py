@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 from google.adk.tools import AgentTool, ToolContext
 
@@ -372,9 +372,9 @@ async def sprint_planner_tool(
     team_velocity_assumption: str = "Medium",
     sprint_duration_days: int = 14,
     user_context: str = "",
-    max_story_points: int | None = None,
+    max_story_points: Optional[int] = None,
     include_task_decomposition: bool = True,
-    selected_story_ids: list[int] | None = None,
+    selected_story_ids: Optional[list[int]] = None,
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Deterministic adapter for sprint_planner_tool."""

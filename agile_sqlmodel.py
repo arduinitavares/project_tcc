@@ -100,7 +100,7 @@ def _db_module() -> ModuleType:
     return import_module("models.db")
 
 
-def __getattr__(name: str) -> object:
+def __getattr__(name: str):
     """Lazily expose DB globals so importing this shim does not require DB env."""
     if name in {
         "DB_URL",

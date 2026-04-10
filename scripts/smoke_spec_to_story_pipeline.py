@@ -47,7 +47,8 @@ from agile_sqlmodel import (
     Product,
     SpecRegistry,
 )
-from models.core import Epic, Feature, ProductPersona, Theme
+from models.core import ProductPersona
+from models.core import Epic, Feature, Theme
 from tools import spec_tools
 from tools.spec_tools import (
     compile_spec_authority_for_version,

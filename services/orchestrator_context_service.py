@@ -8,7 +8,8 @@ from typing import Any, Protocol, cast
 from sqlalchemy import desc, func
 from sqlmodel import Session, select
 
-from models.core import Epic, Feature, Product, Sprint, Theme, UserStory
+from models.core import Epic, Feature, Theme
+from models.core import Product, Sprint, UserStory
 from models.db import get_engine
 from models.specs import (
     CompiledSpecAuthority,

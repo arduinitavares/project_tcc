@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, Protocol, Self, TypedDict, Unpack
 
-from models.enums import StoryResolution, StoryStatus
+from models.enums import StoryResolution
+from models.enums import StoryStatus
 from utils.api_schemas import StoryTaskProgressSummary
 
 if TYPE_CHECKING:

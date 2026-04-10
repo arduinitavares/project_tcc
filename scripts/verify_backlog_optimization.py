@@ -17,7 +17,9 @@ from orchestrator_agent.agent_tools.sprint_planning.tools import (
 )
 
 from agile_sqlmodel import Product, StoryStatus, UserStory
-from models.core import Epic, Feature, Theme
+from models.core import Epic, Feature, Team, Theme
+
+_MODEL_IMPORT_BOUNDARY = (Team,)
 
 # Setup logging
 logging.basicConfig()
