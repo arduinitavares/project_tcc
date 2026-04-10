@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlmodel import Session
 
@@ -40,7 +40,7 @@ def _create_approved_spec(session: Session, product_id: int) -> SpecRegistry:
         content="# Spec content",
         content_ref="specs/spec.md",
         status="approved",
-        approved_at=datetime.now(timezone.utc),
+        approved_at=datetime.now(UTC),
         approved_by="tester",
     )
     session.add(spec)
@@ -49,10 +49,12 @@ def _create_approved_spec(session: Session, product_id: int) -> SpecRegistry:
     return spec
 
 
-def test_context_service_get_project_details_includes_spec_fields(session: Session) -> None:
+def test_context_service_get_project_details_includes_spec_fields(
+    session: Session,
+) -> None:
     from services.orchestrator_context_service import get_project_details
 
-    spec_loaded_at = datetime.now(timezone.utc)
+    spec_loaded_at = datetime.now(UTC)
     product = _create_product(
         session,
         technical_spec="Spec body",
@@ -80,7 +82,7 @@ def test_context_service_select_project_hydrates_spec_and_authority(
 ) -> None:
     from services.orchestrator_context_service import select_project
 
-    spec_loaded_at = datetime.now(timezone.utc)
+    spec_loaded_at = datetime.now(UTC)
     product = _create_product(
         session,
         technical_spec="Spec body",

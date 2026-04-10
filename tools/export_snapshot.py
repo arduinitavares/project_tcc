@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import html
-from datetime import datetime, timezone
+from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 from markdown import markdown as _md
 
-def _markdown(text: str, extensions: Optional[List[str]] = None) -> str:
+
+def _markdown(text: str, extensions: list[str] | None = None) -> str:
     return _md(text, extensions=extensions or [])
+
 
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, select
@@ -32,7 +35,7 @@ def export_project_snapshot_html(
     *,
     product_id: int,
     output_dir: Path,
-    engine_override: Optional[Engine] = None,
+    engine_override: Engine | None = None,
 ) -> Path:
     """Export a project snapshot as a single HTML file.
 
@@ -44,7 +47,6 @@ def export_project_snapshot_html(
     Returns:
         Path to the generated HTML file.
     """
-
     engine_to_use = engine_override or default_engine
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -64,12 +66,16 @@ def export_project_snapshot_html(
         features = list(session.exec(select(Feature)).all())
         features = [feature for feature in features if feature.epic_id in epic_ids]
         all_stories = list(
-            session.exec(select(UserStory).where(UserStory.product_id == product_id)).all()
+            session.exec(
+                select(UserStory).where(UserStory.product_id == product_id)
+            ).all()
         )
         sprints = list(
             session.exec(select(Sprint).where(Sprint.product_id == product_id)).all()
         )
-        sprint_story_map = _load_sprint_story_map(session, [s.sprint_id for s in sprints])
+        sprint_story_map = _load_sprint_story_map(
+            session, [s.sprint_id for s in sprints]
+        )
         stories = _select_refined_current_sprint_stories(
             all_stories,
             sprints,
@@ -103,7 +109,7 @@ def export_project_snapshot_html(
 def _get_latest_approved_spec(
     session: Session,
     product_id: int,
-) -> Optional[SpecRegistry]:
+) -> SpecRegistry | None:
     specs = list(
         session.exec(
             select(SpecRegistry).where(
@@ -123,10 +129,10 @@ def _get_latest_approved_spec(
 
 def _resolve_spec_content(
     product: Product,
-    approved_spec: Optional[SpecRegistry],
-) -> tuple[str, Dict[str, Any]]:
+    approved_spec: SpecRegistry | None,
+) -> tuple[str, dict[str, Any]]:
     if approved_spec:
-        meta: Dict[str, Any] = {
+        meta: dict[str, Any] = {
             "status": "approved",
             "spec_version_id": approved_spec.spec_version_id,
             "approved_by": approved_spec.approved_by,
@@ -136,7 +142,7 @@ def _resolve_spec_content(
         }
         return approved_spec.content, meta
 
-    meta: Dict[str, Any] = {
+    meta: dict[str, Any] = {
         "status": "draft",
         "spec_version_id": None,
         "approved_by": None,
@@ -149,8 +155,8 @@ def _resolve_spec_content(
 
 def _load_compiled_authority(
     session: Session,
-    approved_spec: Optional[SpecRegistry],
-) -> Optional[SpecAuthorityCompilationSuccess]:
+    approved_spec: SpecRegistry | None,
+) -> SpecAuthorityCompilationSuccess | None:
     if not approved_spec or not approved_spec.spec_version_id:
         return None
 
@@ -174,18 +180,18 @@ def _load_compiled_authority(
 def _render_snapshot_html(
     *,
     product: Product,
-    themes: List[Theme],
-    epics: List[Epic],
-    features: List[Feature],
-    stories: List[UserStory],
-    all_stories: List[UserStory],
-    sprints: List[Sprint],
-    sprint_story_map: Dict[int, List[int]],
+    themes: list[Theme],
+    epics: list[Epic],
+    features: list[Feature],
+    stories: list[UserStory],
+    all_stories: list[UserStory],
+    sprints: list[Sprint],
+    sprint_story_map: dict[int, list[int]],
     spec_content: str,
-    spec_meta: Dict[str, Any],
-    authority: Optional[SpecAuthorityCompilationSuccess],
+    spec_meta: dict[str, Any],
+    authority: SpecAuthorityCompilationSuccess | None,
 ) -> str:
-    generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    generated_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     roadmap_html = _render_roadmap(themes, epics, features, all_stories)
     stories_html = _render_stories_table(stories, epics, features, themes)
     full_backlog_html = _render_all_stories_table(all_stories, epics, features, themes)
@@ -334,9 +340,9 @@ def _format_all_story_summary(stories: Iterable[UserStory]) -> str:
 
 
 def _format_sprint_summary_line(
-    sprints: List[Sprint],
-    stories: List[UserStory],
-    sprint_story_map: Dict[int, List[int]],
+    sprints: list[Sprint],
+    stories: list[UserStory],
+    sprint_story_map: dict[int, list[int]],
 ) -> str:
     sprint = _pick_current_sprint(sprints)
     if not sprint:
@@ -344,9 +350,7 @@ def _format_sprint_summary_line(
 
     sprint_story_ids = set(sprint_story_map.get(sprint.sprint_id or 0, []))
     if not sprint_story_ids:
-        return (
-            f"<p><strong>Current sprint:</strong> {html.escape(sprint.goal or 'Unnamed sprint')}</p>"
-        )
+        return f"<p><strong>Current sprint:</strong> {html.escape(sprint.goal or 'Unnamed sprint')}</p>"
 
     sprint_stories = [story for story in stories if story.story_id in sprint_story_ids]
     done_count = sum(1 for story in sprint_stories if story.status == StoryStatus.DONE)
@@ -359,22 +363,24 @@ def _format_sprint_summary_line(
 
 
 def _render_roadmap(
-    themes: List[Theme],
-    epics: List[Epic],
-    features: List[Feature],
-    stories: List[UserStory],
+    themes: list[Theme],
+    epics: list[Epic],
+    features: list[Feature],
+    stories: list[UserStory],
 ) -> str:
     if not themes:
-        return "<p class=\"muted\">No roadmap themes available.</p>"
+        return '<p class="muted">No roadmap themes available.</p>'
 
     epics_by_theme = _group_by(epics, lambda epic: epic.theme_id)
     features_by_epic = _group_by(features, lambda feature: feature.epic_id)
     stories_by_feature = _group_by(stories, lambda story: story.feature_id)
 
-    sections: List[str] = []
+    sections: list[str] = []
     for time_frame in ("Now", "Next", "Later", None):
         frame_themes = [
-            theme for theme in themes if (theme.time_frame.value if theme.time_frame else None) == time_frame
+            theme
+            for theme in themes
+            if (theme.time_frame.value if theme.time_frame else None) == time_frame
         ]
         if not frame_themes:
             continue
@@ -393,10 +399,10 @@ def _render_roadmap(
                 for story in stories_by_feature.get(feature.feature_id, [])
             ]
             sections.append(
-                "<div class=\"card\">"
+                '<div class="card">'
                 f"<strong>{html.escape(theme.title)}</strong>"
-                f"<p class=\"muted\">{html.escape(theme.description or '')}</p>"
-                f"<p class=\"muted\">Epics: {len(epics_for_theme)} | "
+                f'<p class="muted">{html.escape(theme.description or "")}</p>'
+                f'<p class="muted">Epics: {len(epics_for_theme)} | '
                 f"Features: {len(features_for_theme)} | Stories: {len(stories_for_theme)}</p>"
                 "</div>"
             )
@@ -404,20 +410,20 @@ def _render_roadmap(
 
 
 def _render_stories_table(
-    stories: List[UserStory],
-    epics: List[Epic],
-    features: List[Feature],
-    themes: List[Theme],
+    stories: list[UserStory],
+    epics: list[Epic],
+    features: list[Feature],
+    themes: list[Theme],
 ) -> str:
     if not stories:
-        return "<p class=\"muted\">No stories available.</p>"
+        return '<p class="muted">No stories available.</p>'
 
     feature_to_epic = {feature.feature_id: feature.epic_id for feature in features}
     epic_to_theme = {epic.epic_id: epic.theme_id for epic in epics}
     theme_by_id = {theme.theme_id: theme for theme in themes}
     feature_by_id = {feature.feature_id: feature for feature in features}
 
-    rows: List[str] = []
+    rows: list[str] = []
     for story in stories:
         epic_id = feature_to_epic.get(story.feature_id)
         theme_id = epic_to_theme.get(epic_id)
@@ -444,28 +450,28 @@ def _render_stories_table(
         "<th>ID</th><th>Title</th><th>Persona</th><th>Status</th><th>Points</th>"
         "<th>Theme</th><th>Feature</th><th>Acceptance Criteria</th>"
         "</tr></thead>"
-        "<tbody>"
-        + "".join(rows)
-        + "</tbody></table>"
+        "<tbody>" + "".join(rows) + "</tbody></table>"
     )
 
 
 def _render_all_stories_table(
-    stories: List[UserStory],
-    epics: List[Epic],
-    features: List[Feature],
-    themes: List[Theme],
+    stories: list[UserStory],
+    epics: list[Epic],
+    features: list[Feature],
+    themes: list[Theme],
 ) -> str:
     if not stories:
-        return "<p class=\"muted\">No stories available.</p>"
+        return '<p class="muted">No stories available.</p>'
 
     feature_to_epic = {feature.feature_id: feature.epic_id for feature in features}
     epic_to_theme = {epic.epic_id: epic.theme_id for epic in epics}
     theme_by_id = {theme.theme_id: theme for theme in themes}
     feature_by_id = {feature.feature_id: feature for feature in features}
 
-    rows: List[str] = []
-    ordered_stories = sorted(stories, key=lambda story: (story.rank or "", story.story_id or 0))
+    rows: list[str] = []
+    ordered_stories = sorted(
+        stories, key=lambda story: (story.rank or "", story.story_id or 0)
+    )
     for story in ordered_stories:
         epic_id = feature_to_epic.get(story.feature_id)
         theme_id = epic_to_theme.get(epic_id)
@@ -491,20 +497,18 @@ def _render_all_stories_table(
         "<th>ID</th><th>Title</th><th>Status</th><th>Refined</th><th>Superseded</th>"
         "<th>Origin</th><th>Spec Version</th><th>Theme</th><th>Feature</th>"
         "</tr></thead>"
-        "<tbody>"
-        + "".join(rows)
-        + "</tbody></table>"
+        "<tbody>" + "".join(rows) + "</tbody></table>"
     )
 
 
 def _render_sprint_summary(
-    sprints: List[Sprint],
-    stories: List[UserStory],
-    sprint_story_map: Dict[int, List[int]],
+    sprints: list[Sprint],
+    stories: list[UserStory],
+    sprint_story_map: dict[int, list[int]],
 ) -> str:
     sprint = _pick_current_sprint(sprints)
     if not sprint:
-        return "<p class=\"muted\">No sprint data available.</p>"
+        return '<p class="muted">No sprint data available.</p>'
 
     sprint_story_ids = set(sprint_story_map.get(sprint.sprint_id or 0, []))
     sprint_stories = [story for story in stories if story.story_id in sprint_story_ids]
@@ -522,7 +526,7 @@ def _render_sprint_summary(
     ]
 
     return (
-        "<div class=\"card\">"
+        '<div class="card">'
         f"<p><strong>Goal:</strong> {html.escape(sprint.goal or 'Unnamed sprint')}</p>"
         f"<p><strong>Dates:</strong> {sprint.start_date} → {sprint.end_date}</p>"
         f"<p><strong>Status:</strong> {sprint.status.value}</p>"
@@ -530,17 +534,15 @@ def _render_sprint_summary(
         "</div>"
         "<table>"
         "<thead><tr><th>ID</th><th>Story</th><th>Status</th></tr></thead>"
-        "<tbody>"
-        + "".join(rows)
-        + "</tbody></table>"
+        "<tbody>" + "".join(rows) + "</tbody></table>"
     )
 
 
 def _render_compiled_authority(
-    authority: Optional[SpecAuthorityCompilationSuccess],
+    authority: SpecAuthorityCompilationSuccess | None,
 ) -> str:
     if not authority:
-        return "<p class=\"muted\">No compiled authority available.</p>"
+        return '<p class="muted">No compiled authority available.</p>'
 
     invariants = "".join(
         f"<li>{html.escape(_render_invariant_summary(inv))}</li>"
@@ -549,13 +551,11 @@ def _render_compiled_authority(
     scope_themes = "".join(
         f"<li>{html.escape(theme)}</li>" for theme in authority.scope_themes
     )
-    gaps = "".join(
-        f"<li>{html.escape(gap)}</li>" for gap in authority.gaps
-    )
+    gaps = "".join(f"<li>{html.escape(gap)}</li>" for gap in authority.gaps)
     raw_json = html.escape(authority.model_dump_json(indent=2))
 
-    sections: List[str] = [
-        "<div class=\"card\">",
+    sections: list[str] = [
+        '<div class="card">',
         f"<p><strong>Compiler:</strong> {html.escape(authority.compiler_version)}</p>",
         f"<p><strong>Prompt hash:</strong> {html.escape(authority.prompt_hash)}</p>",
         "<h3>Scope Themes</h3><ul>",
@@ -569,11 +569,13 @@ def _render_compiled_authority(
     if gaps:
         sections.extend(["<h3>Spec Gaps</h3><ul>", gaps, "</ul>"])
 
-    sections.extend([
-        "</div>",
-        "<h3>Compiled Authority JSON</h3>",
-        f"<pre>{raw_json}</pre>",
-    ])
+    sections.extend(
+        [
+            "</div>",
+            "<h3>Compiled Authority JSON</h3>",
+            f"<pre>{raw_json}</pre>",
+        ]
+    )
 
     return "".join(sections)
 
@@ -592,7 +594,7 @@ def _render_invariant_summary(invariant: Invariant) -> str:
     return f"{invariant.id}: {invariant.type}"
 
 
-def _render_spec_metadata(meta: Dict[str, Any]) -> str:
+def _render_spec_metadata(meta: dict[str, Any]) -> str:
     items = {
         "Spec version": meta.get("spec_version_id") or "-",
         "Approved by": meta.get("approved_by") or "-",
@@ -607,15 +609,15 @@ def _render_spec_metadata(meta: Dict[str, Any]) -> str:
     return "<table><tbody>" + rows + "</tbody></table>"
 
 
-def _render_spec_status_badge(meta: Dict[str, Any]) -> str:
+def _render_spec_status_badge(meta: dict[str, Any]) -> str:
     status = meta.get("status", "draft")
     if status == "approved":
         return '<span class="badge badge-ok">approved</span>'
     return '<span class="badge badge-warn">draft</span>'
 
 
-def _extract_markdown_headings(text: str) -> List[Tuple[int, str]]:
-    headings: List[Tuple[int, str]] = []
+def _extract_markdown_headings(text: str) -> list[tuple[int, str]]:
+    headings: list[tuple[int, str]] = []
     for line in text.splitlines():
         stripped = line.strip()
         if stripped.startswith("#"):
@@ -626,17 +628,21 @@ def _extract_markdown_headings(text: str) -> List[Tuple[int, str]]:
     return headings
 
 
-def _render_spec_toc(headings: List[Tuple[int, str]]) -> str:
+def _render_spec_toc(headings: list[tuple[int, str]]) -> str:
     if not headings:
         return ""
     items = "".join(
-        f"<li class=\"toc-level-{level}\">{html.escape(title)}</li>"
+        f'<li class="toc-level-{level}">{html.escape(title)}</li>'
         for level, title in headings
     )
-    return "<div class=\"card\"><strong>Contents</strong><ul class=\"toc\">" + items + "</ul></div>"
+    return (
+        '<div class="card"><strong>Contents</strong><ul class="toc">'
+        + items
+        + "</ul></div>"
+    )
 
 
-def _pick_current_sprint(sprints: List[Sprint]) -> Optional[Sprint]:
+def _pick_current_sprint(sprints: list[Sprint]) -> Sprint | None:
     if not sprints:
         return None
     active = [sprint for sprint in sprints if sprint.status.value == "Active"]
@@ -646,10 +652,10 @@ def _pick_current_sprint(sprints: List[Sprint]) -> Optional[Sprint]:
 
 
 def _select_refined_current_sprint_stories(
-    stories: List[UserStory],
-    sprints: List[Sprint],
-    sprint_story_map: Dict[int, List[int]],
-) -> List[UserStory]:
+    stories: list[UserStory],
+    sprints: list[Sprint],
+    sprint_story_map: dict[int, list[int]],
+) -> list[UserStory]:
     sprint = _pick_current_sprint(sprints)
     if not sprint or not sprint.sprint_id:
         return []
@@ -668,8 +674,10 @@ def _select_refined_current_sprint_stories(
     return sorted(selected, key=lambda story: (story.rank or "", story.story_id or 0))
 
 
-def _group_by(items: Iterable[Any], key_fn: Callable[[Any], Any]) -> Dict[Any, List[Any]]:
-    grouped: Dict[Any, List[Any]] = {}
+def _group_by(
+    items: Iterable[Any], key_fn: Callable[[Any], Any]
+) -> dict[Any, list[Any]]:
+    grouped: dict[Any, list[Any]] = {}
     for item in items:
         key = key_fn(item)
         grouped.setdefault(key, []).append(item)
@@ -678,16 +686,17 @@ def _group_by(items: Iterable[Any], key_fn: Callable[[Any], Any]) -> Dict[Any, L
 
 def _load_sprint_story_map(
     session: Session,
-    sprint_ids: List[Optional[int]],
-) -> Dict[int, List[int]]:
+    sprint_ids: list[int | None],
+) -> dict[int, list[int]]:
     valid_ids = [sid for sid in sprint_ids if sid is not None]
     if not valid_ids:
         return {}
     rows = [
-        row for row in session.exec(select(SprintStory)).all()
+        row
+        for row in session.exec(select(SprintStory)).all()
         if row.sprint_id in valid_ids
     ]
-    mapping: Dict[int, List[int]] = {}
+    mapping: dict[int, list[int]] = {}
     for row in rows:
         mapping.setdefault(row.sprint_id, []).append(row.story_id)
     return mapping

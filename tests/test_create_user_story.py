@@ -3,6 +3,6 @@
 import pytest
 
 pytest.skip(
-	"create_user_story has been removed. Skipping obsolete test module.",
-	allow_module_level=True,
+    "create_user_story has been removed. Skipping obsolete test module.",
+    allow_module_level=True,
 )

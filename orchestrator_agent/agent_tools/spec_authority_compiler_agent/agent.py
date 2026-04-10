@@ -3,15 +3,15 @@
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
 
-from utils.spec_schemas import SpecAuthorityCompilerInput, SpecAuthorityCompilerEnvelope
+from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (
+    SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
+)
 from utils.model_config import get_model_id, get_openrouter_extra_body
 from utils.runtime_config import (
     get_openrouter_api_key,
     is_spec_compiler_schema_disabled,
 )
-from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (
-    SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
-)
+from utils.spec_schemas import SpecAuthorityCompilerEnvelope, SpecAuthorityCompilerInput
 
 # --- Initialize Model ---
 model = LiteLlm(

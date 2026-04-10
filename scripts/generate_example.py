@@ -12,11 +12,10 @@ Key principle demonstrated:
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import json
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
-
 
 # =============================================================================
 # Phase 1 — Compiled Authority (output of human / LLM interpretation)
@@ -56,9 +55,11 @@ COMPILED_INVARIANTS_CONSTRUCTION = [
 # Phase 2 — Deterministic Validation Artifacts
 # =============================================================================
 
+
 @dataclass(frozen=True)
 class Finding:
     """Deterministic validation finding."""
+
     code: str
     message: str
     severity: str  # "FAIL" | "WARN"
@@ -67,6 +68,7 @@ class Finding:
 @dataclass(frozen=True)
 class ValidationResult:
     """Deterministic validation result."""
+
     passed: bool
     findings: tuple[Finding, ...]
 
@@ -82,6 +84,7 @@ def _serialize_result(result: ValidationResult) -> dict[str, Any]:
 # =============================================================================
 # Phase 3 — Deterministic Gate (NO text parsing, NO LLM, NO human judgment)
 # =============================================================================
+
 
 def validate_against_invariants(
     *,
@@ -138,6 +141,7 @@ def validate_against_invariants(
 # =============================================================================
 # Phase 4 — Examples (Same Gate, Different Domains)
 # =============================================================================
+
 
 def test_software_story_fails_deterministically() -> None:
     """

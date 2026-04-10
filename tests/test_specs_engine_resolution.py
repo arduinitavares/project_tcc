@@ -26,7 +26,9 @@ def test_resolve_engine_prefers_live_models_db_get_engine_over_stale_default_bin
 
     monkeypatch.setattr(model_db, "get_engine", lambda: preferred_engine)
     monkeypatch.setattr(spec_tools, "engine", model_db.engine, raising=False)
-    monkeypatch.setattr(spec_tools, "get_engine", service_module.get_engine, raising=False)
+    monkeypatch.setattr(
+        spec_tools, "get_engine", service_module.get_engine, raising=False
+    )
 
     resolved = resolve_spec_engine(
         service_get_engine=service_module.get_engine,

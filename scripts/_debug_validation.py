@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Temporary debug script to investigate validation failures for product 8."""
-import sys
+
 import json
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlmodel import Session, select
-from agile_sqlmodel import UserStory, SpecRegistry, CompiledSpecAuthority, get_engine
-from tools.spec_tools import validate_story_with_spec_authority, _load_compiled_artifact
+
+from agile_sqlmodel import CompiledSpecAuthority, SpecRegistry, UserStory, get_engine
+from tools.spec_tools import _load_compiled_artifact, validate_story_with_spec_authority
 
 engine = get_engine()
 

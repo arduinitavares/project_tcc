@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -13,7 +13,6 @@ from orchestrator_agent.agent_tools.user_story_writer_tool.schemes import (
     UserStoryWriterInput,
     UserStoryWriterOutput,
 )
-
 
 # ---------------------------------------------------------------------------
 # UserStoryItem
@@ -74,7 +73,9 @@ class TestUserStoryItem:
         assert "Hard dependency" in item.decomposition_warning
 
     def test_rejects_invalid_statement_missing_as_a(self) -> None:
-        with pytest.raises(ValidationError, match="Statement must precisely start with"):
+        with pytest.raises(
+            ValidationError, match="Statement must precisely start with"
+        ):
             UserStoryItem(
                 story_title="Bad story",
                 statement="The user wants to log in so that they can access the app.",
@@ -235,7 +236,7 @@ class TestUserStoryWriterInput:
         assert inp.parent_requirement == "Valid requirement name"
 
     def test_json_round_trip(self) -> None:
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "parent_requirement": "User Authentication",
             "requirement_context": "Critical for security.",
             "technical_spec": "OAuth2 + MFA required.",
@@ -255,9 +256,9 @@ class TestUserStoryWriterInput:
 class TestUserStoryWriterOutput:
     """Tests for the output schema."""
 
-    def _make_valid_story(self, **overrides: Any) -> Dict[str, Any]:
+    def _make_valid_story(self, **overrides: Any) -> dict[str, Any]:
         """Helper: build a valid UserStoryItem dict."""
-        base: Dict[str, Any] = {
+        base: dict[str, Any] = {
             "story_title": "Upload CSV file",
             "statement": (
                 "As a data engineer, I want to upload a CSV file, "
@@ -327,8 +328,7 @@ class TestUserStoryWriterOutput:
                 UserStoryItem(
                     story_title="Login with email",
                     statement=(
-                        "As a member, I want to log in, "
-                        "so that I access my account."
+                        "As a member, I want to log in, so that I access my account."
                     ),
                     acceptance_criteria=["Verify login succeeds."],
                     invest_score="High",

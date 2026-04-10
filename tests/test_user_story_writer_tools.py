@@ -12,16 +12,12 @@ class TestExtractPersona:
 
     def test_extracts_simple_role(self) -> None:
         statement = (
-            "As a data engineer, I want to upload files, "
-            "so that data is ingested."
+            "As a data engineer, I want to upload files, so that data is ingested."
         )
         assert _extract_persona(statement) == "data engineer"
 
     def test_extracts_role_with_article_an(self) -> None:
-        statement = (
-            "As an admin, I want to manage users, "
-            "so that access is controlled."
-        )
+        statement = "As an admin, I want to manage users, so that access is controlled."
         assert _extract_persona(statement) == "admin"
 
     def test_returns_none_for_invalid_format(self) -> None:

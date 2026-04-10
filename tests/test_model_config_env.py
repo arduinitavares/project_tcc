@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 
 from utils import model_config
-from utils.model_config import get_model_id, get_openrouter_extra_body, get_story_pipeline_mode
+from utils.model_config import (
+    get_model_id,
+    get_openrouter_extra_body,
+    get_story_pipeline_mode,
+)
 
 
 @pytest.fixture
@@ -36,7 +40,9 @@ story_pipeline:
     return config_path
 
 
-def test_model_config_path_env_overrides(monkeypatch: pytest.MonkeyPatch, temp_model_config: Path) -> None:
+def test_model_config_path_env_overrides(
+    monkeypatch: pytest.MonkeyPatch, temp_model_config: Path
+) -> None:
     """MODEL_CONFIG_PATH should override the default config file."""
     monkeypatch.setenv("MODEL_CONFIG_PATH", str(temp_model_config))
     model_config.clear_config_cache()

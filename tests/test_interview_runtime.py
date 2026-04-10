@@ -173,7 +173,9 @@ def test_append_feedback_uses_max_existing_suffix_on_migrated_state() -> None:
     assert runtime["feedback_projection"]["next_feedback_sequence"] == 8
 
 
-def test_hydrate_story_runtime_from_legacy_attempts_promotes_latest_reusable_artifact() -> None:
+def test_hydrate_story_runtime_from_legacy_attempts_promotes_latest_reusable_artifact() -> (
+    None
+):
     state: dict[str, object] = {
         "story_attempts": {
             "req-1": [
@@ -345,9 +347,12 @@ def test_hydrate_story_runtime_normalizes_existing_runtime_before_skip() -> None
     assert hydrated_again is runtime
     assert len(runtime["attempt_history"]) == 1
     assert runtime["attempt_history"][0]["classification"] == "reusable_content_result"
-    assert state["story_attempts"]["req-1"][0]["output_artifact"]["user_stories"][0][
-        "story_title"
-    ] == "Ignored"
+    assert (
+        state["story_attempts"]["req-1"][0]["output_artifact"]["user_stories"][0][
+            "story_title"
+        ]
+        == "Ignored"
+    )
 
 
 def test_reset_subject_working_set_clears_projections_and_keeps_audit_marker() -> None:

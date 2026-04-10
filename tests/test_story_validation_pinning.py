@@ -12,8 +12,9 @@ These tests validate that:
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -22,7 +23,7 @@ from sqlmodel import Session
 
 from agile_sqlmodel import Product, SpecRegistry, UserStory
 from models.core import Epic, Feature, Theme
-import tools.spec_tools as spec_tools
+from tools import spec_tools
 from tools.spec_tools import (
     VALIDATOR_VERSION,
     ValidateStoryInput,
@@ -32,11 +33,71 @@ from tools.spec_tools import (
     validate_story_with_spec_authority,
 )
 from utils.spec_schemas import (
-    ValidationEvidence,
-    SpecAuthorityCompilationSuccess,
-    InvariantType,
     ForbiddenCapabilityParams,
+    Invariant,
+    InvariantType,
+    SourceMapEntry,
+    SpecAuthorityCompilationSuccess,
+    ValidationEvidence,
 )
+
+
+def _require_id(value: int | None, label: str) -> int:
+    """Narrow an optional persisted ID for static and runtime safety."""
+    assert value is not None, f"{label} should be persisted"
+    return value
+
+
+def _require_story(session: Session, story_id: int | None) -> UserStory:
+    """Fetch a persisted story and narrow away None."""
+    persisted_story = session.get(UserStory, _require_id(story_id, "story_id"))
+    assert persisted_story is not None
+    return persisted_story
+
+
+def _load_validation_evidence(story: UserStory | None) -> dict[str, Any]:
+    """Load persisted validation evidence from a non-null story."""
+    assert story is not None
+    evidence_json = story.validation_evidence
+    assert evidence_json is not None
+    return cast("dict[str, Any]", json.loads(evidence_json))
+
+
+def _create_feature_hierarchy(
+    session: Session,
+    *,
+    product_id: int,
+    prefix: str,
+    detail: str,
+) -> Feature:
+    """Create theme/epic/feature records for a test product."""
+    theme = Theme(
+        product_id=product_id,
+        title=f"{prefix} Theme",
+        description=f"Theme for {detail}",
+    )
+    session.add(theme)
+    session.commit()
+    session.refresh(theme)
+
+    epic = Epic(
+        theme_id=_require_id(theme.theme_id, f"{prefix} theme_id"),
+        title=f"{prefix} Epic",
+        summary=f"Epic for {detail}",
+    )
+    session.add(epic)
+    session.commit()
+    session.refresh(epic)
+
+    feature = Feature(
+        epic_id=_require_id(epic.epic_id, f"{prefix} epic_id"),
+        title=f"{prefix} Feature",
+        description=f"Feature for {detail}",
+    )
+    session.add(feature)
+    session.commit()
+    session.refresh(feature)
+    return feature
 
 
 @pytest.fixture
@@ -84,22 +145,23 @@ def compiled_spec(session: Session, sample_product: Product) -> SpecRegistry:
     # Mock LLM extraction to avoid real API calls
     fake_artifact = SpecAuthorityCompilationSuccess(
         scope_themes=["API", "Auth"],
+        domain=None,
         invariants=[
-            {
-                "id": "INV-0000000000000001",
-                "type": InvariantType.FORBIDDEN_CAPABILITY,
-                "parameters": ForbiddenCapabilityParams(capability="redis"),
-            }
+            Invariant(
+                id="INV-0000000000000001",
+                type=InvariantType.FORBIDDEN_CAPABILITY,
+                parameters=ForbiddenCapabilityParams(capability="redis"),
+            )
         ],
         eligible_feature_rules=[],
         gaps=[],
         assumptions=[],
         source_map=[
-            {
-                "invariant_id": "INV-0000000000000001",
-                "excerpt": "Auth token required",
-                "location": "spec:line:1",
-            }
+            SourceMapEntry(
+                invariant_id="INV-0000000000000001",
+                excerpt="Auth token required",
+                location="spec:line:1",
+            )
         ],
         compiler_version="1.0.0",
         prompt_hash="a" * 64,
@@ -114,6 +176,7 @@ def compiled_spec(session: Session, sample_product: Product) -> SpecRegistry:
         )
 
     spec = session.get(SpecRegistry, spec_version_id)
+    assert spec is not None
     session.refresh(spec)
     return spec
 
@@ -121,36 +184,17 @@ def compiled_spec(session: Session, sample_product: Product) -> SpecRegistry:
 @pytest.fixture
 def sample_story(session: Session, sample_product: Product) -> UserStory:
     """Create a user story for testing (with full hierarchy)."""
-    theme = Theme(
-        product_id=sample_product.product_id,
-        title="Test Theme",
-        description="Theme for validation tests",
+    product_id = _require_id(sample_product.product_id, "sample_product.product_id")
+    feature = _create_feature_hierarchy(
+        session,
+        product_id=product_id,
+        prefix="Test",
+        detail="validation tests",
     )
-    session.add(theme)
-    session.commit()
-    session.refresh(theme)
-
-    epic = Epic(
-        theme_id=theme.theme_id,
-        title="Test Epic",
-        description="Epic for validation tests",
-    )
-    session.add(epic)
-    session.commit()
-    session.refresh(epic)
-
-    feature = Feature(
-        epic_id=epic.epic_id,
-        title="Test Feature",
-        description="Feature for validation tests",
-    )
-    session.add(feature)
-    session.commit()
-    session.refresh(feature)
 
     story = UserStory(
-        product_id=sample_product.product_id,
-        feature_id=feature.feature_id,
+        product_id=product_id,
+        feature_id=_require_id(feature.feature_id, "test feature_id"),
         title="As a user, I want to export data",
         story_description=(
             "As a user, I want to export my data in JSON format so I can use it elsewhere."
@@ -168,9 +212,7 @@ def sample_story(session: Session, sample_product: Product) -> UserStory:
 class TestFailFastWithoutSpecVersionId:
     """Tests that validation fails immediately without spec_version_id."""
 
-    def test_validation_tool_delegates_to_story_validation_service(
-        self, monkeypatch
-    ):
+    def test_validation_tool_delegates_to_story_validation_service(self, monkeypatch):
         expected = {"success": True, "passed": True, "message": "from service"}
         captured = {}
 
@@ -254,10 +296,16 @@ class TestFailFastWithoutSpecVersionId:
 
         evidence = ValidationEvidence(
             spec_version_id=1,
-            validated_at=datetime.now(timezone.utc),
+            validated_at=datetime.now(UTC),
             passed=True,
             rules_checked=["SPEC_VERSION_EXISTS"],
             invariants_checked=[],
+            evaluated_invariant_ids=[],
+            finding_invariant_ids=[],
+            failures=[],
+            warnings=[],
+            alignment_warnings=[],
+            alignment_failures=[],
             validator_version=VALIDATOR_VERSION,
             input_hash="abc123",
         )
@@ -269,9 +317,7 @@ class TestFailFastWithoutSpecVersionId:
         assert captured["evidence"] is evidence
         assert captured["passed"] is True
 
-    def test_compute_story_input_hash_wrapper_delegates_to_service(
-        self, monkeypatch
-    ):
+    def test_compute_story_input_hash_wrapper_delegates_to_service(self, monkeypatch):
         called = {}
 
         def fake_service_hash(story_arg):
@@ -297,7 +343,7 @@ class TestFailFastWithoutSpecVersionId:
     def test_validation_requires_spec_version_id_in_schema(self):
         """Input schema requires spec_version_id (no default)."""
         with pytest.raises(ValidationError) as exc_info:
-            ValidateStoryInput(story_id=1)
+            ValidateStoryInput.model_validate({"story_id": 1})
 
         errors = exc_info.value.errors()
         assert any("spec_version_id" in str(e) for e in errors)
@@ -305,7 +351,7 @@ class TestFailFastWithoutSpecVersionId:
     def test_validation_rejects_none_spec_version_id(self):
         """spec_version_id=None is rejected."""
         with pytest.raises(ValidationError):
-            ValidateStoryInput(story_id=1, spec_version_id=None)
+            ValidateStoryInput.model_validate({"story_id": 1, "spec_version_id": None})
 
 
 class TestFailFastIfNotCompiled:
@@ -352,7 +398,10 @@ class TestFailFastIfNotCompiled:
         spec_tools.engine = engine
 
         reg_result = register_spec_version(
-            {"product_id": sample_product.product_id, "content": "Approved but not compiled"},
+            {
+                "product_id": sample_product.product_id,
+                "content": "Approved but not compiled",
+            },
             tool_context=None,
         )
         spec_version_id = reg_result["spec_version_id"]
@@ -385,15 +434,16 @@ class TestEvidencePersistence:
         spec_tools.engine = engine
 
         result = validate_story_with_spec_authority(
-            {"story_id": sample_story.story_id, "spec_version_id": compiled_spec.spec_version_id},
+            {
+                "story_id": sample_story.story_id,
+                "spec_version_id": compiled_spec.spec_version_id,
+            },
             tool_context=None,
         )
 
         session.expire(sample_story)
-        story = session.get(UserStory, sample_story.story_id)
-
-        assert story.validation_evidence is not None
-        evidence = json.loads(story.validation_evidence)
+        story = _require_story(session, sample_story.story_id)
+        evidence = _load_validation_evidence(story)
 
         assert evidence["spec_version_id"] == compiled_spec.spec_version_id
         assert "validated_at" in evidence
@@ -416,27 +466,22 @@ class TestEvidencePersistence:
         """Evidence is stored even when validation fails."""
         spec_tools.engine = engine
 
-        theme = Theme(
-            product_id=sample_product.product_id,
-            title="Fail Theme",
-            description="Theme for fail test",
+        feature = _create_feature_hierarchy(
+            session,
+            product_id=_require_id(
+                sample_product.product_id,
+                "sample_product.product_id",
+            ),
+            prefix="Fail",
+            detail="fail test",
         )
-        session.add(theme)
-        session.commit()
-
-        epic = Epic(theme_id=theme.theme_id, title="Fail Epic", description="Epic for fail test")
-        session.add(epic)
-        session.commit()
-
-        feature = Feature(
-            epic_id=epic.epic_id, title="Fail Feature", description="Feature for fail test"
-        )
-        session.add(feature)
-        session.commit()
 
         bad_story = UserStory(
-            product_id=sample_product.product_id,
-            feature_id=feature.feature_id,
+            product_id=_require_id(
+                sample_product.product_id,
+                "sample_product.product_id",
+            ),
+            feature_id=_require_id(feature.feature_id, "fail feature_id"),
             title="Bad story title",
             story_description="This is a poorly formatted story",
             acceptance_criteria="",
@@ -448,15 +493,16 @@ class TestEvidencePersistence:
         original_accepted = bad_story.accepted_spec_version_id
 
         validate_story_with_spec_authority(
-            {"story_id": bad_story.story_id, "spec_version_id": compiled_spec.spec_version_id},
+            {
+                "story_id": bad_story.story_id,
+                "spec_version_id": compiled_spec.spec_version_id,
+            },
             tool_context=None,
         )
 
         session.expire(bad_story)
-        story = session.get(UserStory, bad_story.story_id)
-
-        assert story.validation_evidence is not None
-        evidence = json.loads(story.validation_evidence)
+        story = _require_story(session, bad_story.story_id)
+        evidence = _load_validation_evidence(story)
         assert evidence["spec_version_id"] == compiled_spec.spec_version_id
         assert "failures" in evidence
 
@@ -473,13 +519,16 @@ class TestEvidencePersistence:
         spec_tools.engine = engine
 
         validate_story_with_spec_authority(
-            {"story_id": sample_story.story_id, "spec_version_id": compiled_spec.spec_version_id},
+            {
+                "story_id": sample_story.story_id,
+                "spec_version_id": compiled_spec.spec_version_id,
+            },
             tool_context=None,
         )
 
         session.expire(sample_story)
-        story = session.get(UserStory, sample_story.story_id)
-        evidence = json.loads(story.validation_evidence)
+        story = _require_story(session, sample_story.story_id)
+        evidence = _load_validation_evidence(story)
 
         validated = ValidationEvidence.model_validate(evidence)
 
@@ -510,17 +559,14 @@ class TestDeterministicInputHashing:
         """Identical story content produces identical input_hash."""
         spec_tools.engine = engine
 
-        theme = Theme(product_id=sample_product.product_id, title="Hash Theme", description="")
-        session.add(theme)
-        session.commit()
-
-        epic = Epic(theme_id=theme.theme_id, title="Hash Epic", description="")
-        session.add(epic)
-        session.commit()
-
-        feature = Feature(epic_id=epic.epic_id, title="Hash Feature", description="")
-        session.add(feature)
-        session.commit()
+        product_id = _require_id(sample_product.product_id, "sample_product.product_id")
+        feature = _create_feature_hierarchy(
+            session,
+            product_id=product_id,
+            prefix="Hash",
+            detail="hash test",
+        )
+        feature_id = _require_id(feature.feature_id, "hash feature_id")
 
         story_content = {
             "title": "As a tester, I want determinism",
@@ -529,8 +575,8 @@ class TestDeterministicInputHashing:
         }
 
         story1 = UserStory(
-            product_id=sample_product.product_id,
-            feature_id=feature.feature_id,
+            product_id=product_id,
+            feature_id=feature_id,
             title=story_content["title"],
             story_description=story_content["description"],
             acceptance_criteria=story_content["acceptance_criteria"],
@@ -540,8 +586,8 @@ class TestDeterministicInputHashing:
         session.refresh(story1)
 
         story2 = UserStory(
-            product_id=sample_product.product_id,
-            feature_id=feature.feature_id,
+            product_id=product_id,
+            feature_id=feature_id,
             title=story_content["title"],
             story_description=story_content["description"],
             acceptance_criteria=story_content["acceptance_criteria"],
@@ -551,20 +597,26 @@ class TestDeterministicInputHashing:
         session.refresh(story2)
 
         validate_story_with_spec_authority(
-            {"story_id": story1.story_id, "spec_version_id": compiled_spec.spec_version_id},
+            {
+                "story_id": story1.story_id,
+                "spec_version_id": compiled_spec.spec_version_id,
+            },
             tool_context=None,
         )
         validate_story_with_spec_authority(
-            {"story_id": story2.story_id, "spec_version_id": compiled_spec.spec_version_id},
+            {
+                "story_id": story2.story_id,
+                "spec_version_id": compiled_spec.spec_version_id,
+            },
             tool_context=None,
         )
 
         session.expire_all()
-        s1 = session.get(UserStory, story1.story_id)
-        s2 = session.get(UserStory, story2.story_id)
+        s1 = _require_story(session, story1.story_id)
+        s2 = _require_story(session, story2.story_id)
 
-        e1 = json.loads(s1.validation_evidence)
-        e2 = json.loads(s2.validation_evidence)
+        e1 = _load_validation_evidence(s1)
+        e2 = _load_validation_evidence(s2)
 
         assert e1["input_hash"] == e2["input_hash"]
 
@@ -578,21 +630,18 @@ class TestDeterministicInputHashing:
         """Different story content produces different input_hash."""
         spec_tools.engine = engine
 
-        theme = Theme(product_id=sample_product.product_id, title="Diff Theme", description="")
-        session.add(theme)
-        session.commit()
-
-        epic = Epic(theme_id=theme.theme_id, title="Diff Epic", description="")
-        session.add(epic)
-        session.commit()
-
-        feature = Feature(epic_id=epic.epic_id, title="Diff Feature", description="")
-        session.add(feature)
-        session.commit()
+        product_id = _require_id(sample_product.product_id, "sample_product.product_id")
+        feature = _create_feature_hierarchy(
+            session,
+            product_id=product_id,
+            prefix="Diff",
+            detail="diff test",
+        )
+        feature_id = _require_id(feature.feature_id, "diff feature_id")
 
         story1 = UserStory(
-            product_id=sample_product.product_id,
-            feature_id=feature.feature_id,
+            product_id=product_id,
+            feature_id=feature_id,
             title="Story A",
             story_description="Description A",
             acceptance_criteria="AC A",
@@ -602,8 +651,8 @@ class TestDeterministicInputHashing:
         session.refresh(story1)
 
         story2 = UserStory(
-            product_id=sample_product.product_id,
-            feature_id=feature.feature_id,
+            product_id=product_id,
+            feature_id=feature_id,
             title="Story B",
             story_description="Description B",
             acceptance_criteria="AC B",
@@ -613,20 +662,26 @@ class TestDeterministicInputHashing:
         session.refresh(story2)
 
         validate_story_with_spec_authority(
-            {"story_id": story1.story_id, "spec_version_id": compiled_spec.spec_version_id},
+            {
+                "story_id": story1.story_id,
+                "spec_version_id": compiled_spec.spec_version_id,
+            },
             tool_context=None,
         )
         validate_story_with_spec_authority(
-            {"story_id": story2.story_id, "spec_version_id": compiled_spec.spec_version_id},
+            {
+                "story_id": story2.story_id,
+                "spec_version_id": compiled_spec.spec_version_id,
+            },
             tool_context=None,
         )
 
         session.expire_all()
-        s1 = session.get(UserStory, story1.story_id)
-        s2 = session.get(UserStory, story2.story_id)
+        s1 = _require_story(session, story1.story_id)
+        s2 = _require_story(session, story2.story_id)
 
-        e1 = json.loads(s1.validation_evidence)
-        e2 = json.loads(s2.validation_evidence)
+        e1 = _load_validation_evidence(s1)
+        e2 = _load_validation_evidence(s2)
 
         assert e1["input_hash"] != e2["input_hash"]
 
@@ -675,7 +730,10 @@ class TestWrongSpecVersionIdFails:
         )
 
         assert result["success"] is False
-        assert "product" in result["error"].lower() or "mismatch" in result["error"].lower()
+        assert (
+            "product" in result["error"].lower()
+            or "mismatch" in result["error"].lower()
+        )
 
 
 class TestValidatorVersion:
@@ -699,12 +757,15 @@ class TestValidatorVersion:
         spec_tools.engine = engine
 
         validate_story_with_spec_authority(
-            {"story_id": sample_story.story_id, "spec_version_id": compiled_spec.spec_version_id},
+            {
+                "story_id": sample_story.story_id,
+                "spec_version_id": compiled_spec.spec_version_id,
+            },
             tool_context=None,
         )
 
         session.expire(sample_story)
-        story = session.get(UserStory, sample_story.story_id)
-        evidence = json.loads(story.validation_evidence)
+        story = _require_story(session, sample_story.story_id)
+        evidence = _load_validation_evidence(story)
 
         assert evidence["validator_version"] == VALIDATOR_VERSION

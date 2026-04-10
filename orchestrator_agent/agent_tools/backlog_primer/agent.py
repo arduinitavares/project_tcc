@@ -13,10 +13,9 @@ from google.adk.models.lite_llm import LiteLlm
 
 from utils.helper import load_instruction
 from utils.model_config import get_model_id, get_openrouter_extra_body
-from utils.runtime_config import get_openrouter_api_key, get_backlog_primer_max_tokens
+from utils.runtime_config import get_backlog_primer_max_tokens, get_openrouter_api_key
 
 from .schemes import InputSchema, OutputSchema
-
 
 INSTRUCTIONS_PATH: Path = Path(__file__).parent / "instructions.txt"
 BACKLOG_INSTRUCTIONS = load_instruction(INSTRUCTIONS_PATH)

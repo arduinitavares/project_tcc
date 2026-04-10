@@ -2,14 +2,14 @@
 
 import json
 import re
-from datetime import date, timedelta
 import time
-from typing import Annotated, Any, Dict, List, Optional
+from datetime import date, timedelta
+from typing import Annotated, Any, cast
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field, ValidationError
-from sqlmodel import Session, col, select
 from sqlalchemy import delete
+from sqlmodel import Session, col, select
 
 from models.core import Product, Sprint, SprintStory, Task, Team, UserStory
 from models.db import get_engine
@@ -29,9 +29,23 @@ class SaveSprintPlanInput(BaseModel):
     """Input schema for save_sprint_plan_tool."""
 
     product_id: Annotated[int, Field(description="Product ID for the sprint.")]
-    team_id: Annotated[Optional[int], Field(default=None, description="Team ID owning the sprint. Required if team_name is not provided.")]
-    team_name: Annotated[Optional[str], Field(default=None, description="Team name to lookup or create. Used if team_id is not provided.")]
-    sprint_start_date: Annotated[str, Field(description="Sprint start date (YYYY-MM-DD).")]
+    team_id: Annotated[
+        int | None,
+        Field(
+            default=None,
+            description="Team ID owning the sprint. Required if team_name is not provided.",
+        ),
+    ]
+    team_name: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="Team name to lookup or create. Used if team_id is not provided.",
+        ),
+    ]
+    sprint_start_date: Annotated[
+        str, Field(description="Sprint start date (YYYY-MM-DD).")
+    ]
     sprint_duration_days: Annotated[
         int,
         Field(
@@ -43,12 +57,11 @@ class SaveSprintPlanInput(BaseModel):
 
 def _get_story_conflicts(
     session: Session,
-    story_ids: List[int],
+    story_ids: list[int],
     *,
-    ignore_sprint_id: Optional[int] = None,
-) -> List[int]:
+    ignore_sprint_id: int | None = None,
+) -> list[int]:
     """Return story IDs already assigned to active or planned sprints."""
-
     if not story_ids:
         return []
 
@@ -68,7 +81,7 @@ def _get_story_conflicts(
     return list({row for row in existing})
 
 
-def _coerce_duration_seconds(value: Any) -> Optional[float]:
+def _coerce_duration_seconds(value: Any) -> float | None:
     """Return a non-negative float duration or None when value is invalid."""
     if value is None:
         return None
@@ -81,13 +94,12 @@ def _coerce_duration_seconds(value: Any) -> Optional[float]:
     return duration
 
 
-def _normalize_acceptance_criteria(text: Optional[str]) -> List[str]:
+def _normalize_acceptance_criteria(text: str | None) -> list[str]:
     """Normalize story acceptance criteria using the canonical API behavior."""
-
     if not text or not text.strip():
         return []
 
-    items: List[str] = []
+    items: list[str] = []
     for raw_line in text.splitlines():
         stripped = raw_line.strip()
         if not stripped:
@@ -103,9 +115,8 @@ def _normalize_acceptance_criteria(text: Optional[str]) -> List[str]:
     return [collapsed] if collapsed else []
 
 
-def _story_allowed_invariant_ids(story: UserStory) -> List[str]:
+def _story_allowed_invariant_ids(story: UserStory) -> list[str]:
     """Return invariant IDs a task may bind for a given story."""
-
     if not story.validation_evidence:
         return []
     try:
@@ -117,8 +128,8 @@ def _story_allowed_invariant_ids(story: UserStory) -> List[str]:
 
 def save_sprint_plan_tool(
     input_data: SaveSprintPlanInput,
-    tool_context: Optional[ToolContext] = None,
-) -> Dict[str, Any]:
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """
     Persist an approved sprint plan to the database.
 
@@ -194,7 +205,10 @@ def save_sprint_plan_tool(
                 Sprint.product_id == input_data.product_id,
                 Sprint.status == SprintStatus.PLANNED,
             )
-            .order_by(Sprint.updated_at.desc(), Sprint.sprint_id.desc())
+            .order_by(
+                cast("Any", Sprint.updated_at).desc(),
+                cast("Any", Sprint.sprint_id).desc(),
+            )
         ).first()
 
         story_ids = [story.story_id for story in validated_plan.selected_stories]
@@ -257,8 +271,13 @@ def save_sprint_plan_tool(
 
         include_task_decomposition = True
         sprint_input_dict = tool_context.state.get("sprint_input", {})
-        if isinstance(sprint_input_dict, dict) and "include_task_decomposition" in sprint_input_dict:
-            include_task_decomposition = bool(sprint_input_dict["include_task_decomposition"])
+        if (
+            isinstance(sprint_input_dict, dict)
+            and "include_task_decomposition" in sprint_input_dict
+        ):
+            include_task_decomposition = bool(
+                sprint_input_dict["include_task_decomposition"]
+            )
 
         has_ac_by_story = {
             int(story.story_id): bool((story.acceptance_criteria or "").strip())
@@ -266,7 +285,9 @@ def save_sprint_plan_tool(
             if story.story_id is not None
         }
         acceptance_criteria_items_by_story = {
-            int(story.story_id): _normalize_acceptance_criteria(story.acceptance_criteria)
+            int(story.story_id): _normalize_acceptance_criteria(
+                story.acceptance_criteria
+            )
             for story in stories
             if story.story_id is not None
         }
@@ -279,7 +300,8 @@ def save_sprint_plan_tool(
         if decomposition_errors:
             return {
                 "success": False,
-                "error": "Decomposition quality checks failed: " + "; ".join(decomposition_errors),
+                "error": "Decomposition quality checks failed: "
+                + "; ".join(decomposition_errors),
             }
 
         try:
@@ -295,6 +317,12 @@ def save_sprint_plan_tool(
 
         end_date = start_date + timedelta(days=input_data.sprint_duration_days)
         sprint = existing_planned_sprint
+        team_id = team.team_id
+        if team_id is None:
+            return {
+                "success": False,
+                "error": "Team ID was not generated.",
+            }
         if sprint is None:
             sprint = Sprint(
                 goal=validated_plan.sprint_goal,
@@ -303,7 +331,7 @@ def save_sprint_plan_tool(
                 status=SprintStatus.PLANNED,
                 started_at=None,
                 product_id=input_data.product_id,
-                team_id=team.team_id,
+                team_id=team_id,
             )
             session.add(sprint)
             session.flush()
@@ -311,7 +339,7 @@ def save_sprint_plan_tool(
             sprint.goal = validated_plan.sprint_goal
             sprint.start_date = start_date
             sprint.end_date = end_date
-            sprint.team_id = team.team_id
+            sprint.team_id = team_id
             sprint.status = SprintStatus.PLANNED
             sprint.started_at = None
             sprint.completed_at = None
@@ -326,11 +354,11 @@ def save_sprint_plan_tool(
         if sprint.sprint_id is None:
             raise RuntimeError("Sprint ID was not generated.")
 
-        existing_tasks_by_story: Dict[int, Dict[str, List[Task]]] = {}
+        existing_tasks_by_story: dict[int, dict[str, list[Task]]] = {}
         for task in session.exec(
             select(Task)
             .where(col(Task.story_id).in_(story_ids))
-            .order_by(Task.story_id, Task.task_id)
+            .order_by(cast("Any", Task.story_id), cast("Any", Task.task_id))
         ).all():
             story_task_map = existing_tasks_by_story.setdefault(task.story_id, {})
             story_task_map.setdefault(task.description, []).append(task)
@@ -346,9 +374,17 @@ def save_sprint_plan_tool(
 
             for description, duplicate_tasks in story_tasks.items():
                 if description in desired_descriptions:
-                    tasks_to_delete.extend([t.task_id for t in duplicate_tasks[1:] if t.task_id is not None])
+                    tasks_to_delete.extend(
+                        [
+                            t.task_id
+                            for t in duplicate_tasks[1:]
+                            if t.task_id is not None
+                        ]
+                    )
                 else:
-                    tasks_to_delete.extend([t.task_id for t in duplicate_tasks if t.task_id is not None])
+                    tasks_to_delete.extend(
+                        [t.task_id for t in duplicate_tasks if t.task_id is not None]
+                    )
 
             for task_spec in story.tasks:
                 metadata_json = serialize_task_metadata(
@@ -373,10 +409,10 @@ def save_sprint_plan_tool(
             # Chunking is required to safely stay below SQLite's bind-parameter limits.
             chunk_size = 500
             for i in range(0, len(tasks_to_delete), chunk_size):
-                chunk = tasks_to_delete[i:i + chunk_size]
-                session.execute(
+                chunk = tasks_to_delete[i : i + chunk_size]
+                session.exec(
                     delete(Task).where(col(Task.task_id).in_(chunk)),
-                    execution_options={"synchronize_session": False}
+                    execution_options={"synchronize_session": False},
                 )
 
         event_metadata = json.dumps(
@@ -388,7 +424,7 @@ def save_sprint_plan_tool(
             }
         )
         # Prefer orchestrator-provided duration when present and valid.
-        duration_seconds: Optional[float] = None
+        duration_seconds: float | None = None
         if tool_context and tool_context.state:
             duration_seconds = _coerce_duration_seconds(
                 tool_context.state.get("sprint_planning_duration")

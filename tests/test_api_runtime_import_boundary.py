@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -78,7 +77,23 @@ def test_api_import_boundary_for_moved_runtime_surfaces() -> None:
     legacy_agile_imports = _legacy_agile_imports(module_path)
 
     assert {"Product", "Sprint", "SprintStory", "Task", "UserStory"} <= core_imports
-    assert {"Product", "Sprint", "SprintStory", "Task", "UserStory"} <= core_bound_imports
-    assert {"SprintStatus", "StoryStatus", "TaskStatus", "WorkflowEventType"} <= enum_imports
-    assert {"SprintStatus", "StoryStatus", "TaskStatus", "WorkflowEventType"} <= enum_bound_imports
+    assert {
+        "Product",
+        "Sprint",
+        "SprintStory",
+        "Task",
+        "UserStory",
+    } <= core_bound_imports
+    assert {
+        "SprintStatus",
+        "StoryStatus",
+        "TaskStatus",
+        "WorkflowEventType",
+    } <= enum_imports
+    assert {
+        "SprintStatus",
+        "StoryStatus",
+        "TaskStatus",
+        "WorkflowEventType",
+    } <= enum_bound_imports
     assert not legacy_agile_imports

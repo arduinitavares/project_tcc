@@ -1,7 +1,7 @@
 # orchestrator_agent\agent_tools\product_vision_tool\schemes.py
 """This module defines the input and output schemas for the Product Vision Agent."""
 
-from typing import Annotated, List, Optional
+from typing import Annotated
 
 from pydantic import BaseModel, Field
 
@@ -16,37 +16,33 @@ class VisionComponents(BaseModel):
     # so we don't have to parse strings like "UNKNOWN" or "N/A".
 
     project_name: Annotated[
-        Optional[str],
+        str | None,
         Field(description="Name of project. Return null if not yet defined."),
     ]
     target_user: Annotated[
-        Optional[str],
-        Field(
-            description="Who is the customer? Return null if ambiguous or unknown."
-        ),
+        str | None,
+        Field(description="Who is the customer? Return null if ambiguous or unknown."),
     ]
     problem: Annotated[
-        Optional[str],
+        str | None,
         Field(description="What is the pain point? Return null if unknown."),
     ]
     product_category: Annotated[
-        Optional[str],
+        str | None,
         Field(
             description="What is it? (App, Service, Device). Return null if unknown."
         ),
     ]
     key_benefit: Annotated[
-        Optional[str],
-        Field(
-            description="Primary value proposition. Return null if unknown."
-        ),
+        str | None,
+        Field(description="Primary value proposition. Return null if unknown."),
     ]
     competitors: Annotated[
-        Optional[str],
+        str | None,
         Field(description="Existing alternatives. Return null if unknown."),
     ]
     differentiator: Annotated[
-        Optional[str],
+        str | None,
         Field(description="Why us? (USP). Return null if unknown."),
     ]
 
@@ -58,9 +54,7 @@ class VisionComponents(BaseModel):
         missing_fields = [
             k
             for k, v in self.model_dump().items()
-            if v is None
-            or (isinstance(v, str) and not v.strip())
-            or v == "/UNKNOWN"
+            if v is None or (isinstance(v, str) and not v.strip()) or v == "/UNKNOWN"
         ]
         return len(missing_fields) == 0
 
@@ -105,6 +99,7 @@ class InputSchema(BaseModel):
         ),
     ]
 
+
 class OutputSchema(BaseModel):
     """
     The structured response returned by the Product Vision Agent.
@@ -138,7 +133,7 @@ class OutputSchema(BaseModel):
     ]
 
     clarifying_questions: Annotated[
-        List[str],
+        list[str],
         Field(
             description="A list of specific questions to ask the user to fill missing components."
         ),

@@ -19,76 +19,162 @@ Usage:
 3. Agents read spec on-demand using read_project_specification
 """
 
-from typing import Any, Dict, Optional, List, Union, Literal, Callable
 import logging
+from collections.abc import Callable
+from typing import Any, Literal
 
 from google.adk.tools import ToolContext
-from pydantic import BaseModel
 from sqlmodel import Session
 
 from models.core import Feature, UserStory
-from models.db import engine, get_engine
+from models.db import get_engine as _model_get_engine
 from models.specs import CompiledSpecAuthority, SpecAuthorityAcceptance
-
-from utils.spec_schemas import (
-    ValidationEvidence,
-    ValidationFailure,
-    AlignmentFinding,
-    SpecAuthorityCompilationSuccess,
-    Invariant,
+from services.specs.compiler_service import (
+    CheckSpecAuthorityStatusInput as _service_CheckSpecAuthorityStatusInput,
 )
-from services.specs.lifecycle_service import (
-    ApproveSpecVersionInput as _service_ApproveSpecVersionInput,
-    LinkSpecToProductInput as _service_LinkSpecToProductInput,
-    ReadProjectSpecificationInput as _service_ReadProjectSpecificationInput,
-    RegisterSpecVersionInput as _service_RegisterSpecVersionInput,
-    SaveProjectSpecificationInput as _service_SaveProjectSpecificationInput,
-    approve_spec_version as _service_approve_spec_version,
-    link_spec_to_product as _service_link_spec_to_product,
-    read_project_specification as _service_read_project_specification,
-    register_spec_version as _service_register_spec_version,
-    save_project_specification as _service_save_project_specification,
+from services.specs.compiler_service import (
+    CompileSpecAuthorityForVersionInput as _service_CompileSpecAuthorityForVersionInput,
+)
+from services.specs.compiler_service import (
+    CompileSpecAuthorityInput as _service_CompileSpecAuthorityInput,
+)
+from services.specs.compiler_service import (
+    GetCompiledAuthorityInput as _service_GetCompiledAuthorityInput,
+)
+from services.specs.compiler_service import (
+    PreviewSpecAuthorityInput as _service_PreviewSpecAuthorityInput,
+)
+from services.specs.compiler_service import (
+    UpdateSpecAndCompileAuthorityInput as _service_UpdateSpecAndCompileAuthorityInput,
 )
 from services.specs.compiler_service import (
     _compiler_failure_result as _service_compiler_failure_result,
+)
+from services.specs.compiler_service import (
     _extract_compiler_response_text as _service_extract_compiler_response_text,
+)
+from services.specs.compiler_service import (
     _extract_spec_authority_llm as _service_extract_spec_authority_llm,
+)
+from services.specs.compiler_service import (
     _invoke_spec_authority_compiler as _service_invoke_spec_authority_compiler,
+)
+from services.specs.compiler_service import (
     _invoke_spec_authority_compiler_async as _service_invoke_spec_authority_compiler_async,
+)
+from services.specs.compiler_service import (
     _run_async_task as _service_run_async_task,
+)
+from services.specs.compiler_service import (
     check_spec_authority_status as _service_check_spec_authority_status,
-    CheckSpecAuthorityStatusInput as _service_CheckSpecAuthorityStatusInput,
+)
+from services.specs.compiler_service import (
     compile_spec_authority as _service_compile_spec_authority,
-    CompileSpecAuthorityForVersionInput as _service_CompileSpecAuthorityForVersionInput,
-    CompileSpecAuthorityInput as _service_CompileSpecAuthorityInput,
-    ensure_accepted_spec_authority as _service_ensure_accepted_spec_authority,
-    ensure_spec_authority_accepted as _service_ensure_spec_authority_accepted,
-    GetCompiledAuthorityInput as _service_GetCompiledAuthorityInput,
-    get_compiled_authority_by_version as _service_get_compiled_authority_by_version,
-    load_compiled_artifact as _service_load_compiled_artifact,
-    PreviewSpecAuthorityInput as _service_PreviewSpecAuthorityInput,
+)
+from services.specs.compiler_service import (
     compile_spec_authority_for_version as _service_compile_spec_authority_for_version,
-    UpdateSpecAndCompileAuthorityInput as _service_UpdateSpecAndCompileAuthorityInput,
+)
+from services.specs.compiler_service import (
+    ensure_accepted_spec_authority as _service_ensure_accepted_spec_authority,
+)
+from services.specs.compiler_service import (
+    ensure_spec_authority_accepted as _service_ensure_spec_authority_accepted,
+)
+from services.specs.compiler_service import (
+    get_compiled_authority_by_version as _service_get_compiled_authority_by_version,
+)
+from services.specs.compiler_service import (
+    load_compiled_artifact as _service_load_compiled_artifact,
+)
+from services.specs.compiler_service import (
     preview_spec_authority as _service_preview_spec_authority,
+)
+from services.specs.compiler_service import (
     update_spec_and_compile_authority as _service_update_spec_and_compile_authority,
+)
+from services.specs.lifecycle_service import (
+    ApproveSpecVersionInput as _service_ApproveSpecVersionInput,
+)
+from services.specs.lifecycle_service import (
+    LinkSpecToProductInput as _service_LinkSpecToProductInput,
+)
+from services.specs.lifecycle_service import (
+    ReadProjectSpecificationInput as _service_ReadProjectSpecificationInput,
+)
+from services.specs.lifecycle_service import (
+    RegisterSpecVersionInput as _service_RegisterSpecVersionInput,
+)
+from services.specs.lifecycle_service import (
+    SaveProjectSpecificationInput as _service_SaveProjectSpecificationInput,
+)
+from services.specs.lifecycle_service import (
+    approve_spec_version as _service_approve_spec_version,
+)
+from services.specs.lifecycle_service import (
+    link_spec_to_product as _service_link_spec_to_product,
+)
+from services.specs.lifecycle_service import (
+    read_project_specification as _service_read_project_specification,
+)
+from services.specs.lifecycle_service import (
+    register_spec_version as _service_register_spec_version,
+)
+from services.specs.lifecycle_service import (
+    save_project_specification as _service_save_project_specification,
 )
 from services.specs.story_validation_service import (
     ValidateStoryInput as _service_ValidateStoryInput,
+)
+from services.specs.story_validation_service import (
     compute_story_input_hash as _service_compute_story_input_hash,
+)
+from services.specs.story_validation_service import (
     invoke_spec_validator_async as _service_invoke_spec_validator_async,
+)
+from services.specs.story_validation_service import (
     parse_llm_validator_response as _service_parse_llm_validator_response,
+)
+from services.specs.story_validation_service import (
     persist_validation_evidence as _service_persist_validation_evidence,
+)
+from services.specs.story_validation_service import (
     render_invariant_summary as _service_render_invariant_summary,
+)
+from services.specs.story_validation_service import (
     resolve_default_validation_mode as _service_resolve_default_validation_mode,
+)
+from services.specs.story_validation_service import (
     run_deterministic_alignment_checks as _service_run_deterministic_alignment_checks,
-    run_structural_story_checks as _service_run_structural_story_checks,
+)
+from services.specs.story_validation_service import (
     run_llm_spec_validation as _service_run_llm_spec_validation,
+)
+from services.specs.story_validation_service import (
+    run_structural_story_checks as _service_run_structural_story_checks,
+)
+from services.specs.story_validation_service import (
     validate_story_with_spec_authority as _service_validate_story_with_spec_authority,
+)
+from utils.spec_schemas import (
+    AlignmentFinding,
+    Invariant,
+    SpecAuthorityCompilationSuccess,
+    ValidationEvidence,
+    ValidationFailure,
 )
 
 logger = logging.getLogger(__name__)
 
 # --- Input Schemas ---
+
+engine: Any | None = None
+
+
+def get_engine() -> Any:
+    """Compatibility shim for legacy spec engine monkeypatch seams."""
+    if engine is not None:
+        return engine
+    return _model_get_engine()
 
 
 SaveProjectSpecificationInput = _service_SaveProjectSpecificationInput
@@ -98,9 +184,9 @@ PreviewSpecAuthorityInput = _service_PreviewSpecAuthorityInput
 
 
 def save_project_specification(
-    params: Dict[str, Any],
-    tool_context: Optional[ToolContext] = None,  # pylint: disable=unused-argument
-) -> Dict[str, Any]:
+    params: dict[str, Any],
+    tool_context: ToolContext | None = None,  # pylint: disable=unused-argument
+) -> dict[str, Any]:
     """Compatibility adapter over the public lifecycle service boundary."""
     return _service_save_project_specification(
         params,
@@ -109,9 +195,9 @@ def save_project_specification(
 
 
 def link_spec_to_product(
-    params: Dict[str, Any],
-    tool_context: Optional[ToolContext] = None,
-) -> Dict[str, Any]:
+    params: dict[str, Any],
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Compatibility adapter over the public lifecycle service boundary."""
     return _service_link_spec_to_product(
         params,
@@ -120,9 +206,9 @@ def link_spec_to_product(
 
 
 def read_project_specification(
-    params: Optional[Dict[str, Any]] = None,
-    tool_context: Optional[ToolContext] = None,
-) -> Dict[str, Any]:
+    params: dict[str, Any] | None = None,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Compatibility adapter over the public lifecycle service boundary."""
     return _service_read_project_specification(
         params,
@@ -132,8 +218,8 @@ def read_project_specification(
 
 def preview_spec_authority(
     params: PreviewSpecAuthorityInput,
-    tool_context: Optional[ToolContext] = None,
-) -> Dict[str, Any]:
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Compatibility adapter over the public compiler service boundary."""
     return _service_preview_spec_authority(
         params,
@@ -146,7 +232,7 @@ def _run_async_task(coro: Any) -> Any:
     return _service_run_async_task(coro)
 
 
-def _extract_compiler_response_text(events: List[Any]) -> str:
+def _extract_compiler_response_text(events: list[Any]) -> str:
     """Compatibility shim over the compiler-service response parser."""
     return _service_extract_compiler_response_text(events)
 
@@ -160,9 +246,9 @@ async def _invoke_spec_authority_compiler_async(
 
 def _invoke_spec_authority_compiler(
     spec_content: str,
-    content_ref: Optional[str],
-    product_id: Optional[int],
-    spec_version_id: Optional[int],
+    content_ref: str | None,
+    product_id: int | None,
+    spec_version_id: int | None,
 ) -> str:
     """Compatibility shim over the compiler-service runtime invoker."""
     return _service_invoke_spec_authority_compiler(
@@ -175,16 +261,16 @@ def _invoke_spec_authority_compiler(
 
 def _compiler_failure_result(
     *,
-    product_id: Optional[int],
-    spec_version_id: Optional[int],
-    content_ref: Optional[str],
+    product_id: int | None,
+    spec_version_id: int | None,
+    content_ref: str | None,
     failure_stage: str,
     error: str,
     reason: str,
-    raw_output: Optional[str] = None,
-    blocking_gaps: Optional[List[str]] = None,
-    exception: Optional[BaseException] = None,
-) -> Dict[str, Any]:
+    raw_output: str | None = None,
+    blocking_gaps: list[str] | None = None,
+    exception: BaseException | None = None,
+) -> dict[str, Any]:
     """Compatibility shim over the compiler-service failure result helper."""
     return _service_compiler_failure_result(
         product_id=product_id,
@@ -206,7 +292,7 @@ def _render_invariant_summary(invariant: Invariant) -> str:
 
 def _load_compiled_artifact(
     authority: CompiledSpecAuthority,
-) -> Optional[SpecAuthorityCompilationSuccess]:
+) -> SpecAuthorityCompilationSuccess | None:
     """Compatibility shim over the public compiler service helper."""
     return _service_load_compiled_artifact(authority)
 
@@ -217,7 +303,7 @@ def ensure_spec_authority_accepted(
     spec_version_id: int,
     policy: Literal["auto", "human"],
     decided_by: str,
-    rationale: Optional[str] = None,
+    rationale: str | None = None,
 ) -> SpecAuthorityAcceptance:
     """Compatibility adapter over the public compiler service boundary."""
     return _service_ensure_spec_authority_accepted(
@@ -257,9 +343,9 @@ GetCompiledAuthorityInput = _service_GetCompiledAuthorityInput
 
 
 def register_spec_version(
-    params: RegisterSpecVersionInput,
-    tool_context: Optional[ToolContext] = None
-) -> Dict[str, Any]:
+    params: dict[str, Any] | RegisterSpecVersionInput,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Compatibility adapter over the public lifecycle service boundary."""
     return _service_register_spec_version(
         params,
@@ -268,9 +354,9 @@ def register_spec_version(
 
 
 def approve_spec_version(
-    params: ApproveSpecVersionInput,
-    tool_context: Optional[ToolContext] = None
-) -> Dict[str, Any]:
+    params: dict[str, Any] | ApproveSpecVersionInput,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Compatibility adapter over the public lifecycle service boundary."""
     return _service_approve_spec_version(
         params,
@@ -279,9 +365,9 @@ def approve_spec_version(
 
 
 def compile_spec_authority(
-    params: CompileSpecAuthorityInput,
-    tool_context: Optional[ToolContext] = None
-) -> Dict[str, Any]:
+    params: dict[str, Any] | CompileSpecAuthorityInput,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Compatibility adapter over the public compiler service boundary."""
     return _service_compile_spec_authority(
         params,
@@ -291,9 +377,9 @@ def compile_spec_authority(
 
 
 def compile_spec_authority_for_version(
-    params: CompileSpecAuthorityForVersionInput,
-    tool_context: Optional[ToolContext] = None,
-) -> Dict[str, Any]:
+    params: dict[str, Any] | CompileSpecAuthorityForVersionInput,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Compatibility adapter over the public compiler service boundary."""
     return _service_compile_spec_authority_for_version(
         params,
@@ -302,9 +388,9 @@ def compile_spec_authority_for_version(
 
 
 def update_spec_and_compile_authority(
-    params: UpdateSpecAndCompileAuthorityInput,
-    tool_context: Optional[ToolContext] = None,
-) -> Dict[str, Any]:
+    params: dict[str, Any] | UpdateSpecAndCompileAuthorityInput,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Compatibility adapter over the public compiler service boundary."""
     return _service_update_spec_and_compile_authority(
         params,
@@ -315,10 +401,10 @@ def update_spec_and_compile_authority(
 def ensure_accepted_spec_authority(
     product_id: int,
     *,
-    spec_content: Optional[str] = None,
-    content_ref: Optional[str] = None,
+    spec_content: str | None = None,
+    content_ref: str | None = None,
     recompile: bool = False,
-    tool_context: Optional[ToolContext] = None,
+    tool_context: ToolContext | None = None,
 ) -> int:
     """
     Ensure an accepted spec authority exists for the product.
@@ -357,9 +443,9 @@ def ensure_accepted_spec_authority(
 
 
 def check_spec_authority_status(
-    params: CheckSpecAuthorityStatusInput,
-    tool_context: Optional[ToolContext] = None
-) -> Dict[str, Any]:
+    params: dict[str, Any] | CheckSpecAuthorityStatusInput,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Compatibility adapter over the public compiler service boundary."""
     return _service_check_spec_authority_status(
         params,
@@ -368,9 +454,9 @@ def check_spec_authority_status(
 
 
 def get_compiled_authority_by_version(
-    params: GetCompiledAuthorityInput,
-    tool_context: Optional[ToolContext] = None
-) -> Dict[str, Any]:
+    params: dict[str, Any] | GetCompiledAuthorityInput,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Compatibility adapter over the public compiler service boundary."""
     return _service_get_compiled_authority_by_version(
         params,
@@ -394,7 +480,7 @@ def _resolve_default_validation_mode() -> str:
 ValidateStoryInput = _service_ValidateStoryInput
 
 
-def _compute_story_input_hash(story: UserStory) -> str:
+def _compute_story_input_hash(story: Any) -> str:
     """Compatibility shim over the public story-validation helper."""
     return _service_compute_story_input_hash(story)
 
@@ -411,7 +497,7 @@ def _persist_validation_evidence(
 
 def _run_structural_story_checks(
     story: UserStory,
-) -> tuple[List[str], List[ValidationFailure], List[str]]:
+) -> tuple[list[str], list[ValidationFailure], list[str]]:
     """Compatibility shim over the public story-validation helper."""
     return _service_run_structural_story_checks(story)
 
@@ -420,8 +506,9 @@ def _run_deterministic_alignment_checks(
     story: UserStory,
     authority: CompiledSpecAuthority,
     *,
-    load_compiled_artifact_fn: Callable[[CompiledSpecAuthority], Any | None] | None = None,
-) -> tuple[List[AlignmentFinding], List[AlignmentFinding], List[str]]:
+    load_compiled_artifact_fn: Callable[[CompiledSpecAuthority], Any | None]
+    | None = None,
+) -> tuple[list[AlignmentFinding], list[AlignmentFinding], list[str]]:
     """Compatibility shim over the public story-validation helper."""
     return _service_run_deterministic_alignment_checks(
         story,
@@ -435,7 +522,7 @@ async def _invoke_spec_validator_async(payload_text: str) -> str:
     return await _service_invoke_spec_validator_async(payload_text)
 
 
-def _parse_llm_validator_response(raw_text: str) -> Dict[str, Any]:
+def _parse_llm_validator_response(raw_text: str) -> dict[str, Any]:
     """Compatibility shim over the public story-validation helper."""
     return _service_parse_llm_validator_response(raw_text)
 
@@ -443,9 +530,9 @@ def _parse_llm_validator_response(raw_text: str) -> Dict[str, Any]:
 def _run_llm_spec_validation(
     story: UserStory,
     authority: CompiledSpecAuthority,
-    artifact: Optional[SpecAuthorityCompilationSuccess],
-    feature: Optional[Feature] = None,
-) -> Dict[str, Any]:
+    artifact: SpecAuthorityCompilationSuccess | None,
+    feature: Feature | None = None,
+) -> dict[str, Any]:
     """Compatibility shim over the public story-validation helper."""
     return _service_run_llm_spec_validation(
         story,
@@ -458,9 +545,9 @@ def _run_llm_spec_validation(
 
 
 def validate_story_with_spec_authority(
-    params: ValidateStoryInput,
-    tool_context: Optional[ToolContext] = None  # pylint: disable=unused-argument
-) -> Dict[str, Any]:
+    params: dict[str, Any] | ValidateStoryInput,
+    tool_context: ToolContext | None = None,  # pylint: disable=unused-argument
+) -> dict[str, Any]:
     """Compatibility adapter over the public story validation service boundary."""
     return _service_validate_story_with_spec_authority(
         params,
@@ -482,7 +569,7 @@ def validate_story_with_spec_authority(
 
 def _extract_spec_authority_llm(
     spec_content: str,
-    content_ref: Optional[str],
+    content_ref: str | None,
     product_id: int,
     spec_version_id: int,
 ) -> SpecAuthorityCompilationSuccess:

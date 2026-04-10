@@ -1,13 +1,17 @@
+"""Logging helpers for file and optional console output."""
+
 from __future__ import annotations
 
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING
 
 from utils.failure_artifacts import LOGS_DIR
 from utils.runtime_config import get_database_echo
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 APP_LOG_PATH = LOGS_DIR / "app.log"
 ERROR_LOG_PATH = LOGS_DIR / "error.log"
@@ -52,16 +56,19 @@ def _ensure_handler(
     *,
     handler_id: str | None = None,
 ) -> None:
-    for existing in logger.handlers:
-        if handler_id and getattr(existing, "_project_tcc_handler_id", None) == handler_id:
-            return
+    for existing in list(logger.handlers):
+        if handler_id and existing.get_name() == handler_id:
+            logger.removeHandler(existing)
+            existing.close()
+            break
         if type(existing) is type(handler):
             existing_path = getattr(existing, "baseFilename", None)
             new_path = getattr(handler, "baseFilename", None)
             if existing_path and new_path and Path(existing_path) == Path(new_path):
                 return
     if handler_id:
-        setattr(handler, "_project_tcc_handler_id", handler_id)
+        handler.set_name(handler_id)
+        handler.__dict__["_project_tcc_handler_id"] = handler_id
     logger.addHandler(handler)
 
 
@@ -103,6 +110,7 @@ def configure_logging(
     console_level: int = logging.INFO,
     console_logger_names: tuple[str, ...] = (),
 ) -> None:
+    """Configure rotating file logs and optional filtered console logging."""
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
     app_handler = _build_handler(APP_LOG_PATH, level=logging.INFO)

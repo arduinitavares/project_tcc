@@ -1,29 +1,34 @@
-
-import time
-import sys
 import os
-from sqlmodel import Session, SQLModel, create_engine, select
-from typing import Dict, Any
+import sys
+import time
+
+from sqlmodel import Session, SQLModel, create_engine
 
 # Ensure we can import from root
 sys.path.append(os.getcwd())
 
-from agile_sqlmodel import Product, UserStory, engine
-from models.core import Theme, Epic, Feature
-from tools.story_query_tools import query_features_for_stories, QueryFeaturesInput
+from agile_sqlmodel import Product, UserStory
+from models.core import Epic, Feature, Theme
+from tools.story_query_tools import QueryFeaturesInput, query_features_for_stories
 
 # Setup In-Memory DB for Benchmark
 TEST_DB_URL = "sqlite:///:memory:"
 test_engine = create_engine(TEST_DB_URL)
 
 # Patch the engine used by the tool
-import tools.story_query_tools as target_module
 import agile_sqlmodel
-agile_sqlmodel.engine = test_engine
-target_module.engine = test_engine # Just to be safe if it was already imported
+import tools.story_query_tools as target_module
 
-def setup_data(num_themes=5, epics_per_theme=5, features_per_epic=10, stories_per_feature=5):
-    print(f"Setting up data: {num_themes} Themes, {epics_per_theme} Epics/Theme, {features_per_epic} Features/Epic...")
+agile_sqlmodel.engine = test_engine
+target_module.engine = test_engine  # Just to be safe if it was already imported
+
+
+def setup_data(
+    num_themes=5, epics_per_theme=5, features_per_epic=10, stories_per_feature=5
+):
+    print(
+        f"Setting up data: {num_themes} Themes, {epics_per_theme} Epics/Theme, {features_per_epic} Features/Epic..."
+    )
     SQLModel.metadata.create_all(test_engine)
 
     with Session(test_engine) as session:
@@ -46,7 +51,9 @@ def setup_data(num_themes=5, epics_per_theme=5, features_per_epic=10, stories_pe
 
                 features = []
                 for f in range(features_per_epic):
-                    feature = Feature(title=f"Feature {t}-{e}-{f}", epic_id=epic.epic_id)
+                    feature = Feature(
+                        title=f"Feature {t}-{e}-{f}", epic_id=epic.epic_id
+                    )
                     features.append(feature)
                 session.add_all(features)
                 session.commit()
@@ -57,7 +64,7 @@ def setup_data(num_themes=5, epics_per_theme=5, features_per_epic=10, stories_pe
                         story = UserStory(
                             title=f"Story {feature.feature_id}-{s}",
                             product_id=product.product_id,
-                            feature_id=feature.feature_id
+                            feature_id=feature.feature_id,
                         )
                         stories.append(story)
                     session.add_all(stories)
@@ -65,8 +72,11 @@ def setup_data(num_themes=5, epics_per_theme=5, features_per_epic=10, stories_pe
 
         return product.product_id
 
+
 def run_benchmark():
-    product_id = setup_data(num_themes=5, epics_per_theme=5, features_per_epic=20, stories_per_feature=2)
+    product_id = setup_data(
+        num_themes=5, epics_per_theme=5, features_per_epic=20, stories_per_feature=2
+    )
     # Total features: 5 * 5 * 20 = 500 features.
 
     print("Starting Benchmark...")
@@ -91,7 +101,10 @@ def run_benchmark():
             if first_epic.get("features"):
                 first_feature = first_epic["features"][0]
                 print(f"Feature keys: {list(first_feature.keys())}")
-                print(f"Sibling features count: {len(first_feature.get('sibling_features', []))}")
+                print(
+                    f"Sibling features count: {len(first_feature.get('sibling_features', []))}"
+                )
+
 
 if __name__ == "__main__":
     run_benchmark()

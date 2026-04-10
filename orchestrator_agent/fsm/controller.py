@@ -1,6 +1,8 @@
-from typing import Any, Dict, Optional
-from .states import OrchestratorState
+from typing import Any
+
 from .definitions import STATE_REGISTRY, StateDefinition
+from .states import OrchestratorState
+
 
 class FSMController:
     """
@@ -22,9 +24,9 @@ class FSMController:
     def determine_next_state(
         self,
         current_state: OrchestratorState,
-        tool_name: Optional[str],
-        tool_output: Dict[str, Any],
-        user_input: str
+        tool_name: str | None,
+        tool_output: dict[str, Any],
+        user_input: str,
     ) -> OrchestratorState:
         """
         Calculates the next state based on the transition logic.
@@ -37,19 +39,35 @@ class FSMController:
             if tool_name == "product_vision_tool":
                 # Check completeness to decide Interview vs Review
                 is_complete = tool_output.get("is_complete", False)
-                next_state = OrchestratorState.VISION_REVIEW if is_complete else OrchestratorState.VISION_INTERVIEW
+                next_state = (
+                    OrchestratorState.VISION_REVIEW
+                    if is_complete
+                    else OrchestratorState.VISION_INTERVIEW
+                )
 
             elif tool_name == "backlog_primer_tool":
                 is_complete = tool_output.get("is_complete", False)
-                next_state = OrchestratorState.BACKLOG_REVIEW if is_complete else OrchestratorState.BACKLOG_INTERVIEW
+                next_state = (
+                    OrchestratorState.BACKLOG_REVIEW
+                    if is_complete
+                    else OrchestratorState.BACKLOG_INTERVIEW
+                )
 
             elif tool_name == "roadmap_builder_tool":
                 is_complete = tool_output.get("is_complete", False)
-                next_state = OrchestratorState.ROADMAP_REVIEW if is_complete else OrchestratorState.ROADMAP_INTERVIEW
+                next_state = (
+                    OrchestratorState.ROADMAP_REVIEW
+                    if is_complete
+                    else OrchestratorState.ROADMAP_INTERVIEW
+                )
 
             elif tool_name == "user_story_writer_tool":
                 is_complete = tool_output.get("is_complete", False)
-                next_state = OrchestratorState.STORY_REVIEW if is_complete else OrchestratorState.STORY_INTERVIEW
+                next_state = (
+                    OrchestratorState.STORY_REVIEW
+                    if is_complete
+                    else OrchestratorState.STORY_INTERVIEW
+                )
 
             elif tool_name == "sprint_planner_tool":
                 next_state = OrchestratorState.SPRINT_DRAFT
@@ -64,7 +82,6 @@ class FSMController:
                 next_state = OrchestratorState.SPRINT_SETUP
 
             # setup/selection context updates keep us in SETUP_REQUIRED
-            pass
 
         # --- VISION PHASE ---
         if current_state == OrchestratorState.VISION_INTERVIEW:
@@ -85,7 +102,7 @@ class FSMController:
             if tool_name == "backlog_primer_tool":
                 next_state = OrchestratorState.BACKLOG_INTERVIEW
             elif tool_name == "save_vision_tool":
-                 # Stay in Persistence to show success and ask next question
+                # Stay in Persistence to show success and ask next question
                 pass
 
         # --- BACKLOG PHASE ---
@@ -137,7 +154,11 @@ class FSMController:
             # After roadmap save, user can proceed to story decomposition or sprint planning
             if tool_name == "user_story_writer_tool":
                 is_complete = tool_output.get("is_complete", False)
-                next_state = OrchestratorState.STORY_REVIEW if is_complete else OrchestratorState.STORY_INTERVIEW
+                next_state = (
+                    OrchestratorState.STORY_REVIEW
+                    if is_complete
+                    else OrchestratorState.STORY_INTERVIEW
+                )
 
         # --- STORY PHASE ---
         if current_state == OrchestratorState.STORY_INTERVIEW:
@@ -159,7 +180,11 @@ class FSMController:
             if tool_name == "user_story_writer_tool":
                 # Proceed to next requirement decomposition
                 is_complete = tool_output.get("is_complete", False)
-                next_state = OrchestratorState.STORY_REVIEW if is_complete else OrchestratorState.STORY_INTERVIEW
+                next_state = (
+                    OrchestratorState.STORY_REVIEW
+                    if is_complete
+                    else OrchestratorState.STORY_INTERVIEW
+                )
             elif tool_name == "sprint_planner_tool":
                 next_state = OrchestratorState.SPRINT_DRAFT
 
@@ -169,7 +194,9 @@ class FSMController:
                 next_state = OrchestratorState.SPRINT_DRAFT
 
         elif current_state == OrchestratorState.SPRINT_DRAFT:
-            if tool_name == "save_sprint_plan_tool" and tool_output.get("success", False):
+            if tool_name == "save_sprint_plan_tool" and tool_output.get(
+                "success", False
+            ):
                 next_state = OrchestratorState.SPRINT_PERSISTENCE
             elif tool_name == "sprint_planner_tool":
                 next_state = OrchestratorState.SPRINT_DRAFT
@@ -184,8 +211,9 @@ class FSMController:
             # We allow transition to self implicitly, but if next_state != current_state, check allowed.
             if next_state not in current_def.allowed_transitions:
                 # If invalid transition, fallback to current state (safe default)
-                print(f"[FSM] Blocked invalid transition: {current_state} -> {next_state}")
+                print(
+                    f"[FSM] Blocked invalid transition: {current_state} -> {next_state}"
+                )
                 return current_state
 
         return next_state
-

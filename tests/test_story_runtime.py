@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 
 from services import story_runtime
 
 
-def _base_state() -> Dict[str, Any]:
+def _base_state() -> dict[str, Any]:
     return {
         "pending_spec_content": "SPEC",
         "compiled_authority_cached": '{"ok": true}',
@@ -42,8 +42,10 @@ def _valid_story_output(
 
 
 @pytest.mark.asyncio
-async def test_run_story_agent_from_state_uses_latest_reusable_projection_draft(monkeypatch) -> None:
-    captured: Dict[str, Any] = {}
+async def test_run_story_agent_from_state_uses_latest_reusable_projection_draft(
+    monkeypatch,
+) -> None:
+    captured: dict[str, Any] = {}
 
     async def fake_invoke(payload):
         captured["payload"] = payload
@@ -61,7 +63,9 @@ async def test_run_story_agent_from_state_uses_latest_reusable_projection_draft(
                         {
                             "story_title": "Wrong raw draft",
                             "statement": "As a team, I want the wrong draft, so that this test catches raw attempt lookups.",
-                            "acceptance_criteria": ["Verify that raw attempt lookup is not used."],
+                            "acceptance_criteria": [
+                                "Verify that raw attempt lookup is not used."
+                            ],
                             "invest_score": "High",
                             "estimated_effort": "S",
                             "produced_artifacts": [],
@@ -127,8 +131,10 @@ async def test_run_story_agent_from_state_uses_latest_reusable_projection_draft(
 
 
 @pytest.mark.asyncio
-async def test_run_story_agent_from_state_includes_only_unabsorbed_feedback(monkeypatch) -> None:
-    captured: Dict[str, Any] = {}
+async def test_run_story_agent_from_state_includes_only_unabsorbed_feedback(
+    monkeypatch,
+) -> None:
+    captured: dict[str, Any] = {}
 
     async def fake_invoke(payload):
         captured["payload"] = payload
@@ -174,14 +180,17 @@ async def test_run_story_agent_from_state_includes_only_unabsorbed_feedback(monk
     assert result["success"] is True
     assert "--- USER REFINEMENT FEEDBACK ---" in captured["payload"].requirement_context
     assert "Please narrow the scope." in captured["payload"].requirement_context
-    assert "This older feedback was already handled." not in captured["payload"].requirement_context
+    assert (
+        "This older feedback was already handled."
+        not in captured["payload"].requirement_context
+    )
 
 
 @pytest.mark.asyncio
 async def test_run_story_agent_from_state_includes_current_call_user_input_before_projection_persistence(
     monkeypatch,
 ) -> None:
-    captured: Dict[str, Any] = {}
+    captured: dict[str, Any] = {}
 
     async def fake_invoke(payload):
         captured["payload"] = payload
@@ -198,14 +207,16 @@ async def test_run_story_agent_from_state_includes_current_call_user_input_befor
 
     assert result["success"] is True
     assert "--- USER REFINEMENT FEEDBACK ---" in captured["payload"].requirement_context
-    assert "Please keep this to one milestone." in captured["payload"].requirement_context
+    assert (
+        "Please keep this to one milestone." in captured["payload"].requirement_context
+    )
 
 
 @pytest.mark.asyncio
 async def test_run_story_agent_from_state_does_not_crash_on_unserializable_reusable_artifact(
     monkeypatch,
 ) -> None:
-    captured: Dict[str, Any] = {}
+    captured: dict[str, Any] = {}
 
     async def fake_invoke(payload):
         captured["payload"] = payload
@@ -253,11 +264,16 @@ async def test_run_story_agent_from_state_does_not_crash_on_unserializable_reusa
 
     assert result["success"] is True
     assert result["classification"] == "reusable_content_result"
-    assert "--- PREVIOUS DRAFT TO REFINE ---" not in captured["payload"].requirement_context
+    assert (
+        "--- PREVIOUS DRAFT TO REFINE ---"
+        not in captured["payload"].requirement_context
+    )
 
 
 @pytest.mark.asyncio
-async def test_story_runtime_invalid_json_is_nonreusable_schema_failure(monkeypatch) -> None:
+async def test_story_runtime_invalid_json_is_nonreusable_schema_failure(
+    monkeypatch,
+) -> None:
     async def fake_invoke(_payload):
         return '{"broken": '
 
@@ -279,7 +295,7 @@ async def test_story_runtime_invalid_json_is_nonreusable_schema_failure(monkeypa
 
 @pytest.mark.asyncio
 async def test_story_runtime_replay_uses_frozen_request_payload(monkeypatch) -> None:
-    captured: Dict[str, Any] = {}
+    captured: dict[str, Any] = {}
 
     async def fake_invoke(payload):
         captured["payload"] = payload.model_dump()

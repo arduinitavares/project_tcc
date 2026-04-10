@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 import pytest
 
@@ -20,7 +20,7 @@ def _base_record(
     required_fields_missing_count: int | None = None,
     spec_version_id_match: bool | None = None,
     final_story_present: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     return {
         "RUN_ID": "00000000-0000-4000-8000-000000000000",
         "SCENARIO_ID": scenario_id,
@@ -32,7 +32,9 @@ def _base_record(
         "TIMING_MS": {
             "total_ms": 1.0,
             "compile_ms": 1.0,
-            "pipeline_ms": None if stage in ("alignment_rejected", "acceptance_blocked") else 1.0,
+            "pipeline_ms": None
+            if stage in ("alignment_rejected", "acceptance_blocked")
+            else 1.0,
             "validation_ms": 0.1,
         },
         "METRICS": {
@@ -159,7 +161,9 @@ def test_verify_records_validator_disabled_contract_failed_fails() -> None:
         ),
     ]
 
-    with pytest.raises(AssertionError, match="validator disabled.*should NOT be 'contract_failed'"):
+    with pytest.raises(
+        AssertionError, match="validator disabled.*should NOT be 'contract_failed'"
+    ):
         verify_records(records)
 
 

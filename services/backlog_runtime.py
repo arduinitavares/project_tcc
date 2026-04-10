@@ -1,8 +1,12 @@
+"""Runtime helpers for invoking the backlog agent from workflow state."""
+
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -13,14 +17,36 @@ from orchestrator_agent.agent_tools.backlog_primer.schemes import (
     InputSchema,
     OutputSchema,
 )
-from utils.adk_runner import get_agent_model_info, invoke_agent_to_text, parse_json_payload
-from utils.failure_artifacts import AgentInvocationError, write_failure_artifact
+from utils.adk_runner import (
+    get_agent_model_info,
+    invoke_agent_to_text,
+    parse_json_payload,
+)
+from utils.failure_artifacts import (
+    AgentInvocationError,
+    FailureArtifactResult,
+    FailureMetadataDict,
+    write_failure_artifact,
+)
 from utils.runtime_config import BACKLOG_RUNNER_IDENTITY
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(name=__name__)
+
+type BacklogInputContext = dict[str, object]
+type ValidationErrors = list[dict[str, object]]
 
 
-def _as_text(value: Any) -> str:
+@dataclass(frozen=True)
+class _FailureDetails:
+    """Structured details describing a backlog-runtime failure."""
+
+    message: str
+    raw_text: str | None = None
+    validation_errors: ValidationErrors | None = None
+    exception: BaseException | None = None
+
+
+def _as_text(value: object) -> str:
     if value is None:
         return ""
     if isinstance(value, str):
@@ -31,7 +57,7 @@ def _as_text(value: Any) -> str:
         return str(value)
 
 
-def _normalize_prior_backlog_state(value: Any) -> str:
+def _normalize_prior_backlog_state(value: object) -> str:
     if value is None:
         return "NO_HISTORY"
     if isinstance(value, str):
@@ -42,21 +68,37 @@ def _normalize_prior_backlog_state(value: Any) -> str:
     return "NO_HISTORY"
 
 
+def _normalize_validation_errors(errors: object) -> ValidationErrors:
+    normalized: ValidationErrors = []
+    if not isinstance(errors, list):
+        return normalized
+
+    for error in errors:
+        if not isinstance(error, Mapping):
+            continue
+        normalized.append({str(key): value for key, value in error.items()})
+    return normalized
+
+
 def build_backlog_input_context(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     *,
-    user_input: Optional[str],
-) -> Dict[str, str]:
+    user_input: str | None,
+) -> BacklogInputContext:
+    """Build the serialized backlog-agent input payload from workflow state."""
     vision_assessment = state.get("product_vision_assessment") or {}
     vision_stmt = vision_assessment.get("product_vision_statement") or ""
-    
+
     return {
         "product_vision_statement": vision_stmt,
         "technical_spec": _as_text(state.get("pending_spec_content")),
         "compiled_authority": _as_text(state.get("compiled_authority_cached")),
-        "prior_backlog_state": _normalize_prior_backlog_state(state.get("backlog_items")),
+        "prior_backlog_state": _normalize_prior_backlog_state(
+            state.get("backlog_items")
+        ),
         "user_input": user_input or "",
     }
+
 
 async def _invoke_backlog_agent(payload: InputSchema) -> str:
     return await invoke_agent_to_text(
@@ -70,30 +112,28 @@ async def _invoke_backlog_agent(payload: InputSchema) -> str:
 def _failure(
     *,
     project_id: int,
-    input_context: Dict[str, Any],
+    input_context: BacklogInputContext,
     failure_stage: str,
-    message: str,
-    raw_text: Optional[str] = None,
-    validation_errors: Optional[List[Dict[str, Any]]] = None,
-    exception: Optional[BaseException] = None,
-) -> Dict[str, Any]:
-    artifact_result = write_failure_artifact(
+    details: _FailureDetails,
+) -> dict[str, Any]:
+    message: str = details.message
+    artifact_result: FailureArtifactResult = write_failure_artifact(
         phase="backlog",
         project_id=project_id,
         failure_stage=failure_stage,
         failure_summary=message,
-        raw_output=raw_text,
+        raw_output=details.raw_text,
         context={"input_context": input_context},
         model_info={
             **get_agent_model_info(backlog_agent),
             "app_name": BACKLOG_RUNNER_IDENTITY.app_name,
             "user_id": BACKLOG_RUNNER_IDENTITY.user_id,
         },
-        validation_errors=validation_errors,
-        exception=exception,
+        validation_errors=details.validation_errors,
+        exception=details.exception,
     )
-    metadata = artifact_result["metadata"]
-    if exception is not None:
+    metadata: FailureMetadataDict = artifact_result["metadata"]
+    if details.exception is not None:
         logger.exception(
             "Backlog generation failed [artifact_id=%s stage=%s]: %s",
             metadata["failure_artifact_id"],
@@ -108,13 +148,17 @@ def _failure(
             message,
         )
 
-    artifact: Dict[str, Any] = {
+    artifact: dict[str, Any] = {
         "error": "BACKLOG_GENERATION_FAILED",
         "message": message,
         "is_complete": False,
         "clarifying_questions": [],
+        "failure_artifact_id": metadata["failure_artifact_id"],
+        "failure_stage": metadata["failure_stage"],
+        "failure_summary": metadata["failure_summary"],
+        "raw_output_preview": metadata["raw_output_preview"],
+        "has_full_artifact": metadata["has_full_artifact"],
     }
-    artifact.update(metadata)
 
     return {
         "success": False,
@@ -127,69 +171,83 @@ def _failure(
 
 
 async def run_backlog_agent_from_state(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     *,
     project_id: int,
-    user_input: Optional[str],
-) -> Dict[str, Any]:
-    input_context = build_backlog_input_context(state, user_input=user_input)
+    user_input: str | None,
+) -> dict[str, Any]:
+    """Run the backlog agent from stored workflow state and normalize failures."""
+    input_context: BacklogInputContext = build_backlog_input_context(
+        state,
+        user_input=user_input,
+    )
 
     try:
-        payload = InputSchema.model_validate(input_context)
+        payload: InputSchema = InputSchema.model_validate(input_context)
     except ValidationError as exc:
         return _failure(
             project_id=project_id,
             input_context=input_context,
             failure_stage="input_validation",
-            message=f"Backlog input validation failed: {exc}",
-            validation_errors=exc.errors(),
-            exception=exc,
+            details=_FailureDetails(
+                message=f"Backlog input validation failed: {exc}",
+                validation_errors=_normalize_validation_errors(exc.errors()),
+                exception=exc,
+            ),
         )
 
     try:
-        raw_text = await _invoke_backlog_agent(payload)
+        raw_text: str = await _invoke_backlog_agent(payload)
     except AgentInvocationError as exc:
         return _failure(
             project_id=project_id,
             input_context=input_context,
             failure_stage="invocation_exception",
-            message=f"Backlog runtime failed: {exc}",
-            raw_text=exc.partial_output,
-            exception=exc,
+            details=_FailureDetails(
+                message=f"Backlog runtime failed: {exc}",
+                raw_text=exc.partial_output,
+                exception=exc,
+            ),
         )
-    except Exception as exc:  # pylint: disable=broad-except
+    except ValueError as exc:
         return _failure(
             project_id=project_id,
             input_context=input_context,
             failure_stage="invocation_exception",
-            message=f"Backlog runtime failed: {exc}",
-            exception=exc,
+            details=_FailureDetails(
+                message=f"Backlog runtime failed: {exc}",
+                exception=exc,
+            ),
         )
 
-    parsed = parse_json_payload(raw_text)
+    parsed: dict[str, Any] | None = parse_json_payload(raw_text)
     if parsed is None:
         return _failure(
             project_id=project_id,
             input_context=input_context,
             failure_stage="invalid_json",
-            message="Backlog response is not valid JSON",
-            raw_text=raw_text,
+            details=_FailureDetails(
+                message="Backlog response is not valid JSON",
+                raw_text=raw_text,
+            ),
         )
 
     try:
-        output_model = OutputSchema.model_validate(parsed)
+        output_model: OutputSchema = OutputSchema.model_validate(parsed)
     except ValidationError as exc:
         return _failure(
             project_id=project_id,
             input_context=input_context,
             failure_stage="output_validation",
-            message=f"Backlog output validation failed: {exc}",
-            raw_text=raw_text,
-            validation_errors=exc.errors(),
-            exception=exc,
+            details=_FailureDetails(
+                message=f"Backlog output validation failed: {exc}",
+                raw_text=raw_text,
+                validation_errors=_normalize_validation_errors(exc.errors()),
+                exception=exc,
+            ),
         )
 
-    output_artifact = output_model.model_dump(exclude_none=True)
+    output_artifact: dict[str, Any] = output_model.model_dump(exclude_none=True)
     return {
         "success": True,
         "input_context": input_context,

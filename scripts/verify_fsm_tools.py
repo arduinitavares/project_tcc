@@ -1,4 +1,5 @@
 """Quick verification of FSM state -> tool mappings."""
+
 from orchestrator_agent.fsm.definitions import STATE_REGISTRY
 
 for state, defn in STATE_REGISTRY.items():

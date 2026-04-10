@@ -1,14 +1,15 @@
-
-from sqlmodel import Session, select
 import json
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path('.').resolve()
+from sqlmodel import Session, select
+
+REPO_ROOT = Path().resolve()
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
 from agile_sqlmodel import UserStory, get_engine
+
 
 def check_failure_reasons():
     engine = get_engine()
@@ -21,9 +22,9 @@ def check_failure_reasons():
         if s.validation_evidence:
             try:
                 ev = json.loads(s.validation_evidence)
-                if not ev.get('passed'):
-                    for f in ev.get('failures', []):
-                        rule = f.get('rule')
+                if not ev.get("passed"):
+                    for f in ev.get("failures", []):
+                        rule = f.get("rule")
                         reasons[rule] = reasons.get(rule, 0) + 1
             except:
                 pass
@@ -31,6 +32,7 @@ def check_failure_reasons():
     print("Failure Reasons in DB:")
     for r, c in reasons.items():
         print(f"  {r}: {c}")
+
 
 if __name__ == "__main__":
     check_failure_reasons()

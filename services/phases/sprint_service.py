@@ -6,20 +6,19 @@ the HTTP handlers remain in ``api.py`` during the transitional extraction.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
 import re
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, cast
 
-from orchestrator_agent.fsm.states import OrchestratorState
 from orchestrator_agent.agent_tools.sprint_planner_tool.schemes import (
     SprintPlannerOutput,
 )
 from orchestrator_agent.agent_tools.sprint_planner_tool.tools import (
     SaveSprintPlanInput,
 )
+from orchestrator_agent.fsm.states import OrchestratorState
 from services.phases import workflow_state
 from services.sprint_runtime import PUBLIC_TASK_KIND_VALUES
-
 
 VALID_SPRINT_GENERATION_STATES = {
     OrchestratorState.STORY_PERSISTENCE.value,
@@ -135,14 +134,11 @@ def _normalize_sprint_validation_error(
                     f"Use one of: {allowed_task_kinds}."
                 )
             elif "task_kind" in trimmed and "other" in trimmed:
-                hint = (
-                    f"Task has invalid task_kind. Use one of: "
-                    f"{allowed_task_kinds}."
-                )
+                hint = f"Task has invalid task_kind. Use one of: {allowed_task_kinds}."
             else:
                 hint = trimmed
     elif isinstance(error, dict):
-        error_dict = cast(dict[str, object], error)
+        error_dict = cast("dict[str, object]", error)
         loc = error_dict.get("loc")
         if isinstance(loc, (list, tuple)) and loc and loc[-1] == "task_kind":
             input_value = error_dict.get("input")
@@ -152,10 +148,7 @@ def _normalize_sprint_validation_error(
                     f"Use one of: {allowed_task_kinds}."
                 )
             else:
-                hint = (
-                    f"Task has invalid task_kind. Use one of: "
-                    f"{allowed_task_kinds}."
-                )
+                hint = f"Task has invalid task_kind. Use one of: {allowed_task_kinds}."
         else:
             msg = error_dict.get("msg")
             if isinstance(msg, str):
@@ -215,9 +208,7 @@ def record_sprint_attempt(
     failure_meta: dict[str, Any],
     created_at: str,
 ) -> int:
-    normalized_output_artifact = normalize_sprint_output_artifact(
-        output_artifact
-    )
+    normalized_output_artifact = normalize_sprint_output_artifact(output_artifact)
     return workflow_state.record_phase_attempt(
         state,
         attempts_key="sprint_attempts",
@@ -258,8 +249,7 @@ async def generate_sprint_plan(
 
     if state.get("fsm_state") not in VALID_SPRINT_GENERATION_STATES:
         raise SprintPhaseError(
-            "Invalid phase for sprint generation "
-            f"(state: {state.get('fsm_state')})"
+            f"Invalid phase for sprint generation (state: {state.get('fsm_state')})"
         )
 
     attempts = ensure_sprint_attempts(state)
@@ -276,12 +266,12 @@ async def generate_sprint_plan(
         user_input=user_input,
     )
     normalized_output_artifact = normalize_sprint_output_artifact(
-        cast(dict[str, Any] | None, sprint_result.get("output_artifact"))
+        cast("dict[str, Any] | None", sprint_result.get("output_artifact"))
     )
     failure_meta = dict(
         failure_meta_builder(
-            cast(dict[str, object], sprint_result),
-            cast(str | None, sprint_result.get("error")),
+            cast("dict[str, object]", sprint_result),
+            cast("str | None", sprint_result.get("error")),
         )
     )
 
@@ -289,11 +279,9 @@ async def generate_sprint_plan(
     attempt_count = record_sprint_attempt(
         state,
         trigger="manual_refine" if has_attempts else "auto_transition",
-        input_context=cast(
-            dict[str, Any], sprint_result.get("input_context") or {}
-        ),
+        input_context=cast("dict[str, Any]", sprint_result.get("input_context") or {}),
         output_artifact=cast(
-            dict[str, Any] | None, sprint_result.get("output_artifact")
+            "dict[str, Any] | None", sprint_result.get("output_artifact")
         ),
         is_complete=is_complete,
         failure_meta=failure_meta,
@@ -378,10 +366,7 @@ def list_saved_sprints(
 ) -> dict[str, Any]:
     sprints = list(load_sprints())
     runtime_summary = build_runtime_summary(sprints)
-    items = [
-        serialize_sprint_list_item(sprint, runtime_summary)
-        for sprint in sprints
-    ]
+    items = [serialize_sprint_list_item(sprint, runtime_summary) for sprint in sprints]
     return {
         "items": items,
         "count": len(items),
@@ -519,9 +504,7 @@ async def save_sprint_plan(
         raise SprintPhaseError("No sprint draft available to save")
 
     if not bool(assessment.get("is_complete", False)):
-        raise SprintPhaseError(
-            "Sprint cannot be saved until is_complete is true"
-        )
+        raise SprintPhaseError("Sprint cannot be saved until is_complete is true")
 
     normalized_team_name = team_name.strip()
     normalized_start_date = sprint_start_date.strip()
@@ -558,9 +541,7 @@ async def save_sprint_plan(
 
     if not result.get("success"):
         status_code = (
-            409
-            if result.get("error_code") == "STORY_ALREADY_IN_OPEN_SPRINT"
-            else 500
+            409 if result.get("error_code") == "STORY_ALREADY_IN_OPEN_SPRINT" else 500
         )
         raise SprintPhaseError(
             result.get("error", "Failed to save sprint plan"),
@@ -595,9 +576,7 @@ def start_saved_sprint(
 
     other_active = load_other_active()
     if other_active:
-        raise SprintPhaseError(
-            "Another sprint is already active for this project."
-        )
+        raise SprintPhaseError("Another sprint is already active for this project.")
 
     sprint_status = _status_key(getattr(sprint, "status", None))
     if sprint_status == "completed":

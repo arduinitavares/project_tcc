@@ -1,9 +1,13 @@
-import utils.failure_artifacts as failure_artifacts
+from utils import failure_artifacts
 
 
-def test_write_and_read_failure_artifact_preserves_full_raw_output(monkeypatch, tmp_path):
+def test_write_and_read_failure_artifact_preserves_full_raw_output(
+    monkeypatch, tmp_path
+):
     monkeypatch.setattr(failure_artifacts, "LOGS_DIR", tmp_path / "logs")
-    monkeypatch.setattr(failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures")
+    monkeypatch.setattr(
+        failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures"
+    )
 
     raw_output = "x" * 5000
     persisted = failure_artifacts.write_failure_artifact(
@@ -19,7 +23,10 @@ def test_write_and_read_failure_artifact_preserves_full_raw_output(monkeypatch, 
     artifact_id = persisted["metadata"]["failure_artifact_id"]
     assert persisted["artifact_path"].exists()
     assert persisted["metadata"]["has_full_artifact"] is True
-    assert persisted["metadata"]["raw_output_preview"] == raw_output[: failure_artifacts.RAW_OUTPUT_PREVIEW_LIMIT]
+    assert (
+        persisted["metadata"]["raw_output_preview"]
+        == raw_output[: failure_artifacts.RAW_OUTPUT_PREVIEW_LIMIT]
+    )
 
     loaded = failure_artifacts.read_failure_artifact(artifact_id)
     assert loaded is not None

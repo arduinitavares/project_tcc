@@ -1,11 +1,11 @@
 """Tools for the User Story Writer agent."""
 
-import logging
-from datetime import datetime, timezone
-import re
-from typing import Annotated, Any, Dict, List, Optional
 import json
+import logging
+import re
 import time
+from datetime import UTC, datetime
+from typing import Annotated, Any
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field, ValidationError
@@ -19,6 +19,7 @@ from orchestrator_agent.agent_tools.story_linkage import (
     normalize_requirement_key,
     title_changed_significantly,
 )
+
 from .schemes import UserStoryItem
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ class SaveStoriesInput(BaseModel):
         Field(description="The roadmap requirement these stories decompose."),
     ]
     stories: Annotated[
-        List[Dict[str, Any]],
+        list[dict[str, Any]],
         Field(
             description=(
                 "List of approved story dicts from user_story_writer_tool output. "
@@ -46,7 +47,7 @@ class SaveStoriesInput(BaseModel):
     ]
 
 
-def _extract_persona(statement: str) -> Optional[str]:
+def _extract_persona(statement: str) -> str | None:
     """Extract the persona/role from 'As a [role], I want ...' format.
 
     Args:
@@ -61,7 +62,7 @@ def _extract_persona(statement: str) -> Optional[str]:
     return None
 
 
-def _format_acceptance_criteria(criteria: List[str]) -> str:
+def _format_acceptance_criteria(criteria: list[str]) -> str:
     return "\n".join(f"- {c}" if not c.startswith("- ") else c for c in criteria)
 
 
@@ -96,9 +97,8 @@ def _upsert_refined_story(
                 item.story_title,
             )
 
-        if (
-            (not (existing.acceptance_criteria or "").strip())
-            and (existing.original_acceptance_criteria is None)
+        if (not (existing.acceptance_criteria or "").strip()) and (
+            existing.original_acceptance_criteria is None
         ):
             existing.original_acceptance_criteria = existing.acceptance_criteria
 
@@ -109,11 +109,14 @@ def _upsert_refined_story(
         existing.story_origin = "refined"
         existing.is_refined = True
         existing.is_superseded = False
-        existing.ac_updated_at = datetime.now(timezone.utc)
+        existing.ac_updated_at = datetime.now(UTC)
         existing.ac_update_reason = "user_story_refinement"
         session.add(existing)
         session.flush()
-        return int(existing.story_id), "updated"
+        existing_story_id = existing.story_id
+        if existing_story_id is None:
+            raise RuntimeError("Existing story ID was not generated.")
+        return existing_story_id, "updated"
 
     story = UserStory(
         product_id=product_id,
@@ -130,13 +133,16 @@ def _upsert_refined_story(
     )
     session.add(story)
     session.flush()
-    return int(story.story_id), "created"
+    story_id = story.story_id
+    if story_id is None:
+        raise RuntimeError("Story ID was not generated.")
+    return story_id, "created"
 
 
 def save_stories_tool(
     input_data: SaveStoriesInput,
-    tool_context: Optional[ToolContext] = None,
-) -> Dict[str, Any]:
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """
     Persist approved user stories to the database.
 
@@ -166,8 +172,8 @@ def save_stories_tool(
             }
 
         # Validate each story against schema
-        validated: List[UserStoryItem] = []
-        validation_errors: List[str] = []
+        validated: list[UserStoryItem] = []
+        validation_errors: list[str] = []
 
         for idx, story_dict in enumerate(input_data.stories):
             try:
@@ -191,8 +197,8 @@ def save_stories_tool(
 
         # Persist to database via deterministic linkage upsert
         normalized_req = normalize_requirement_key(input_data.parent_requirement)
-        created_ids: List[int] = []
-        updated_ids: List[int] = []
+        created_ids: list[int] = []
+        updated_ids: list[int] = []
 
         seeded_slots = session.exec(
             select(UserStory.story_id)

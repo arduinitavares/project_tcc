@@ -14,6 +14,7 @@ Fix contract:
    pure confirmation state with no spec/authority tools.
 3. FSM transitions remain correct (already passing).
 """
+
 import re
 import unittest
 
@@ -55,7 +56,8 @@ class TestVisionReviewGate(unittest.TestCase):
     def test_routing_instruction_does_not_embed_save_recipe(self):
         """SETUP_REQUIRED instruction must not tell the agent to chain
         save_vision_tool immediately after product_vision_tool.
-        It should contain an explicit STOP directive after the vision call."""
+        It should contain an explicit STOP directive after the vision call.
+        """
         routing_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         instruction = routing_def.instruction
 
@@ -68,7 +70,9 @@ class TestVisionReviewGate(unittest.TestCase):
             instruction,
             re.DOTALL,
         )
-        self.assertIsNotNone(section3_match, "Section 3 not found in ROUTING instruction")
+        self.assertIsNotNone(
+            section3_match, "Section 3 not found in ROUTING instruction"
+        )
         section3_text = section3_match.group()
 
         self.assertNotIn(
@@ -81,7 +85,8 @@ class TestVisionReviewGate(unittest.TestCase):
 
     def test_routing_instruction_does_not_embed_spec_save_recipe(self):
         """SETUP_REQUIRED section 4 (pasted content) must not embed
-        save_project_specification inline either."""
+        save_project_specification inline either.
+        """
         routing_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         instruction = routing_def.instruction
 
@@ -90,7 +95,9 @@ class TestVisionReviewGate(unittest.TestCase):
             instruction,
             re.DOTALL,
         )
-        self.assertIsNotNone(section4_match, "Section 4 not found in ROUTING instruction")
+        self.assertIsNotNone(
+            section4_match, "Section 4 not found in ROUTING instruction"
+        )
         section4_text = section4_match.group()
 
         self.assertNotIn(
@@ -103,7 +110,8 @@ class TestVisionReviewGate(unittest.TestCase):
 
     def test_vision_persistence_does_not_have_link_spec_to_product(self):
         """VISION_PERSISTENCE must NOT include link_spec_to_product.
-        Spec linking now happens inside save_vision_tool (Pre-Phase)."""
+        Spec linking now happens inside save_vision_tool (Pre-Phase).
+        """
         persistence_def = STATE_REGISTRY[OrchestratorState.VISION_PERSISTENCE]
         tool_names = [
             getattr(t, "__name__", None) or getattr(t, "name", None) or str(t)
@@ -131,7 +139,8 @@ class TestVisionReviewGate(unittest.TestCase):
 
     def test_vision_persistence_only_has_backlog_primer(self):
         """VISION_PERSISTENCE tools should contain only backlog_primer_tool
-        since it is a pure confirmation state."""
+        since it is a pure confirmation state.
+        """
         persistence_def = STATE_REGISTRY[OrchestratorState.VISION_PERSISTENCE]
         tool_names = [
             getattr(t, "__name__", None) or getattr(t, "name", None) or str(t)
@@ -146,4 +155,3 @@ class TestVisionReviewGate(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

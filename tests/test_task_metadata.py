@@ -1,6 +1,6 @@
 """Tests for task metadata canonicalization."""
 
-# ruff: noqa: D103, S101, I001
+# ruff: noqa: D103, I001
 
 import json
 

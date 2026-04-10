@@ -10,16 +10,33 @@ import pytest
 from sqlmodel import Session, select
 
 from agile_sqlmodel import CompiledSpecAuthority, Product
+from orchestrator_agent.agent_tools.spec_authority_compiler_agent.compiler_contract import (
+    compute_invariant_id,
+    compute_prompt_hash,
+)
+from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (
+    SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
+    SPEC_AUTHORITY_COMPILER_VERSION,
+)
 from services.specs.compiler_service import (
     CheckSpecAuthorityStatusInput as ServiceCheckSpecAuthorityStatusInput,
+)
+from services.specs.compiler_service import (
     CompileSpecAuthorityForVersionInput as ServiceCompileSpecAuthorityForVersionInput,
+)
+from services.specs.compiler_service import (
     CompileSpecAuthorityInput as ServiceCompileSpecAuthorityInput,
+)
+from services.specs.compiler_service import (
     GetCompiledAuthorityInput as ServiceGetCompiledAuthorityInput,
+)
+from services.specs.compiler_service import (
     PreviewSpecAuthorityInput as ServicePreviewSpecAuthorityInput,
+)
+from services.specs.compiler_service import (
     UpdateSpecAndCompileAuthorityInput as ServiceUpdateSpecAndCompileAuthorityInput,
 )
-import tools.spec_tools as spec_tools
-import utils.failure_artifacts as failure_artifacts
+from tools import spec_tools
 from tools.spec_tools import (
     CheckSpecAuthorityStatusInput,
     CompileSpecAuthorityForVersionInput,
@@ -31,22 +48,15 @@ from tools.spec_tools import (
     compile_spec_authority_for_version,
     register_spec_version,
 )
+from utils import failure_artifacts
+from utils.failure_artifacts import AgentInvocationError
 from utils.spec_schemas import (
-    SpecAuthorityCompilationSuccess,
-    SpecAuthorityCompilerOutput,
-    SourceMapEntry,
     Invariant,
     InvariantType,
     RequiredFieldParams,
-)
-from utils.failure_artifacts import AgentInvocationError
-from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (
-    SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
-    SPEC_AUTHORITY_COMPILER_VERSION,
-)
-from orchestrator_agent.agent_tools.spec_authority_compiler_agent.compiler_contract import (
-    compute_prompt_hash,
-    compute_invariant_id,
+    SourceMapEntry,
+    SpecAuthorityCompilationSuccess,
+    SpecAuthorityCompilerOutput,
 )
 
 
@@ -124,8 +134,7 @@ def test_tool_compile_input_models_alias_service_models() -> None:
         is ServiceCompileSpecAuthorityForVersionInput
     )
     assert (
-        UpdateSpecAndCompileAuthorityInput
-        is ServiceUpdateSpecAndCompileAuthorityInput
+        UpdateSpecAndCompileAuthorityInput is ServiceUpdateSpecAndCompileAuthorityInput
     )
     assert CheckSpecAuthorityStatusInput is ServiceCheckSpecAuthorityStatusInput
     assert GetCompiledAuthorityInput is ServiceGetCompiledAuthorityInput
@@ -625,7 +634,9 @@ def test_compile_persists_invocation_failure_artifact(
     )
 
     monkeypatch.setattr(failure_artifacts, "LOGS_DIR", tmp_path / "logs")
-    monkeypatch.setattr(failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures")
+    monkeypatch.setattr(
+        failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures"
+    )
     monkeypatch.setattr(
         spec_tools,
         "_invoke_spec_authority_compiler",
@@ -666,7 +677,9 @@ def test_compile_persists_normalizer_failure_artifact(
     )
 
     monkeypatch.setattr(failure_artifacts, "LOGS_DIR", tmp_path / "logs")
-    monkeypatch.setattr(failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures")
+    monkeypatch.setattr(
+        failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures"
+    )
     monkeypatch.setattr(
         spec_tools,
         "_invoke_spec_authority_compiler",

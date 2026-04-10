@@ -12,7 +12,9 @@ def normalize_requirement_key(text: str) -> str:
     return " ".join(text.strip().lower().split())
 
 
-def title_changed_significantly(previous_title: str | None, new_title: str | None) -> bool:
+def title_changed_significantly(
+    previous_title: str | None, new_title: str | None
+) -> bool:
     """
     Heuristic drift detector for slot/title stability warnings.
 
@@ -37,4 +39,3 @@ def title_changed_significantly(previous_title: str | None, new_title: str | Non
     union = len(old_tokens.union(new_tokens))
     similarity = overlap / union if union else 1.0
     return similarity < 0.5
-

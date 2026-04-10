@@ -1,22 +1,21 @@
 """API tests for vision interview endpoints."""
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
 
 from fastapi.testclient import TestClient
 
 import api as api_module
-import utils.failure_artifacts as failure_artifacts
+from utils import failure_artifacts
 
 
 @dataclass
 class DummyProduct:
     product_id: int
     name: str
-    description: Optional[str] = None
-    vision: Optional[str] = None
-    spec_file_path: Optional[str] = None
-    compiled_authority_json: Optional[str] = None
+    description: str | None = None
+    vision: str | None = None
+    spec_file_path: str | None = None
+    compiled_authority_json: str | None = None
 
 
 class DummyProductRepository:
@@ -32,7 +31,7 @@ class DummyProductRepository:
                 return product
         return None
 
-    def create(self, name: str, description: Optional[str] = None):
+    def create(self, name: str, description: str | None = None):
         product = DummyProduct(
             product_id=len(self.products) + 1,
             name=name,
@@ -44,9 +43,9 @@ class DummyProductRepository:
 
 class DummyWorkflowService:
     def __init__(self) -> None:
-        self.states: Dict[str, Dict[str, object]] = {}
+        self.states: dict[str, dict[str, object]] = {}
 
-    async def initialize_session(self, session_id: Optional[str] = None) -> str:
+    async def initialize_session(self, session_id: str | None = None) -> str:
         sid = str(session_id or "generated")
         self.states[sid] = {"fsm_state": "SETUP_REQUIRED"}
         return sid
@@ -96,7 +95,9 @@ def _build_client(monkeypatch):
                     "user_raw_text": user_input or "",
                     "prior_vision_state": "NO_HISTORY",
                     "specification_content": state.get("pending_spec_content", "SPEC"),
-                    "compiled_authority": state.get("compiled_authority_cached", '{"ok": true}'),
+                    "compiled_authority": state.get(
+                        "compiled_authority_cached", '{"ok": true}'
+                    ),
                 },
                 "output_artifact": {
                     "error": "VISION_GENERATION_FAILED",
@@ -120,7 +121,9 @@ def _build_client(monkeypatch):
                 "user_raw_text": user_input or "",
                 "prior_vision_state": "NO_HISTORY",
                 "specification_content": state.get("pending_spec_content", "SPEC"),
-                "compiled_authority": state.get("compiled_authority_cached", '{"ok": true}'),
+                "compiled_authority": state.get(
+                    "compiled_authority_cached", '{"ok": true}'
+                ),
             },
             "output_artifact": {
                 "updated_components": {
@@ -145,7 +148,9 @@ def _build_client(monkeypatch):
             "has_full_artifact": False,
         }
 
-    monkeypatch.setattr(api_module, "run_vision_agent_from_state", fake_run_vision_agent_from_state)
+    monkeypatch.setattr(
+        api_module, "run_vision_agent_from_state", fake_run_vision_agent_from_state
+    )
 
     def fake_save_vision_tool(vision_input, tool_context):
         return {
@@ -160,7 +165,9 @@ def _build_client(monkeypatch):
     return TestClient(api_module.app), repo, workflow
 
 
-def _seed_setup_passed_project(repo: DummyProductRepository, workflow: DummyWorkflowService) -> int:
+def _seed_setup_passed_project(
+    repo: DummyProductRepository, workflow: DummyWorkflowService
+) -> int:
     product = repo.create("Vision Project")
     product.spec_file_path = __file__
     product.compiled_authority_json = '{"ok": true}'
@@ -371,7 +378,9 @@ def test_debug_failure_endpoint_returns_full_artifact(monkeypatch, tmp_path):
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_setup_passed_project(repo, workflow)
     monkeypatch.setattr(failure_artifacts, "LOGS_DIR", tmp_path / "logs")
-    monkeypatch.setattr(failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures")
+    monkeypatch.setattr(
+        failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures"
+    )
 
     persisted = failure_artifacts.write_failure_artifact(
         phase="vision",
@@ -401,7 +410,9 @@ def test_debug_failure_endpoint_rejects_other_project_artifact(monkeypatch, tmp_
     }
 
     monkeypatch.setattr(failure_artifacts, "LOGS_DIR", tmp_path / "logs")
-    monkeypatch.setattr(failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures")
+    monkeypatch.setattr(
+        failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures"
+    )
     persisted = failure_artifacts.write_failure_artifact(
         phase="vision",
         project_id=other_project.product_id,

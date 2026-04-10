@@ -2,56 +2,66 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple, cast
+import logging
+from typing import Any, Protocol, cast
 
-from sqlalchemy import func
+from sqlalchemy import desc, func
 from sqlmodel import Session, select
 
-from models.core import Epic, Feature, Theme
-from models.core import Product, Sprint, UserStory
+from models.core import Epic, Feature, Product, Sprint, Theme, UserStory
 from models.db import get_engine
 from models.specs import (
     CompiledSpecAuthority,
     SpecRegistry,
 )
+from services.specs.compiler_service import (
+    CompileSpecAuthorityForVersionInput,
+    compile_spec_authority_for_version,
+)
 from services.specs.lifecycle_service import hydrate_spec_state
 
+logger: logging.Logger = logging.getLogger(name=__name__)
 
-def get_project_details(product_id: int) -> Dict[str, Any]:
+
+class _SupportsState(Protocol):
+    state: dict[str, Any]
+
+
+def get_project_details(product_id: int) -> dict[str, Any]:
     """Load a project's detail snapshot and structure counts."""
-    print(f"\n[Tool: get_project_details] Querying ID: {product_id}")
+    logger.debug("Loading project details for product_id=%s", product_id)
     with Session(get_engine()) as session:
         product = session.get(Product, product_id)
         if not product:
-            print("   [DB] Product not found.")
+            logger.debug("Product %s not found while loading details.", product_id)
             return {
                 "success": False,
                 "error": f"Product {product_id} not found",
             }
 
         theme_count = session.exec(
-            select(func.count(cast(Any, Theme.theme_id))).where(
+            select(func.count(cast("Any", Theme.theme_id))).where(
                 Theme.product_id == product_id
             )
         ).one()
         epic_count = session.exec(
-            select(func.count(cast(Any, Epic.epic_id)))
+            select(func.count(cast("Any", Epic.epic_id)))
             .join(Theme)
             .where(Theme.product_id == product_id)
         ).one()
         feature_count = session.exec(
-            select(func.count(cast(Any, Feature.feature_id)))
+            select(func.count(cast("Any", Feature.feature_id)))
             .join(Epic)
             .join(Theme)
             .where(Theme.product_id == product_id)
         ).one()
         story_count = session.exec(
-            select(func.count(cast(Any, UserStory.story_id))).where(
+            select(func.count(cast("Any", UserStory.story_id))).where(
                 UserStory.product_id == product_id
             )
         ).one()
         sprint_count = session.exec(
-            select(func.count(cast(Any, Sprint.sprint_id))).where(
+            select(func.count(cast("Any", Sprint.sprint_id))).where(
                 Sprint.product_id == product_id
             )
         ).one()
@@ -63,13 +73,13 @@ def get_project_details(product_id: int) -> Dict[str, Any]:
                 SpecRegistry.status == "approved",
             )
             .order_by(
-                SpecRegistry.approved_at.desc(),
-                SpecRegistry.spec_version_id.desc(),
+                desc(cast("Any", SpecRegistry.approved_at)),
+                desc(cast("Any", SpecRegistry.spec_version_id)),
             )
             .limit(1)
         ).first()
 
-        print(f"   [DB] Success. Found '{product.name}'.")
+        logger.debug("Loaded project details for '%s'.", product.name)
         return {
             "success": True,
             "product": {
@@ -99,18 +109,19 @@ def get_project_details(product_id: int) -> Dict[str, Any]:
         }
 
 
-def select_project(product_id: int, tool_context: Any) -> Dict[str, Any]:
+def select_project(product_id: int, tool_context: _SupportsState) -> dict[str, Any]:
     """Hydrate active-project session state for the selected project."""
-    print(
-        f"\n[Tool: select_project] Setting project ID {product_id} as active..."
-    )
+    logger.debug("Selecting product_id=%s as the active project.", product_id)
 
     details = get_project_details(product_id)
     if not details["success"]:
-        print("   [Context] Failed to set active project.")
+        logger.debug(
+            "Failed to select active project because project_id=%s was not found.",
+            product_id,
+        )
         return details
 
-    state: Dict[str, Any] = cast(Dict[str, Any], tool_context.state)
+    state = tool_context.state
     product_details = details["product"]
 
     state["active_project"] = {
@@ -153,7 +164,7 @@ def select_project(product_id: int, tool_context: Any) -> Dict[str, Any]:
 
     state["current_context"] = "project_selected"
 
-    print(f"   [Context] Active project set to '{product_details['name']}'")
+    logger.debug("Active project set to '%s'.", product_details["name"])
     return {
         "success": True,
         "active_project": state["active_project"],
@@ -161,7 +172,7 @@ def select_project(product_id: int, tool_context: Any) -> Dict[str, Any]:
     }
 
 
-def _set_or_clear(state: Dict[str, Any], key: str, value: Any) -> None:
+def _set_or_clear(state: dict[str, Any], key: str, value: object) -> None:
     """Set *key* in state when *value* is not None, otherwise delete it."""
     if value is not None:
         state[key] = value
@@ -169,12 +180,8 @@ def _set_or_clear(state: Dict[str, Any], key: str, value: Any) -> None:
         del state[key]
 
 
-def _load_authority_fallback(
-    product_id: int, spec_version_id: int
-) -> Optional[str]:
-    """
-    Load compiled authority for the given version, compiling on demand if needed.
-    """
+def _load_authority_fallback(product_id: int, spec_version_id: int) -> str | None:
+    """Load compiled authority for the given version, compiling on demand if needed."""
     with Session(get_engine()) as session:
         authority = session.exec(
             select(CompiledSpecAuthority)
@@ -187,19 +194,17 @@ def _load_authority_fallback(
                 product.compiled_authority_json = authority.compiled_artifact_json
                 session.add(product)
                 session.commit()
-                print(
-                    "   [Context] Backfilled compiled_authority_json from authority table"
+                logger.debug(
+                    "Backfilled compiled_authority_json from authority table for "
+                    "product_id=%s.",
+                    product_id,
                 )
             return authority.compiled_artifact_json
 
     try:
-        from tools.spec_tools import (
-            CompileSpecAuthorityForVersionInput,
-            compile_spec_authority_for_version,
-        )
-
-        print(
-            f"   [Context] No compiled authority found — compiling spec version {spec_version_id}..."
+        logger.debug(
+            "No compiled authority found; compiling spec_version_id=%s on demand.",
+            spec_version_id,
         )
         result = compile_spec_authority_for_version(
             CompileSpecAuthorityForVersionInput(
@@ -211,9 +216,18 @@ def _load_authority_fallback(
             with Session(get_engine()) as session:
                 product = session.get(Product, product_id)
                 if product and product.compiled_authority_json:
-                    print("   [Context] Compiled and cached authority on demand")
+                    logger.debug(
+                        "Compiled and cached authority on demand for product_id=%s.",
+                        product_id,
+                    )
                     return product.compiled_authority_json
-    except Exception as exc:  # pragma: no cover - defensive logging path
-        print(f"   [Context] On-demand authority compilation failed: {exc}")
+    except (RuntimeError, TypeError, ValueError) as exc:
+        logger.warning(
+            "On-demand authority compilation failed for product_id=%s "
+            "spec_version_id=%s: %s",
+            product_id,
+            spec_version_id,
+            exc,
+        )
 
     return None

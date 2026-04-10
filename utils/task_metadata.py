@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
-from typing import Any, List, Literal, Optional
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+
+if TYPE_CHECKING:
+    import logging
 
 TASK_METADATA_VERSION = "task_metadata.v1"
 TASK_KIND_VALUES = (
@@ -35,21 +37,26 @@ _TASK_KIND_SYNONYMS = {
     "validation": "testing",
 }
 
+_LIST_OF_STRINGS_ERROR = "Expected a list of strings."
+_LIST_VALUE_EMPTY_ERROR = "List values must not be empty."
+_DESCRIPTION_TYPE_ERROR = "description must be a string."
+_DESCRIPTION_EMPTY_ERROR = "description must not be empty."
 
-def _normalize_string_list(value: Any) -> List[str]:
+
+def _normalize_string_list(value: object) -> list[str]:
     if value is None:
         return []
     if not isinstance(value, list):
-        raise ValueError("Expected a list of strings.")
+        raise TypeError(_LIST_OF_STRINGS_ERROR)
 
-    normalized: List[str] = []
-    seen = set()
+    normalized: list[str] = []
+    seen: set[str] = set()
     for item in value:
         if not isinstance(item, str):
-            raise ValueError("Expected a list of strings.")
+            raise TypeError(_LIST_OF_STRINGS_ERROR)
         trimmed = item.strip()
         if not trimmed:
-            raise ValueError("List values must not be empty.")
+            raise ValueError(_LIST_VALUE_EMPTY_ERROR)
         if trimmed in seen:
             continue
         seen.add(trimmed)
@@ -57,7 +64,7 @@ def _normalize_string_list(value: Any) -> List[str]:
     return normalized
 
 
-def _canonicalize_task_kind(value: Any) -> Any:
+def _canonicalize_task_kind(value: object) -> object:
     if not isinstance(value, str):
         return value
     normalized = value.strip().lower()
@@ -71,14 +78,14 @@ class TaskMetadata(BaseModel):
 
     version: Literal["task_metadata.v1"] = TASK_METADATA_VERSION
     task_kind: TaskKind = "other"
-    artifact_targets: List[str] = Field(default_factory=list)
-    workstream_tags: List[str] = Field(default_factory=list)
-    relevant_invariant_ids: List[str] = Field(default_factory=list)
-    checklist_items: List[str] = Field(default_factory=list)
+    artifact_targets: list[str] = Field(default_factory=list)
+    workstream_tags: list[str] = Field(default_factory=list)
+    relevant_invariant_ids: list[str] = Field(default_factory=list)
+    checklist_items: list[str] = Field(default_factory=list)
 
     @field_validator("task_kind", mode="before")
     @classmethod
-    def _validate_task_kind(cls, value: Any) -> Any:
+    def _validate_task_kind(cls, value: object) -> object:
         return _canonicalize_task_kind(value)
 
     @field_validator(
@@ -89,7 +96,7 @@ class TaskMetadata(BaseModel):
         mode="before",
     )
     @classmethod
-    def _validate_lists(cls, value: Any) -> List[str]:
+    def _validate_lists(cls, value: object) -> list[str]:
         return _normalize_string_list(value)
 
 
@@ -100,24 +107,24 @@ class StructuredTaskSpec(BaseModel):
 
     description: str = Field(min_length=1, description="Concrete task description.")
     task_kind: TaskKind = Field(description="Primary task category.")
-    artifact_targets: List[str] = Field(default_factory=list)
-    workstream_tags: List[str] = Field(default_factory=list)
-    relevant_invariant_ids: List[str] = Field(default_factory=list)
-    checklist_items: List[str] = Field(default_factory=list)
+    artifact_targets: list[str] = Field(default_factory=list)
+    workstream_tags: list[str] = Field(default_factory=list)
+    relevant_invariant_ids: list[str] = Field(default_factory=list)
+    checklist_items: list[str] = Field(default_factory=list)
 
     @field_validator("description", mode="before")
     @classmethod
-    def _validate_description(cls, value: Any) -> str:
+    def _validate_description(cls, value: object) -> str:
         if not isinstance(value, str):
-            raise ValueError("description must be a string.")
+            raise TypeError(_DESCRIPTION_TYPE_ERROR)
         trimmed = value.strip()
         if not trimmed:
-            raise ValueError("description must not be empty.")
+            raise ValueError(_DESCRIPTION_EMPTY_ERROR)
         return trimmed
 
     @field_validator("task_kind", mode="before")
     @classmethod
-    def _validate_task_kind(cls, value: Any) -> Any:
+    def _validate_task_kind(cls, value: object) -> object:
         return _canonicalize_task_kind(value)
 
     @field_validator(
@@ -128,19 +135,17 @@ class StructuredTaskSpec(BaseModel):
         mode="before",
     )
     @classmethod
-    def _validate_lists(cls, value: Any) -> List[str]:
+    def _validate_lists(cls, value: object) -> list[str]:
         return _normalize_string_list(value)
 
 
 def canonical_task_metadata() -> TaskMetadata:
     """Return the canonical empty metadata object."""
-
     return TaskMetadata()
 
 
 def serialize_task_metadata(metadata: TaskMetadata) -> str:
     """Return canonical serialized JSON for persisted task metadata."""
-
     return json.dumps(
         metadata.model_dump(mode="json"),
         ensure_ascii=False,
@@ -151,18 +156,16 @@ def serialize_task_metadata(metadata: TaskMetadata) -> str:
 
 def canonical_task_metadata_json() -> str:
     """Return the canonical empty metadata JSON payload."""
-
     return serialize_task_metadata(canonical_task_metadata())
 
 
 def parse_task_metadata(
-    raw_value: Optional[str],
+    raw_value: str | None,
     *,
-    logger: Optional[logging.Logger] = None,
-    task_id: Optional[int] = None,
+    logger: logging.Logger | None = None,
+    task_id: int | None = None,
 ) -> TaskMetadata:
     """Parse persisted task metadata with a safe fallback."""
-
     if not raw_value:
         if logger:
             logger.warning(
@@ -177,7 +180,10 @@ def parse_task_metadata(
     except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
         if logger:
             logger.warning(
-                "Task %s has invalid metadata_json; falling back to canonical defaults: %s",
+                (
+                    "Task %s has invalid metadata_json; "
+                    "falling back to canonical defaults: %s"
+                ),
                 task_id,
                 exc,
             )
@@ -186,7 +192,6 @@ def parse_task_metadata(
 
 def metadata_from_structured_task(task: StructuredTaskSpec) -> TaskMetadata:
     """Project planner task output into persisted metadata."""
-
     return TaskMetadata(
         task_kind=task.task_kind,
         artifact_targets=list(task.artifact_targets),
@@ -198,5 +203,4 @@ def metadata_from_structured_task(task: StructuredTaskSpec) -> TaskMetadata:
 
 def hash_task_metadata(metadata: TaskMetadata) -> str:
     """Stable hash for packet source snapshots."""
-
     return hashlib.sha256(serialize_task_metadata(metadata).encode("utf-8")).hexdigest()

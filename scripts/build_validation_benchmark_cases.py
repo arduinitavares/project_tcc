@@ -8,7 +8,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 from sqlmodel import Session, select
 
@@ -39,7 +39,9 @@ def _compute_content_hash(story: UserStory) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _extract_existing_labels(story: UserStory) -> tuple[Optional[bool], List[str], Optional[str]]:
+def _extract_existing_labels(
+    story: UserStory,
+) -> tuple[bool | None, list[str], str | None]:
     """Extract optional labels from story.validation_evidence."""
     if not story.validation_evidence:
         return None, [], None
@@ -53,7 +55,7 @@ def _extract_existing_labels(story: UserStory) -> tuple[Optional[bool], List[str
     if not isinstance(expected_pass, bool):
         expected_pass = None
 
-    reason_codes: Set[str] = set()
+    reason_codes: set[str] = set()
     for failure in evidence.get("failures", []):
         if isinstance(failure, dict):
             rule = failure.get("rule")
@@ -70,19 +72,19 @@ def _extract_existing_labels(story: UserStory) -> tuple[Optional[bool], List[str
 
 
 def _apply_no_evidence_labels(
-    expected_pass: Optional[bool],
-    expected_fail_reasons: List[str],
-    label_source: Optional[str],
+    expected_pass: bool | None,
+    expected_fail_reasons: list[str],
+    label_source: str | None,
     *,
     no_evidence_labels: bool,
-) -> tuple[Optional[bool], List[str]]:
+) -> tuple[bool | None, list[str]]:
     """Optionally clear labels that come from validator-written evidence."""
     if no_evidence_labels and label_source == "validation_evidence":
         return None, []
     return expected_pass, expected_fail_reasons
 
 
-def _maybe_warn_evidence_only(cases: List[Dict[str, Any]]) -> None:
+def _maybe_warn_evidence_only(cases: list[dict[str, Any]]) -> None:
     """Warn when all labels in output are sourced from validation_evidence."""
     if not cases:
         return
@@ -105,7 +107,7 @@ def _resolve_spec_version_id(
     story: UserStory,
     *,
     require_compiled: bool,
-) -> tuple[Optional[int], str]:
+) -> tuple[int | None, str]:
     """Resolve spec version for a story using accepted pin or latest approved spec."""
     if story.accepted_spec_version_id:
         spec_id = int(story.accepted_spec_version_id)
@@ -145,14 +147,14 @@ def _resolve_spec_version_id(
 
 def build_cases(
     *,
-    product_id: Optional[int],
+    product_id: int | None,
     limit: int,
     labeled_only: bool,
     require_compiled: bool,
     no_evidence_labels: bool = False,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Build benchmark case records from DB stories."""
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
 
     with Session(get_engine()) as session:
         statement = select(UserStory).order_by(UserStory.story_id.asc())
@@ -169,7 +171,9 @@ def build_cases(
             if spec_id is None:
                 continue
 
-            expected_pass, expected_fail_reasons, label_source = _extract_existing_labels(story)
+            expected_pass, expected_fail_reasons, label_source = (
+                _extract_existing_labels(story)
+            )
             expected_pass, expected_fail_reasons = _apply_no_evidence_labels(
                 expected_pass,
                 expected_fail_reasons,
@@ -202,7 +206,7 @@ def build_cases(
     return rows
 
 
-def write_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
+def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     """Write rows as JSONL."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:

@@ -24,17 +24,15 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from sqlmodel import Session, select
-from agile_sqlmodel import UserStory, Product, get_engine
-from models.core import Feature
 from orchestrator_agent.agent_tools.story_pipeline.steps.persona_checker import (
-    extract_persona_from_story,
-    validate_persona,
     auto_correct_persona,
     detect_generic_personas,
+    extract_persona_from_story,
     suggest_persona_replacement,
 )
+from sqlmodel import Session, select
 
+from agile_sqlmodel import Product, UserStory, get_engine
 
 # --- Configuration ---
 
@@ -262,13 +260,15 @@ def generate_review_report(product_id: int, output_file: str = "persona_review.c
                         "YES" if is_generic else "NO",
                         suggested or "MANUAL_REVIEW",
                         story.description[:100],
-                        story.acceptance_criteria[:100] if story.acceptance_criteria else "",
+                        story.acceptance_criteria[:100]
+                        if story.acceptance_criteria
+                        else "",
                         "PENDING",
                     ]
                 )
 
     print(f"📊 Review report saved to {output_file}")
-    print(f"   Open in Excel/Sheets for manual review")
+    print("   Open in Excel/Sheets for manual review")
 
 
 def main():
@@ -306,9 +306,7 @@ Examples:
     parser.add_argument(
         "--report-only", action="store_true", help="Generate CSV report only (no fixes)"
     )
-    parser.add_argument(
-        "--quiet", action="store_true", help="Suppress detailed output"
-    )
+    parser.add_argument("--quiet", action="store_true", help="Suppress detailed output")
 
     args = parser.parse_args()
 
@@ -328,7 +326,9 @@ Examples:
             print(f"Missing Personas: {analysis['no_persona_count']}")
             print("\nPersona Distribution:")
             for persona, count in sorted(
-                analysis["persona_distribution"].items(), key=lambda x: x[1], reverse=True
+                analysis["persona_distribution"].items(),
+                key=lambda x: x[1],
+                reverse=True,
             ):
                 marker = "⚠️ " if persona in PERSONA_FIXES else "✅ "
                 print(f"  {marker}{persona}: {count}")
@@ -357,9 +357,7 @@ Examples:
                 print("\n💡 Run without --dry-run to apply these changes")
 
             if stats["skipped_count"] > 0:
-                print(
-                    f"\n⚠️  {stats['skipped_count']} stories require manual review"
-                )
+                print(f"\n⚠️  {stats['skipped_count']} stories require manual review")
                 print("   Run with --report-only to generate a review CSV")
 
     except Exception as e:

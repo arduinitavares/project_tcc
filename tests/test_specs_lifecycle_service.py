@@ -1,8 +1,8 @@
 import hashlib
 from pathlib import Path
 
-from sqlmodel import Session, SQLModel, create_engine
 from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel, create_engine
 
 from agile_sqlmodel import Product, SpecRegistry
 
@@ -233,7 +233,7 @@ def test_link_spec_to_product_handles_compile_failure_after_link(
             "failure_artifact_id": "artifact-1",
             "failure_stage": "output_validation",
             "failure_summary": "Compiler failed",
-            "raw_output_preview": "{\"bad\":true}",
+            "raw_output_preview": '{"bad":true}',
             "has_full_artifact": True,
         }
 
@@ -411,8 +411,7 @@ def test_approve_spec_version_updates_metadata_from_service_boundary(session):
     assert approve_result["spec_version_id"] == spec_version_id
     assert approve_result["approved_by"] == "service.reviewer@example.com"
     assert approve_result["message"] == (
-        f"Spec version {spec_version_id} approved "
-        "by service.reviewer@example.com"
+        f"Spec version {spec_version_id} approved by service.reviewer@example.com"
     )
 
     spec = session.get(SpecRegistry, spec_version_id)
@@ -427,7 +426,7 @@ def test_register_spec_version_honors_legacy_spec_tools_engine_override(
     engine, monkeypatch
 ):
     from services.specs import lifecycle_service
-    import tools.spec_tools as spec_tools
+    from tools import spec_tools
 
     isolated_engine = create_engine(
         "sqlite:///:memory:",
@@ -464,9 +463,7 @@ def test_register_spec_version_honors_legacy_spec_tools_engine_override(
             assert spec.product_id == product_id
 
         with Session(engine) as default_session:
-            assert (
-                default_session.get(SpecRegistry, result["spec_version_id"]) is None
-            )
+            assert default_session.get(SpecRegistry, result["spec_version_id"]) is None
     finally:
         spec_tools.engine = previous_engine
         SQLModel.metadata.drop_all(isolated_engine)
@@ -476,7 +473,7 @@ def test_resolve_engine_prefers_spec_tools_get_engine_override_over_stale_engine
     monkeypatch,
 ):
     from services.specs import lifecycle_service
-    import tools.spec_tools as spec_tools
+    from tools import spec_tools
 
     preferred_engine = create_engine(
         "sqlite:///:memory:",
@@ -506,7 +503,7 @@ def test_register_and_approve_prefer_spec_tools_get_engine_override_over_stale_e
     monkeypatch,
 ):
     from services.specs import lifecycle_service
-    import tools.spec_tools as spec_tools
+    from tools import spec_tools
 
     preferred_engine = create_engine(
         "sqlite:///:memory:",
@@ -562,9 +559,17 @@ def test_register_and_approve_prefer_spec_tools_get_engine_override_over_stale_e
 def test_tool_lifecycle_input_models_alias_service_models():
     from services.specs.lifecycle_service import (
         ApproveSpecVersionInput as ServiceApproveSpecVersionInput,
+    )
+    from services.specs.lifecycle_service import (
         LinkSpecToProductInput as ServiceLinkSpecToProductInput,
+    )
+    from services.specs.lifecycle_service import (
         ReadProjectSpecificationInput as ServiceReadProjectSpecificationInput,
+    )
+    from services.specs.lifecycle_service import (
         RegisterSpecVersionInput as ServiceRegisterSpecVersionInput,
+    )
+    from services.specs.lifecycle_service import (
         SaveProjectSpecificationInput as ServiceSaveProjectSpecificationInput,
     )
     from tools.spec_tools import (
@@ -586,7 +591,7 @@ def test_save_project_specification_honors_legacy_spec_tools_engine_override(
     monkeypatch, tmp_path
 ):
     from services.specs import lifecycle_service
-    import tools.spec_tools as spec_tools
+    from tools import spec_tools
 
     isolated_engine = create_engine(
         "sqlite:///:memory:",
@@ -641,7 +646,7 @@ def test_link_and_read_specification_honor_legacy_spec_tools_engine_override(
     monkeypatch, tmp_path
 ):
     from services.specs import lifecycle_service
-    import tools.spec_tools as spec_tools
+    from tools import spec_tools
 
     isolated_engine = create_engine(
         "sqlite:///:memory:",
@@ -683,7 +688,12 @@ def test_link_and_read_specification_honor_legacy_spec_tools_engine_override(
         assert link_result["success"] is True
 
         ctx = MockToolContext(
-            state={"active_project": {"product_id": product_id, "name": "Isolated Link Product"}}
+            state={
+                "active_project": {
+                    "product_id": product_id,
+                    "name": "Isolated Link Product",
+                }
+            }
         )
         read_result = lifecycle_service.read_project_specification(
             {},

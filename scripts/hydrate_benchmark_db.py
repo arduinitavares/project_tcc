@@ -3,13 +3,14 @@
 Initialize and Hydrate Database for Benchmark.
 Creates products, specs, compiled authorities, AND user stories.
 """
-import sys
-import asyncio
-from pathlib import Path
-from sqlmodel import Session, select
-from datetime import datetime, timezone
-import json
+
 import hashlib
+import json
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+
+from sqlmodel import Session, select
 
 # Add repo root to path
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -17,15 +18,20 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
 from agile_sqlmodel import (
-    Product, SpecRegistry, CompiledSpecAuthority, UserStory, create_db_and_tables, get_engine,
-    SpecAuthorityAcceptance, SpecAuthorityStatus, StoryStatus
+    CompiledSpecAuthority,
+    Product,
+    SpecAuthorityAcceptance,
+    SpecRegistry,
+    StoryStatus,
+    UserStory,
+    create_db_and_tables,
+    get_engine,
 )
-from tools.spec_tools import compile_spec_authority, ensure_accepted_spec_authority
 
 # Define specifications
 SPECS = {
     7: {
-        "name": "Project Quadra", # Using existing name/domain from p7-v8 in cases.jsonl
+        "name": "Project Quadra",  # Using existing name/domain from p7-v8 in cases.jsonl
         "content": """# Project Quadra Specification
 
 ## Vision
@@ -61,16 +67,31 @@ A secure document review and attestation platform for regulated industries.
 """,
         "spec_version_id": 8,
         "mock_invariants": [
-            {"type": "FORBIDDEN_CAPABILITY", "parameters": {"capability": "Real-time collaboration"}},
-            {"type": "FORBIDDEN_CAPABILITY", "parameters": {"capability": "Public API"}},
-            {"type": "FORBIDDEN_CAPABILITY", "parameters": {"capability": "Payment processing"}},
-            {"type": "REQUIRED_FIELD", "parameters": {"field_name": "Acceptance Criteria"}},
+            {
+                "type": "FORBIDDEN_CAPABILITY",
+                "parameters": {"capability": "Real-time collaboration"},
+            },
+            {
+                "type": "FORBIDDEN_CAPABILITY",
+                "parameters": {"capability": "Public API"},
+            },
+            {
+                "type": "FORBIDDEN_CAPABILITY",
+                "parameters": {"capability": "Payment processing"},
+            },
+            {
+                "type": "REQUIRED_FIELD",
+                "parameters": {"field_name": "Acceptance Criteria"},
+            },
             {"type": "REQUIRED_FIELD", "parameters": {"field_name": "Story Points"}},
-            {"type": "MAX_VALUE", "parameters": {"field_name": "Story Points", "max_value": 8}},
-        ]
+            {
+                "type": "MAX_VALUE",
+                "parameters": {"field_name": "Story Points", "max_value": 8},
+            },
+        ],
     },
     8: {
-        "name": "Visionary Manufacturing", # Based on p8-s62-v9 content
+        "name": "Visionary Manufacturing",  # Based on p8-s62-v9 content
         "content": """# Visionary Manufacturing Specification (Phase 1)
 
 ## Vision
@@ -98,12 +119,21 @@ Offline dataset ingestion and 2D product segmentation system.
 - CSV Export: instance and batch level
 - File Ingestion: folder parsing
 """,
-        "spec_version_id": 9, # Matching v9 from cases
+        "spec_version_id": 9,  # Matching v9 from cases
         "mock_invariants": [
-            {"type": "FORBIDDEN_CAPABILITY", "parameters": {"capability": "Cloud connectivity"}},
-            {"type": "REQUIRED_FIELD", "parameters": {"field_name": "Acceptance Criteria"}},
-            {"type": "MAX_VALUE", "parameters": {"field_name": "Story Points", "max_value": 5}},
-        ]
+            {
+                "type": "FORBIDDEN_CAPABILITY",
+                "parameters": {"capability": "Cloud connectivity"},
+            },
+            {
+                "type": "REQUIRED_FIELD",
+                "parameters": {"field_name": "Acceptance Criteria"},
+            },
+            {
+                "type": "MAX_VALUE",
+                "parameters": {"field_name": "Story Points", "max_value": 5},
+            },
+        ],
     },
     9: {
         "name": "E-Commerce Platform",
@@ -142,13 +172,25 @@ A modern, scalable e-commerce platform for digital goods.
 """,
         "spec_version_id": 901,
         "mock_invariants": [
-            {"type": "FORBIDDEN_CAPABILITY", "parameters": {"capability": "Physical inventory"}},
+            {
+                "type": "FORBIDDEN_CAPABILITY",
+                "parameters": {"capability": "Physical inventory"},
+            },
             {"type": "FORBIDDEN_CAPABILITY", "parameters": {"capability": "Shipping"}},
-            {"type": "FORBIDDEN_CAPABILITY", "parameters": {"capability": "Cryptocurrency"}},
-            {"type": "REQUIRED_FIELD", "parameters": {"field_name": "Acceptance Criteria"}},
+            {
+                "type": "FORBIDDEN_CAPABILITY",
+                "parameters": {"capability": "Cryptocurrency"},
+            },
+            {
+                "type": "REQUIRED_FIELD",
+                "parameters": {"field_name": "Acceptance Criteria"},
+            },
             {"type": "REQUIRED_FIELD", "parameters": {"field_name": "API Endpoint"}},
-            {"type": "MAX_VALUE", "parameters": {"field_name": "Story Points", "max_value": 5}},
-        ]
+            {
+                "type": "MAX_VALUE",
+                "parameters": {"field_name": "Story Points", "max_value": 5},
+            },
+        ],
     },
     10: {
         "name": "IoT Home Controller",
@@ -186,15 +228,34 @@ A centralized hub for managing smart home devices locally.
 """,
         "spec_version_id": 1001,
         "mock_invariants": [
-            {"type": "FORBIDDEN_CAPABILITY", "parameters": {"capability": "Cloud dependency"}},
-            {"type": "FORBIDDEN_CAPABILITY", "parameters": {"capability": "Voice assistant"}},
-            {"type": "FORBIDDEN_CAPABILITY", "parameters": {"capability": "Video storage"}},
-            {"type": "REQUIRED_FIELD", "parameters": {"field_name": "Acceptance Criteria"}},
-            {"type": "REQUIRED_FIELD", "parameters": {"field_name": "Latency Requirement"}},
-            {"type": "MAX_VALUE", "parameters": {"field_name": "Story Points", "max_value": 13}},
-        ]
-    }
+            {
+                "type": "FORBIDDEN_CAPABILITY",
+                "parameters": {"capability": "Cloud dependency"},
+            },
+            {
+                "type": "FORBIDDEN_CAPABILITY",
+                "parameters": {"capability": "Voice assistant"},
+            },
+            {
+                "type": "FORBIDDEN_CAPABILITY",
+                "parameters": {"capability": "Video storage"},
+            },
+            {
+                "type": "REQUIRED_FIELD",
+                "parameters": {"field_name": "Acceptance Criteria"},
+            },
+            {
+                "type": "REQUIRED_FIELD",
+                "parameters": {"field_name": "Latency Requirement"},
+            },
+            {
+                "type": "MAX_VALUE",
+                "parameters": {"field_name": "Story Points", "max_value": 13},
+            },
+        ],
+    },
 }
+
 
 def _render_invariant_str(inv):
     t = inv["type"]
@@ -207,18 +268,21 @@ def _render_invariant_str(inv):
         return f"MAX_VALUE:{p.get('field_name')}<= {p.get('max_value')}"
     return f"INVARIANT:{t}"
 
+
 def create_mock_authority(session, spec_version_id, mock_invariants):
     print(f"Creating mock authority for spec {spec_version_id}...")
 
     invariants_list = []
     for i, inv in enumerate(mock_invariants):
-        invariants_list.append({
-            "id": f"inv-{spec_version_id}-{i}",
-            "type": inv["type"],
-            "parameters": inv["parameters"],
-            "description": f"Mock invariant {i}",
-            "source_text": "Mock source"
-        })
+        invariants_list.append(
+            {
+                "id": f"inv-{spec_version_id}-{i}",
+                "type": inv["type"],
+                "parameters": inv["parameters"],
+                "description": f"Mock invariant {i}",
+                "source_text": "Mock source",
+            }
+        )
 
     # Render string summaries for column
     invariant_strs = [_render_invariant_str(inv) for inv in mock_invariants]
@@ -226,20 +290,20 @@ def create_mock_authority(session, spec_version_id, mock_invariants):
     artifact = {
         "scope_themes": ["Mock Theme 1", "Mock Theme 2"],
         "invariants": invariants_list,
-        "gaps": []
+        "gaps": [],
     }
 
     authority = CompiledSpecAuthority(
         spec_version_id=spec_version_id,
         compiler_version="mock-1.0",
         prompt_hash="mock-hash",
-        compiled_at=datetime.now(timezone.utc),
+        compiled_at=datetime.now(UTC),
         compiled_artifact_json=json.dumps(artifact),
         scope_themes=json.dumps(artifact["scope_themes"]),
         invariants=json.dumps(invariant_strs),
         eligible_feature_ids=json.dumps([]),
         rejected_features=json.dumps([]),
-        spec_gaps=json.dumps([])
+        spec_gaps=json.dumps([]),
     )
     session.add(authority)
     session.commit()
@@ -253,15 +317,15 @@ def create_mock_authority(session, spec_version_id, mock_invariants):
         status="accepted",
         policy="auto",
         decided_by="mock_script",
-        decided_at=datetime.now(timezone.utc),
+        decided_at=datetime.now(UTC),
         rationale="Mock hydration",
         compiler_version="mock-1.0",
         prompt_hash="mock-hash",
-        spec_hash="mock-spec-hash"
+        spec_hash="mock-spec-hash",
     )
     session.add(acceptance)
     session.commit()
-    print(f"Mock authority accepted.")
+    print("Mock authority accepted.")
 
 
 def hydrate_db():
@@ -280,8 +344,8 @@ def hydrate_db():
                 product = Product(
                     product_id=pid,
                     name=spec_data["name"],
-                    description=spec_data["content"].split('\n')[2],
-                    technical_spec=spec_data["content"]
+                    description=spec_data["content"].split("\n")[2],
+                    technical_spec=spec_data["content"],
                 )
                 session.add(product)
                 session.commit()
@@ -296,8 +360,8 @@ def hydrate_db():
                     spec_hash=hashlib.sha256(spec_data["content"].encode()).hexdigest(),
                     content=spec_data["content"],
                     status="approved",
-                    approved_at=datetime.now(timezone.utc),
-                    approved_by="system"
+                    approved_at=datetime.now(UTC),
+                    approved_by="system",
                 )
                 session.add(spec)
                 session.commit()
@@ -314,7 +378,9 @@ def hydrate_db():
             else:
                 try:
                     # Attempt mock first to save time/tokens if API is flaky
-                    create_mock_authority(session, spec_version_id, spec_data["mock_invariants"])
+                    create_mock_authority(
+                        session, spec_version_id, spec_data["mock_invariants"]
+                    )
                 except Exception as e:
                     print(f"Error creating authority: {e}")
 
@@ -322,9 +388,10 @@ def hydrate_db():
         stories_file = Path("artifacts/validation_benchmark/synthetic_stories.jsonl")
         if stories_file.exists():
             print("Hydrating user stories from synthetic_stories.jsonl...")
-            with open(stories_file, 'r') as f:
+            with open(stories_file) as f:
                 for line in f:
-                    if not line.strip(): continue
+                    if not line.strip():
+                        continue
                     s_data = json.loads(line)
 
                     # Upsert: update existing or insert new
@@ -342,7 +409,7 @@ def hydrate_db():
                             title=s_data["title"],
                             story_description=s_data["description"],
                             acceptance_criteria=s_data["acceptance_criteria"],
-                            status=StoryStatus.TO_DO
+                            status=StoryStatus.TO_DO,
                         )
                         session.add(story)
             session.commit()
@@ -351,6 +418,7 @@ def hydrate_db():
             print("Warning: synthetic_stories.jsonl not found.")
 
     print("Hydration complete.")
+
 
 if __name__ == "__main__":
     hydrate_db()

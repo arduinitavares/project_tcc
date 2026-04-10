@@ -1,6 +1,6 @@
 """Tests for sprint planner schemas."""
 
-from typing import Any, Dict
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -14,7 +14,7 @@ from orchestrator_agent.agent_tools.sprint_planner_tool.schemes import (
 )
 
 
-def _build_output_payload() -> Dict[str, Any]:
+def _build_output_payload() -> dict[str, Any]:
     return {
         "sprint_goal": "Ship login onboarding",
         "sprint_number": 1,
@@ -50,9 +50,7 @@ def _build_output_payload() -> Dict[str, Any]:
                 "reason_for_selection": "Core to sprint goal",
             }
         ],
-        "deselected_stories": [
-            {"story_id": 102, "reason": "Does not fit capacity"}
-        ],
+        "deselected_stories": [{"story_id": 102, "reason": "Does not fit capacity"}],
         "capacity_analysis": {
             "velocity_assumption": "Medium",
             "capacity_band": "4-5 stories",
@@ -92,7 +90,7 @@ def test_output_schema_rejects_extra_fields():
 
 def test_input_schema_accepts_optional_fields():
     """Ensure input schema accepts optional capacity and task flags."""
-    input_payload: Dict[str, Any] = {
+    input_payload: dict[str, Any] = {
         "available_stories": [
             {
                 "story_id": 101,
@@ -120,7 +118,7 @@ def test_input_schema_accepts_optional_fields():
 
 def test_input_schema_requires_duration_days():
     """Ensure sprint duration is required in input schema."""
-    input_payload: Dict[str, Any] = {
+    input_payload: dict[str, Any] = {
         "available_stories": [
             {
                 "story_id": 101,
@@ -145,12 +143,14 @@ def test_input_schema_requires_duration_days():
     except ValidationError as exc:
         assert "sprint_duration_days" in str(exc)
     else:
-        raise AssertionError("Expected ValidationError for missing sprint_duration_days")
+        raise AssertionError(
+            "Expected ValidationError for missing sprint_duration_days"
+        )
 
 
 def test_selected_story_requires_reason():
     """Ensure selected stories include a reason for selection."""
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "story_id": 201,
         "story_title": "Password reset",
         "tasks": [
@@ -169,7 +169,7 @@ def test_selected_story_requires_reason():
 
 
 def test_selected_story_rejects_legacy_string_tasks():
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "story_id": 201,
         "story_title": "Password reset",
         "tasks": ["Add reset API"],
@@ -225,7 +225,7 @@ def test_validate_task_decomposition_quality_rejects_broad_story_completion_phra
 
 def test_capacity_analysis_requires_commitment_note():
     """Ensure capacity analysis includes commitment note."""
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "velocity_assumption": "High",
         "capacity_band": "6-7 stories",
         "selected_count": 6,

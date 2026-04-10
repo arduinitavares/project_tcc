@@ -1,7 +1,8 @@
-# utils/schemes.py
 """Compatibility re-export layer for shared Pydantic schemas."""
 
-from utils.api_schemas import (
+from __future__ import annotations
+
+from .api_schemas import (
     SprintCloseReadiness,
     SprintCloseReadResponse,
     SprintCloseStorySummary,
@@ -13,7 +14,7 @@ from utils.api_schemas import (
     TaskExecutionReadResponse,
     TaskExecutionWriteRequest,
 )
-from utils.spec_schemas import (
+from .spec_schemas import (
     AlignmentFinding,
     EligibleFeatureRule,
     ForbiddenCapabilityParams,
@@ -37,3 +38,38 @@ from utils.spec_schemas import (
     ValidationEvidence,
     ValidationFailure,
 )
+
+__all__ = [
+    "AlignmentFinding",
+    "EligibleFeatureRule",
+    "ForbiddenCapabilityParams",
+    "Invariant",
+    "InvariantParameters",
+    "InvariantType",
+    "MaxValueParams",
+    "NegationCheckInput",
+    "NegationCheckOutput",
+    "RequiredFieldParams",
+    "SourceMapEntry",
+    "SpecAuthorityCompilationFailure",
+    "SpecAuthorityCompilationSuccess",
+    "SpecAuthorityCompilerEnvelope",
+    "SpecAuthorityCompilerInput",
+    "SpecAuthorityCompilerOutput",
+    "SprintCloseReadResponse",
+    "SprintCloseReadiness",
+    "SprintCloseStorySummary",
+    "SprintCloseWriteRequest",
+    "StoryCloseReadResponse",
+    "StoryCloseWriteRequest",
+    "StoryDraft",
+    "StoryDraftInput",
+    "StoryDraftMetadata",
+    "StoryRefinerInput",
+    "StoryTaskProgressSummary",
+    "TaskExecutionLogEntry",
+    "TaskExecutionReadResponse",
+    "TaskExecutionWriteRequest",
+    "ValidationEvidence",
+    "ValidationFailure",
+]

@@ -4,6 +4,6 @@ from pathlib import Path
 
 
 def load_instruction(path: Path) -> str:
-    """Utility function to load instruction text from a file."""
-    with open(path, "r", encoding="utf-8") as file:
+    """Load instruction text from a file."""
+    with path.open(encoding="utf-8") as file:
         return file.read()

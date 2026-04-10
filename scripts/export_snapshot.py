@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Optional
 
 from sqlalchemy.engine import Engine
 
@@ -20,7 +19,7 @@ def export_snapshot_command(
     *,
     product_id: int,
     output_dir: Path,
-    engine_override: Optional[Engine] = None,
+    engine_override: Engine | None = None,
 ) -> Path:
     """Generate a snapshot HTML file for a product.
 
@@ -32,7 +31,6 @@ def export_snapshot_command(
     Returns:
         Path to the generated HTML file.
     """
-
     return export_project_snapshot_html(
         product_id=product_id,
         output_dir=output_dir,
@@ -40,7 +38,7 @@ def export_snapshot_command(
     )
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Export project snapshot HTML")
     parser.add_argument("--product-id", type=int, required=True, help="Product ID")
     parser.add_argument(

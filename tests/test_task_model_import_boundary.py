@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -115,8 +114,8 @@ def test_task_runtime_consumers_import_task_from_models_core_only() -> None:
         }
 
         assert task_import_sources == {"models.core"}, module_name
-        assert "Task" in core_imports or bool(
-            core_task_attr_refs & dotted_refs
-        ), module_name
+        assert "Task" in core_imports or bool(core_task_attr_refs & dotted_refs), (
+            module_name
+        )
         assert "Task" not in agile_imports, module_name
         assert not (agile_task_attr_refs & dotted_refs), module_name

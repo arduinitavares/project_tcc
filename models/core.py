@@ -7,6 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.types import Date, Text
 from sqlmodel import Field, Relationship, SQLModel
+
 from models.enums import (
     SprintStatus,
     StoryResolution,
@@ -26,9 +27,7 @@ class TeamMembership(SQLModel, table=True):
 
     __tablename__ = "team_memberships"  # type: ignore
     team_id: int = Field(foreign_key="teams.team_id", primary_key=True)
-    member_id: int = Field(
-        foreign_key="team_members.member_id", primary_key=True
-    )
+    member_id: int = Field(foreign_key="team_members.member_id", primary_key=True)
     role: TeamRole = Field(default=TeamRole.DEVELOPER, nullable=False)
 
 
@@ -36,9 +35,7 @@ class ProductTeam(SQLModel, table=True):
     """Link table for Product <-> Team."""
 
     __tablename__ = "product_teams"  # type: ignore
-    product_id: int = Field(
-        foreign_key="products.product_id", primary_key=True
-    )
+    product_id: int = Field(foreign_key="products.product_id", primary_key=True)
     team_id: int = Field(foreign_key="teams.team_id", primary_key=True)
 
 
@@ -155,9 +152,7 @@ class SprintStory(SQLModel, table=True):
 
     __tablename__ = "sprint_stories"  # type: ignore
     sprint_id: int = Field(foreign_key="sprints.sprint_id", primary_key=True)
-    story_id: int = Field(
-        foreign_key="user_stories.story_id", primary_key=True
-    )
+    story_id: int = Field(foreign_key="user_stories.story_id", primary_key=True)
     added_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         sa_column_kwargs={"server_default": func.now()},
@@ -337,9 +332,7 @@ class UserStory(SQLModel, table=True):
     completion_notes: str | None = Field(default=None, sa_type=Text)
     evidence_links: str | None = Field(default=None, sa_type=Text)
     completed_at: datetime | None = Field(default=None)
-    original_acceptance_criteria: str | None = Field(
-        default=None, sa_type=Text
-    )
+    original_acceptance_criteria: str | None = Field(default=None, sa_type=Text)
     ac_updated_at: datetime | None = Field(default=None)
     ac_update_reason: str | None = Field(default=None, sa_type=Text)
 
@@ -369,9 +362,7 @@ class UserStory(SQLModel, table=True):
     )
 
     product_id: int = Field(foreign_key="products.product_id", index=True)
-    feature_id: int | None = Field(
-        default=None, foreign_key="features.feature_id"
-    )
+    feature_id: int | None = Field(default=None, foreign_key="features.feature_id")
 
     product: "Product" = Relationship(back_populates="stories")
     feature: Feature | None = Relationship(back_populates="stories")
@@ -382,6 +373,7 @@ class UserStory(SQLModel, table=True):
         back_populates="story",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
+
 
 class Task(SQLModel, table=True):
     """A granular sub-task for a user story."""
@@ -437,9 +429,7 @@ class ProductPersona(SQLModel, table=True):
     product: "Product" = Relationship(back_populates="personas")
 
     __table_args__ = (
-        UniqueConstraint(
-            "product_id", "persona_name", name="unique_product_persona"
-        ),
+        UniqueConstraint("product_id", "persona_name", name="unique_product_persona"),
     )
 
 

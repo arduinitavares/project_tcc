@@ -18,14 +18,16 @@ from google.genai import types
 
 from orchestrator_agent.agent_tools.product_vision_tool.agent import root_agent
 
+
 # pylint: disable=too-few-public-methods
 class StatefulVisionAgent:
     """
     Helper class to maintain state for the vision agent across test turns.
     """
+
     def __init__(self, agent):
         self.agent = agent
-        self.vision_components = None # dict
+        self.vision_components = None  # dict
 
     def _parse_json_response(self, response_text):
         """Parses the JSON response from the LLM, handling markdown blocks."""
@@ -46,7 +48,9 @@ class StatefulVisionAgent:
         user_text = input_dict.get("unstructured_requirements", "")
 
         prior_state_str = (
-            json.dumps(self.vision_components) if self.vision_components else "NO_HISTORY"
+            json.dumps(self.vision_components)
+            if self.vision_components
+            else "NO_HISTORY"
         )
 
         prompt = f"""
@@ -58,10 +62,7 @@ class StatefulVisionAgent:
         session_id = str(uuid.uuid4())
         session = DatabaseSessionService("sqlite:///:memory:")
         await session.create_session(
-            app_name="test",
-            user_id="user",
-            session_id=session_id,
-            state={}
+            app_name="test", user_id="user", session_id=session_id, state={}
         )
         runner = Runner(agent=self.agent, app_name="test", session_service=session)
 
@@ -69,7 +70,9 @@ class StatefulVisionAgent:
         async for event in runner.run_async(
             user_id="user",
             session_id=session_id,
-            new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
+            new_message=types.Content(
+                role="user", parts=[types.Part.from_text(text=prompt)]
+            ),
         ):
             if event.content and event.content.parts:
                 for part in event.content.parts:
@@ -94,13 +97,15 @@ class StatefulVisionAgent:
 
             return result
 
-        except Exception as e: # pylint: disable=broad-exception-caught
+        except Exception as e:  # pylint: disable=broad-exception-caught
             return {"error": str(e), "raw": response_text}
+
 
 @pytest.fixture
 def agent_wrapper():
     """Fixture to create a StatefulVisionAgent instance."""
     return StatefulVisionAgent(root_agent)
+
 
 @pytest.mark.integration
 @pytest.mark.skipif(not os.getenv("OPEN_ROUTER_API_KEY"), reason="No API Key")
@@ -132,9 +137,9 @@ class TestStateReconstruction:
 
         # Verify target user wasn't set to null
         vision_statement = turn2_response.get("product_vision_statement", "")
-        assert (
-            "[target user]" not in vision_statement.lower()
-        ), "Target user was reset to placeholder despite being known from Turn 1"
+        assert "[target user]" not in vision_statement.lower(), (
+            "Target user was reset to placeholder despite being known from Turn 1"
+        )
 
     @pytest.mark.asyncio
     async def test_explicit_update(self, agent_wrapper):
@@ -238,8 +243,7 @@ class TestStateReconstruction:
         vision_statement = turn2_response.get("product_vision_statement", "")
         target_user = turn2_response.get("target_user", "")
         assert (
-            "tennis" in vision_statement.lower()
-            or "tennis" in str(target_user).lower()
+            "tennis" in vision_statement.lower() or "tennis" in str(target_user).lower()
         ), "Original context lost after answering clarifying question"
 
     @pytest.mark.asyncio
@@ -259,9 +263,9 @@ class TestStateReconstruction:
         turn2_response = await agent_wrapper.run(turn2_input)
 
         # Verify project name is preserved (not set to null)
-        assert (
-            turn2_response.get("project_name") == "NetSet"
-        ), "Project name was set to null when not mentioned in Turn 2"
+        assert turn2_response.get("project_name") == "NetSet", (
+            "Project name was set to null when not mentioned in Turn 2"
+        )
 
         # Verify target user was added
         vision_statement = turn2_response.get("product_vision_statement", "")
@@ -410,7 +414,9 @@ class TestRealWorldScenarios:
 
         previous_response = None
         for turn_num, user_input in enumerate(conversation, start=1):
-            response = await agent_wrapper.run({"unstructured_requirements": user_input})
+            response = await agent_wrapper.run(
+                {"unstructured_requirements": user_input}
+            )
 
             # Verify cumulative state growth
             if turn_num >= 2:
@@ -423,16 +429,19 @@ class TestRealWorldScenarios:
                 ), f"Turn {turn_num}: Lost 'tennis' from Turn 1"
 
             if turn_num >= 3:
-                assert (
-                    response.get("project_name") == "NetSet"
-                ), f"Turn {turn_num}: Lost project name from Turn 2"
+                assert response.get("project_name") == "NetSet", (
+                    f"Turn {turn_num}: Lost project name from Turn 2"
+                )
 
             previous_response = response
 
         # Final verification: All components present
         final_vision = previous_response.get("product_vision_statement", "")
         final_target_user = previous_response.get("target_user", "")
-        assert "tennis" in final_vision.lower() or "tennis" in str(final_target_user).lower()
+        assert (
+            "tennis" in final_vision.lower()
+            or "tennis" in str(final_target_user).lower()
+        )
         assert "netset" in previous_response.get("project_name", "").lower()
         assert "partners" in final_vision.lower() or "practice" in final_vision.lower()
         assert "mobile" in final_vision.lower() or "app" in final_vision.lower()

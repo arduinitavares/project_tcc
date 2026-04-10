@@ -6,9 +6,10 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 
 KNOWN_REASON_CODES = {
     "SPEC_VERSION_EXISTS",
@@ -23,8 +24,8 @@ KNOWN_REASON_CODES = {
 }
 
 
-def _read_cases(path: Path) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
+def _read_cases(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
@@ -34,7 +35,7 @@ def _read_cases(path: Path) -> List[Dict[str, Any]]:
     return rows
 
 
-def _write_cases(path: Path, rows: Sequence[Dict[str, Any]]) -> None:
+def _write_cases(path: Path, rows: Sequence[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
@@ -49,12 +50,12 @@ def _as_text(raw: Any) -> str:
     return str(raw)
 
 
-def _clean_optional_text(raw: Any) -> Optional[str]:
+def _clean_optional_text(raw: Any) -> str | None:
     text = _as_text(raw).strip()
     return text or None
 
 
-def _parse_bool(raw: Any) -> Optional[bool]:
+def _parse_bool(raw: Any) -> bool | None:
     if isinstance(raw, bool):
         return raw
     text = _as_text(raw).strip().lower()
@@ -67,7 +68,7 @@ def _parse_bool(raw: Any) -> Optional[bool]:
     raise ValueError(f"Invalid boolean value: {raw!r}")
 
 
-def _parse_reasons(raw: Any) -> List[str]:
+def _parse_reasons(raw: Any) -> list[str]:
     if isinstance(raw, list):
         reasons = [str(part).strip() for part in raw if str(part).strip()]
         return sorted(set(reasons))
@@ -79,7 +80,9 @@ def _parse_reasons(raw: Any) -> List[str]:
     return sorted(set(reasons))
 
 
-def _validate_reason_codes(reasons: Sequence[str], *, allow_unknown_reasons: bool) -> None:
+def _validate_reason_codes(
+    reasons: Sequence[str], *, allow_unknown_reasons: bool
+) -> None:
     if allow_unknown_reasons:
         return
     unknown = [reason for reason in reasons if reason not in KNOWN_REASON_CODES]
@@ -96,12 +99,12 @@ def _validate_label_columns(columns: Sequence[str]) -> None:
         raise ValueError(f"Label file missing required column(s): {sorted(missing)}")
 
 
-def _read_label_rows_csv(path: Path) -> Dict[str, Dict[str, Any]]:
+def _read_label_rows_csv(path: Path) -> dict[str, dict[str, Any]]:
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         _validate_label_columns(reader.fieldnames or [])
 
-        labels: Dict[str, Dict[str, Any]] = {}
+        labels: dict[str, dict[str, Any]] = {}
         for row in reader:
             case_id = (row.get("case_id") or "").strip()
             if not case_id:
@@ -110,8 +113,8 @@ def _read_label_rows_csv(path: Path) -> Dict[str, Dict[str, Any]]:
         return labels
 
 
-def _read_label_rows_jsonl(path: Path) -> Dict[str, Dict[str, Any]]:
-    labels: Dict[str, Dict[str, Any]] = {}
+def _read_label_rows_jsonl(path: Path) -> dict[str, dict[str, Any]]:
+    labels: dict[str, dict[str, Any]] = {}
     seen_columns: set[str] = set()
     with path.open("r", encoding="utf-8") as handle:
         for idx, line in enumerate(handle, start=1):
@@ -121,7 +124,9 @@ def _read_label_rows_jsonl(path: Path) -> Dict[str, Dict[str, Any]]:
             try:
                 row = json.loads(text)
             except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSON on line {idx} in labels file: {path}") from exc
+                raise ValueError(
+                    f"Invalid JSON on line {idx} in labels file: {path}"
+                ) from exc
             if not isinstance(row, dict):
                 raise ValueError(f"Labels JSONL line {idx} is not an object")
             seen_columns.update(row.keys())
@@ -133,7 +138,7 @@ def _read_label_rows_jsonl(path: Path) -> Dict[str, Dict[str, Any]]:
     return labels
 
 
-def _read_label_rows(path: Path) -> Dict[str, Dict[str, Any]]:
+def _read_label_rows(path: Path) -> dict[str, dict[str, Any]]:
     suffix = path.suffix.lower()
     if suffix == ".csv":
         return _read_label_rows_csv(path)
@@ -141,15 +146,15 @@ def _read_label_rows(path: Path) -> Dict[str, Dict[str, Any]]:
 
 
 def merge_human_labels(
-    cases: Sequence[Dict[str, Any]],
-    labels_by_case: Dict[str, Dict[str, Any]],
+    cases: Sequence[dict[str, Any]],
+    labels_by_case: dict[str, dict[str, Any]],
     *,
     allow_unknown_reasons: bool,
-) -> tuple[List[Dict[str, Any]], int]:
+) -> tuple[list[dict[str, Any]], int]:
     """Merge labeled rows into benchmark cases."""
-    merged: List[Dict[str, Any]] = []
+    merged: list[dict[str, Any]] = []
     updated = 0
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     for case in cases:
         updated_case = dict(case)

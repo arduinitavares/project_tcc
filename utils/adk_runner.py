@@ -1,14 +1,26 @@
+"""Utilities for running ADK agents and extracting text/JSON responses."""
+
 from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, Iterable, List, Optional
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from utils.failure_artifacts import AgentInvocationError
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+
+class RunnerIdentityLike(Protocol):
+    """Minimal runner identity required to create an ADK session."""
+
+    app_name: str
+    user_id: str
 
 
 def _iter_exception_chain(exc: BaseException) -> Iterable[BaseException]:
@@ -20,7 +32,7 @@ def _iter_exception_chain(exc: BaseException) -> Iterable[BaseException]:
         current = current.__cause__ or current.__context__
 
 
-def _extract_validation_errors(exc: BaseException) -> Optional[List[Dict[str, Any]]]:
+def _extract_validation_errors(exc: BaseException) -> list[dict[str, Any]] | None:
     for candidate in _iter_exception_chain(exc):
         errors = getattr(candidate, "errors", None)
         if not callable(errors):
@@ -34,25 +46,29 @@ def _extract_validation_errors(exc: BaseException) -> Optional[List[Dict[str, An
     return None
 
 
-def extract_final_response_text(events: List[Any]) -> str:
+def extract_final_response_text(events: list[object]) -> str:
+    """Return the last non-empty text payload emitted by a runner event stream."""
     for event in reversed(events):
         content = getattr(event, "content", None)
         if not content:
             continue
         parts = getattr(content, "parts", None) or []
-        text_parts = [getattr(part, "text", "") for part in parts if getattr(part, "text", "")]
+        text_parts = [
+            getattr(part, "text", "") for part in parts if getattr(part, "text", "")
+        ]
         merged = "\n".join(text_parts).strip()
         if merged:
             return merged
     return ""
 
 
-def extract_partial_response_text(events: List[Any]) -> str:
+def extract_partial_response_text(events: list[object]) -> str:
+    """Return any text fragments collected before a runner failed."""
     final = extract_final_response_text(events)
     if final:
         return final
 
-    fragments: List[str] = []
+    fragments: list[str] = []
     for event in events:
         content = getattr(event, "content", None)
         if not content:
@@ -64,7 +80,8 @@ def extract_partial_response_text(events: List[Any]) -> str:
     return "\n".join(fragments).strip()
 
 
-def parse_json_payload(raw_text: str) -> Optional[Dict[str, Any]]:
+def parse_json_payload(raw_text: str) -> dict[str, Any] | None:
+    """Parse a JSON object from raw model text or a fenced JSON block."""
     candidate = (raw_text or "").strip()
     if not candidate:
         return None
@@ -93,7 +110,8 @@ def parse_json_payload(raw_text: str) -> Optional[Dict[str, Any]]:
             return None
 
 
-def get_agent_model_info(agent: Any) -> Dict[str, Any]:
+def get_agent_model_info(agent: object) -> dict[str, Any]:
+    """Return lightweight model metadata for failure artifacts and diagnostics."""
     model = getattr(agent, "model", None)
     return {
         "agent_name": getattr(agent, "name", None),
@@ -105,14 +123,15 @@ def get_agent_model_info(agent: Any) -> Dict[str, Any]:
 
 async def invoke_agent_to_text(
     *,
-    agent: Any,
-    runner_identity: Any,
+    agent: object,
+    runner_identity: RunnerIdentityLike,
     payload_json: str,
     no_text_error: str,
 ) -> str:
+    """Run an ADK agent with a JSON payload and return the final text response."""
     session_service = InMemorySessionService()
     runner = Runner(
-        agent=agent,
+        agent=cast("Any", agent),
         app_name=runner_identity.app_name,
         session_service=session_service,
     )
@@ -121,19 +140,23 @@ async def invoke_agent_to_text(
         user_id=runner_identity.user_id,
     )
 
-    events: List[Any] = []
+    events: list[Any] = []
     message = types.Content(
         role="user",
         parts=[types.Part.from_text(text=payload_json)],
     )
 
     try:
-        async for event in runner.run_async(
-            user_id=runner_identity.user_id,
-            session_id=session.id,
-            new_message=message,
-        ):
-            events.append(event)
+        events.extend(
+            [
+                event
+                async for event in runner.run_async(
+                    user_id=runner_identity.user_id,
+                    session_id=session.id,
+                    new_message=message,
+                )
+            ]
+        )
     except Exception as exc:  # pylint: disable=broad-except
         partial_output = extract_partial_response_text(events) or None
         raise AgentInvocationError(

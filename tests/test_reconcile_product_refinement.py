@@ -69,4 +69,3 @@ def test_reconcile_reports_unresolved_placeholders(monkeypatch):
 
     summary = reconcile_product(11)
     assert summary.unresolved_story_ids
-

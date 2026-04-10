@@ -4,9 +4,9 @@ import pytest
 
 from agile_sqlmodel import StoryResolution, StoryStatus
 from services.story_close_service import (
+    StoryCloseServiceError,
     close_story,
     get_story_close_readiness,
-    StoryCloseServiceError,
 )
 
 
@@ -55,7 +55,7 @@ def test_get_story_close_readiness_reports_no_executable_tasks():
         load_story=lambda: story,
         load_sprint=lambda: sprint,
         load_sprint_story=lambda current_story: object(),
-        load_tasks=lambda: [],
+        load_tasks=list,
         task_progress=lambda tasks: (0, 0, 0, False),
     )
 

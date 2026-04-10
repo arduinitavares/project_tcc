@@ -74,7 +74,9 @@ def _valid_sprint_output() -> str:
     )
 
 
-def test_prepare_sprint_input_context_rejects_invalid_selected_story_ids(monkeypatch) -> None:
+def test_prepare_sprint_input_context_rejects_invalid_selected_story_ids(
+    monkeypatch,
+) -> None:
     def fake_fetch_sprint_candidates(*, product_id):
         assert product_id == 7
         return {
@@ -90,7 +92,9 @@ def test_prepare_sprint_input_context_rejects_invalid_selected_story_ids(monkeyp
             ],
         }
 
-    monkeypatch.setattr(sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(
+        sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates
+    )
 
     prepared = sprint_input.prepare_sprint_input_context(
         product_id=7,
@@ -145,8 +149,12 @@ async def test_runtime_and_adapter_build_matching_sprint_input(monkeypatch) -> N
         adapter_capture["tool_context"] = tool_context
         return {"sprint_goal": "goal", "selected_stories": [], "capacity_analysis": {}}
 
-    monkeypatch.setattr(sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
-    monkeypatch.setattr(adapters, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(
+        sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates
+    )
+    monkeypatch.setattr(
+        adapters, "fetch_sprint_candidates", fake_fetch_sprint_candidates
+    )
     monkeypatch.setattr(sprint_runtime, "_invoke_sprint_agent", fake_invoke)
     monkeypatch.setattr(adapters._SPRINT_PLANNER_TOOL, "run_async", fake_run_async)
 
@@ -198,7 +206,9 @@ async def test_runtime_and_adapter_build_matching_sprint_input(monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_runtime_rejects_out_of_scope_task_invariant_bindings(monkeypatch) -> None:
+async def test_runtime_rejects_out_of_scope_task_invariant_bindings(
+    monkeypatch,
+) -> None:
     def fake_fetch_sprint_candidates(*, product_id):
         assert product_id == 7
         return {
@@ -218,7 +228,9 @@ async def test_runtime_rejects_out_of_scope_task_invariant_bindings(monkeypatch)
     async def fake_invoke(_payload):
         return _valid_sprint_output()
 
-    monkeypatch.setattr(sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(
+        sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates
+    )
     monkeypatch.setattr(sprint_runtime, "_invoke_sprint_agent", fake_invoke)
 
     result = await sprint_runtime.run_sprint_agent_from_state(
@@ -233,11 +245,16 @@ async def test_runtime_rejects_out_of_scope_task_invariant_bindings(monkeypatch)
     )
 
     assert result["success"] is False
-    assert result["error"] == "Sprint output validation failed: invalid task invariant bindings"
+    assert (
+        result["error"]
+        == "Sprint output validation failed: invalid task invariant bindings"
+    )
 
 
 @pytest.mark.asyncio
-async def test_runtime_passes_story_acceptance_criteria_into_decomposition_validator(monkeypatch) -> None:
+async def test_runtime_passes_story_acceptance_criteria_into_decomposition_validator(
+    monkeypatch,
+) -> None:
     captured = {}
 
     def fake_fetch_sprint_candidates(*, product_id):
@@ -269,10 +286,14 @@ async def test_runtime_passes_story_acceptance_criteria_into_decomposition_valid
     ):
         captured["include_task_decomposition"] = include_task_decomposition
         captured["has_acceptance_criteria_by_story"] = has_acceptance_criteria_by_story
-        captured["acceptance_criteria_items_by_story"] = acceptance_criteria_items_by_story
+        captured["acceptance_criteria_items_by_story"] = (
+            acceptance_criteria_items_by_story
+        )
         return []
 
-    monkeypatch.setattr(sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(
+        sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates
+    )
     monkeypatch.setattr(sprint_runtime, "_invoke_sprint_agent", fake_invoke)
     monkeypatch.setattr(
         sprint_runtime,
@@ -329,17 +350,17 @@ async def test_runtime_rejects_poor_task_decomposition_quality(monkeypatch) -> N
                         "story_id": 12,
                         "story_title": "Event Delta Persistence",
                         "tasks": [
-                        {
-                            "description": "Do the work",
-                            "task_kind": "implementation",
-                            "checklist_items": ["Persist the event"],
-                            "artifact_targets": ["event persistence service"],
-                            "workstream_tags": ["backend"],
-                            "relevant_invariant_ids": [],
-                        }
-                    ],
-                    "reason_for_selection": "reason",
-                }
+                            {
+                                "description": "Do the work",
+                                "task_kind": "implementation",
+                                "checklist_items": ["Persist the event"],
+                                "artifact_targets": ["event persistence service"],
+                                "workstream_tags": ["backend"],
+                                "relevant_invariant_ids": [],
+                            }
+                        ],
+                        "reason_for_selection": "reason",
+                    }
                 ],
                 "deselected_stories": [],
                 "capacity_analysis": {
@@ -354,7 +375,9 @@ async def test_runtime_rejects_poor_task_decomposition_quality(monkeypatch) -> N
             }
         )
 
-    monkeypatch.setattr(sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(
+        sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates
+    )
     monkeypatch.setattr(sprint_runtime, "_invoke_sprint_agent", fake_invoke)
 
     result = await sprint_runtime.run_sprint_agent_from_state(
@@ -369,11 +392,16 @@ async def test_runtime_rejects_poor_task_decomposition_quality(monkeypatch) -> N
     )
 
     assert result["success"] is False
-    assert result["error"] == "Sprint output validation failed: poor task decomposition quality"
+    assert (
+        result["error"]
+        == "Sprint output validation failed: poor task decomposition quality"
+    )
 
 
 @pytest.mark.asyncio
-async def test_runtime_exposes_compact_public_task_kind_retry_hints(monkeypatch) -> None:
+async def test_runtime_exposes_compact_public_task_kind_retry_hints(
+    monkeypatch,
+) -> None:
     def fake_fetch_sprint_candidates(*, product_id):
         assert product_id == 7
         return {
@@ -426,7 +454,9 @@ async def test_runtime_exposes_compact_public_task_kind_retry_hints(monkeypatch)
             }
         )
 
-    monkeypatch.setattr(sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(
+        sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates
+    )
     monkeypatch.setattr(sprint_runtime, "_invoke_sprint_agent", fake_invoke)
 
     result = await sprint_runtime.run_sprint_agent_from_state(
@@ -503,7 +533,9 @@ async def test_runtime_uses_canonical_public_hint_for_non_string_task_kind(
             }
         )
 
-    monkeypatch.setattr(sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(
+        sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates
+    )
     monkeypatch.setattr(sprint_runtime, "_invoke_sprint_agent", fake_invoke)
 
     result = await sprint_runtime.run_sprint_agent_from_state(
@@ -548,11 +580,14 @@ async def test_adk_runner_preserves_structured_validation_details(monkeypatch) -
 
         async def run_async(self, *, user_id, session_id, new_message):
             _ = (user_id, session_id, new_message)
+
             class FakeStructuredValidationError(Exception):
                 def errors(self):
                     return structured_errors
 
-            raise RuntimeError("ADK validation failed") from FakeStructuredValidationError()
+            raise RuntimeError(
+                "ADK validation failed"
+            ) from FakeStructuredValidationError()
             yield None
 
     class FakePart:
@@ -616,7 +651,9 @@ async def test_runtime_falls_back_to_public_hint_for_adk_task_kind_errors_withou
             ],
         )
 
-    monkeypatch.setattr(sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(
+        sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates
+    )
     monkeypatch.setattr(sprint_runtime, "_invoke_sprint_agent", fake_invoke)
 
     result = await sprint_runtime.run_sprint_agent_from_state(

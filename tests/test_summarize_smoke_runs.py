@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 from uuid import uuid4
 
 from scripts.summarize_smoke_runs import summarize
@@ -9,11 +9,11 @@ from scripts.summarize_smoke_runs import summarize
 def _record(
     *,
     scenario_id: int = 1,
-    variant: Dict[str, Any] | None = None,
-    metrics: Dict[str, Any] | None = None,
-    timing: Dict[str, Any] | None = None,
-    error: Dict[str, Any] | None = None,
-) -> Dict[str, Any]:
+    variant: dict[str, Any] | None = None,
+    metrics: dict[str, Any] | None = None,
+    timing: dict[str, Any] | None = None,
+    error: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if variant is None:
         variant = {
             "enable_refiner": False,
@@ -24,7 +24,7 @@ def _record(
         metrics = {}
     if timing is None:
         timing = {}
-    record: Dict[str, Any] = {
+    record: dict[str, Any] = {
         "RUN_ID": str(uuid4()),
         "SCENARIO_ID": scenario_id,
         "VARIANT": variant,
@@ -32,7 +32,9 @@ def _record(
             "acceptance_blocked": metrics.get("acceptance_blocked", False),
             "alignment_rejected": metrics.get("alignment_rejected", False),
             "contract_passed": metrics.get("contract_passed"),
-            "required_fields_missing_count": metrics.get("required_fields_missing_count"),
+            "required_fields_missing_count": metrics.get(
+                "required_fields_missing_count"
+            ),
             "spec_version_id_match": metrics.get("spec_version_id_match"),
             "draft_present": metrics.get("draft_present", False),
             "refiner_output_present": metrics.get("refiner_output_present", False),
@@ -54,13 +56,13 @@ def _record(
     return record
 
 
-def _scenario_status_counts(markdown: str, scenario_id: int) -> Dict[str, int]:
+def _scenario_status_counts(markdown: str, scenario_id: int) -> dict[str, int]:
     lines = markdown.splitlines()
     header = f"### Scenario {scenario_id}"
     if header not in lines:
         raise AssertionError(f"Missing scenario section: {header}")
     start = lines.index(header) + 3
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for line in lines[start:]:
         if not line.startswith("| "):
             break
@@ -72,7 +74,7 @@ def _scenario_status_counts(markdown: str, scenario_id: int) -> Dict[str, int]:
     return counts
 
 
-def _find_summary_row(markdown: str, scenario_id: int, variant_label: str) -> List[str]:
+def _find_summary_row(markdown: str, scenario_id: int, variant_label: str) -> list[str]:
     target = f"| {scenario_id} | {variant_label} |"
     for line in markdown.splitlines():
         if line.startswith(target):

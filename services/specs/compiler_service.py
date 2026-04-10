@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-import json
-import hashlib
 import asyncio
-import threading
+import hashlib
+import importlib
+import json
 import logging
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional, List, Callable
+from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 
-from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session, select
 
+from db.migrations import ensure_schema_current
 from models.core import Product
 from models.db import get_engine
 from models.enums import SpecAuthorityStatus
@@ -23,49 +25,207 @@ from models.specs import (
     SpecAuthorityAcceptance,
     SpecRegistry,
 )
-
+from orchestrator_agent.agent_tools.spec_authority_compiler_agent import (
+    compiler_contract,
+    instructions_source,
+)
 from orchestrator_agent.agent_tools.spec_authority_compiler_agent.agent import (
     root_agent as spec_authority_compiler_agent,
-)
-from orchestrator_agent.agent_tools.spec_authority_compiler_agent.compiler_contract import (
-    compute_prompt_hash,
-)
-from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (
-    SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
-    SPEC_AUTHORITY_COMPILER_VERSION,
 )
 from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
     normalize_compiler_output,
 )
-from utils.spec_schemas import (
-    Invariant,
-    InvariantType,
-    SpecAuthorityCompilerInput,
-    SpecAuthorityCompilationFailure,
-    SpecAuthorityCompilationSuccess,
-    SpecAuthorityCompilerOutput,
-)
+from services.specs._engine_resolution import resolve_spec_engine
 from utils.adk_runner import get_agent_model_info, invoke_agent_to_text
 from utils.failure_artifacts import AgentInvocationError, write_failure_artifact
 from utils.runtime_config import SPEC_AUTHORITY_COMPILER_IDENTITY
+from utils.spec_schemas import (
+    Invariant,
+    InvariantType,
+    SpecAuthorityCompilationFailure,
+    SpecAuthorityCompilationSuccess,
+    SpecAuthorityCompilerInput,
+    SpecAuthorityCompilerOutput,
+)
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+
+    from google.adk.tools import ToolContext
+    from sqlalchemy.engine import Connection, Engine
+
+logger: logging.Logger = logging.getLogger(name=__name__)
 _DEFAULT_GET_ENGINE = get_engine
+compute_prompt_hash = compiler_contract.compute_prompt_hash
+SPEC_AUTHORITY_COMPILER_INSTRUCTIONS = (
+    instructions_source.SPEC_AUTHORITY_COMPILER_INSTRUCTIONS
+)
+SPEC_AUTHORITY_COMPILER_VERSION = instructions_source.SPEC_AUTHORITY_COMPILER_VERSION
+
+
+class SpecAuthorityAcceptanceError(ValueError):
+    """Raised when acceptance persistence preconditions are not satisfied."""
+
+    @classmethod
+    def spec_version_not_found(
+        cls, spec_version_id: int
+    ) -> SpecAuthorityAcceptanceError:
+        """Build the canonical missing spec-version error."""
+        return cls(f"Spec version {spec_version_id} not found")
+
+    @classmethod
+    def wrong_product(
+        cls, spec_version_id: int, product_id: int
+    ) -> SpecAuthorityAcceptanceError:
+        """Build the canonical product-mismatch error."""
+        return cls(
+            f"Spec version {spec_version_id} does not belong to product {product_id}"
+        )
+
+    @classmethod
+    def not_compiled(cls, spec_version_id: int) -> SpecAuthorityAcceptanceError:
+        """Build the canonical not-compiled error."""
+        return cls(f"spec_version_id {spec_version_id} is not compiled")
+
+    @classmethod
+    def invalid_artifact(cls, spec_version_id: int) -> SpecAuthorityAcceptanceError:
+        """Build the canonical invalid-artifact error."""
+        return cls(f"spec_version_id {spec_version_id} compiled artifact invalid")
+
+
+class SpecAuthorityGateError(RuntimeError):
+    """Raised when the story-generation authority gate cannot be satisfied."""
+
+    @classmethod
+    def missing_source(cls, product_id: int) -> SpecAuthorityGateError:
+        """Build the canonical missing-source error."""
+        return cls(
+            f"No accepted spec authority exists for product {product_id}, and no "
+            "spec_content or content_ref was provided. Please provide the "
+            "specification content or a file path to create an authority."
+        )
+
+    @classmethod
+    def update_failed(
+        cls, product_id: int, error_message: str
+    ) -> SpecAuthorityGateError:
+        """Build the canonical compilation-failed error."""
+        return cls(
+            f"Failed to create accepted spec authority for product {product_id}: "
+            f"{error_message}"
+        )
+
+    @classmethod
+    def not_accepted(cls, product_id: int) -> SpecAuthorityGateError:
+        """Build the canonical not-accepted error."""
+        return cls(
+            f"Spec authority for product {product_id} was compiled but not "
+            "accepted. Authority acceptance is required before story generation "
+            "can proceed."
+        )
+
+    @classmethod
+    def missing_spec_version_id(cls, product_id: int) -> SpecAuthorityGateError:
+        """Build the canonical missing-ID error."""
+        return cls(
+            "Spec authority creation succeeded but no spec_version_id was returned "
+            f"for product {product_id}."
+        )
+
+
+class SpecAuthorityCompilationError(TypeError):
+    """Raised when normalized compiler output is a failure envelope."""
+
+    @classmethod
+    def failed(cls, error: str, reason: str) -> SpecAuthorityCompilationError:
+        """Build the canonical normalized-compilation error."""
+        return cls(f"Spec authority compilation failed: {error} - {reason}")
+
+
+class UpdateSpecAuthorityInputError(ValueError):
+    """Raised when update+compile input sources are ambiguous."""
+
+    @classmethod
+    def exactly_one_source(cls) -> UpdateSpecAuthorityInputError:
+        """Build the canonical source-selection error."""
+        return cls("Provide exactly one of spec_content or content_ref")
+
+
+@dataclass(frozen=True)
+class _AcceptedAuthorityLookup:
+    """State discovered while checking for a reusable accepted authority."""
+
+    reusable_spec_version_id: int | None
+    compile_reason: str
+    accepted_decision_found: bool
+    compiled_row_found: bool
+    compiled_artifact_success: bool
+
+
+@dataclass(frozen=True)
+class _CompilerFailureDetails:
+    """Structured inputs for failure-artifact persistence."""
+
+    product_id: int | None
+    spec_version_id: int | None
+    content_ref: str | None
+    failure_stage: str
+    error: str
+    reason: str
+    raw_output: str | None = None
+    blocking_gaps: list[str] | None = None
+    exception: BaseException | None = None
+
+
+@dataclass(frozen=True)
+class _CompilerVersionContext:
+    """Resolved compilation inputs for one approved spec version."""
+
+    spec_version: SpecRegistry
+    product: Product | None
+    existing_authority: CompiledSpecAuthority | None
+
+
+@dataclass(frozen=True)
+class _PersistedCompilation:
+    """Stored authority metadata returned after one compile operation."""
+
+    authority_id: int
+    compiled_artifact_json: str
+    compiler_version: str
+    prompt_hash: str
+    scope_themes_count: int
+    invariants_count: int
+    recompiled: bool
+
+
+class _CompilerFailureOptions(TypedDict, total=False):
+    """Keyword arguments accepted by `_compiler_failure_result`."""
+
+    product_id: int | None
+    spec_version_id: int | None
+    content_ref: str | None
+    failure_stage: str
+    error: str
+    reason: str
+    raw_output: str | None
+    blocking_gaps: list[str] | None
+    exception: BaseException | None
 
 
 class UpdateSpecAndCompileAuthorityInput(BaseModel):
     """Input schema for update+compile spec workflows."""
 
     product_id: int = Field(description="Product ID for spec update")
-    spec_content: Optional[str] = Field(
+    spec_content: str | None = Field(
         default=None,
         description="Raw specification content to persist and compile",
     )
-    content_ref: Optional[str] = Field(
+    content_ref: str | None = Field(
         default=None,
         description="Path/reference to specification content on disk",
     )
-    recompile: Optional[bool] = Field(
+    recompile: bool | None = Field(
         default=False,
         description="Force recompilation even if compiled authority already exists",
     )
@@ -75,7 +235,7 @@ class CompileSpecAuthorityForVersionInput(BaseModel):
     """Input schema for compile spec authority by version."""
 
     spec_version_id: int = Field(description="Approved spec version to compile")
-    force_recompile: Optional[bool] = Field(
+    force_recompile: bool | None = Field(
         default=False,
         description="If true, recompile even when cached authority exists",
     )
@@ -106,22 +266,252 @@ class GetCompiledAuthorityInput(BaseModel):
     spec_version_id: int = Field(description="Spec version ID to retrieve")
 
 
+def _resolve_tool_module() -> object | None:
+    """Load the legacy tools module when present."""
+    try:
+        return importlib.import_module("tools.spec_tools")
+    except ImportError:
+        return None
+
+
+def _resolve_tool_override(
+    name: str,
+    *,
+    default_module_name: str,
+    default_function_name: str,
+) -> object | None:
+    """Return a monkeypatched legacy tool callable when it differs from default."""
+    spec_tools_module = _resolve_tool_module()
+    if spec_tools_module is None:
+        return None
+
+    tool_callable = getattr(spec_tools_module, name, None)
+    if not callable(tool_callable):
+        return None
+
+    module_name = getattr(tool_callable, "__module__", "")
+    function_name = getattr(tool_callable, "__name__", "")
+    if module_name == default_module_name and function_name == default_function_name:
+        return None
+    return tool_callable
+
+
+def _normalize_input_params(params: object) -> dict[str, Any]:
+    """Normalize tool params from either a Pydantic model or a raw dict."""
+    if isinstance(params, BaseModel):
+        dumped = params.model_dump()
+        return dumped if isinstance(dumped, dict) else {}
+    if isinstance(params, dict):
+        return cast("dict[str, Any]", params)
+    return {}
+
+
 def load_compiled_artifact(
-    authority: Any,
+    authority: object,
 ) -> SpecAuthorityCompilationSuccess | None:
     """Load normalized compiled artifact JSON if present and valid."""
     artifact_json = getattr(authority, "compiled_artifact_json", None)
     if not artifact_json:
         return None
     try:
-        parsed = SpecAuthorityCompilerOutput.model_validate_json(
-            artifact_json
-        )
+        parsed = SpecAuthorityCompilerOutput.model_validate_json(artifact_json)
     except (ValidationError, ValueError):
         return None
     if isinstance(parsed.root, SpecAuthorityCompilationFailure):
         return None
     return parsed.root
+
+
+def _load_acceptance_context(
+    session: Session,
+    *,
+    product_id: int,
+    spec_version_id: int,
+) -> tuple[SpecRegistry, CompiledSpecAuthority]:
+    """Load the spec version and compiled authority required for acceptance."""
+    spec_version = session.get(SpecRegistry, spec_version_id)
+    if not spec_version:
+        raise SpecAuthorityAcceptanceError.spec_version_not_found(spec_version_id)
+    if spec_version.product_id != product_id:
+        raise SpecAuthorityAcceptanceError.wrong_product(
+            spec_version_id,
+            product_id,
+        )
+
+    authority = session.exec(
+        select(CompiledSpecAuthority).where(
+            CompiledSpecAuthority.spec_version_id == spec_version_id
+        )
+    ).first()
+    if not authority:
+        raise SpecAuthorityAcceptanceError.not_compiled(spec_version_id)
+
+    artifact = load_compiled_artifact(authority)
+    if not artifact:
+        raise SpecAuthorityAcceptanceError.invalid_artifact(spec_version_id)
+    return spec_version, authority
+
+
+def _lookup_reusable_accepted_authority(
+    session: Session,
+    *,
+    product_id: int,
+) -> _AcceptedAuthorityLookup:
+    """Inspect accepted authority rows and report whether one can be reused."""
+    existing_acceptance = session.exec(
+        select(SpecAuthorityAcceptance)
+        .where(
+            SpecAuthorityAcceptance.product_id == product_id,
+            SpecAuthorityAcceptance.status == "accepted",
+        )
+        .order_by(cast("Any", SpecAuthorityAcceptance.decided_at).desc())
+    ).first()
+    if not existing_acceptance:
+        return _AcceptedAuthorityLookup(
+            reusable_spec_version_id=None,
+            compile_reason="no_accepted_authority",
+            accepted_decision_found=False,
+            compiled_row_found=False,
+            compiled_artifact_success=False,
+        )
+
+    compiled = session.exec(
+        select(CompiledSpecAuthority).where(
+            CompiledSpecAuthority.spec_version_id == existing_acceptance.spec_version_id
+        )
+    ).first()
+    if compiled is None:
+        return _AcceptedAuthorityLookup(
+            reusable_spec_version_id=None,
+            compile_reason="compiled_unusable_or_missing",
+            accepted_decision_found=True,
+            compiled_row_found=False,
+            compiled_artifact_success=False,
+        )
+
+    artifact = (
+        load_compiled_artifact(compiled) if compiled.compiled_artifact_json else None
+    )
+    if artifact is None:
+        return _AcceptedAuthorityLookup(
+            reusable_spec_version_id=None,
+            compile_reason="compiled_unusable_or_missing",
+            accepted_decision_found=True,
+            compiled_row_found=True,
+            compiled_artifact_success=False,
+        )
+
+    return _AcceptedAuthorityLookup(
+        reusable_spec_version_id=existing_acceptance.spec_version_id,
+        compile_reason="existing_authority",
+        accepted_decision_found=True,
+        compiled_row_found=True,
+        compiled_artifact_success=True,
+    )
+
+
+def _resolve_gate_path_used(
+    *,
+    tool_context: ToolContext | None,
+    spec_content: str | None,
+    content_ref: str | None,
+) -> str:
+    """Describe whether authority compilation used explicit args or session state."""
+    if (
+        tool_context
+        and tool_context.state
+        and (
+            tool_context.state.get("pending_spec_content") == spec_content
+            or tool_context.state.get("pending_spec_path") == content_ref
+        )
+    ):
+        return "proposal_from_state"
+    return "explicit_args"
+
+
+def _build_update_compile_params(
+    *,
+    product_id: int,
+    spec_content: str | None,
+    content_ref: str | None,
+    recompile: bool,
+) -> tuple[dict[str, Any], str]:
+    """Build the update+compile parameter payload and describe its input source."""
+    params: dict[str, Any] = {
+        "product_id": product_id,
+        "recompile": recompile,
+    }
+    if spec_content is not None:
+        params["spec_content"] = spec_content
+        return params, "spec_content"
+
+    params["content_ref"] = content_ref
+    return params, "content_ref"
+
+
+def _validate_gate_compile_result(
+    *,
+    product_id: int,
+    result: dict[str, Any],
+    gate_logger: logging.Logger,
+    session_id: str | None,
+    path_used: str,
+) -> int:
+    """Validate the update+compile response and return a spec version id."""
+    if not result.get("success"):
+        error_msg = str(result.get("error", "Unknown error"))
+        gate_logger.error(
+            "authority_gate.fail",
+            extra={
+                "product_id": product_id,
+                "reason": "update_failed",
+                "success": result.get("success"),
+                "accepted": result.get("accepted"),
+                "spec_version_id": result.get("spec_version_id"),
+            },
+        )
+        raise SpecAuthorityGateError.update_failed(product_id, error_msg)
+
+    if not result.get("accepted"):
+        gate_logger.error(
+            "authority_gate.fail",
+            extra={
+                "product_id": product_id,
+                "reason": "not_accepted",
+                "success": result.get("success"),
+                "accepted": result.get("accepted"),
+                "spec_version_id": result.get("spec_version_id"),
+            },
+        )
+        raise SpecAuthorityGateError.not_accepted(product_id)
+
+    spec_version_id = result.get("spec_version_id")
+    if spec_version_id is None:
+        gate_logger.error(
+            "authority_gate.fail",
+            extra={
+                "product_id": product_id,
+                "reason": "missing_spec_version_id",
+                "success": result.get("success"),
+                "accepted": result.get("accepted"),
+                "spec_version_id": result.get("spec_version_id"),
+            },
+        )
+        raise SpecAuthorityGateError.missing_spec_version_id(product_id)
+
+    gate_logger.info(
+        "authority_gate.updated",
+        extra={
+            "product_id": product_id,
+            "session_id": session_id,
+            "path_used": path_used,
+            "spec_version_id": spec_version_id,
+            "accepted": result.get("accepted"),
+            "success": result.get("success"),
+            "compiler_version": result.get("compiler_version"),
+        },
+    )
+    return int(spec_version_id)
 
 
 def ensure_spec_authority_accepted(
@@ -134,27 +524,11 @@ def ensure_spec_authority_accepted(
 ) -> SpecAuthorityAcceptance:
     """Ensure an accepted authority decision exists for a compiled spec version."""
     with Session(_resolve_engine()) as session:
-        spec_version = session.get(SpecRegistry, spec_version_id)
-        if not spec_version:
-            raise ValueError(f"Spec version {spec_version_id} not found")
-        if spec_version.product_id != product_id:
-            raise ValueError(
-                f"Spec version {spec_version_id} does not belong to product {product_id}"
-            )
-
-        authority = session.exec(
-            select(CompiledSpecAuthority).where(
-                CompiledSpecAuthority.spec_version_id == spec_version_id
-            )
-        ).first()
-        if not authority:
-            raise ValueError(f"spec_version_id {spec_version_id} is not compiled")
-
-        artifact = load_compiled_artifact(authority)
-        if not artifact:
-            raise ValueError(
-                f"spec_version_id {spec_version_id} compiled artifact invalid"
-            )
+        spec_version, authority = _load_acceptance_context(
+            session,
+            product_id=product_id,
+            spec_version_id=spec_version_id,
+        )
 
         existing = session.exec(
             select(SpecAuthorityAcceptance).where(
@@ -171,7 +545,7 @@ def ensure_spec_authority_accepted(
             status="accepted",
             policy=policy,
             decided_by=decided_by,
-            decided_at=datetime.now(timezone.utc),
+            decided_at=datetime.now(UTC),
             rationale=rationale,
             compiler_version=authority.compiler_version,
             prompt_hash=authority.prompt_hash,
@@ -220,57 +594,30 @@ def ensure_accepted_spec_authority(
         },
     )
 
-    from db.migrations import ensure_schema_current
-
     engine = _resolve_engine()
-    ensure_schema_current(engine)
-
-    compile_reason = "no_accepted_authority"
-    existing_spec_version_id: int | None = None
-    accepted_decision_found = False
-    compiled_row_found = False
-    compiled_artifact_success = False
+    ensure_schema_current(cast("Engine", engine))
 
     with Session(engine) as session:
-        existing_acceptance = session.exec(
-            select(SpecAuthorityAcceptance)
-            .where(
-                SpecAuthorityAcceptance.product_id == product_id,
-                SpecAuthorityAcceptance.status == "accepted",
-            )
-            .order_by(SpecAuthorityAcceptance.decided_at.desc())
-        ).first()
+        lookup = _lookup_reusable_accepted_authority(
+            session,
+            product_id=product_id,
+        )
 
-        if existing_acceptance:
-            accepted_decision_found = True
-            existing_spec_version_id = existing_acceptance.spec_version_id
-            compiled = session.exec(
-                select(CompiledSpecAuthority).where(
-                    CompiledSpecAuthority.spec_version_id
-                    == existing_acceptance.spec_version_id
-                )
-            ).first()
-            if compiled:
-                compiled_row_found = True
-                if compiled.compiled_artifact_json:
-                    artifact = load_compiled_artifact(compiled)
-                    if artifact is not None:
-                        compiled_artifact_success = True
-                        gate_logger.info(
-                            "authority_gate.pass",
-                            extra={
-                                "product_id": product_id,
-                                "session_id": session_id,
-                                "spec_version_id": existing_spec_version_id,
-                                "path_used": "existing_authority",
-                                "accepted_decision_found": True,
-                                "compiled_row_found": True,
-                                "compiled_artifact_success": True,
-                                "spec_input_provided": spec_input_provided,
-                            },
-                        )
-                        return existing_spec_version_id
-            compile_reason = "compiled_unusable_or_missing"
+    if lookup.reusable_spec_version_id is not None:
+        gate_logger.info(
+            "authority_gate.pass",
+            extra={
+                "product_id": product_id,
+                "session_id": session_id,
+                "spec_version_id": lookup.reusable_spec_version_id,
+                "path_used": "existing_authority",
+                "accepted_decision_found": lookup.accepted_decision_found,
+                "compiled_row_found": lookup.compiled_row_found,
+                "compiled_artifact_success": lookup.compiled_artifact_success,
+                "spec_input_provided": spec_input_provided,
+            },
+        )
+        return lookup.reusable_spec_version_id
 
     if spec_content is None and content_ref is None:
         gate_logger.error(
@@ -279,36 +626,26 @@ def ensure_accepted_spec_authority(
                 "product_id": product_id,
                 "session_id": session_id,
                 "path_used": "fail_no_source",
-                "accepted_decision_found": accepted_decision_found,
-                "compiled_row_found": compiled_row_found,
-                "compiled_artifact_success": compiled_artifact_success,
+                "accepted_decision_found": lookup.accepted_decision_found,
+                "compiled_row_found": lookup.compiled_row_found,
+                "compiled_artifact_success": lookup.compiled_artifact_success,
                 "spec_input_provided": False,
                 "reason": "missing_inputs",
             },
         )
-        raise RuntimeError(
-            f"No accepted spec authority exists for product {product_id}, and no "
-            "spec_content or content_ref was provided. Please provide the specification "
-            "content or a file path to create an authority."
-        )
+        raise SpecAuthorityGateError.missing_source(product_id)
 
-    path_used = "explicit_args"
-    if tool_context and tool_context.state:
-        if (
-            tool_context.state.get("pending_spec_content") == spec_content
-            or tool_context.state.get("pending_spec_path") == content_ref
-        ):
-            path_used = "proposal_from_state"
-
-    params: dict[str, Any] = {
-        "product_id": product_id,
-        "recompile": recompile,
-    }
-    if spec_content is not None:
-        params["spec_content"] = spec_content
-    if content_ref is not None:
-        params["content_ref"] = content_ref
-    input_source = "spec_content" if spec_content is not None else "content_ref"
+    path_used = _resolve_gate_path_used(
+        tool_context=tool_context,
+        spec_content=spec_content,
+        content_ref=content_ref,
+    )
+    params, input_source = _build_update_compile_params(
+        product_id=product_id,
+        spec_content=spec_content,
+        content_ref=content_ref,
+        recompile=recompile,
+    )
 
     gate_logger.info(
         "authority_gate.compile_start",
@@ -318,10 +655,10 @@ def ensure_accepted_spec_authority(
             "path_used": path_used,
             "input_source": input_source,
             "recompile": recompile,
-            "reason": compile_reason,
-            "accepted_decision_found": accepted_decision_found,
-            "compiled_row_found": compiled_row_found,
-            "compiled_artifact_success": compiled_artifact_success,
+            "reason": lookup.compile_reason,
+            "accepted_decision_found": lookup.accepted_decision_found,
+            "compiled_row_found": lookup.compiled_row_found,
+            "compiled_artifact_success": lookup.compiled_artifact_success,
             "spec_input_provided": True,
         },
     )
@@ -329,7 +666,7 @@ def ensure_accepted_spec_authority(
     try:
         result = update_and_compile(params, tool_context=tool_context)
     except Exception as exc:
-        gate_logger.error(
+        gate_logger.exception(
             "authority_gate.compile_result",
             extra={
                 "product_id": product_id,
@@ -345,95 +682,27 @@ def ensure_accepted_spec_authority(
         )
         raise
 
-    if not result.get("success"):
-        error_msg = result.get("error", "Unknown error")
-        gate_logger.error(
-            "authority_gate.fail",
-            extra={
-                "product_id": product_id,
-                "reason": "update_failed",
-                "success": result.get("success"),
-                "accepted": result.get("accepted"),
-                "spec_version_id": result.get("spec_version_id"),
-            },
-        )
-        raise RuntimeError(
-            f"Failed to create accepted spec authority for product {product_id}: {error_msg}"
-        )
-
-    if not result.get("accepted"):
-        gate_logger.error(
-            "authority_gate.fail",
-            extra={
-                "product_id": product_id,
-                "reason": "not_accepted",
-                "success": result.get("success"),
-                "accepted": result.get("accepted"),
-                "spec_version_id": result.get("spec_version_id"),
-            },
-        )
-        raise RuntimeError(
-            f"Spec authority for product {product_id} was compiled but not accepted. "
-            "Authority acceptance is required before story generation can proceed."
-        )
-
-    spec_version_id = result.get("spec_version_id")
-    if spec_version_id is None:
-        gate_logger.error(
-            "authority_gate.fail",
-            extra={
-                "product_id": product_id,
-                "reason": "missing_spec_version_id",
-                "success": result.get("success"),
-                "accepted": result.get("accepted"),
-                "spec_version_id": result.get("spec_version_id"),
-            },
-        )
-        raise RuntimeError(
-            f"Spec authority creation succeeded but no spec_version_id was returned "
-            f"for product {product_id}."
-        )
-
-    gate_logger.info(
-        "authority_gate.updated",
-        extra={
-            "product_id": product_id,
-            "spec_version_id": spec_version_id,
-            "accepted": result.get("accepted"),
-            "success": result.get("success"),
-            "compiler_version": result.get("compiler_version"),
-        },
+    return _validate_gate_compile_result(
+        product_id=product_id,
+        result=result,
+        gate_logger=gate_logger,
+        session_id=session_id,
+        path_used=path_used,
     )
 
-    return spec_version_id
 
-
-def _run_async_task(coro: Any) -> Any:
+def _run_async_task[T](coro: Coroutine[Any, Any, T]) -> T:
     """Run an async coroutine from sync code, even if a loop is already running."""
     try:
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
-
-    result: dict[str, Any] = {}
-    error: dict[str, BaseException] = {}
-
-    def _runner() -> None:
-        try:
-            result["value"] = asyncio.run(coro)
-        except BaseException as exc:  # pylint: disable=broad-except
-            error["error"] = exc
-
-    thread = threading.Thread(target=_runner, daemon=True)
-    thread.start()
-    thread.join()
-
-    if "error" in error:
-        raise error["error"]
-    return result.get("value")
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(asyncio.run, coro)
+        return cast("T", future.result())
 
 
-def _extract_compiler_response_text(events: List[Any]) -> str:
+def _extract_compiler_response_text(events: list[Any]) -> str:
     """Extract the first text part from the final agent event."""
     final_event = events[-1] if events else None
     if not final_event or not getattr(final_event, "content", None):
@@ -459,11 +728,12 @@ async def _invoke_spec_authority_compiler_async(
 
 def _default_invoke_spec_authority_compiler(
     spec_content: str,
-    content_ref: Optional[str],
-    product_id: Optional[int],
-    spec_version_id: Optional[int],
+    content_ref: str | None,
+    product_id: int | None,
+    spec_version_id: int | None,
 ) -> str:
     """Invoke the compiler agent from sync code and return raw JSON text."""
+    del content_ref
     input_payload = SpecAuthorityCompilerInput(
         spec_source=spec_content,
         spec_content_ref=None,
@@ -474,32 +744,23 @@ def _default_invoke_spec_authority_compiler(
     return _run_async_task(_invoke_spec_authority_compiler_async(input_payload))
 
 
-def _resolve_compiler_invoker():
+def _resolve_compiler_invoker() -> Callable[..., str]:
     """Preserve the legacy spec_tools compiler monkeypatch seam for tests."""
-    try:
-        from tools import spec_tools  # pylint: disable=import-outside-toplevel
-    except ImportError:
-        spec_tools = None
-
-    if spec_tools is not None:
-        tool_invoke = getattr(spec_tools, "_invoke_spec_authority_compiler", None)
-        if callable(tool_invoke):
-            module_name = getattr(tool_invoke, "__module__", "")
-            function_name = getattr(tool_invoke, "__name__", "")
-            if not (
-                module_name == "tools.spec_tools"
-                and function_name == "_invoke_spec_authority_compiler"
-            ):
-                return tool_invoke
-
-    return _default_invoke_spec_authority_compiler
+    tool_invoke = _resolve_tool_override(
+        "_invoke_spec_authority_compiler",
+        default_module_name="tools.spec_tools",
+        default_function_name="_invoke_spec_authority_compiler",
+    )
+    if tool_invoke is None:
+        return _default_invoke_spec_authority_compiler
+    return cast("Callable[..., str]", tool_invoke)
 
 
 def _invoke_spec_authority_compiler(
     spec_content: str,
-    content_ref: Optional[str],
-    product_id: Optional[int],
-    spec_version_id: Optional[int],
+    content_ref: str | None,
+    product_id: int | None,
+    spec_version_id: int | None,
 ) -> str:
     """Invoke the effective compiler seam, honoring legacy monkeypatch overrides."""
     compiler_invoke = _resolve_compiler_invoker()
@@ -517,11 +778,10 @@ def preview_spec_authority(
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Compile spec authority in preview mode without persistence side effects."""
-    raw_params = params
-    if hasattr(raw_params, "model_dump"):
-        raw_params = raw_params.model_dump()
     try:
-        parsed = PreviewSpecAuthorityInput.model_validate(raw_params or {})
+        parsed = PreviewSpecAuthorityInput.model_validate(
+            _normalize_input_params(params)
+        )
     except ValidationError as exc:
         return {"success": False, "error": f"Invalid input: {exc}"}
 
@@ -544,73 +804,75 @@ def preview_spec_authority(
         compiled_json = normalized.root.model_dump_json()
         if tool_context and tool_context.state is not None:
             tool_context.state["compiled_authority_cached"] = compiled_json
-
+    except RuntimeError as exc:
+        logger.exception("preview_spec_authority failed")
+        return {"success": False, "error": str(exc)}
+    else:
         return {
             "success": True,
             "compiled_authority": compiled_json,
         }
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.exception("preview_spec_authority failed")
-        return {"success": False, "error": str(exc)}
 
 
 def _compiler_failure_result(
-    *,
-    product_id: Optional[int],
-    spec_version_id: Optional[int],
-    content_ref: Optional[str],
-    failure_stage: str,
-    error: str,
-    reason: str,
-    raw_output: Optional[str] = None,
-    blocking_gaps: Optional[List[str]] = None,
-    exception: Optional[BaseException] = None,
+    **kwargs: Unpack[_CompilerFailureOptions],
 ) -> dict[str, Any]:
-    summary = f"{error}: {reason}" if reason else error
+    details = _CompilerFailureDetails(
+        product_id=kwargs.get("product_id"),
+        spec_version_id=kwargs.get("spec_version_id"),
+        content_ref=kwargs.get("content_ref"),
+        failure_stage=kwargs.get("failure_stage", "unknown"),
+        error=kwargs.get("error", "UNKNOWN"),
+        reason=kwargs.get("reason", ""),
+        raw_output=kwargs.get("raw_output"),
+        blocking_gaps=kwargs.get("blocking_gaps"),
+        exception=kwargs.get("exception"),
+    )
+    summary = f"{details.error}: {details.reason}" if details.reason else details.error
     artifact_result = write_failure_artifact(
         phase="spec_authority",
-        project_id=product_id,
-        failure_stage=failure_stage,
+        project_id=details.product_id,
+        failure_stage=details.failure_stage,
         failure_summary=summary,
-        raw_output=raw_output,
+        raw_output=details.raw_output,
         context={
-            "product_id": product_id,
-            "spec_version_id": spec_version_id,
-            "content_ref": content_ref,
+            "product_id": details.product_id,
+            "spec_version_id": details.spec_version_id,
+            "content_ref": details.content_ref,
         },
         model_info={
             **get_agent_model_info(spec_authority_compiler_agent),
             "app_name": SPEC_AUTHORITY_COMPILER_IDENTITY.app_name,
             "user_id": SPEC_AUTHORITY_COMPILER_IDENTITY.user_id,
         },
-        validation_errors=blocking_gaps,
-        exception=exception,
+        validation_errors=details.blocking_gaps,
+        exception=details.exception,
         extra={
-            "error": error,
-            "reason": reason,
-            "blocking_gaps": blocking_gaps or [],
+            "error": details.error,
+            "reason": details.reason,
+            "blocking_gaps": details.blocking_gaps or [],
         },
     )
     metadata = artifact_result["metadata"]
-    if exception is not None:
+    if details.exception is not None:
         logger.exception(
             "Spec authority compilation failed [artifact_id=%s stage=%s]: %s",
             metadata["failure_artifact_id"],
-            failure_stage,
+            details.failure_stage,
             summary,
         )
     else:
         logger.error(
             "Spec authority compilation failed [artifact_id=%s stage=%s]: %s",
             metadata["failure_artifact_id"],
-            failure_stage,
+            details.failure_stage,
             summary,
         )
     return {
         "success": False,
-        "error": error,
-        "reason": reason,
-        "blocking_gaps": blocking_gaps or [],
+        "error": details.error,
+        "reason": details.reason,
+        "blocking_gaps": details.blocking_gaps or [],
         **metadata,
     }
 
@@ -630,13 +892,14 @@ def _render_invariant_summary(invariant: Invariant) -> str:
     return f"INVARIANT:{invariant.type}"
 
 
-def _resolve_engine():
+def _resolve_engine() -> Engine | Connection | None:
     """Preserve the legacy spec_tools.engine monkeypatch seam for tests."""
-    from services.specs._engine_resolution import resolve_spec_engine
-
-    return resolve_spec_engine(
-        service_get_engine=get_engine,
-        default_service_get_engine=_DEFAULT_GET_ENGINE,
+    return cast(
+        "Engine | Connection | None",
+        resolve_spec_engine(
+            service_get_engine=get_engine,
+            default_service_get_engine=_DEFAULT_GET_ENGINE,
+        ),
     )
 
 
@@ -665,7 +928,7 @@ def _compile_spec_authority_for_version(
 def _extract_spec_authority_llm(
     *,
     spec_content: str,
-    content_ref: Optional[str],
+    content_ref: str | None,
     product_id: int,
     spec_version_id: int,
 ) -> SpecAuthorityCompilationSuccess:
@@ -679,8 +942,9 @@ def _extract_spec_authority_llm(
 
     normalized = normalize_compiler_output(raw_json)
     if isinstance(normalized.root, SpecAuthorityCompilationFailure):
-        raise ValueError(
-            f"Spec authority compilation failed: {normalized.root.error} - {normalized.root.reason}"
+        raise SpecAuthorityCompilationError.failed(
+            normalized.root.error,
+            normalized.root.reason,
         )
     return normalized.root
 
@@ -689,15 +953,11 @@ def compile_spec_authority(
     params: dict[str, Any] | CompileSpecAuthorityInput | None = None,
     *,
     tool_context: ToolContext | None = None,  # pylint: disable=unused-argument
-    extract_authority: (
-        Callable[..., SpecAuthorityCompilationSuccess] | None
-    ) = None,
+    extract_authority: (Callable[..., SpecAuthorityCompilationSuccess] | None) = None,
 ) -> dict[str, Any]:
     """Compile an approved spec version into cached authority (legacy one-shot path)."""
-    raw_params = params
-    if hasattr(raw_params, "model_dump"):
-        raw_params = raw_params.model_dump()
-    parsed = CompileSpecAuthorityInput.model_validate(raw_params or {})
+    del tool_context
+    parsed = CompileSpecAuthorityInput.model_validate(_normalize_input_params(params))
 
     extractor = extract_authority or _extract_spec_authority_llm
 
@@ -719,6 +979,13 @@ def compile_spec_authority(
                 ),
             }
 
+        spec_version_id = spec_version.spec_version_id
+        if spec_version_id is None:
+            return {
+                "success": False,
+                "error": "Spec version is missing its primary key",
+            }
+
         existing_authority = session.exec(
             select(CompiledSpecAuthority).where(
                 CompiledSpecAuthority.spec_version_id == parsed.spec_version_id
@@ -738,7 +1005,7 @@ def compile_spec_authority(
                 spec_content=spec_version.content,
                 content_ref=spec_version.content_ref,
                 product_id=spec_version.product_id,
-                spec_version_id=spec_version.spec_version_id,
+                spec_version_id=spec_version_id,
             )
         except ValueError as exc:
             return {
@@ -758,7 +1025,7 @@ def compile_spec_authority(
             spec_version_id=parsed.spec_version_id,
             compiler_version=SPEC_AUTHORITY_COMPILER_VERSION,
             prompt_hash=prompt_hash,
-            compiled_at=datetime.now(timezone.utc),
+            compiled_at=datetime.now(UTC),
             scope_themes=json.dumps(scope_themes),
             invariants=json.dumps(invariants),
             eligible_feature_ids=json.dumps([]),
@@ -785,245 +1052,344 @@ def compile_spec_authority(
         }
 
 
-def compile_spec_authority_for_version(
-    params: dict[str, Any] | CompileSpecAuthorityForVersionInput | None = None,
+def _normalize_compile_version_input(
+    params: dict[str, Any] | CompileSpecAuthorityForVersionInput | None,
     *,
-    spec_version_id: int | None = None,
-    force_recompile: Optional[bool] = None,
-    tool_context: ToolContext | None = None,
-) -> dict[str, Any]:
-    """Compile an approved spec version into cached authority (idempotent)."""
-    raw_params = params
-    if hasattr(raw_params, "model_dump"):
-        raw_params = raw_params.model_dump()
-    merged_params: dict[str, Any] = dict(raw_params or {})
+    spec_version_id: int | None,
+    force_recompile: bool | None,
+) -> CompileSpecAuthorityForVersionInput:
+    """Merge direct kwargs into the tool payload and validate the input model."""
+    merged_params: dict[str, Any] = dict(_normalize_input_params(params))
     if spec_version_id is not None:
         merged_params["spec_version_id"] = spec_version_id
     if force_recompile is not None:
         merged_params["force_recompile"] = force_recompile
-    parsed = CompileSpecAuthorityForVersionInput.model_validate(merged_params)
-    force_recompile = bool(parsed.force_recompile)
+    return CompileSpecAuthorityForVersionInput.model_validate(merged_params)
+
+
+def _load_compile_version_context(
+    session: Session,
+    *,
+    spec_version_id: int,
+) -> _CompilerVersionContext | dict[str, Any]:
+    """Load the approved spec version, product, and any cached authority row."""
+    spec_version = session.get(SpecRegistry, spec_version_id)
+    if not spec_version:
+        return {
+            "success": False,
+            "error": f"Spec version {spec_version_id} not found",
+        }
+    if spec_version.status != "approved":
+        return {
+            "success": False,
+            "error": (
+                f"Spec version {spec_version_id} is not approved "
+                f"(status: {spec_version.status}). "
+                "Only approved specs can be compiled."
+            ),
+        }
+
+    product = session.get(Product, spec_version.product_id)
+    existing_authority = session.exec(
+        select(CompiledSpecAuthority).where(
+            CompiledSpecAuthority.spec_version_id == spec_version_id
+        )
+    ).first()
+    return _CompilerVersionContext(
+        spec_version=spec_version,
+        product=product,
+        existing_authority=existing_authority,
+    )
+
+
+def _update_product_compiled_authority_cache(
+    session: Session,
+    *,
+    product: Product | None,
+    compiled_artifact_json: str,
+) -> None:
+    """Backfill the product-level compiled authority cache when a product exists."""
+    if product is None:
+        return
+    product.compiled_authority_json = compiled_artifact_json
+    session.add(product)
+    session.commit()
+
+
+def _cached_compilation_result(
+    session: Session,
+    *,
+    context: _CompilerVersionContext,
+    tool_context: ToolContext | None,
+) -> dict[str, Any] | None:
+    """Return the cached-authority envelope when a reusable compiled artifact exists."""
+    existing_authority = context.existing_authority
+    if existing_authority is None or not existing_authority.compiled_artifact_json:
+        return None
+
+    artifact = load_compiled_artifact(existing_authority)
+    if artifact:
+        scope_themes_count = len(artifact.scope_themes)
+        invariants_count = len(artifact.invariants)
+    else:
+        scope_themes_count = len(json.loads(existing_authority.scope_themes))
+        invariants_count = len(json.loads(existing_authority.invariants))
+
+    _update_product_compiled_authority_cache(
+        session,
+        product=context.product,
+        compiled_artifact_json=existing_authority.compiled_artifact_json,
+    )
+    if tool_context and tool_context.state is not None:
+        tool_context.state["compiled_authority_cached"] = (
+            existing_authority.compiled_artifact_json
+        )
+
+    return {
+        "success": True,
+        "cached": True,
+        "authority_id": existing_authority.authority_id,
+        "spec_version_id": context.spec_version.spec_version_id,
+        "compiler_version": existing_authority.compiler_version,
+        "prompt_hash": existing_authority.prompt_hash,
+        "scope_themes_count": scope_themes_count,
+        "invariants_count": invariants_count,
+        "content_ref": context.spec_version.content_ref,
+        "content_source": "content",
+        "message": (
+            f"Spec version {context.spec_version.spec_version_id} is already compiled "
+            f"(authority ID: {existing_authority.authority_id})."
+        ),
+    }
+
+
+def _load_spec_content_for_compile(
+    spec_version: SpecRegistry,
+) -> tuple[str, str] | dict[str, Any]:
+    """Load spec content from the DB row or its content_ref fallback."""
+    spec_content = spec_version.content or ""
+    if spec_content.strip():
+        return spec_content, "content"
+
+    if not spec_version.content_ref:
+        return {
+            "success": False,
+            "error": "Spec content is empty; cannot compile authority.",
+        }
+
+    content_path = Path(spec_version.content_ref)
+    if not content_path.exists():
+        return {
+            "success": False,
+            "error": (
+                "Spec content is empty and content_ref was not found: "
+                f"{spec_version.content_ref}"
+            ),
+        }
+    try:
+        return content_path.read_text(encoding="utf-8"), "content_ref"
+    except (OSError, UnicodeDecodeError) as exc:
+        return {
+            "success": False,
+            "error": f"Failed to read content_ref: {exc}",
+        }
+
+
+def _invoke_compiler_for_version(
+    spec_version: SpecRegistry,
+    *,
+    spec_content: str,
+) -> SpecAuthorityCompilationSuccess | dict[str, Any]:
+    """Invoke the compiler and normalize either a success artifact or failure result."""
+    try:
+        raw_json = _invoke_spec_authority_compiler(
+            spec_content=spec_content,
+            content_ref=spec_version.content_ref,
+            product_id=spec_version.product_id,
+            spec_version_id=spec_version.spec_version_id,
+        )
+    except AgentInvocationError as exc:
+        return _compiler_failure_result(
+            product_id=spec_version.product_id,
+            spec_version_id=spec_version.spec_version_id,
+            content_ref=spec_version.content_ref,
+            failure_stage="invocation_exception",
+            error="SPEC_COMPILER_INVOCATION_FAILED",
+            reason=str(exc),
+            raw_output=exc.partial_output,
+            exception=exc,
+        )
+    except (RuntimeError, TypeError, ValueError) as exc:
+        return _compiler_failure_result(
+            product_id=spec_version.product_id,
+            spec_version_id=spec_version.spec_version_id,
+            content_ref=spec_version.content_ref,
+            failure_stage="invocation_exception",
+            error="SPEC_COMPILER_INVOCATION_FAILED",
+            reason=str(exc),
+            exception=exc,
+        )
+
+    normalized = normalize_compiler_output(raw_json)
+    if isinstance(normalized.root, SpecAuthorityCompilationFailure):
+        failure_stage = (
+            "invalid_json"
+            if normalized.root.reason == "INVALID_JSON"
+            else "output_validation"
+        )
+        return _compiler_failure_result(
+            product_id=spec_version.product_id,
+            spec_version_id=spec_version.spec_version_id,
+            content_ref=spec_version.content_ref,
+            failure_stage=failure_stage,
+            error=normalized.root.error,
+            reason=normalized.root.reason,
+            raw_output=raw_json,
+            blocking_gaps=normalized.root.blocking_gaps,
+        )
+    return normalized.root
+
+
+def _persist_compiled_authority(
+    session: Session,
+    *,
+    context: _CompilerVersionContext,
+    spec_version_id: int,
+    force_recompile: bool,
+    success: SpecAuthorityCompilationSuccess,
+) -> _PersistedCompilation:
+    """Persist a compiled artifact, either by updating or inserting a row."""
+    compiled_artifact_json = success.model_dump_json()
+    prompt_hash = compute_prompt_hash(SPEC_AUTHORITY_COMPILER_INSTRUCTIONS)
+    compiler_version = SPEC_AUTHORITY_COMPILER_VERSION
+    scope_themes = success.scope_themes
+    invariants = [_render_invariant_summary(inv) for inv in success.invariants]
+    spec_gaps = success.gaps
+
+    if context.existing_authority and force_recompile:
+        authority = context.existing_authority
+        authority.compiler_version = compiler_version
+        authority.prompt_hash = prompt_hash
+        authority.compiled_at = datetime.now(UTC)
+        authority.compiled_artifact_json = compiled_artifact_json
+        authority.scope_themes = json.dumps(scope_themes)
+        authority.invariants = json.dumps(invariants)
+        authority.eligible_feature_ids = json.dumps([])
+        authority.rejected_features = json.dumps([])
+        authority.spec_gaps = json.dumps(spec_gaps)
+        session.add(authority)
+        session.commit()
+        session.refresh(authority)
+        recompiled = True
+    else:
+        authority = CompiledSpecAuthority(
+            spec_version_id=spec_version_id,
+            compiler_version=compiler_version,
+            prompt_hash=prompt_hash,
+            compiled_at=datetime.now(UTC),
+            compiled_artifact_json=compiled_artifact_json,
+            scope_themes=json.dumps(scope_themes),
+            invariants=json.dumps(invariants),
+            eligible_feature_ids=json.dumps([]),
+            rejected_features=json.dumps([]),
+            spec_gaps=json.dumps(spec_gaps),
+        )
+        session.add(authority)
+        session.commit()
+        session.refresh(authority)
+        recompiled = False
+
+    _update_product_compiled_authority_cache(
+        session,
+        product=context.product,
+        compiled_artifact_json=compiled_artifact_json,
+    )
+    authority_id = authority.authority_id
+    if authority_id is None:
+        error_message = "Compiled authority did not receive a primary key"
+        raise RuntimeError(error_message)
+    return _PersistedCompilation(
+        authority_id=authority_id,
+        compiled_artifact_json=compiled_artifact_json,
+        compiler_version=compiler_version,
+        prompt_hash=prompt_hash,
+        scope_themes_count=len(scope_themes),
+        invariants_count=len(invariants),
+        recompiled=recompiled,
+    )
+
+
+def compile_spec_authority_for_version(
+    params: dict[str, Any] | CompileSpecAuthorityForVersionInput | None = None,
+    *,
+    spec_version_id: int | None = None,
+    force_recompile: bool | None = None,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
+    """Compile an approved spec version into cached authority (idempotent)."""
+    parsed = _normalize_compile_version_input(
+        params,
+        spec_version_id=spec_version_id,
+        force_recompile=force_recompile,
+    )
+    should_recompile = bool(parsed.force_recompile)
 
     with Session(_resolve_engine()) as session:
-        spec_version = session.get(SpecRegistry, parsed.spec_version_id)
-        if not spec_version:
-            return {
-                "success": False,
-                "error": f"Spec version {parsed.spec_version_id} not found",
-            }
+        context = _load_compile_version_context(
+            session,
+            spec_version_id=parsed.spec_version_id,
+        )
+        if not isinstance(context, _CompilerVersionContext):
+            return context
 
-        product = session.get(Product, spec_version.product_id)
-
-        if spec_version.status != "approved":
-            return {
-                "success": False,
-                "error": (
-                    f"Spec version {parsed.spec_version_id} is not approved "
-                    f"(status: {spec_version.status}). "
-                    "Only approved specs can be compiled."
-                ),
-            }
-
-        existing_authority = session.exec(
-            select(CompiledSpecAuthority).where(
-                CompiledSpecAuthority.spec_version_id == parsed.spec_version_id
+        if not should_recompile:
+            cached_result = _cached_compilation_result(
+                session,
+                context=context,
+                tool_context=tool_context,
             )
-        ).first()
+            if cached_result is not None:
+                return cached_result
 
-        if (
-            existing_authority
-            and not force_recompile
-            and existing_authority.compiled_artifact_json
-        ):
-            artifact = load_compiled_artifact(existing_authority)
-            if artifact:
-                scope_themes = artifact.scope_themes
-                invariants = [
-                    _render_invariant_summary(inv) for inv in artifact.invariants
-                ]
-            else:
-                scope_themes = json.loads(existing_authority.scope_themes)
-                invariants = json.loads(existing_authority.invariants)
+        spec_content_result = _load_spec_content_for_compile(context.spec_version)
+        if isinstance(spec_content_result, dict):
+            return spec_content_result
+        spec_content, content_source = spec_content_result
 
-            if product:
-                product.compiled_authority_json = (
-                    existing_authority.compiled_artifact_json
-                )
-                session.add(product)
-                session.commit()
+        compiled = _invoke_compiler_for_version(
+            context.spec_version,
+            spec_content=spec_content,
+        )
+        if isinstance(compiled, dict):
+            return compiled
 
-            if tool_context and tool_context.state is not None:
-                tool_context.state["compiled_authority_cached"] = (
-                    existing_authority.compiled_artifact_json
-                )
-
-            return {
-                "success": True,
-                "cached": True,
-                "authority_id": existing_authority.authority_id,
-                "spec_version_id": parsed.spec_version_id,
-                "compiler_version": existing_authority.compiler_version,
-                "prompt_hash": existing_authority.prompt_hash,
-                "scope_themes_count": len(scope_themes),
-                "invariants_count": len(invariants),
-                "content_ref": spec_version.content_ref,
-                "content_source": "content",
-                "message": (
-                    f"Spec version {parsed.spec_version_id} is already compiled "
-                    f"(authority ID: {existing_authority.authority_id})."
-                ),
-            }
-
-        spec_content = spec_version.content or ""
-        content_source = "content"
-
-        if not spec_content.strip() and spec_version.content_ref:
-            content_path = Path(spec_version.content_ref)
-            if not content_path.exists():
-                return {
-                    "success": False,
-                    "error": (
-                        "Spec content is empty and content_ref was not found: "
-                        f"{spec_version.content_ref}"
-                    ),
-                }
-            try:
-                spec_content = content_path.read_text(encoding="utf-8")
-                content_source = "content_ref"
-            except (OSError, UnicodeDecodeError) as exc:
-                return {
-                    "success": False,
-                    "error": f"Failed to read content_ref: {exc}",
-                }
-
-        if not spec_content.strip():
-            return {
-                "success": False,
-                "error": "Spec content is empty; cannot compile authority.",
-            }
-
-        try:
-            raw_json = _invoke_spec_authority_compiler(
-                spec_content=spec_content,
-                content_ref=spec_version.content_ref,
-                product_id=spec_version.product_id,
-                spec_version_id=spec_version.spec_version_id,
-            )
-        except AgentInvocationError as exc:
-            return _compiler_failure_result(
-                product_id=spec_version.product_id,
-                spec_version_id=spec_version.spec_version_id,
-                content_ref=spec_version.content_ref,
-                failure_stage="invocation_exception",
-                error="SPEC_COMPILER_INVOCATION_FAILED",
-                reason=str(exc),
-                raw_output=exc.partial_output,
-                exception=exc,
-            )
-        except Exception as exc:  # pylint: disable=broad-except
-            return _compiler_failure_result(
-                product_id=spec_version.product_id,
-                spec_version_id=spec_version.spec_version_id,
-                content_ref=spec_version.content_ref,
-                failure_stage="invocation_exception",
-                error="SPEC_COMPILER_INVOCATION_FAILED",
-                reason=str(exc),
-                exception=exc,
-            )
-
-        normalized = normalize_compiler_output(raw_json)
-        if isinstance(normalized.root, SpecAuthorityCompilationFailure):
-            failure_stage = (
-                "invalid_json"
-                if normalized.root.reason == "INVALID_JSON"
-                else "output_validation"
-            )
-            return _compiler_failure_result(
-                product_id=spec_version.product_id,
-                spec_version_id=spec_version.spec_version_id,
-                content_ref=spec_version.content_ref,
-                failure_stage=failure_stage,
-                error=normalized.root.error,
-                reason=normalized.root.reason,
-                raw_output=raw_json,
-                blocking_gaps=normalized.root.blocking_gaps,
-            )
-
-        success = normalized.root
-        compiled_artifact_json = success.model_dump_json()
-        prompt_hash = compute_prompt_hash(SPEC_AUTHORITY_COMPILER_INSTRUCTIONS)
-        compiler_version = SPEC_AUTHORITY_COMPILER_VERSION
-
-        scope_themes = success.scope_themes
-        invariants = [_render_invariant_summary(inv) for inv in success.invariants]
-        spec_gaps = success.gaps
-
-        if existing_authority and force_recompile:
-            existing_authority.compiler_version = compiler_version
-            existing_authority.prompt_hash = prompt_hash
-            existing_authority.compiled_at = datetime.now(timezone.utc)
-            existing_authority.compiled_artifact_json = compiled_artifact_json
-            existing_authority.scope_themes = json.dumps(scope_themes)
-            existing_authority.invariants = json.dumps(invariants)
-            existing_authority.eligible_feature_ids = json.dumps([])
-            existing_authority.rejected_features = json.dumps([])
-            existing_authority.spec_gaps = json.dumps(spec_gaps)
-            session.add(existing_authority)
-            session.commit()
-            session.refresh(existing_authority)
-
-            if product:
-                product.compiled_authority_json = compiled_artifact_json
-                session.add(product)
-                session.commit()
-
-            authority_id = existing_authority.authority_id
-            cached = False
-            recompiled = True
-        else:
-            authority = CompiledSpecAuthority(
-                spec_version_id=parsed.spec_version_id,
-                compiler_version=compiler_version,
-                prompt_hash=prompt_hash,
-                compiled_at=datetime.now(timezone.utc),
-                compiled_artifact_json=compiled_artifact_json,
-                scope_themes=json.dumps(scope_themes),
-                invariants=json.dumps(invariants),
-                eligible_feature_ids=json.dumps([]),
-                rejected_features=json.dumps([]),
-                spec_gaps=json.dumps(spec_gaps),
-            )
-            session.add(authority)
-            session.commit()
-            session.refresh(authority)
-
-            if product:
-                product.compiled_authority_json = compiled_artifact_json
-                session.add(product)
-                session.commit()
-
-            authority_id = authority.authority_id
-            cached = False
-            recompiled = False
-
+        persisted = _persist_compiled_authority(
+            session,
+            context=context,
+            spec_version_id=parsed.spec_version_id,
+            force_recompile=should_recompile,
+            success=compiled,
+        )
         if tool_context and tool_context.state is not None:
-            tool_context.state["compiled_authority_cached"] = compiled_artifact_json
+            tool_context.state["compiled_authority_cached"] = (
+                persisted.compiled_artifact_json
+            )
 
         return {
             "success": True,
-            "cached": cached,
-            "recompiled": recompiled,
-            "authority_id": authority_id,
+            "cached": False,
+            "recompiled": persisted.recompiled,
+            "authority_id": persisted.authority_id,
             "spec_version_id": parsed.spec_version_id,
-            "compiler_version": compiler_version,
-            "prompt_hash": prompt_hash,
-            "scope_themes_count": len(scope_themes),
-            "invariants_count": len(invariants),
-            "content_ref": spec_version.content_ref,
+            "compiler_version": persisted.compiler_version,
+            "prompt_hash": persisted.prompt_hash,
+            "scope_themes_count": persisted.scope_themes_count,
+            "invariants_count": persisted.invariants_count,
+            "content_ref": context.spec_version.content_ref,
             "content_source": content_source,
             "message": (
                 f"Compiled spec version {parsed.spec_version_id} "
-                f"(authority ID: {authority_id})"
+                f"(authority ID: {persisted.authority_id})"
             ),
         }
 
@@ -1035,7 +1401,7 @@ def _ensure_spec_authority_accepted(
     policy: str,
     decided_by: str,
     rationale: str | None = None,
-):
+) -> SpecAuthorityAcceptance:
     tool_ensure = _resolve_ensure_spec_authority_accepted()
     if tool_ensure is not None:
         return tool_ensure(
@@ -1054,138 +1420,184 @@ def _ensure_spec_authority_accepted(
     )
 
 
-def _resolve_compile_spec_authority_for_version():
+def _resolve_compile_spec_authority_for_version() -> (
+    Callable[..., dict[str, Any]] | None
+):
     """Preserve legacy tool-level monkeypatch seam for compile delegation."""
-    try:
-        from tools import spec_tools  # pylint: disable=import-outside-toplevel
-    except ImportError:
-        return None
-
-    tool_compile = getattr(spec_tools, "compile_spec_authority_for_version", None)
-    if not callable(tool_compile):
-        return None
-
-    module_name = getattr(tool_compile, "__module__", "")
-    function_name = getattr(tool_compile, "__name__", "")
-    if (
-        module_name == "tools.spec_tools"
-        and function_name == "compile_spec_authority_for_version"
-    ):
-        return None
-
-    return tool_compile
+    tool_compile = _resolve_tool_override(
+        "compile_spec_authority_for_version",
+        default_module_name="tools.spec_tools",
+        default_function_name="compile_spec_authority_for_version",
+    )
+    return cast("Callable[..., dict[str, Any]] | None", tool_compile)
 
 
-def _resolve_ensure_spec_authority_accepted():
+def _resolve_ensure_spec_authority_accepted() -> (
+    Callable[..., SpecAuthorityAcceptance] | None
+):
     """Preserve legacy tool-level monkeypatch seam for acceptance delegation."""
-    try:
-        from tools import spec_tools  # pylint: disable=import-outside-toplevel
-    except ImportError:
-        return None
-
-    tool_ensure = getattr(spec_tools, "ensure_spec_authority_accepted", None)
-    if not callable(tool_ensure):
-        return None
-
-    module_name = getattr(tool_ensure, "__module__", "")
-    function_name = getattr(tool_ensure, "__name__", "")
-    if (
-        module_name == "tools.spec_tools"
-        and function_name == "ensure_spec_authority_accepted"
-    ):
-        return None
-
-    return tool_ensure
+    tool_ensure = _resolve_tool_override(
+        "ensure_spec_authority_accepted",
+        default_module_name="tools.spec_tools",
+        default_function_name="ensure_spec_authority_accepted",
+    )
+    return cast("Callable[..., SpecAuthorityAcceptance] | None", tool_ensure)
 
 
-def _resolve_update_spec_and_compile_authority():
+def _resolve_update_spec_and_compile_authority() -> (
+    Callable[..., dict[str, Any]] | None
+):
     """Preserve legacy tool-level monkeypatch seam for update+compile delegation."""
-    try:
-        from tools import spec_tools  # pylint: disable=import-outside-toplevel
-    except ImportError:
-        return None
-
-    tool_update = getattr(spec_tools, "update_spec_and_compile_authority", None)
-    if not callable(tool_update):
-        return None
-
-    module_name = getattr(tool_update, "__module__", "")
-    function_name = getattr(tool_update, "__name__", "")
-    if (
-        module_name == "tools.spec_tools"
-        and function_name == "update_spec_and_compile_authority"
-    ):
-        return None
-
-    return tool_update
+    tool_update = _resolve_tool_override(
+        "update_spec_and_compile_authority",
+        default_module_name="tools.spec_tools",
+        default_function_name="update_spec_and_compile_authority",
+    )
+    return cast("Callable[..., dict[str, Any]] | None", tool_update)
 
 
-def update_spec_and_compile_authority(
-    params: dict[str, Any],
-    tool_context: ToolContext | None = None,
-) -> dict[str, Any]:
-    """Persist spec content, compile authority, and auto-accept the result."""
-    raw_params = params
-    if hasattr(raw_params, "model_dump"):
-        raw_params = raw_params.model_dump()
-    parsed = UpdateSpecAndCompileAuthorityInput.model_validate(raw_params or {})
-    force_recompile = bool(parsed.recompile)
-
+def _load_update_spec_content(
+    parsed: UpdateSpecAndCompileAuthorityInput,
+) -> str | dict[str, Any]:
+    """Load raw specification text from exactly one configured input source."""
     has_content = parsed.spec_content is not None
     has_ref = parsed.content_ref is not None
     if has_content == has_ref:
-        raise ValueError("Provide exactly one of spec_content or content_ref")
+        raise UpdateSpecAuthorityInputError.exactly_one_source()
 
-    if parsed.content_ref:
-        content_path = Path(parsed.content_ref)
-        if not content_path.exists():
+    if parsed.content_ref is None:
+        return parsed.spec_content or ""
+
+    content_path = Path(parsed.content_ref)
+    if not content_path.exists():
+        return {
+            "success": False,
+            "error": f"Specification file not found: {parsed.content_ref}",
+        }
+    try:
+        return content_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return {
+            "success": False,
+            "error": f"Failed to read specification file: {exc}",
+        }
+
+
+def _resolve_or_create_spec_version(
+    session: Session,
+    *,
+    parsed: UpdateSpecAndCompileAuthorityInput,
+    spec_content: str,
+    spec_hash: str,
+) -> int | dict[str, Any]:
+    """Return the latest matching approved spec version, creating one if needed."""
+    product = session.get(Product, parsed.product_id)
+    if not product:
+        return {
+            "success": False,
+            "error": f"Product ID {parsed.product_id} not found",
+        }
+
+    latest_spec = session.exec(
+        select(SpecRegistry)
+        .where(SpecRegistry.product_id == parsed.product_id)
+        .order_by(cast("Any", SpecRegistry.spec_version_id).desc())
+    ).first()
+    if latest_spec and latest_spec.spec_hash == spec_hash:
+        spec_version_id = latest_spec.spec_version_id
+        if spec_version_id is None:
             return {
                 "success": False,
-                "error": f"Specification file not found: {parsed.content_ref}",
+                "error": "Latest spec is missing its primary key",
             }
-        try:
-            spec_content = content_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            return {
-                "success": False,
-                "error": f"Failed to read specification file: {exc}",
-            }
-    else:
-        spec_content = parsed.spec_content or ""
+        return spec_version_id
+
+    new_spec = SpecRegistry(
+        product_id=parsed.product_id,
+        spec_hash=spec_hash,
+        content=spec_content,
+        content_ref=parsed.content_ref,
+        status="approved",
+        approved_at=datetime.now(UTC),
+        approved_by="implicit",
+        approval_notes="Implicit approval",
+    )
+    session.add(new_spec)
+    session.commit()
+    session.refresh(new_spec)
+    spec_version_id = new_spec.spec_version_id
+    if spec_version_id is None:
+        return {
+            "success": False,
+            "error": "New spec did not receive a primary key",
+        }
+    return spec_version_id
+
+
+def _load_compiled_authority_or_error(
+    session: Session,
+    *,
+    spec_version_id: int,
+) -> CompiledSpecAuthority | dict[str, Any]:
+    """Load the compiled authority row created for the given spec version."""
+    authority = session.exec(
+        select(CompiledSpecAuthority).where(
+            CompiledSpecAuthority.spec_version_id == spec_version_id
+        )
+    ).first()
+    if authority is None:
+        return {
+            "success": False,
+            "error": f"Compiled authority missing for spec version {spec_version_id}",
+        }
+    return authority
+
+
+def _compiled_authority_metrics(
+    authority: CompiledSpecAuthority,
+) -> tuple[int, int, int]:
+    """Return counts used by the update+compile success payload."""
+    artifact = load_compiled_artifact(authority)
+    if artifact:
+        return (
+            len(artifact.scope_themes),
+            len(artifact.invariants),
+            len(json.loads(authority.eligible_feature_ids)),
+        )
+    return (
+        len(json.loads(authority.scope_themes or "[]")),
+        len(json.loads(authority.invariants or "[]")),
+        len(json.loads(authority.eligible_feature_ids or "[]")),
+    )
+
+
+def update_spec_and_compile_authority(
+    params: dict[str, Any] | UpdateSpecAndCompileAuthorityInput,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
+    """Persist spec content, compile authority, and auto-accept the result."""
+    parsed = UpdateSpecAndCompileAuthorityInput.model_validate(
+        _normalize_input_params(params)
+    )
+    force_recompile = bool(parsed.recompile)
+
+    spec_content_result = _load_update_spec_content(parsed)
+    if isinstance(spec_content_result, dict):
+        return spec_content_result
+    spec_content = spec_content_result
 
     spec_hash = hashlib.sha256(spec_content.encode("utf-8")).hexdigest()
 
     with Session(_resolve_engine()) as session:
-        product = session.get(Product, parsed.product_id)
-        if not product:
-            return {
-                "success": False,
-                "error": f"Product ID {parsed.product_id} not found",
-            }
-
-        latest_spec = session.exec(
-            select(SpecRegistry)
-            .where(SpecRegistry.product_id == parsed.product_id)
-            .order_by(SpecRegistry.spec_version_id.desc())
-        ).first()
-
-        if latest_spec and latest_spec.spec_hash == spec_hash:
-            spec_version_id = latest_spec.spec_version_id
-        else:
-            new_spec = SpecRegistry(
-                product_id=parsed.product_id,
-                spec_hash=spec_hash,
-                content=spec_content,
-                content_ref=parsed.content_ref,
-                status="approved",
-                approved_at=datetime.now(timezone.utc),
-                approved_by="implicit",
-                approval_notes="Implicit approval",
-            )
-            session.add(new_spec)
-            session.commit()
-            session.refresh(new_spec)
-            spec_version_id = new_spec.spec_version_id
+        spec_version_result = _resolve_or_create_spec_version(
+            session,
+            parsed=parsed,
+            spec_content=spec_content,
+            spec_hash=spec_hash,
+        )
+        if isinstance(spec_version_result, dict):
+            return spec_version_result
+        spec_version_id = spec_version_result
 
     compile_result = _compile_spec_authority_for_version(
         spec_version_id=spec_version_id,
@@ -1197,19 +1609,13 @@ def update_spec_and_compile_authority(
         return compile_result
 
     with Session(_resolve_engine()) as session:
-        authority = session.exec(
-            select(CompiledSpecAuthority).where(
-                CompiledSpecAuthority.spec_version_id == spec_version_id
-            )
-        ).first()
-
-        if not authority:
-            return {
-                "success": False,
-                "error": (
-                    f"Compiled authority missing for spec version {spec_version_id}"
-                ),
-            }
+        authority_result = _load_compiled_authority_or_error(
+            session,
+            spec_version_id=spec_version_id,
+        )
+        if isinstance(authority_result, dict):
+            return authority_result
+        authority = authority_result
 
     try:
         acceptance = _ensure_spec_authority_accepted(
@@ -1226,17 +1632,9 @@ def update_spec_and_compile_authority(
             "accepted": False,
         }
 
-    artifact = load_compiled_artifact(authority)
-    if artifact:
-        scope_themes_count = len(artifact.scope_themes)
-        invariants_count = len(artifact.invariants)
-        eligible_feature_ids_count = len(json.loads(authority.eligible_feature_ids))
-    else:
-        scope_themes_count = len(json.loads(authority.scope_themes or "[]"))
-        invariants_count = len(json.loads(authority.invariants or "[]"))
-        eligible_feature_ids_count = len(
-            json.loads(authority.eligible_feature_ids or "[]")
-        )
+    scope_themes_count, invariants_count, eligible_feature_ids_count = (
+        _compiled_authority_metrics(authority)
+    )
 
     return {
         "success": True,
@@ -1267,16 +1665,16 @@ def check_spec_authority_status(
     tool_context: ToolContext | None = None,  # pylint: disable=unused-argument
 ) -> dict[str, Any]:
     """Check whether compiled authority is current for a product."""
-    raw_params = params
-    if hasattr(raw_params, "model_dump"):
-        raw_params = raw_params.model_dump()
-    parsed = CheckSpecAuthorityStatusInput.model_validate(raw_params or {})
+    del tool_context
+    parsed = CheckSpecAuthorityStatusInput.model_validate(
+        _normalize_input_params(params)
+    )
 
     with Session(_resolve_engine()) as session:
         spec_versions = session.exec(
             select(SpecRegistry)
             .where(SpecRegistry.product_id == parsed.product_id)
-            .order_by(SpecRegistry.spec_version_id.desc())
+            .order_by(cast("Any", SpecRegistry.spec_version_id).desc())
         ).all()
 
         if not spec_versions:
@@ -1301,11 +1699,17 @@ def check_spec_authority_status(
             }
 
         latest_approved = latest_spec
+        latest_approved_spec_version_id = latest_approved.spec_version_id
+        if latest_approved_spec_version_id is None:
+            return {
+                "success": False,
+                "error": "Latest approved spec is missing its primary key",
+            }
         latest_authority = session.exec(
             select(CompiledSpecAuthority)
             .join(SpecRegistry)
             .where(SpecRegistry.product_id == parsed.product_id)
-            .order_by(CompiledSpecAuthority.spec_version_id.desc())
+            .order_by(cast("Any", CompiledSpecAuthority.spec_version_id).desc())
         ).first()
 
         if not latest_authority:
@@ -1313,20 +1717,22 @@ def check_spec_authority_status(
                 "success": True,
                 "status": SpecAuthorityStatus.NOT_COMPILED.value,
                 "status_details": (
-                    f"Latest approved spec version {latest_approved.spec_version_id} "
+                    f"Latest approved spec version {latest_approved_spec_version_id} "
                     "is not compiled"
                 ),
-                "latest_approved_spec_version_id": latest_approved.spec_version_id,
+                "latest_approved_spec_version_id": latest_approved_spec_version_id,
                 "message": "Status: NOT_COMPILED (approved but not compiled)",
             }
 
-        if latest_authority.spec_version_id < latest_approved.spec_version_id:
+        if latest_authority.spec_version_id < latest_approved_spec_version_id:
             return {
                 "success": True,
                 "status": SpecAuthorityStatus.STALE.value,
-                "status_details": "Compiled authority is stale (newer approved spec exists)",
+                "status_details": (
+                    "Compiled authority is stale (newer approved spec exists)"
+                ),
                 "compiled_spec_version_id": latest_authority.spec_version_id,
-                "latest_approved_spec_version_id": latest_approved.spec_version_id,
+                "latest_approved_spec_version_id": latest_approved_spec_version_id,
                 "message": "Status: STALE (compiled for older spec)",
             }
 
@@ -1335,12 +1741,14 @@ def check_spec_authority_status(
             "status": SpecAuthorityStatus.CURRENT.value,
             "status_details": (
                 "Compiled authority exists for latest approved spec "
-                f"version {latest_approved.spec_version_id}"
+                f"version {latest_approved_spec_version_id}"
             ),
-            "latest_approved_spec_version_id": latest_approved.spec_version_id,
+            "latest_approved_spec_version_id": latest_approved_spec_version_id,
             "authority_id": latest_authority.authority_id,
             "compiled_at": latest_authority.compiled_at.isoformat(),
-            "message": f"Status: CURRENT (authority ID: {latest_authority.authority_id})",
+            "message": (
+                f"Status: CURRENT (authority ID: {latest_authority.authority_id})"
+            ),
         }
 
 
@@ -1350,10 +1758,8 @@ def get_compiled_authority_by_version(
     tool_context: ToolContext | None = None,  # pylint: disable=unused-argument
 ) -> dict[str, Any]:
     """Retrieve compiled authority for a specific spec version."""
-    raw_params = params
-    if hasattr(raw_params, "model_dump"):
-        raw_params = raw_params.model_dump()
-    parsed = GetCompiledAuthorityInput.model_validate(raw_params or {})
+    del tool_context
+    parsed = GetCompiledAuthorityInput.model_validate(_normalize_input_params(params))
 
     with Session(_resolve_engine()) as session:
         spec_version = session.get(SpecRegistry, parsed.spec_version_id)
@@ -1424,16 +1830,16 @@ def get_compiled_authority_by_version(
 
 
 __all__ = [
-    "UpdateSpecAndCompileAuthorityInput",
-    "CompileSpecAuthorityForVersionInput",
-    "PreviewSpecAuthorityInput",
     "CheckSpecAuthorityStatusInput",
+    "CompileSpecAuthorityForVersionInput",
     "GetCompiledAuthorityInput",
+    "PreviewSpecAuthorityInput",
+    "UpdateSpecAndCompileAuthorityInput",
+    "check_spec_authority_status",
+    "compile_spec_authority_for_version",
+    "ensure_accepted_spec_authority",
+    "get_compiled_authority_by_version",
     "load_compiled_artifact",
     "preview_spec_authority",
-    "check_spec_authority_status",
-    "get_compiled_authority_by_version",
-    "ensure_accepted_spec_authority",
-    "compile_spec_authority_for_version",
     "update_spec_and_compile_authority",
 ]

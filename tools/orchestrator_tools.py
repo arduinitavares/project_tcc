@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, cast
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
@@ -20,14 +20,26 @@ from models.db import get_engine
 from models.enums import StoryStatus
 from services.orchestrator_context_service import (
     get_project_details as _get_project_details_service,
+)
+from services.orchestrator_context_service import (
     select_project as _select_project_service,
 )
 from services.orchestrator_query_service import (
     CACHE_TTL_MINUTES,
+)
+from services.orchestrator_query_service import (
     fetch_sprint_candidates as _fetch_sprint_candidates_service,
+)
+from services.orchestrator_query_service import (
     get_real_business_state as _get_real_business_state_service,
+)
+from services.orchestrator_query_service import (
     is_projects_cache_fresh as _is_projects_cache_fresh_service,
+)
+from services.orchestrator_query_service import (
     refresh_projects_cache as _refresh_projects_cache_service,
+)
+from services.orchestrator_query_service import (
     utc_now_iso as _utc_now_iso_service,
 )
 
@@ -37,22 +49,20 @@ def _utc_now_iso() -> str:
     return _utc_now_iso_service()
 
 
-def _normalize_params(params: Any) -> Dict[str, Any]:
+def _normalize_params(params: Any) -> dict[str, Any]:
     """Normalize tool params to a dict, handling wrapped JSON strings."""
     if params is None:
         return {}
     if isinstance(params, dict):
-        params_dict: Dict[str, Any] = cast(Dict[str, Any], params)
+        params_dict: dict[str, Any] = cast("dict[str, Any]", params)
         wrapped = params_dict.get("params")
         if isinstance(wrapped, dict):
-            return cast(Dict[str, Any], wrapped)
+            return cast("dict[str, Any]", wrapped)
         if isinstance(wrapped, str):
             try:
                 parsed = json.loads(wrapped)
                 return (
-                    cast(Dict[str, Any], parsed)
-                    if isinstance(parsed, dict)
-                    else {}
+                    cast("dict[str, Any]", parsed) if isinstance(parsed, dict) else {}
                 )
             except json.JSONDecodeError:
                 return {}
@@ -60,26 +70,20 @@ def _normalize_params(params: Any) -> Dict[str, Any]:
     if isinstance(params, str):
         try:
             parsed = json.loads(params)
-            return (
-                cast(Dict[str, Any], parsed)
-                if isinstance(parsed, dict)
-                else {}
-            )
+            return cast("dict[str, Any]", parsed) if isinstance(parsed, dict) else {}
         except json.JSONDecodeError:
             return {}
     return {}
 
 
-def _is_fresh(
-    state: Dict[str, Any], ttl_minutes: int = CACHE_TTL_MINUTES
-) -> bool:
+def _is_fresh(state: dict[str, Any], ttl_minutes: int = CACHE_TTL_MINUTES) -> bool:
     """Compatibility shim over the orchestrator query service cache TTL helper."""
     return _is_projects_cache_fresh_service(state, ttl_minutes=ttl_minutes)
 
 
 def _refresh_projects_cache(
-    state: Dict[str, Any],
-) -> Tuple[int, List[Dict[str, Any]]]:
+    state: dict[str, Any],
+) -> tuple[int, list[dict[str, Any]]]:
     """Compatibility shim over the orchestrator query service cache refresher."""
     return _refresh_projects_cache_service(state)
 
@@ -87,7 +91,7 @@ def _refresh_projects_cache(
 class CountProjectsInput(BaseModel):
     """Input schema for count_projects tool."""
 
-    force_refresh: Optional[bool] = Field(
+    force_refresh: bool | None = Field(
         default=None,
         description=(
             "Force refresh from database, bypassing cache. "
@@ -99,7 +103,7 @@ class CountProjectsInput(BaseModel):
 class ListProjectsInput(BaseModel):
     """Input schema for list_projects tool."""
 
-    force_refresh: Optional[bool] = Field(
+    force_refresh: bool | None = Field(
         default=None,
         description=(
             "Force refresh from database, bypassing cache. "
@@ -108,14 +112,14 @@ class ListProjectsInput(BaseModel):
     )
 
 
-def count_projects(params: Any, tool_context: ToolContext) -> Dict[str, Any]:
+def count_projects(params: Any, tool_context: ToolContext) -> dict[str, Any]:
     """Agent tool: Count total projects. Uses a transparent persistent cache."""
     parsed = CountProjectsInput.model_validate(_normalize_params(params))
     should_refresh = bool(parsed.force_refresh)
 
     print(f"\n[Tool: count_projects] Refresh: {should_refresh}")
 
-    state: Dict[str, Any] = cast(Dict[str, Any], tool_context.state)
+    state: dict[str, Any] = cast("dict[str, Any]", tool_context.state)
 
     if not should_refresh and _is_fresh(state) and "projects_summary" in state:
         count = int(state.get("projects_summary", 0))
@@ -137,19 +141,17 @@ def count_projects(params: Any, tool_context: ToolContext) -> Dict[str, Any]:
     }
 
 
-def list_projects(params: Any, tool_context: ToolContext) -> Dict[str, Any]:
+def list_projects(params: Any, tool_context: ToolContext) -> dict[str, Any]:
     """Agent tool: List all projects with summary info. Uses a transparent cache."""
     parsed = ListProjectsInput.model_validate(_normalize_params(params))
     should_refresh = bool(parsed.force_refresh)
 
-    print(
-        f"\n[Tool: list_projects] Request received. Force Refresh: {should_refresh}"
-    )
+    print(f"\n[Tool: list_projects] Request received. Force Refresh: {should_refresh}")
 
-    state: Dict[str, Any] = cast(Dict[str, Any], tool_context.state)
+    state: dict[str, Any] = cast("dict[str, Any]", tool_context.state)
 
     if not should_refresh and _is_fresh(state) and "projects_list" in state:
-        projects: List[Dict[str, Any]] = list(state.get("projects_list", []))
+        projects: list[dict[str, Any]] = list(state.get("projects_list", []))
         print(f"   [Cache] Hit! Returning {len(projects)} items.")
         return {
             "success": True,
@@ -170,12 +172,12 @@ def list_projects(params: Any, tool_context: ToolContext) -> Dict[str, Any]:
     }
 
 
-def get_project_details(product_id: int) -> Dict[str, Any]:
+def get_project_details(product_id: int) -> dict[str, Any]:
     """Compatibility adapter over the orchestrator context service boundary."""
     return _get_project_details_service(product_id)
 
 
-def get_project_by_name(project_name: str) -> Dict[str, Any]:
+def get_project_by_name(project_name: str) -> dict[str, Any]:
     """Agent tool: Find a project by name."""
     print(f"\n[Tool: get_project_by_name] Searching for: '{project_name}'")
     with Session(get_engine()) as session:
@@ -198,7 +200,7 @@ def get_project_by_name(project_name: str) -> Dict[str, Any]:
         }
 
 
-def _priority_to_int(rank: Optional[str]) -> Optional[int]:
+def _priority_to_int(rank: str | None) -> int | None:
     """Convert story rank to integer priority when possible."""
     if rank is None:
         return None
@@ -211,7 +213,7 @@ def _priority_to_int(rank: Optional[str]) -> Optional[int]:
         return None
 
 
-def _story_order_key(story: UserStory) -> Tuple[int, int]:
+def _story_order_key(story: UserStory) -> tuple[int, int]:
     """Sort key that keeps numeric rank first and stable ordering by story_id."""
     numeric_priority = _priority_to_int(story.rank)
     return (
@@ -220,7 +222,7 @@ def _story_order_key(story: UserStory) -> Tuple[int, int]:
     )
 
 
-def fetch_product_backlog(product_id: int) -> Dict[str, Any]:
+def fetch_product_backlog(product_id: int) -> dict[str, Any]:
     """
     Fetch all 'To Do' user stories for a product.
     Returns a list of stories with basic details for inspection/diagnostics.
@@ -234,7 +236,10 @@ def fetch_product_backlog(product_id: int) -> Dict[str, Any]:
                 select(UserStory)
                 .where(UserStory.product_id == product_id)
                 .where(UserStory.status == StoryStatus.TO_DO)
-                .order_by(UserStory.rank, UserStory.story_id)
+                .order_by(
+                    cast("Any", UserStory.rank),
+                    cast("Any", UserStory.story_id),
+                )
             ).all()
         )
         stories.sort(key=_story_order_key)
@@ -274,14 +279,14 @@ def fetch_product_backlog(product_id: int) -> Dict[str, Any]:
         }
 
 
-def fetch_sprint_candidates(product_id: int) -> Dict[str, Any]:
+def fetch_sprint_candidates(product_id: int) -> dict[str, Any]:
     """Compatibility adapter over the orchestrator query service boundary."""
     return _fetch_sprint_candidates_service(product_id)
 
 
 def load_specification_from_file(
     file_path: str,
-    tool_context: Optional[ToolContext] = None,
+    tool_context: ToolContext | None = None,
 ) -> str:
     """
     Load a technical specification from a local file for project creation.
@@ -330,7 +335,7 @@ def load_specification_from_file(
 
     # Log to state for transparency
     if tool_context and tool_context.state:
-        state: Dict[str, Any] = cast(Dict[str, Any], tool_context.state)
+        state: dict[str, Any] = cast("dict[str, Any]", tool_context.state)
         # Primary keys for authority gate fallback (must match keys used elsewhere)
         state["pending_spec_path"] = str(path.absolute())
         state["pending_spec_content"] = content
@@ -342,13 +347,11 @@ def load_specification_from_file(
     return content
 
 
-def get_real_business_state() -> Dict[str, Any]:
+def get_real_business_state() -> dict[str, Any]:
     """Compatibility adapter over the orchestrator query service boundary."""
     return _get_real_business_state_service()
 
 
-def select_project(
-    product_id: int, tool_context: ToolContext
-) -> Dict[str, Any]:
+def select_project(product_id: int, tool_context: ToolContext) -> dict[str, Any]:
     """Compatibility adapter over the orchestrator context service boundary."""
     return _select_project_service(product_id, tool_context)

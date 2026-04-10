@@ -1,22 +1,22 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
 from scripts.summarize_smoke_runs import summarize
-from utils.smoke_schema import parse_smoke_run_record, terminal_status, compute_success
+from utils.smoke_schema import compute_success, parse_smoke_run_record, terminal_status
 
 
 def _record(
     *,
-    variant: Dict[str, Any] | None = None,
-    metrics: Dict[str, Any] | None = None,
-    timing: Dict[str, Any] | None = None,
-    extra: Dict[str, Any] | None = None,
-) -> Dict[str, Any]:
+    variant: dict[str, Any] | None = None,
+    metrics: dict[str, Any] | None = None,
+    timing: dict[str, Any] | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if variant is None:
         variant = {
             "enable_refiner": False,
@@ -27,7 +27,7 @@ def _record(
         metrics = {}
     if timing is None:
         timing = {}
-    record: Dict[str, Any] = {
+    record: dict[str, Any] = {
         "RUN_ID": str(uuid4()),
         "SCENARIO_ID": 1,
         "VARIANT": variant,
@@ -41,7 +41,9 @@ def _record(
             "acceptance_blocked": metrics.get("acceptance_blocked", False),
             "alignment_rejected": metrics.get("alignment_rejected", False),
             "contract_passed": metrics.get("contract_passed"),
-            "required_fields_missing_count": metrics.get("required_fields_missing_count"),
+            "required_fields_missing_count": metrics.get(
+                "required_fields_missing_count"
+            ),
             "spec_version_id_match": metrics.get("spec_version_id_match"),
             "draft_present": metrics.get("draft_present", False),
             "refiner_output_present": metrics.get("refiner_output_present", False),
@@ -57,7 +59,7 @@ def _record(
     return record
 
 
-def _summary_row(markdown: str, scenario_id: int, variant_label: str) -> List[str]:
+def _summary_row(markdown: str, scenario_id: int, variant_label: str) -> list[str]:
     target = f"| {scenario_id} | {variant_label} |"
     for line in markdown.splitlines():
         if line.startswith(target):
@@ -65,11 +67,11 @@ def _summary_row(markdown: str, scenario_id: int, variant_label: str) -> List[st
     raise AssertionError("Summary row not found")
 
 
-def _status_counts(markdown: str, scenario_id: int) -> Dict[str, int]:
+def _status_counts(markdown: str, scenario_id: int) -> dict[str, int]:
     lines = markdown.splitlines()
     header = f"### Scenario {scenario_id}"
     start = lines.index(header) + 3
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for line in lines[start:]:
         if not line.startswith("| "):
             break
@@ -323,14 +325,46 @@ def test_refiner_disabled_with_real_output_rejected() -> None:
 
 def test_scenario_1_happy_path_success_for_all_variants() -> None:
     variants = [
-        {"enable_refiner": False, "enable_spec_validator": False, "pass_raw_spec_text": False},
-        {"enable_refiner": False, "enable_spec_validator": False, "pass_raw_spec_text": True},
-        {"enable_refiner": False, "enable_spec_validator": True, "pass_raw_spec_text": False},
-        {"enable_refiner": False, "enable_spec_validator": True, "pass_raw_spec_text": True},
-        {"enable_refiner": True, "enable_spec_validator": False, "pass_raw_spec_text": False},
-        {"enable_refiner": True, "enable_spec_validator": False, "pass_raw_spec_text": True},
-        {"enable_refiner": True, "enable_spec_validator": True, "pass_raw_spec_text": False},
-        {"enable_refiner": True, "enable_spec_validator": True, "pass_raw_spec_text": True},
+        {
+            "enable_refiner": False,
+            "enable_spec_validator": False,
+            "pass_raw_spec_text": False,
+        },
+        {
+            "enable_refiner": False,
+            "enable_spec_validator": False,
+            "pass_raw_spec_text": True,
+        },
+        {
+            "enable_refiner": False,
+            "enable_spec_validator": True,
+            "pass_raw_spec_text": False,
+        },
+        {
+            "enable_refiner": False,
+            "enable_spec_validator": True,
+            "pass_raw_spec_text": True,
+        },
+        {
+            "enable_refiner": True,
+            "enable_spec_validator": False,
+            "pass_raw_spec_text": False,
+        },
+        {
+            "enable_refiner": True,
+            "enable_spec_validator": False,
+            "pass_raw_spec_text": True,
+        },
+        {
+            "enable_refiner": True,
+            "enable_spec_validator": True,
+            "pass_raw_spec_text": False,
+        },
+        {
+            "enable_refiner": True,
+            "enable_spec_validator": True,
+            "pass_raw_spec_text": True,
+        },
     ]
 
     for variant in variants:
@@ -405,15 +439,21 @@ def test_contract_failed_reason_breakdown() -> None:
     )
 
     assert terminal_status(parse_smoke_run_record(contract_failed)) == "contract_failed"
-    assert terminal_status(parse_smoke_run_record(missing_required)) == "missing_required_fields"
-    assert terminal_status(parse_smoke_run_record(spec_mismatch)) == "spec_version_mismatch"
+    assert (
+        terminal_status(parse_smoke_run_record(missing_required))
+        == "missing_required_fields"
+    )
+    assert (
+        terminal_status(parse_smoke_run_record(spec_mismatch))
+        == "spec_version_mismatch"
+    )
     assert terminal_status(parse_smoke_run_record(final_missing)) == "unknown"
     assert compute_success(parse_smoke_run_record(final_missing)) is False
 
 
 def test_contract_passed_none_returns_unknown_status() -> None:
     """When contract_passed=None (validation skipped), terminal_status should be 'unknown'.
-    
+
     This tests the new semantic: when enable_spec_validator=False and INVEST validation
     is skipped, is_valid=None propagates to contract_passed=None, and terminal_status
     should be 'unknown' (not 'contract_failed').
@@ -451,7 +491,7 @@ def test_contract_passed_none_returns_unknown_status() -> None:
 
 def test_spec_validator_disabled_does_not_produce_contract_failed() -> None:
     """Variants with enable_spec_validator=False should NOT have terminal_status='contract_failed'.
-    
+
     This is the key test for the A/B matrix fix: when spec_validator is disabled,
     the missing INVEST validation_result should NOT cause contract enforcement to fail.
     Instead, it should result in contract_passed=None and terminal_status='unknown'.
@@ -477,7 +517,7 @@ def test_spec_validator_disabled_does_not_produce_contract_failed() -> None:
 
     parsed = parse_smoke_run_record(v100_record)
     status = terminal_status(parsed)
-    
+
     # Key assertion: status should NOT be 'contract_failed'
     assert status != "contract_failed", (
         f"V100 variant (spec_validator disabled) should NOT produce 'contract_failed', "
@@ -491,7 +531,7 @@ def test_spec_validator_disabled_does_not_produce_contract_failed() -> None:
 
 def test_spec_validator_enabled_missing_validation_is_contract_failed() -> None:
     """Variants with enable_spec_validator=True should fail if validation_result is missing.
-    
+
     When spec validator is enabled (expected to run), but contract_passed=False
     (e.g., INVEST_RESULT_MISSING violation), terminal_status should be 'contract_failed'.
     """

@@ -87,9 +87,7 @@ def test_record_task_execution_rejects_non_executable_tasks():
             load_sprint=lambda: sprint,
             load_sprint_story=lambda current_task: sprint_story,
             load_logs=list,
-            parse_task_metadata=lambda _raw: SimpleNamespace(
-                checklist_items=[]
-            ),
+            parse_task_metadata=lambda _raw: SimpleNamespace(checklist_items=[]),
             persist_execution_log=lambda *args, **kwargs: None,
         )
 
@@ -136,9 +134,7 @@ def test_record_task_execution_normalizes_artifact_refs_and_returns_history():
         load_sprint=lambda: sprint,
         load_sprint_story=lambda current_task: sprint_story,
         load_logs=lambda: [log_entry],
-        parse_task_metadata=lambda _raw: SimpleNamespace(
-            checklist_items=["step"]
-        ),
+        parse_task_metadata=lambda _raw: SimpleNamespace(checklist_items=["step"]),
         persist_execution_log=lambda **kwargs: persisted.update(kwargs),
     )
 

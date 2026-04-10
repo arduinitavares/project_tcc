@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from datetime import date
 
-from agile_sqlmodel import Product, Sprint, SprintStatus, SprintStory, StoryStatus, UserStory
+from agile_sqlmodel import (
+    Product,
+    Sprint,
+    SprintStatus,
+    SprintStory,
+    StoryStatus,
+    UserStory,
+)
 from models.core import Team
 
 

@@ -4,8 +4,7 @@ from __future__ import annotations
 
 
 def test_api_schema_module_exports_task_and_close_models() -> None:
-    from utils import api_schemas
-    from utils import schemes
+    from utils import api_schemas, schemes
 
     assert api_schemas.TaskExecutionWriteRequest.__module__ == "utils.api_schemas"
     assert api_schemas.TaskExecutionLogEntry.__module__ == "utils.api_schemas"

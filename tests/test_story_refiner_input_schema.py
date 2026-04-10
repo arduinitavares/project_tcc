@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any
 
 from utils.spec_schemas import StoryRefinerInput
 
 
 def test_story_refiner_input_schema_round_trip() -> None:
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "story_draft": {
             "title": "Capture user_id",
             "description": "As a automation engineer, I want ... so that ...",

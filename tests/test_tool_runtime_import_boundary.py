@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -151,7 +150,15 @@ def test_export_snapshot_import_boundary() -> None:
         module_path, {"agile_sqlmodel", *agile_aliases}, {"Sprint"}
     )
 
-    assert core_imports == {"Epic", "Feature", "Product", "Sprint", "SprintStory", "Theme", "UserStory"}
+    assert core_imports == {
+        "Epic",
+        "Feature",
+        "Product",
+        "Sprint",
+        "SprintStory",
+        "Theme",
+        "UserStory",
+    }
     assert db_imports == {"engine"}
     assert db_bound_imports == {"default_engine"}
     assert enum_imports == {"StoryStatus"}

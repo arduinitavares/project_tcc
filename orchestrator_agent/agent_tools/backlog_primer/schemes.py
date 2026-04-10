@@ -1,6 +1,6 @@
 """Input and output schemas for the Backlog Primer agent."""
 
-from typing import Annotated, List, Literal, Optional
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -46,7 +46,7 @@ class BacklogItem(BaseModel):
         ),
     ]
     technical_note: Annotated[
-        Optional[str],
+        str | None,
         Field(
             default=None,
             description=(
@@ -90,7 +90,7 @@ class InputSchema(BaseModel):
         ),
     ]
     user_input: Annotated[
-        Optional[str],
+        str | None,
         Field(
             description="User-provided notes, requirements, or answers to questions.",
         ),
@@ -103,7 +103,7 @@ class OutputSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     backlog_items: Annotated[
-        List[BacklogItem],
+        list[BacklogItem],
         Field(description="Prioritized high-level backlog requirements."),
     ]
     is_complete: Annotated[
@@ -116,7 +116,7 @@ class OutputSchema(BaseModel):
         ),
     ]
     clarifying_questions: Annotated[
-        List[str],
+        list[str],
         Field(
             description="Questions to resolve missing or ambiguous backlog details.",
         ),

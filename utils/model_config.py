@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-from functools import lru_cache
 import os
+from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import yaml
 
 from utils.runtime_config import get_bool_env, load_runtime_env
-
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _DEFAULT_CONFIG_PATH = _REPO_ROOT / "config" / "models.yaml"
 
 load_runtime_env()
 
-OPENROUTER_PROVIDER: Dict[str, Any] = {
+OPENROUTER_PROVIDER: dict[str, Any] = {
     "data_collection": "deny",
     "zdr": True,
     "sort": "price",
@@ -34,9 +33,61 @@ ZDR_MAX_RETRIES = 5
 ZDR_MAX_BACKOFF_SECONDS = 10.0
 
 
+class ModelConfigError(RuntimeError):
+    """Base error for invalid model configuration data."""
+
+
+class ModelConfigNotFoundError(FileNotFoundError):
+    """Raised when the configured models.yaml file cannot be found."""
+
+    def __init__(self, config_path: Path) -> None:
+        """Store the missing config path in the exception message."""
+        super().__init__(f"Model config not found: {config_path}")
+
+
+class ModelConfigMappingError(TypeError):
+    """Raised when the root models.yaml payload is not a mapping."""
+
+    def __init__(self) -> None:
+        """Describe the expected root YAML structure."""
+        super().__init__("Model config must be a YAML mapping")
+
+
+class ModelsSectionMappingError(TypeError):
+    """Raised when the models section is not a mapping."""
+
+    def __init__(self) -> None:
+        """Describe the expected type for the models section."""
+        super().__init__("models must be a mapping in models.yaml")
+
+
+class ModelKeyNotFoundError(KeyError):
+    """Raised when a requested model key is absent from models.yaml."""
+
+    def __init__(self, key: str) -> None:
+        """Store the missing model key in the exception message."""
+        super().__init__(f"Model key not found in models.yaml: {key}")
+
+
+class StoryPipelineMappingError(TypeError):
+    """Raised when the story_pipeline section is not a mapping."""
+
+    def __init__(self) -> None:
+        """Describe the expected type for the story_pipeline section."""
+        super().__init__("story_pipeline must be a mapping in models.yaml")
+
+
+class StoryPipelineModeError(ValueError):
+    """Raised when story_pipeline.mode is neither batch nor single."""
+
+    def __init__(self) -> None:
+        """Describe the allowed story pipeline modes."""
+        super().__init__("story_pipeline.mode must be 'batch' or 'single'")
+
+
 def is_zdr_routing_error(exception: BaseException) -> bool:
     """Check if an exception is a ZDR/privacy routing failure.
-    
+
     These are transient errors when no privacy-compliant provider is available.
     They can be retried after a short delay.
     """
@@ -61,14 +112,14 @@ def _get_config_path() -> Path:
 
 
 @lru_cache(maxsize=1)
-def _load_config() -> Dict[str, Any]:
+def _load_config() -> dict[str, Any]:
     config_path = _get_config_path()
     if not config_path.exists():
-        raise FileNotFoundError(f"Model config not found: {config_path}")
+        raise ModelConfigNotFoundError(config_path)
     raw = config_path.read_text(encoding="utf-8")
     data = yaml.safe_load(raw) or {}
     if not isinstance(data, dict):
-        raise ValueError("Model config must be a YAML mapping")
+        raise ModelConfigMappingError
     return data
 
 
@@ -89,14 +140,14 @@ def get_model_id(key: str) -> str:
     data = _load_config()
     models = data.get("models", {})
     if not isinstance(models, dict):
-        raise ValueError("models must be a mapping in models.yaml")
+        raise ModelsSectionMappingError
     model_id = models.get(key)
     if not model_id:
-        raise KeyError(f"Model key not found in models.yaml: {key}")
+        raise ModelKeyNotFoundError(key)
     return str(model_id)
 
 
-def _get_provider_config() -> Dict[str, Any]:
+def _get_provider_config() -> dict[str, Any]:
     relax_privacy = get_bool_env("RELAX_ZDR_FOR_TESTS", default=False)
     if not relax_privacy:
         return dict(OPENROUTER_PROVIDER)
@@ -113,7 +164,7 @@ def _get_provider_config() -> Dict[str, Any]:
     return relaxed_provider
 
 
-def get_openrouter_extra_body() -> Dict[str, Any]:
+def get_openrouter_extra_body() -> dict[str, Any]:
     """Return extra_body for OpenRouter requests with privacy routing."""
     return {"provider": _get_provider_config()}
 
@@ -129,11 +180,11 @@ def get_story_pipeline_mode() -> str:
     if pipeline is None:
         pipeline = {}
     if not isinstance(pipeline, dict):
-        raise ValueError("story_pipeline must be a mapping in models.yaml")
+        raise StoryPipelineMappingError
 
     mode = str(pipeline.get("mode", "batch")).strip().lower()
     if mode not in {"batch", "single"}:
-        raise ValueError("story_pipeline.mode must be 'batch' or 'single'")
+        raise StoryPipelineModeError
     return mode
 
 
@@ -144,7 +195,7 @@ def get_story_pipeline_negation_tolerance() -> bool:
     if pipeline is None:
         pipeline = {}
     if not isinstance(pipeline, dict):
-        raise ValueError("story_pipeline must be a mapping in models.yaml")
+        raise StoryPipelineMappingError
 
     enabled = pipeline.get("negation_tolerance_llm", False)
     return bool(enabled)

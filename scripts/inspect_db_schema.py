@@ -1,4 +1,5 @@
 """Inspect runtime database schema."""
+
 import argparse
 import sqlite3
 from pathlib import Path
@@ -24,12 +25,16 @@ def inspect_schema(db_path: str) -> None:
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     tables = cursor.fetchall()
     print("Tables in database:")
-    for table_name, in tables:
+    for (table_name,) in tables:
         print(f"  - {table_name}")
 
     print()
 
-    for table_name in ["compiled_spec_authority", "spec_registry", "spec_authority_acceptance"]:
+    for table_name in [
+        "compiled_spec_authority",
+        "spec_registry",
+        "spec_authority_acceptance",
+    ]:
         cursor.execute(f"PRAGMA table_info({table_name})")
         cols = cursor.fetchall()
         print(f"{table_name} has {len(cols)} columns:")
@@ -41,7 +46,9 @@ def inspect_schema(db_path: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Inspect the configured runtime database schema.")
+    parser = argparse.ArgumentParser(
+        description="Inspect the configured runtime database schema."
+    )
     parser.add_argument(
         "db",
         nargs="?",

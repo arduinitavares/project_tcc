@@ -121,9 +121,7 @@ def _story_merge_recommendation_from_artifact(
         ):
             continue
 
-        owner_match = re.search(
-            r"owned by '([^']+)'", warning, flags=re.IGNORECASE
-        )
+        owner_match = re.search(r"owned by '([^']+)'", warning, flags=re.IGNORECASE)
         if not owner_match:
             continue
 
@@ -164,10 +162,7 @@ def story_current_resolution(
     runtime: dict[str, Any],
 ) -> dict[str, Any] | None:
     resolution_projection = runtime.get("resolution_projection") or {}
-    if (
-        not isinstance(resolution_projection, dict)
-        or not resolution_projection
-    ):
+    if not isinstance(resolution_projection, dict) or not resolution_projection:
         return None
     if resolution_projection.get("status") != "merged":
         return None
@@ -204,9 +199,7 @@ def story_merge_recommendation_payload(
 
 def story_resolution_summary(runtime: dict[str, Any]) -> dict[str, Any]:
     current = story_current_resolution(runtime)
-    recommendation = (
-        None if current else story_merge_recommendation_payload(runtime)
-    )
+    recommendation = None if current else story_merge_recommendation_payload(runtime)
     return {
         "available": bool(recommendation),
         "current": current,
@@ -341,10 +334,7 @@ def _normalize_story_requirement(
     if parent_requirement in candidate_names:
         return parent_requirement
 
-    if (
-        isinstance(normalized_parent_requirement, str)
-        and normalized_parent_requirement
-    ):
+    if isinstance(normalized_parent_requirement, str) and normalized_parent_requirement:
         for candidate in candidate_names:
             if candidate.strip() == normalized_parent_requirement:
                 return candidate
@@ -517,9 +507,7 @@ async def generate_story_draft(
     save_state: Callable[[dict[str, Any]], None],
     now_iso: Callable[[], str],
     run_story_agent_from_state: Callable[..., Awaitable[dict[str, Any]]],
-    append_feedback_entry: Callable[
-        [dict[str, Any], str, str], dict[str, Any]
-    ],
+    append_feedback_entry: Callable[[dict[str, Any], str, str], dict[str, Any]],
     set_request_projection: Callable[..., dict[str, Any]],
     append_attempt: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]],
     promote_reusable_draft: Callable[..., dict[str, Any]],
@@ -537,9 +525,7 @@ async def generate_story_draft(
     )
 
     has_attempts = story_has_working_state(runtime)
-    normalized_user_input = (
-        user_input.strip() if isinstance(user_input, str) else None
-    )
+    normalized_user_input = user_input.strip() if isinstance(user_input, str) else None
     if has_attempts and not normalized_user_input:
         raise StoryPhaseError(
             "User input is required to refine an existing story.",
@@ -557,9 +543,7 @@ async def generate_story_draft(
         user_input=None if included_feedback_ids else user_input,
     )
 
-    request_payload = _story_request_payload(
-        story_result.get("request_payload")
-    )
+    request_payload = _story_request_payload(story_result.get("request_payload"))
     created_at = now_iso()
     draft_basis_attempt_id = (runtime.get("draft_projection") or {}).get(
         "latest_reusable_attempt_id"
@@ -585,26 +569,17 @@ async def generate_story_draft(
         {
             "attempt_id": attempt_id,
             "created_at": created_at,
-            "trigger": "manual_refine"
-            if normalized_user_input
-            else "auto_transition",
-            "request_snapshot_id": request_projection.get(
-                "request_snapshot_id"
-            ),
-            "draft_basis_attempt_id": request_projection.get(
-                "draft_basis_attempt_id"
-            ),
+            "trigger": "manual_refine" if normalized_user_input else "auto_transition",
+            "request_snapshot_id": request_projection.get("request_snapshot_id"),
+            "draft_basis_attempt_id": request_projection.get("draft_basis_attempt_id"),
             "included_feedback_ids": list(included_feedback_ids),
-            "input_context": story_result.get("input_context")
-            or request_payload,
+            "input_context": story_result.get("input_context") or request_payload,
             "classification": story_result.get("classification"),
             "is_reusable": bool(story_result.get("is_reusable", False)),
             "retryable": story_retryable(story_result.get("classification")),
             "draft_kind": story_result.get("draft_kind"),
             "output_artifact": story_result.get("output_artifact") or {},
-            **failure_meta(
-                story_result, fallback_summary=story_result.get("error")
-            ),
+            **failure_meta(story_result, fallback_summary=story_result.get("error")),
         },
     )
 
@@ -682,9 +657,7 @@ async def retry_story_draft(
     )
 
     created_at = now_iso()
-    included_feedback_ids = list(
-        request_projection.get("included_feedback_ids") or []
-    )
+    included_feedback_ids = list(request_projection.get("included_feedback_ids") or [])
     attempt_id = f"attempt-{len(runtime.get('attempt_history') or []) + 1}"
     append_attempt(
         runtime,
@@ -692,23 +665,16 @@ async def retry_story_draft(
             "attempt_id": attempt_id,
             "created_at": created_at,
             "trigger": "retry_same_input",
-            "request_snapshot_id": request_projection.get(
-                "request_snapshot_id"
-            ),
-            "draft_basis_attempt_id": request_projection.get(
-                "draft_basis_attempt_id"
-            ),
+            "request_snapshot_id": request_projection.get("request_snapshot_id"),
+            "draft_basis_attempt_id": request_projection.get("draft_basis_attempt_id"),
             "included_feedback_ids": included_feedback_ids,
-            "input_context": story_result.get("input_context")
-            or request_payload,
+            "input_context": story_result.get("input_context") or request_payload,
             "classification": story_result.get("classification"),
             "is_reusable": bool(story_result.get("is_reusable", False)),
             "retryable": story_retryable(story_result.get("classification")),
             "draft_kind": story_result.get("draft_kind"),
             "output_artifact": story_result.get("output_artifact") or {},
-            **failure_meta(
-                story_result, fallback_summary=story_result.get("error")
-            ),
+            **failure_meta(story_result, fallback_summary=story_result.get("error")),
         },
     )
 
@@ -863,9 +829,7 @@ async def merge_story_resolution(
         "status": "merged",
         "owner_requirement": recommendation["owner_requirement"],
         "reason": recommendation["reason"],
-        "acceptance_criteria_to_move": recommendation[
-            "acceptance_criteria_to_move"
-        ],
+        "acceptance_criteria_to_move": recommendation["acceptance_criteria_to_move"],
         "resolved_at": now_iso(),
     }
 
@@ -901,9 +865,7 @@ async def delete_story_requirement(
     normalized_repository_requirement = normalize_requirement_key(
         normalized_parent_requirement
     )
-    deleted_count = delete_requirement_stories(
-        normalized_repository_requirement
-    )
+    deleted_count = delete_requirement_stories(normalized_repository_requirement)
     runtime = ensure_story_runtime(
         state,
         parent_requirement=normalized_parent_requirement,
@@ -947,9 +909,7 @@ async def complete_story_phase(
         saved_reqs_dict = {}
 
     saved = [
-        requirement
-        for requirement in req_names
-        if saved_reqs_dict.get(requirement)
+        requirement for requirement in req_names if saved_reqs_dict.get(requirement)
     ]
     if len(saved) == 0:
         raise StoryPhaseError(

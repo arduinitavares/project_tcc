@@ -7,38 +7,201 @@ import hashlib
 import json
 import logging
 import re
-import threading
-from datetime import datetime, timezone
-from typing import Any, Callable, Literal
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, Unpack, cast
 
-from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session, select
 
-from models.core import Feature
-from models.core import UserStory
+from models.core import Feature, UserStory
 from models.db import get_engine
 from models.specs import CompiledSpecAuthority, SpecRegistry
-from services.specs.compiler_service import load_compiled_artifact
 from orchestrator_agent.agent_tools.spec_validator_agent.agent import (
     root_agent as spec_validator_agent,
 )
+from orchestrator_agent.agent_tools.spec_validator_agent.schemes import (
+    SpecValidationResult,
+)
+from services.specs._engine_resolution import resolve_spec_engine
+from services.specs.compiler_service import load_compiled_artifact
+from utils.adk_runner import invoke_agent_to_text
+from utils.failure_artifacts import AgentInvocationError
+from utils.runtime_config import SPEC_VALIDATOR_IDENTITY, get_default_validation_mode
 from utils.spec_schemas import (
     AlignmentFinding,
     Invariant,
     InvariantType,
+    SpecAuthorityCompilationSuccess,
     ValidationEvidence,
     ValidationFailure,
 )
-from utils.adk_runner import invoke_agent_to_text
-from utils.runtime_config import SPEC_VALIDATOR_IDENTITY, get_default_validation_mode
 
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
 
-logger = logging.getLogger(__name__)
+    from sqlalchemy.engine import Connection, Engine
+
+logger: logging.Logger = logging.getLogger(name=__name__)
 _DEFAULT_GET_ENGINE = get_engine
 
 DEFAULT_VALIDATION_MODE_ENV = "SPEC_VALIDATION_DEFAULT_MODE"
 _VALIDATION_MODES = {"deterministic", "llm", "hybrid"}
+
+
+class LlmValidationResult(TypedDict):
+    """Normalized result shape returned by the LLM validation adapter."""
+
+    passed: bool
+    issues: list[str]
+    suggestions: list[str]
+    verdict: str
+    critical_gaps: list[str]
+
+
+class _RunLlmSpecValidationOptions(TypedDict, total=False):
+    """Optional dependency-injection hooks for LLM validation."""
+
+    invoke_spec_validator_async_fn: Callable[[str], Coroutine[Any, Any, str]]
+    parse_llm_validator_response_fn: Callable[[str], LlmValidationResult]
+
+
+class _ValidateStoryOptions(TypedDict, total=False):
+    """Optional dependency-injection hooks for story validation."""
+
+    tool_context: object | None
+    resolve_default_validation_mode: Callable[[], str]
+    compute_story_input_hash_fn: Callable[[object], str]
+    persist_validation_evidence: Callable[
+        [Session, UserStory, ValidationEvidence, bool],
+        None,
+    ]
+    run_structural_story_checks: Callable[
+        [UserStory],
+        tuple[list[str], list[ValidationFailure], list[str]],
+    ]
+    run_deterministic_alignment_checks: Callable[
+        [UserStory, CompiledSpecAuthority],
+        tuple[list[AlignmentFinding], list[AlignmentFinding], list[str]],
+    ]
+    run_llm_spec_validation: Callable[
+        [
+            UserStory,
+            CompiledSpecAuthority,
+            object | None,
+            Feature | None,
+        ],
+        LlmValidationResult,
+    ]
+    load_compiled_artifact_fn: Callable[
+        [CompiledSpecAuthority],
+        SpecAuthorityCompilationSuccess | None,
+    ]
+    render_invariant_summary_fn: Callable[[Invariant], str]
+    validator_version: str
+
+
+class _ValidationDependencies(TypedDict):
+    """Resolved helper functions and constants for one validation run."""
+
+    resolve_default_mode: Callable[[], str]
+    compute_input_hash: Callable[[object], str]
+    persist_evidence: Callable[
+        [Session, UserStory, ValidationEvidence, bool],
+        None,
+    ]
+    structural_checks: Callable[
+        [UserStory],
+        tuple[list[str], list[ValidationFailure], list[str]],
+    ]
+    deterministic_checks: Callable[
+        [UserStory, CompiledSpecAuthority],
+        tuple[list[AlignmentFinding], list[AlignmentFinding], list[str]],
+    ]
+    llm_validation: Callable[
+        [
+            UserStory,
+            CompiledSpecAuthority,
+            object | None,
+            Feature | None,
+        ],
+        LlmValidationResult,
+    ]
+    load_artifact: Callable[
+        [CompiledSpecAuthority],
+        SpecAuthorityCompilationSuccess | None,
+    ]
+    render_invariant: Callable[[Invariant], str]
+    validator_version: str
+
+
+class LlmValidatorResponseParseError(ValueError):
+    """Raised when an LLM validator response cannot be parsed or recovered."""
+
+    @classmethod
+    def unable_to_parse(cls) -> LlmValidatorResponseParseError:
+        """Build the canonical parse-failure error."""
+        return cls("Unable to parse LLM validator response")
+
+    @classmethod
+    def unable_to_recover_non_compliant(
+        cls,
+    ) -> LlmValidatorResponseParseError:
+        """Build the canonical non-compliant recovery error."""
+        return cls("Unable to recover non-compliant LLM validator response")
+
+
+@dataclass(frozen=True)
+class _FailedValidationContext:
+    """Context required to persist an early validation failure."""
+
+    session: Session
+    story: UserStory
+    spec_version_id: int
+    input_hash: str
+    persist_evidence: Callable[[Session, UserStory, ValidationEvidence, bool], None]
+    validator_version: str
+
+
+@dataclass(frozen=True)
+class _FailedValidationDetails:
+    """Structured details describing one canonical validation failure."""
+
+    rule: str
+    expected: str
+    actual: str
+    message: str
+    error: str
+
+
+@dataclass
+class _ValidationCollector:
+    """Mutable lists used while accumulating validation findings."""
+
+    failures: list[ValidationFailure]
+    warnings: list[str]
+    alignment_failures: list[AlignmentFinding]
+    alignment_warnings: list[AlignmentFinding]
+
+
+@dataclass(frozen=True)
+class _LlmValidationContext:
+    """Inputs required to execute the LLM validation step."""
+
+    session: Session
+    story: UserStory
+    authority: CompiledSpecAuthority
+    artifact: SpecAuthorityCompilationSuccess | None
+    llm_validation: Callable[
+        [
+            UserStory,
+            CompiledSpecAuthority,
+            object | None,
+            Feature | None,
+        ],
+        LlmValidationResult,
+    ]
 
 
 class ValidateStoryInput(BaseModel):
@@ -57,7 +220,7 @@ class ValidateStoryInput(BaseModel):
     )
 
 
-def compute_story_input_hash(story: Any) -> str:
+def compute_story_input_hash(story: object) -> str:
     """Compute deterministic SHA-256 hash of story content."""
     content = json.dumps(
         {
@@ -99,44 +262,20 @@ def persist_validation_evidence(
     session.commit()
 
 
-def _resolve_tool_helper(name: str) -> Any | None:
-    """Resolve the current tool-level helper for compatibility seams."""
-    try:
-        from tools import spec_tools  # pylint: disable=import-outside-toplevel
-    except ImportError:
-        return None
-    return getattr(spec_tools, name, None)
-
-
-def _run_async_task(coro: Any) -> Any:
+def _run_async_task[T](coro: Coroutine[Any, Any, T]) -> T:
     """Run an async coroutine from sync code, even if a loop is already running."""
     try:
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
 
-    result: dict[str, Any] = {}
-    error: dict[str, Exception] = {}
-
-    def _runner() -> None:
-        try:
-            result["value"] = asyncio.run(coro)
-        except Exception as exc:  # pylint: disable=broad-except
-            error["error"] = exc
-
-    thread = threading.Thread(target=_runner, daemon=True)
-    thread.start()
-    thread.join()
-
-    if "error" in error:
-        raise error["error"]
-    return result.get("value")
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(asyncio.run, coro)
+        return cast("T", future.result())
 
 
-def _resolve_engine():
+def _resolve_engine() -> Engine | Connection | None:
     """Preserve the legacy spec_tools.engine monkeypatch seam for tests."""
-    from services.specs._engine_resolution import resolve_spec_engine
-
     return resolve_spec_engine(
         service_get_engine=get_engine,
         default_service_get_engine=_DEFAULT_GET_ENGINE,
@@ -211,7 +350,9 @@ def _is_policy_only_capability_context(segment: str) -> bool:
         return False
     if not any(pattern.search(segment) for pattern in policy_context_patterns):
         return False
-    return not any(pattern.search(segment) for pattern in integrity_enforcement_patterns)
+    return not any(
+        pattern.search(segment) for pattern in integrity_enforcement_patterns
+    )
 
 
 def _story_mentions_forbidden_capability(
@@ -288,7 +429,9 @@ def run_structural_story_checks(
             ValidationFailure(
                 rule="RULE_CONTRADICTORY_CONNECTIVITY_REQUIREMENTS",
                 expected="Connectivity requirements are internally consistent",
-                actual="Story requires both offline operation and cloud sync dependency",
+                actual=(
+                    "Story requires both offline operation and cloud sync dependency"
+                ),
                 message=(
                     "Story contains contradictory connectivity requirements "
                     "(offline operation vs cloud sync dependency)"
@@ -297,10 +440,13 @@ def run_structural_story_checks(
         )
 
     rules_checked.append("RULE_IMPOSSIBLE_LATENCY_REQUIREMENT")
-    if re.search(
-        r"\b(?:under|below|less than|<=?|at most)\s*0\s*ms\b",
-        acceptance_lower,
-    ) or "0ms (impossible)" in acceptance_lower:
+    if (
+        re.search(
+            r"\b(?:under|below|less than|<=?|at most)\s*0\s*ms\b",
+            acceptance_lower,
+        )
+        or "0ms (impossible)" in acceptance_lower
+    ):
         failures.append(
             ValidationFailure(
                 rule="RULE_IMPOSSIBLE_LATENCY_REQUIREMENT",
@@ -320,8 +466,12 @@ def run_structural_story_checks(
             ValidationFailure(
                 rule="RULE_ACCEPTANCE_CRITERIA_SCOPE_MISMATCH",
                 expected="Acceptance criteria align with story scope",
-                actual="Story scope and acceptance criteria describe different domains",
-                message="Acceptance criteria appear to be copied from an unrelated scope",
+                actual=(
+                    "Story scope and acceptance criteria describe different domains"
+                ),
+                message=(
+                    "Acceptance criteria appear to be copied from an unrelated scope"
+                ),
             )
         )
 
@@ -332,14 +482,20 @@ def run_deterministic_alignment_checks(
     story: UserStory,
     authority: CompiledSpecAuthority,
     *,
-    load_compiled_artifact_fn: Callable[[CompiledSpecAuthority], Any | None] = load_compiled_artifact,
+    load_compiled_artifact_fn: Callable[
+        [CompiledSpecAuthority], Any | None
+    ] = load_compiled_artifact,
 ) -> tuple[list[AlignmentFinding], list[AlignmentFinding], list[str]]:
     """Run deterministic alignment checks against compiled authority."""
     alignment_failures: list[AlignmentFinding] = []
     alignment_warnings: list[AlignmentFinding] = []
     warnings: list[str] = []
 
-    artifact = load_compiled_artifact_fn(authority) if callable(load_compiled_artifact_fn) else None
+    artifact = (
+        load_compiled_artifact_fn(authority)
+        if callable(load_compiled_artifact_fn)
+        else None
+    )
     if not artifact or not getattr(artifact, "invariants", None):
         return alignment_failures, alignment_warnings, warnings
 
@@ -352,13 +508,19 @@ def run_deterministic_alignment_checks(
     normalized_acceptance = acceptance_text.replace("_", " ")
     story_segments = [
         segment
-        for part in [story.title or "", story.story_description or "", story.acceptance_criteria or ""]
+        for part in [
+            story.title or "",
+            story.story_description or "",
+            story.acceptance_criteria or "",
+        ]
         for segment in _split_story_segments(part)
     ]
 
     for invariant in artifact.invariants:
         if invariant.type == InvariantType.FORBIDDEN_CAPABILITY:
-            capability = str(getattr(invariant.parameters, "capability", "") or "").strip()
+            capability = str(
+                getattr(invariant.parameters, "capability", "") or ""
+            ).strip()
             if not capability:
                 continue
             if _story_mentions_forbidden_capability(
@@ -376,13 +538,15 @@ def run_deterministic_alignment_checks(
                             f"(invariant {invariant.id})."
                         ),
                         severity="failure",
-                        created_at=datetime.now(timezone.utc),
+                        created_at=datetime.now(UTC),
                     )
                 )
             continue
 
         if invariant.type == InvariantType.REQUIRED_FIELD:
-            field_name = str(getattr(invariant.parameters, "field_name", "") or "").strip()
+            field_name = str(
+                getattr(invariant.parameters, "field_name", "") or ""
+            ).strip()
             if not field_name:
                 continue
             field_lower = field_name.lower()
@@ -391,7 +555,8 @@ def run_deterministic_alignment_checks(
                 field_lower.replace("_", " "),
             }
             has_field_mention = any(
-                variant and (variant in acceptance_text or variant in normalized_acceptance)
+                variant
+                and (variant in acceptance_text or variant in normalized_acceptance)
                 for variant in field_variants
             )
             if not has_field_mention:
@@ -405,7 +570,7 @@ def run_deterministic_alignment_checks(
                             f"'{field_name}' (invariant {invariant.id})."
                         ),
                         severity="warning",
-                        created_at=datetime.now(timezone.utc),
+                        created_at=datetime.now(UTC),
                     )
                 )
             continue
@@ -426,105 +591,154 @@ async def invoke_spec_validator_async(payload_text: str) -> str:
     )
 
 
-def parse_llm_validator_response(raw_text: str) -> dict[str, Any]:
-    """Parse agent text into SpecValidationResult shape."""
-    from orchestrator_agent.agent_tools.spec_validator_agent.schemes import (
-        SpecValidationResult,
-    )
+def _build_llm_validation_result(
+    *,
+    passed: bool,
+    issues: list[str],
+    suggestions: list[str],
+    verdict: str,
+    critical_gaps: list[str],
+) -> LlmValidationResult:
+    """Build a normalized LLM validation result payload."""
+    return {
+        "passed": passed,
+        "issues": issues,
+        "suggestions": suggestions,
+        "verdict": verdict,
+        "critical_gaps": critical_gaps,
+    }
 
+
+def _strip_json_fence(raw_text: str) -> str:
+    """Strip optional fenced-code markers from an LLM JSON response."""
     candidate = raw_text.strip()
-    if candidate.startswith("```"):
-        candidate = re.sub(r"^```(?:json)?\s*", "", candidate)
-        candidate = re.sub(r"\s*```$", "", candidate)
+    if not candidate.startswith("```"):
+        return candidate
+    candidate = re.sub(r"^```(?:json)?\s*", "", candidate)
+    return re.sub(r"\s*```$", "", candidate)
+
+
+def _extract_string_list_from_partial_response(
+    candidate: str,
+    field_name: str,
+) -> list[str]:
+    """Recover a list-of-strings field from truncated JSON text."""
+    pattern = rf'"{re.escape(field_name)}"\s*:\s*\[(.*?)(?:\]|$)'
+    list_match = re.search(pattern, candidate, flags=re.DOTALL)
+    if not list_match:
+        return []
+
+    raw_items = re.findall(r'"((?:\\.|[^"\\])*)"', list_match.group(1))
+    values: list[str] = []
+    for raw_item in raw_items:
+        try:
+            values.append(json.loads(f'"{raw_item}"'))
+        except json.JSONDecodeError:
+            values.append(raw_item)
+    return values
+
+
+def _extract_string_from_partial_response(
+    candidate: str,
+    field_name: str,
+) -> str | None:
+    """Recover a string field from truncated JSON text."""
+    pattern = rf'"{re.escape(field_name)}"\s*:\s*"((?:\\.|[^"\\])*)"'
+    value_match = re.search(pattern, candidate, flags=re.DOTALL)
+    if not value_match:
+        return None
 
     try:
+        return json.loads(f'"{value_match.group(1)}"')
+    except json.JSONDecodeError:
+        return value_match.group(1)
+
+
+def _recover_llm_validator_response(
+    candidate: str,
+    exc: ValidationError,
+) -> LlmValidationResult:
+    """Recover a normalized result from truncated LLM JSON."""
+    compliant_match = re.search(
+        r'"is_compliant"\s*:\s*(true|false)',
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    if not compliant_match:
+        raise LlmValidatorResponseParseError.unable_to_parse() from exc
+
+    is_compliant = compliant_match.group(1).lower() == "true"
+    issues = _extract_string_list_from_partial_response(candidate, "issues")
+    critical_gaps = _extract_string_list_from_partial_response(
+        candidate,
+        "critical_gaps",
+    )
+    suggestions = _extract_string_list_from_partial_response(
+        candidate,
+        "suggestions",
+    )
+    verdict = _extract_string_from_partial_response(candidate, "verdict")
+    verdict = verdict or "Recovered from truncated JSON response"
+
+    if is_compliant:
+        issues = []
+        critical_gaps = []
+        suggestions = []
+    elif not issues and critical_gaps:
+        issues = list(critical_gaps)
+
+    if not is_compliant and not issues:
+        raise LlmValidatorResponseParseError.unable_to_recover_non_compliant() from exc
+
+    logger.warning("Recovered partial LLM response (truncated JSON)")
+    return _build_llm_validation_result(
+        passed=is_compliant,
+        issues=issues,
+        suggestions=suggestions,
+        verdict=verdict,
+        critical_gaps=critical_gaps,
+    )
+
+
+def parse_llm_validator_response(raw_text: str) -> LlmValidationResult:
+    """Parse agent text into the normalized LLM validation result shape."""
+    candidate = _strip_json_fence(raw_text)
+    try:
         parsed = SpecValidationResult.model_validate_json(candidate)
-        critical_gaps: list[str] = []
-        if parsed.domain_compliance and parsed.domain_compliance.critical_gaps:
-            critical_gaps = list(parsed.domain_compliance.critical_gaps)
-        return {
-            "passed": parsed.is_compliant,
-            "issues": list(parsed.issues),
-            "suggestions": list(parsed.suggestions),
-            "verdict": parsed.verdict,
-            "critical_gaps": critical_gaps,
-        }
-    except ValidationError as exc:
-        compliant_match = re.search(
-            r'"is_compliant"\s*:\s*(true|false)',
-            candidate,
-            flags=re.IGNORECASE,
+        critical_gaps = (
+            list(parsed.domain_compliance.critical_gaps)
+            if parsed.domain_compliance and parsed.domain_compliance.critical_gaps
+            else []
         )
-        if not compliant_match:
-            raise ValueError("Unable to parse LLM validator response") from exc
-
-        def _extract_string_list(field_name: str) -> list[str]:
-            pattern = rf'"{re.escape(field_name)}"\s*:\s*\[(.*?)(?:\]|$)'
-            list_match = re.search(pattern, candidate, flags=re.DOTALL)
-            if not list_match:
-                return []
-            raw_items = re.findall(r'"((?:\\.|[^"\\])*)"', list_match.group(1))
-            values: list[str] = []
-            for raw_item in raw_items:
-                try:
-                    values.append(json.loads(f'"{raw_item}"'))
-                except json.JSONDecodeError:
-                    values.append(raw_item)
-            return values
-
-        def _extract_string(field_name: str) -> str | None:
-            pattern = rf'"{re.escape(field_name)}"\s*:\s*"((?:\\.|[^"\\])*)"'
-            value_match = re.search(pattern, candidate, flags=re.DOTALL)
-            if not value_match:
-                return None
-            try:
-                return json.loads(f'"{value_match.group(1)}"')
-            except json.JSONDecodeError:
-                return value_match.group(1)
-
-        is_compliant = compliant_match.group(1).lower() == "true"
-        issues = _extract_string_list("issues")
-        critical_gaps = _extract_string_list("critical_gaps")
-        suggestions = _extract_string_list("suggestions")
-        verdict = _extract_string("verdict") or "Recovered from truncated JSON response"
-
-        if is_compliant:
-            issues = []
-            critical_gaps = []
-            suggestions = []
-        elif not issues and critical_gaps:
-            # Preserve non-compliant semantics when only critical gaps were recoverable.
-            issues = list(critical_gaps)
-
-        if not is_compliant and not issues:
-            raise ValueError("Unable to recover non-compliant LLM validator response") from exc
-
-        logger.warning("Recovered partial LLM response (truncated JSON)")
-        return {
-            "passed": is_compliant,
-            "issues": issues,
-            "suggestions": suggestions,
-            "verdict": verdict,
-            "critical_gaps": critical_gaps,
-        }
+        return _build_llm_validation_result(
+            passed=parsed.is_compliant,
+            issues=list(parsed.issues),
+            suggestions=list(parsed.suggestions),
+            verdict=parsed.verdict,
+            critical_gaps=critical_gaps,
+        )
+    except ValidationError as exc:
+        return _recover_llm_validator_response(candidate, exc)
 
 
 def run_llm_spec_validation(
     story: UserStory,
     authority: CompiledSpecAuthority,
-    artifact: ValidationEvidence | Any | None,
+    artifact: object | None,
     feature: Feature | None = None,
-    *,
-    invoke_spec_validator_async_fn: Callable[[str], Any] | None = None,
-    parse_llm_validator_response_fn: Callable[[str], dict[str, Any]] | None = None,
-) -> dict[str, Any]:
+    **options: Unpack[_RunLlmSpecValidationOptions],
+) -> LlmValidationResult:
     """Run LLM-based spec validation and normalize result."""
-    invoke_async = invoke_spec_validator_async_fn or invoke_spec_validator_async
-    parse_response = parse_llm_validator_response_fn or parse_llm_validator_response
+    invoke_async = (
+        options.get("invoke_spec_validator_async_fn") or invoke_spec_validator_async
+    )
+    parse_response = (
+        options.get("parse_llm_validator_response_fn") or parse_llm_validator_response
+    )
 
     authority_json = authority.compiled_artifact_json or ""
-    if artifact:
-        authority_json = artifact.model_dump_json()
+    if artifact is not None and hasattr(artifact, "model_dump_json"):
+        authority_json = cast("Any", artifact).model_dump_json()
 
     payload = {
         "story_title": story.title or "",
@@ -539,59 +753,286 @@ def run_llm_spec_validation(
     return parse_response(raw_text)
 
 
+def _normalize_validate_story_params(
+    params: dict[str, Any] | ValidateStoryInput,
+) -> dict[str, Any]:
+    """Normalize validation params from either a model or a raw mapping."""
+    if isinstance(params, ValidateStoryInput):
+        return params.model_dump()
+    return dict(params or {})
+
+
+def _resolve_validation_dependencies(
+    options: _ValidateStoryOptions,
+) -> _ValidationDependencies:
+    """Resolve injectable helpers while preserving service-owned defaults."""
+    resolve_default_mode = (
+        options.get("resolve_default_validation_mode")
+        or globals()["resolve_default_validation_mode"]
+    )
+    compute_input_hash = (
+        options.get("compute_story_input_hash_fn") or compute_story_input_hash
+    )
+    persist_evidence = (
+        options.get("persist_validation_evidence")
+        or globals()["persist_validation_evidence"]
+    )
+    structural_checks = (
+        options.get("run_structural_story_checks")
+        or globals()["run_structural_story_checks"]
+    )
+    llm_validation = options.get("run_llm_spec_validation") or run_llm_spec_validation
+    load_artifact = options.get("load_compiled_artifact_fn") or load_compiled_artifact
+    render_invariant = (
+        options.get("render_invariant_summary_fn") or render_invariant_summary
+    )
+
+    injected_deterministic_checks = options.get("run_deterministic_alignment_checks")
+    if injected_deterministic_checks is None:
+
+        def deterministic_checks(
+            story: UserStory,
+            authority: CompiledSpecAuthority,
+        ) -> tuple[list[AlignmentFinding], list[AlignmentFinding], list[str]]:
+            return run_deterministic_alignment_checks(
+                story,
+                authority,
+                load_compiled_artifact_fn=load_artifact,
+            )
+
+    else:
+        deterministic_checks = injected_deterministic_checks
+
+    return {
+        "resolve_default_mode": resolve_default_mode,
+        "compute_input_hash": compute_input_hash,
+        "persist_evidence": persist_evidence,
+        "structural_checks": structural_checks,
+        "deterministic_checks": deterministic_checks,
+        "llm_validation": llm_validation,
+        "load_artifact": load_artifact,
+        "render_invariant": render_invariant,
+        "validator_version": options.get("validator_version", "1.0.0"),
+    }
+
+
+def _build_failed_validation_result(
+    context: _FailedValidationContext,
+    details: _FailedValidationDetails,
+) -> dict[str, Any]:
+    """Persist and return a canonical failed validation result."""
+    evidence = ValidationEvidence(
+        spec_version_id=context.spec_version_id,
+        validated_at=datetime.now(UTC),
+        passed=False,
+        rules_checked=[details.rule],
+        invariants_checked=[],
+        evaluated_invariant_ids=[],
+        finding_invariant_ids=[],
+        failures=[
+            ValidationFailure(
+                rule=details.rule,
+                expected=details.expected,
+                actual=details.actual,
+                message=details.message,
+            )
+        ],
+        warnings=[],
+        alignment_warnings=[],
+        alignment_failures=[],
+        validator_version=context.validator_version,
+        input_hash=context.input_hash,
+    )
+    context.persist_evidence(context.session, context.story, evidence, False)
+    return {
+        "success": False,
+        "error": details.error,
+        "passed": False,
+        "input_hash": context.input_hash,
+    }
+
+
+def _load_feature_for_story(session: Session, story: UserStory) -> Feature | None:
+    """Load the story's feature when one is linked."""
+    if story.feature_id is None:
+        return None
+    return session.get(Feature, story.feature_id)
+
+
+def _build_invariants_checked(
+    artifact: SpecAuthorityCompilationSuccess | None,
+    render_invariant: Callable[[Invariant], str],
+) -> list[str]:
+    """Render the subset of invariants surfaced in validation evidence."""
+    if not artifact or not artifact.invariants:
+        return []
+    return [
+        render_invariant(inv)
+        for inv in artifact.invariants
+        if inv.type in ("FORBIDDEN_CAPABILITY", "REQUIRED_FIELD")
+    ]
+
+
+def _append_no_invariants_warning(
+    collector: _ValidationCollector,
+) -> None:
+    """Record the standard no-invariants advisory message."""
+    no_invariants_message = (
+        "Compiled authority has no invariants; alignment checks are informational only."
+    )
+    collector.warnings.append(no_invariants_message)
+    collector.alignment_warnings.append(
+        AlignmentFinding(
+            code="NO_INVARIANTS",
+            invariant=None,
+            capability=None,
+            message=no_invariants_message,
+            severity="warning",
+            created_at=datetime.now(UTC),
+        )
+    )
+
+
+def _apply_llm_validation_result(
+    llm_result: LlmValidationResult,
+    collector: _ValidationCollector,
+) -> None:
+    """Translate an LLM validation result into persisted findings and warnings."""
+    llm_issues = list(llm_result.get("issues", []))
+    llm_critical_gaps = list(llm_result.get("critical_gaps", []))
+
+    if not llm_result.get("passed", False) and not llm_critical_gaps and not llm_issues:
+        verdict = llm_result.get("verdict")
+        if verdict:
+            llm_issues = [verdict]
+
+    for issue in llm_issues:
+        collector.warnings.append(f"LLM advisory: {issue}")
+        collector.alignment_warnings.append(
+            AlignmentFinding(
+                code="LLM_SPEC_VALIDATION_ISSUE",
+                invariant=None,
+                capability=None,
+                message=issue,
+                severity="warning",
+                created_at=datetime.now(UTC),
+            )
+        )
+
+    for gap in llm_critical_gaps:
+        collector.failures.append(
+            ValidationFailure(
+                rule="RULE_LLM_SPEC_VALIDATION",
+                expected="Spec-compliant story",
+                actual=gap,
+                message=gap,
+            )
+        )
+        collector.alignment_failures.append(
+            AlignmentFinding(
+                code="LLM_SPEC_VALIDATION",
+                invariant=None,
+                capability=None,
+                message=gap,
+                severity="failure",
+                created_at=datetime.now(UTC),
+            )
+        )
+
+    for suggestion in llm_result.get("suggestions", []):
+        collector.warnings.append(f"LLM suggestion: {suggestion}")
+        collector.alignment_warnings.append(
+            AlignmentFinding(
+                code="LLM_SPEC_VALIDATION_SUGGESTION",
+                invariant=None,
+                capability=None,
+                message=suggestion,
+                severity="warning",
+                created_at=datetime.now(UTC),
+            )
+        )
+
+
+def _run_llm_validation_for_story(
+    context: _LlmValidationContext,
+    collector: _ValidationCollector,
+) -> None:
+    """Execute the LLM validation step and fold its output into evidence lists."""
+    try:
+        llm_result = context.llm_validation(
+            context.story,
+            context.authority,
+            context.artifact,
+            _load_feature_for_story(context.session, context.story),
+        )
+    except (
+        AgentInvocationError,
+        ValidationError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as exc:
+        collector.failures.append(
+            ValidationFailure(
+                rule="RULE_LLM_SPEC_VALIDATION",
+                expected="LLM validator completes successfully",
+                actual=str(exc),
+                message="LLM validation execution failed",
+            )
+        )
+        collector.alignment_failures.append(
+            AlignmentFinding(
+                code="LLM_SPEC_VALIDATION_ERROR",
+                invariant=None,
+                capability=None,
+                message=f"LLM validation execution failed: {exc}",
+                severity="failure",
+                created_at=datetime.now(UTC),
+            )
+        )
+        return
+
+    _apply_llm_validation_result(llm_result, collector)
+
+
+def _collect_evaluated_invariant_ids(
+    artifact: SpecAuthorityCompilationSuccess | None,
+) -> list[str]:
+    """Collect invariant IDs that were deterministically evaluated."""
+    if not artifact or not artifact.invariants:
+        return []
+    return [
+        inv.id
+        for inv in artifact.invariants
+        if inv.type in ("FORBIDDEN_CAPABILITY", "REQUIRED_FIELD")
+    ]
+
+
+def _collect_finding_invariant_ids(
+    alignment_failures: list[AlignmentFinding],
+    alignment_warnings: list[AlignmentFinding],
+) -> list[str]:
+    """Collect unique invariant IDs referenced by generated findings."""
+    finding_invariant_ids: list[str] = []
+    for finding in alignment_failures + alignment_warnings:
+        if finding.invariant and finding.invariant not in finding_invariant_ids:
+            finding_invariant_ids.append(finding.invariant)
+    return finding_invariant_ids
+
+
 def validate_story_with_spec_authority(
     params: dict[str, Any] | ValidateStoryInput,
-    *,
-    tool_context: ToolContext | None = None,  # pylint: disable=unused-argument
-    resolve_default_validation_mode: Callable[[], str] | None = None,
-    compute_story_input_hash_fn: Callable[[UserStory], str] | None = None,
-    persist_validation_evidence: (
-        Callable[[Session, UserStory, ValidationEvidence, bool], None] | None
-    ) = None,
-    run_structural_story_checks: (
-        Callable[[UserStory], tuple[list[str], list[ValidationFailure], list[str]]] | None
-    ) = None,
-    run_deterministic_alignment_checks: (
-        Callable[
-            [UserStory, CompiledSpecAuthority],
-            tuple[list[AlignmentFinding], list[AlignmentFinding], list[str]],
-        ]
-        | None
-    ) = None,
-    run_llm_spec_validation: (
-        Callable[
-            [UserStory, CompiledSpecAuthority, Any, Feature | None],
-            dict[str, Any],
-        ]
-        | None
-    ) = None,
-    load_compiled_artifact_fn: Callable[[CompiledSpecAuthority], Any | None] | None = None,
-    render_invariant_summary_fn: Callable[[Invariant], str] | None = None,
-    validator_version: str = "1.0.0",
+    **options: Unpack[_ValidateStoryOptions],
 ) -> dict[str, Any]:
     """Validate a story against an explicit spec version."""
-    raw_params = dict(params or {})
-    default_mode = resolve_default_validation_mode or globals()[
-        "resolve_default_validation_mode"
-    ]
-    if "mode" not in raw_params:
-        raw_params["mode"] = default_mode() if callable(default_mode) else "deterministic"
-    parsed = ValidateStoryInput.model_validate(raw_params)
-
-    compute_input_hash = compute_story_input_hash_fn or compute_story_input_hash
-    persist_evidence = persist_validation_evidence or globals()[
-        "persist_validation_evidence"
-    ]
-    llm_validation = run_llm_spec_validation or globals()["run_llm_spec_validation"]
-    load_artifact = load_compiled_artifact_fn or load_compiled_artifact
-    render_invariant = render_invariant_summary_fn or render_invariant_summary
-    structural_checks = run_structural_story_checks or globals()[
-        "run_structural_story_checks"
-    ]
-    deterministic_checks = (
-        run_deterministic_alignment_checks
-        or globals()["run_deterministic_alignment_checks"]
+    dependencies = _resolve_validation_dependencies(
+        cast("_ValidateStoryOptions", options)
     )
+    raw_params = _normalize_validate_story_params(params)
+    if "mode" not in raw_params:
+        raw_params["mode"] = dependencies["resolve_default_mode"]()
+    parsed = ValidateStoryInput.model_validate(raw_params)
 
     with Session(_resolve_engine()) as session:
         story = session.get(UserStory, parsed.story_id)
@@ -601,79 +1042,50 @@ def validate_story_with_spec_authority(
                 "error": f"Story {parsed.story_id} not found",
             }
 
-        input_hash = compute_input_hash(story)
+        input_hash = dependencies["compute_input_hash"](story)
+        failure_context = _FailedValidationContext(
+            session=session,
+            story=story,
+            spec_version_id=parsed.spec_version_id,
+            input_hash=input_hash,
+            persist_evidence=dependencies["persist_evidence"],
+            validator_version=dependencies["validator_version"],
+        )
 
         spec_version = session.get(SpecRegistry, parsed.spec_version_id)
         if not spec_version:
-            evidence = ValidationEvidence(
-                spec_version_id=parsed.spec_version_id,
-                validated_at=datetime.now(timezone.utc),
-                passed=False,
-                rules_checked=["SPEC_VERSION_EXISTS"],
-                invariants_checked=[],
-                evaluated_invariant_ids=[],
-                finding_invariant_ids=[],
-                failures=[
-                    ValidationFailure(
-                        rule="SPEC_VERSION_EXISTS",
-                        expected="Spec version exists",
-                        actual="Not found",
-                        message=f"Spec version {parsed.spec_version_id} not found",
-                    )
-                ],
-                warnings=[],
-                alignment_warnings=[],
-                alignment_failures=[],
-                validator_version=validator_version,
-                input_hash=input_hash,
+            missing_spec_message = f"Spec version {parsed.spec_version_id} not found"
+            return _build_failed_validation_result(
+                failure_context,
+                _FailedValidationDetails(
+                    rule="SPEC_VERSION_EXISTS",
+                    expected="Spec version exists",
+                    actual="Not found",
+                    message=missing_spec_message,
+                    error=missing_spec_message,
+                ),
             )
-            if callable(persist_evidence):
-                persist_evidence(session, story, evidence, passed=False)
-            return {
-                "success": False,
-                "error": f"Spec version {parsed.spec_version_id} not found",
-                "passed": False,
-                "input_hash": input_hash,
-            }
 
         if spec_version.product_id != story.product_id:
-            evidence = ValidationEvidence(
-                spec_version_id=parsed.spec_version_id,
-                validated_at=datetime.now(timezone.utc),
-                passed=False,
-                rules_checked=["SPEC_PRODUCT_MATCH"],
-                invariants_checked=[],
-                evaluated_invariant_ids=[],
-                finding_invariant_ids=[],
-                failures=[
-                    ValidationFailure(
-                        rule="SPEC_PRODUCT_MATCH",
-                        expected=f"Product {story.product_id}",
-                        actual=f"Product {spec_version.product_id}",
-                        message=(
-                            "Spec version belongs to a different product "
-                            f"(expected {story.product_id}, got {spec_version.product_id})"
-                        ),
-                    )
-                ],
-                warnings=[],
-                alignment_warnings=[],
-                alignment_failures=[],
-                validator_version=validator_version,
-                input_hash=input_hash,
+            product_match_message = (
+                "Spec version belongs to a different product "
+                f"(expected {story.product_id}, got {spec_version.product_id})"
             )
-            if callable(persist_evidence):
-                persist_evidence(session, story, evidence, passed=False)
-            return {
-                "success": False,
-                "error": (
-                    f"Product mismatch: story belongs to product {story.product_id}, "
-                    f"but spec version {parsed.spec_version_id} belongs to product "
-                    f"{spec_version.product_id}"
+            return _build_failed_validation_result(
+                failure_context,
+                _FailedValidationDetails(
+                    rule="SPEC_PRODUCT_MATCH",
+                    expected=f"Product {story.product_id}",
+                    actual=f"Product {spec_version.product_id}",
+                    message=product_match_message,
+                    error=(
+                        "Product mismatch: story belongs to product "
+                        f"{story.product_id}, "
+                        f"but spec version {parsed.spec_version_id} belongs to "
+                        f"product {spec_version.product_id}"
+                    ),
                 ),
-                "passed": False,
-                "input_hash": input_hash,
-            }
+            )
 
         authority = session.exec(
             select(CompiledSpecAuthority).where(
@@ -682,201 +1094,84 @@ def validate_story_with_spec_authority(
         ).first()
 
         if not authority:
-            evidence = ValidationEvidence(
-                spec_version_id=parsed.spec_version_id,
-                validated_at=datetime.now(timezone.utc),
-                passed=False,
-                rules_checked=["SPEC_VERSION_COMPILED"],
-                invariants_checked=[],
-                evaluated_invariant_ids=[],
-                finding_invariant_ids=[],
-                failures=[
-                    ValidationFailure(
-                        rule="SPEC_VERSION_COMPILED",
-                        expected="Compiled authority exists",
-                        actual="Not compiled",
-                        message=(
-                            f"spec_version_id {parsed.spec_version_id} is not compiled"
-                        ),
-                    )
-                ],
-                warnings=[],
-                alignment_warnings=[],
-                alignment_failures=[],
-                validator_version=validator_version,
-                input_hash=input_hash,
+            not_compiled_message = (
+                f"spec_version_id {parsed.spec_version_id} is not compiled"
             )
-            if callable(persist_evidence):
-                persist_evidence(session, story, evidence, passed=False)
-            return {
-                "success": False,
-                "error": f"spec_version_id {parsed.spec_version_id} is not compiled",
-                "passed": False,
-                "input_hash": input_hash,
-            }
+            return _build_failed_validation_result(
+                failure_context,
+                _FailedValidationDetails(
+                    rule="SPEC_VERSION_COMPILED",
+                    expected="Compiled authority exists",
+                    actual="Not compiled",
+                    message=not_compiled_message,
+                    error=not_compiled_message,
+                ),
+            )
 
-        artifact = load_artifact(authority) if callable(load_artifact) else None
-        invariants_checked: list[str] = []
-        if artifact and getattr(artifact, "invariants", None):
-            invariants_checked = [
-                render_invariant(inv)
-                for inv in artifact.invariants
-                if inv.type in ("FORBIDDEN_CAPABILITY", "REQUIRED_FIELD")
-            ]
+        artifact = dependencies["load_artifact"](authority)
+        invariants_checked = _build_invariants_checked(
+            artifact,
+            dependencies["render_invariant"],
+        )
 
-        rules_checked, failures, warnings = structural_checks(story)
+        rules_checked, failures, warnings = dependencies["structural_checks"](story)
 
-        alignment_failures: list[AlignmentFinding] = []
-        alignment_warnings: list[AlignmentFinding] = []
+        collector = _ValidationCollector(
+            failures=failures,
+            warnings=warnings,
+            alignment_failures=[],
+            alignment_warnings=[],
+        )
         if not invariants_checked:
-            no_invariants_message = (
-                "Compiled authority has no invariants; alignment checks are informational only."
-            )
-            warnings.append(no_invariants_message)
-            alignment_warnings.append(
-                AlignmentFinding(
-                    code="NO_INVARIANTS",
-                    invariant=None,
-                    capability=None,
-                    message=no_invariants_message,
-                    severity="warning",
-                    created_at=datetime.now(timezone.utc),
-                )
-            )
+            _append_no_invariants_warning(collector)
 
         if parsed.mode in ("deterministic", "hybrid"):
             (
                 deterministic_failures,
                 deterministic_warnings,
                 deterministic_messages,
-            ) = deterministic_checks(
-                story,
-                authority,
-                load_compiled_artifact_fn=load_artifact,
-            )
-            alignment_failures.extend(deterministic_failures)
-            alignment_warnings.extend(deterministic_warnings)
-            warnings.extend(deterministic_messages)
+            ) = dependencies["deterministic_checks"](story, authority)
+            collector.alignment_failures.extend(deterministic_failures)
+            collector.alignment_warnings.extend(deterministic_warnings)
+            collector.warnings.extend(deterministic_messages)
 
         if parsed.mode in ("llm", "hybrid"):
             rules_checked.append("RULE_LLM_SPEC_VALIDATION")
-            try:
-                feature = None
-                if story.feature_id is not None:
-                    feature = session.get(Feature, story.feature_id)
+            _run_llm_validation_for_story(
+                _LlmValidationContext(
+                    session=session,
+                    story=story,
+                    authority=authority,
+                    artifact=artifact,
+                    llm_validation=dependencies["llm_validation"],
+                ),
+                collector,
+            )
 
-                llm_result = llm_validation(
-                    story,
-                    authority,
-                    artifact,
-                    feature=feature,
-                )
-                llm_issues = list(llm_result.get("issues", []))
-                llm_critical_gaps = list(llm_result.get("critical_gaps", []))
+        passed = len(collector.failures) == 0 and not collector.alignment_failures
 
-                if (
-                    not llm_result.get("passed", False)
-                    and not llm_critical_gaps
-                    and not llm_issues
-                ):
-                    verdict = llm_result.get("verdict")
-                    if verdict:
-                        llm_issues = [verdict]
-
-                for issue in llm_issues:
-                    warnings.append(f"LLM advisory: {issue}")
-                    alignment_warnings.append(
-                        AlignmentFinding(
-                            code="LLM_SPEC_VALIDATION_ISSUE",
-                            invariant=None,
-                            capability=None,
-                            message=issue,
-                            severity="warning",
-                            created_at=datetime.now(timezone.utc),
-                        )
-                    )
-
-                for gap in llm_critical_gaps:
-                    failures.append(
-                        ValidationFailure(
-                            rule="RULE_LLM_SPEC_VALIDATION",
-                            expected="Spec-compliant story",
-                            actual=gap,
-                            message=gap,
-                        )
-                    )
-                    alignment_failures.append(
-                        AlignmentFinding(
-                            code="LLM_SPEC_VALIDATION",
-                            invariant=None,
-                            capability=None,
-                            message=gap,
-                            severity="failure",
-                            created_at=datetime.now(timezone.utc),
-                        )
-                    )
-                for suggestion in llm_result.get("suggestions", []):
-                    warnings.append(f"LLM suggestion: {suggestion}")
-                    alignment_warnings.append(
-                        AlignmentFinding(
-                            code="LLM_SPEC_VALIDATION_SUGGESTION",
-                            invariant=None,
-                            capability=None,
-                            message=suggestion,
-                            severity="warning",
-                            created_at=datetime.now(timezone.utc),
-                        )
-                    )
-            except Exception as exc:  # pylint: disable=broad-except
-                failures.append(
-                    ValidationFailure(
-                        rule="RULE_LLM_SPEC_VALIDATION",
-                        expected="LLM validator completes successfully",
-                        actual=str(exc),
-                        message="LLM validation execution failed",
-                    )
-                )
-                alignment_failures.append(
-                    AlignmentFinding(
-                        code="LLM_SPEC_VALIDATION_ERROR",
-                        invariant=None,
-                        capability=None,
-                        message=f"LLM validation execution failed: {exc}",
-                        severity="failure",
-                        created_at=datetime.now(timezone.utc),
-                    )
-                )
-
-        passed = len(failures) == 0 and len(alignment_failures) == 0
-
-        evaluated_invariant_ids: list[str] = []
-        if artifact and getattr(artifact, "invariants", None):
-            for inv in artifact.invariants:
-                if inv.type in ("FORBIDDEN_CAPABILITY", "REQUIRED_FIELD"):
-                    evaluated_invariant_ids.append(inv.id)
-
-        finding_invariant_ids: list[str] = []
-        for finding in alignment_failures + alignment_warnings:
-            if finding.invariant and finding.invariant not in finding_invariant_ids:
-                finding_invariant_ids.append(finding.invariant)
+        evaluated_invariant_ids = _collect_evaluated_invariant_ids(artifact)
+        finding_invariant_ids = _collect_finding_invariant_ids(
+            collector.alignment_failures,
+            collector.alignment_warnings,
+        )
 
         evidence = ValidationEvidence(
             spec_version_id=parsed.spec_version_id,
-            validated_at=datetime.now(timezone.utc),
+            validated_at=datetime.now(UTC),
             passed=passed,
             rules_checked=rules_checked,
             invariants_checked=invariants_checked,
             evaluated_invariant_ids=evaluated_invariant_ids,
             finding_invariant_ids=finding_invariant_ids,
-            failures=failures,
-            warnings=warnings,
-            alignment_warnings=alignment_warnings,
-            alignment_failures=alignment_failures,
-            validator_version=validator_version,
+            failures=collector.failures,
+            warnings=collector.warnings,
+            alignment_warnings=collector.alignment_warnings,
+            alignment_failures=collector.alignment_failures,
+            validator_version=dependencies["validator_version"],
             input_hash=input_hash,
         )
-        if callable(persist_evidence):
-            persist_evidence(session, story, evidence, passed=passed)
+        dependencies["persist_evidence"](session, story, evidence, passed)
 
         return {
             "success": True,
@@ -884,19 +1179,21 @@ def validate_story_with_spec_authority(
             "story_id": parsed.story_id,
             "spec_version_id": parsed.spec_version_id,
             "mode": parsed.mode,
-            "failures": [failure.model_dump() for failure in failures],
+            "failures": [failure.model_dump() for failure in collector.failures],
             "alignment_failures": [
-                finding.model_dump(mode="json") for finding in alignment_failures
+                finding.model_dump(mode="json")
+                for finding in collector.alignment_failures
             ],
             "alignment_warnings": [
-                finding.model_dump(mode="json") for finding in alignment_warnings
+                finding.model_dump(mode="json")
+                for finding in collector.alignment_warnings
             ],
-            "warnings": warnings,
+            "warnings": collector.warnings,
             "input_hash": input_hash,
             "message": (
                 "Validation passed"
                 if passed
-                else f"Validation failed with {len(failures)} issue(s)"
+                else f"Validation failed with {len(collector.failures)} issue(s)"
             ),
         }
 
@@ -904,10 +1201,10 @@ def validate_story_with_spec_authority(
 __all__ = [
     "ValidateStoryInput",
     "compute_story_input_hash",
-    "resolve_default_validation_mode",
     "persist_validation_evidence",
     "render_invariant_summary",
-    "run_structural_story_checks",
+    "resolve_default_validation_mode",
     "run_deterministic_alignment_checks",
+    "run_structural_story_checks",
     "validate_story_with_spec_authority",
 ]

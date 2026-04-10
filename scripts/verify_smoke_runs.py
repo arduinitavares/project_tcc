@@ -5,8 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -17,8 +18,8 @@ from pydantic import ValidationError
 from utils.smoke_schema import SmokeRunRecord, parse_smoke_run_record, terminal_status
 
 
-def _read_jsonl(path: Path) -> List[SmokeRunRecord]:
-    records: List[SmokeRunRecord] = []
+def _read_jsonl(path: Path) -> list[SmokeRunRecord]:
+    records: list[SmokeRunRecord] = []
     with path.open("r", encoding="utf-8") as handle:
         for idx, line in enumerate(handle, start=1):
             line = line.strip()
@@ -34,7 +35,7 @@ def _read_jsonl(path: Path) -> List[SmokeRunRecord]:
     return records
 
 
-def _variant_label(variant_dict: Dict[str, Any]) -> str:
+def _variant_label(variant_dict: dict[str, Any]) -> str:
     """Convert variant dict to label like V110."""
     refiner = "1" if variant_dict.get("enable_refiner") else "0"
     validator = "1" if variant_dict.get("enable_spec_validator") else "0"
@@ -42,13 +43,15 @@ def _variant_label(variant_dict: Dict[str, Any]) -> str:
     return f"V{refiner}{validator}{raw_spec}"
 
 
-def _invest_validation_expected(variant_dict: Dict[str, Any]) -> bool:
+def _invest_validation_expected(variant_dict: dict[str, Any]) -> bool:
     """INVEST validation runs only when BOTH refiner AND spec_validator are enabled."""
-    return bool(variant_dict.get("enable_refiner")) and bool(variant_dict.get("enable_spec_validator"))
+    return bool(variant_dict.get("enable_refiner")) and bool(
+        variant_dict.get("enable_spec_validator")
+    )
 
 
 def verify_records(records: Iterable[Any]) -> None:
-    normalized: List[SmokeRunRecord] = []
+    normalized: list[SmokeRunRecord] = []
     for record in records:
         if isinstance(record, SmokeRunRecord):
             normalized.append(record)
@@ -68,41 +71,41 @@ def verify_records(records: Iterable[Any]) -> None:
     # --- Scenario 1: Happy path with strict per-variant rules ---
     # INVEST validation expected (V110, V111): must be "success" - NOT unknown, NOT contract_failed
     # INVEST validation NOT expected (V0xx, V10x): must be "unknown" - NOT contract_failed
-    scenario1_errors: List[str] = []
+    scenario1_errors: list[str] = []
     for r in scenario1:
         variant = r.VARIANT.model_dump()
         status = terminal_status(r)
         label = _variant_label(variant)
-        
+
         if _invest_validation_expected(variant):
             # Validator enabled → must succeed (not unknown, not failed)
             if status != "success":
                 scenario1_errors.append(
                     f"{label} (validator enabled) expected 'success', got '{status}' (RUN_ID={r.RUN_ID})"
                 )
-        else:
-            # Validator disabled → must be unknown (not failed)
-            if status == "contract_failed":
-                scenario1_errors.append(
-                    f"{label} (validator disabled) should NOT be 'contract_failed' (RUN_ID={r.RUN_ID})"
-                )
-            elif status not in {"success", "unknown"}:
-                scenario1_errors.append(
-                    f"{label} unexpected status '{status}' (RUN_ID={r.RUN_ID})"
-                )
-    
+        # Validator disabled → must be unknown (not failed)
+        elif status == "contract_failed":
+            scenario1_errors.append(
+                f"{label} (validator disabled) should NOT be 'contract_failed' (RUN_ID={r.RUN_ID})"
+            )
+        elif status not in {"success", "unknown"}:
+            scenario1_errors.append(
+                f"{label} unexpected status '{status}' (RUN_ID={r.RUN_ID})"
+            )
+
     if scenario1_errors:
         raise AssertionError("Scenario 1 failures:\n  " + "\n  ".join(scenario1_errors))
 
     # --- Scenario 2: Alignment rejection gate ---
     # At least some variants must hit alignment_rejected (OAuth1 feature)
     scenario2_alignment = [
-        r for r in scenario2
+        r
+        for r in scenario2
         if r.METRICS.alignment_rejected is True or r.ALIGNMENT_REJECTED is True
     ]
     if not scenario2_alignment:
         raise AssertionError("Scenario 2 has zero alignment_rejected")
-    
+
     # Alignment rejected runs must have pipeline_ms=None
     for r in scenario2_alignment:
         timing = r.TIMING_MS.model_dump()
@@ -114,14 +117,15 @@ def verify_records(records: Iterable[Any]) -> None:
     # --- Scenario 3: Acceptance gate ---
     # All variants must be acceptance_blocked (spec not accepted)
     scenario3_blocked = [
-        r for r in scenario3
+        r
+        for r in scenario3
         if r.METRICS.acceptance_blocked is True or r.ACCEPTANCE_GATE_BLOCKED is True
     ]
     if len(scenario3_blocked) != len(scenario3):
         raise AssertionError(
             f"Scenario 3 is not 100% acceptance_blocked ({len(scenario3_blocked)}/{len(scenario3)})"
         )
-    
+
     # Acceptance blocked runs must have pipeline_ms=None
     for r in scenario3_blocked:
         timing = r.TIMING_MS.model_dump()

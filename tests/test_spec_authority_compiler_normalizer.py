@@ -2,20 +2,17 @@
 
 import json
 import re
-from typing import Any, Dict
+from typing import Any
 
-import pytest
-
-from utils.spec_schemas import (
-    SpecAuthorityCompilationFailure,
-    SpecAuthorityCompilationSuccess,
-    SpecAuthorityCompilerOutput,
-    InvariantType,
-    RequiredFieldParams,
-)
 from orchestrator_agent.agent_tools.spec_authority_compiler_agent.compiler_contract import (
     compute_invariant_id,
     compute_prompt_hash,
+)
+from utils.spec_schemas import (
+    InvariantType,
+    RequiredFieldParams,
+    SpecAuthorityCompilationFailure,
+    SpecAuthorityCompilationSuccess,
 )
 
 
@@ -31,7 +28,7 @@ def test_normalizer_rewrites_bad_ids_from_llm() -> None:
 
     excerpt = "The payload must include user_id."
 
-    raw: Dict[str, Any] = {
+    raw: dict[str, Any] = {
         "scope_themes": [],
         "invariants": [
             {
@@ -82,7 +79,7 @@ def test_normalizer_fails_when_source_map_missing_or_unmatchable() -> None:
         normalize_compiler_output,
     )
 
-    raw: Dict[str, Any] = {
+    raw: dict[str, Any] = {
         "scope_themes": [],
         "invariants": [
             {
@@ -121,7 +118,7 @@ def test_normalizer_returns_failure_for_invalid_json() -> None:
 
 def test_normalizer_handles_duplicate_placeholder_invariant_ids() -> None:
     """Normalizer must correctly handle when LLM returns duplicate placeholder IDs.
-    
+
     This is a common scenario where the LLM returns INV-0000000000000000 for all
     invariants instead of generating unique IDs. The normalizer must use positional
     matching to assign correct types to source_map entries.
@@ -134,7 +131,7 @@ def test_normalizer_handles_duplicate_placeholder_invariant_ids() -> None:
     excerpt2 = "The system must not use OAuth1 authentication."
 
     # LLM returns same placeholder ID for both invariants
-    raw: Dict[str, Any] = {
+    raw: dict[str, Any] = {
         "scope_themes": ["payload validation", "authentication security"],
         "domain": None,
         "invariants": [
@@ -169,7 +166,7 @@ def test_normalizer_handles_duplicate_placeholder_invariant_ids() -> None:
     }
 
     normalized = normalize_compiler_output(json.dumps(raw))
-    
+
     # Must succeed, not fail with SOURCE_MAP_INVARIANT_MISMATCH
     assert isinstance(normalized.root, SpecAuthorityCompilationSuccess), (
         f"Expected success but got failure: {normalized.root}"
@@ -207,7 +204,7 @@ def test_normalizer_handles_duplicate_ids_different_types_length_mismatch() -> N
     # Extra source_map entry for the same invariant (different excerpt location)
     excerpt3 = "user_id is mandatory in all API payloads."
 
-    raw: Dict[str, Any] = {
+    raw: dict[str, Any] = {
         "scope_themes": ["payload validation", "authentication security"],
         "domain": None,
         "invariants": [
@@ -272,7 +269,7 @@ def test_normalize_zero_invariants_returns_success_with_warning() -> None:
         normalize_compiler_output,
     )
 
-    raw: Dict[str, Any] = {
+    raw: dict[str, Any] = {
         "scope_themes": ["notes-only"],
         "domain": None,
         "invariants": [],
@@ -301,7 +298,7 @@ def test_normalize_empty_invariants_allows_empty_source_map() -> None:
         normalize_compiler_output,
     )
 
-    raw: Dict[str, Any] = {
+    raw: dict[str, Any] = {
         "scope_themes": [],
         "domain": None,
         "invariants": [],
@@ -325,7 +322,7 @@ def test_normalizer_extracts_json_from_wrapped_text() -> None:
     )
 
     excerpt = "The payload must include project_name."
-    raw: Dict[str, Any] = {
+    raw: dict[str, Any] = {
         "scope_themes": ["project setup"],
         "domain": None,
         "invariants": [
@@ -368,7 +365,7 @@ def test_normalizer_accepts_enveloped_result_payload() -> None:
     )
 
     excerpt = "The system must not expose provider settings."
-    result_payload: Dict[str, Any] = {
+    result_payload: dict[str, Any] = {
         "scope_themes": ["ui policy"],
         "domain": None,
         "invariants": [
@@ -392,9 +389,7 @@ def test_normalizer_accepts_enveloped_result_payload() -> None:
         "prompt_hash": "0" * 64,
     }
 
-    normalized = normalize_compiler_output(
-        json.dumps({"result": result_payload})
-    )
+    normalized = normalize_compiler_output(json.dumps({"result": result_payload}))
     assert isinstance(normalized.root, SpecAuthorityCompilationSuccess)
     assert len(normalized.root.source_map) == 1
 
@@ -404,7 +399,7 @@ def test_normalizer_filters_meta_policy_invariant_from_plagiarism_section() -> N
         normalize_compiler_output,
     )
 
-    raw: Dict[str, Any] = {
+    raw: dict[str, Any] = {
         "scope_themes": ["assignment policy"],
         "domain": None,
         "invariants": [
@@ -447,7 +442,7 @@ def test_normalizer_preserves_real_product_forbidden_capability() -> None:
         normalize_compiler_output,
     )
 
-    raw: Dict[str, Any] = {
+    raw: dict[str, Any] = {
         "scope_themes": ["interface constraints"],
         "domain": None,
         "invariants": [
@@ -479,12 +474,14 @@ def test_normalizer_preserves_real_product_forbidden_capability() -> None:
     assert len(normalized.root.source_map) == 1
 
 
-def test_normalizer_does_not_filter_product_invariant_from_api_references_section() -> None:
+def test_normalizer_does_not_filter_product_invariant_from_api_references_section() -> (
+    None
+):
     from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
         normalize_compiler_output,
     )
 
-    raw: Dict[str, Any] = {
+    raw: dict[str, Any] = {
         "scope_themes": ["api constraints"],
         "domain": None,
         "invariants": [

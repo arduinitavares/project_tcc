@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -19,8 +19,8 @@ from agile_sqlmodel import (
     UserStory,
 )
 from api import app
-from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_key
 from models.core import Team
+from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_key
 
 
 @pytest.fixture
@@ -39,7 +39,7 @@ def setup_test_data(session: Session):
 
     # Create Sprints
     sprints = []
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for _ in range(2):
         s = Sprint(
             product_id=product.product_id,
@@ -134,9 +134,7 @@ async def test_delete_project_story(
     import api as api_module
 
     monkeypatch.setattr(api_module, "get_engine", lambda: engine)
-    monkeypatch.setattr(
-        api_module.product_repo, "_get_session", lambda: session
-    )
+    monkeypatch.setattr(api_module.product_repo, "_get_session", lambda: session)
     monkeypatch.setattr("agile_sqlmodel.get_engine", lambda: engine)
 
     product_id, parent_req, story_ids, task_ids = setup_test_data
@@ -235,15 +233,11 @@ async def test_delete_project_story(
         saved_state_calls.append(state.copy())
 
     monkeypatch.setattr(api_module, "_ensure_session", mock_ensure_session)
-    monkeypatch.setattr(
-        api_module, "_save_session_state", mock_save_session_state
-    )
+    monkeypatch.setattr(api_module, "_save_session_state", mock_save_session_state)
 
     # Assert data exists before deletion
     assert len(
-        session.exec(
-            select(UserStory).where(UserStory.story_id.in_(story_ids))
-        ).all()
+        session.exec(select(UserStory).where(UserStory.story_id.in_(story_ids))).all()
     ) == len(story_ids)
     assert (
         len(
@@ -269,9 +263,7 @@ async def test_delete_project_story(
     assert (
         len(
             session.exec(
-                select(TaskExecutionLog).where(
-                    TaskExecutionLog.task_id.in_(task_ids)
-                )
+                select(TaskExecutionLog).where(TaskExecutionLog.task_id.in_(task_ids))
             ).all()
         )
         > 0
@@ -319,19 +311,12 @@ async def test_delete_project_story(
         == 0
     )
     assert (
-        len(
-            session.exec(
-                select(Task).where(Task.story_id.in_(story_ids))
-            ).all()
-        )
-        == 0
+        len(session.exec(select(Task).where(Task.story_id.in_(story_ids))).all()) == 0
     )
     assert (
         len(
             session.exec(
-                select(TaskExecutionLog).where(
-                    TaskExecutionLog.task_id.in_(task_ids)
-                )
+                select(TaskExecutionLog).where(TaskExecutionLog.task_id.in_(task_ids))
             ).all()
         )
         == 0

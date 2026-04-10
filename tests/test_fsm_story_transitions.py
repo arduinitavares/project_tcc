@@ -171,4 +171,3 @@ class TestFSMStoryStateDefinitions:
         defn = self.ctrl.get_state_definition(OrchestratorState.SETUP_REQUIRED)
         assert OrchestratorState.STORY_INTERVIEW in defn.allowed_transitions
         assert OrchestratorState.STORY_REVIEW in defn.allowed_transitions
-

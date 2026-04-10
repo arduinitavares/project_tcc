@@ -252,15 +252,13 @@ class _SupportsIsoFormat(Protocol):
 
 
 def _queryable_attr(attr: object) -> QueryableAttribute[object]:
-    return cast(QueryableAttribute[object], attr)
+    return cast("QueryableAttribute[object]", attr)
 
 
 class ProductIDError(ValueError):
     """Exception raised when a product ID is missing."""
 
-    def __init__(
-        self, message: str = "Product creation did not return an id"
-    ) -> None:
+    def __init__(self, message: str = "Product creation did not return an id") -> None:
         """Initialize the exception with a default or custom error message."""
         super().__init__(message)
 
@@ -294,9 +292,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="AgenticFlow API", lifespan=lifespan)
 
-app.mount(
-    "/dashboard", StaticFiles(directory="frontend", html=True), name="frontend"
-)
+app.mount("/dashboard", StaticFiles(directory="frontend", html=True), name="frontend")
 
 
 class CreateProjectRequest(BaseModel):
@@ -487,12 +483,10 @@ def _build_tool_context(
     context: SimpleNamespace,
 ) -> ToolContext:
     # API flows use a lightweight state container outside the ADK runtime.
-    return cast(ToolContext, context)
+    return cast("ToolContext", context)
 
 
-async def _hydrate_context(
-    session_id: str, project_id: int
-) -> SimpleNamespace:
+async def _hydrate_context(session_id: str, project_id: int) -> SimpleNamespace:
     state = await _ensure_session(session_id)
     context = SimpleNamespace(state=dict(state), session_id=session_id)
     select_project(project_id, _build_tool_context(context))
@@ -508,9 +502,7 @@ def _serialize_sprint_task(task: Task) -> dict[str, Any]:
     return {
         "id": task.task_id,
         "description": task.description,
-        "status": task.status.value
-        if hasattr(task.status, "value")
-        else task.status,
+        "status": task.status.value if hasattr(task.status, "value") else task.status,
         "task_kind": meta.task_kind,
         "artifact_targets": meta.artifact_targets,
         "workstream_tags": meta.workstream_tags,
@@ -533,9 +525,7 @@ def _story_task_progress(tasks: Sequence[Task]) -> tuple[int, int, int, bool]:
         if bool(parse_task_metadata(task.metadata_json).checklist_items)
     ]
     total_tasks = len(actionable_tasks)
-    done_tasks = sum(
-        1 for task in actionable_tasks if task.status == TaskStatus.DONE
-    )
+    done_tasks = sum(1 for task in actionable_tasks if task.status == TaskStatus.DONE)
     cancelled_tasks = sum(
         1 for task in actionable_tasks if task.status == TaskStatus.CANCELLED
     )
@@ -629,19 +619,11 @@ def _build_sprint_runtime_summary(
         None,
     )
     planned = next(
-        (
-            sprint
-            for sprint in sprints
-            if sprint.status == SprintStatus.PLANNED
-        ),
+        (sprint for sprint in sprints if sprint.status == SprintStatus.PLANNED),
         None,
     )
     completed = sorted(
-        [
-            sprint
-            for sprint in sprints
-            if sprint.status == SprintStatus.COMPLETED
-        ],
+        [sprint for sprint in sprints if sprint.status == SprintStatus.COMPLETED],
         key=lambda sprint: (
             sprint.completed_at or sprint.updated_at or sprint.created_at
         ),
@@ -650,9 +632,7 @@ def _build_sprint_runtime_summary(
     return {
         "active_sprint_id": active.sprint_id if active else None,
         "planned_sprint_id": planned.sprint_id if planned else None,
-        "latest_completed_sprint_id": completed[0].sprint_id
-        if completed
-        else None,
+        "latest_completed_sprint_id": completed[0].sprint_id if completed else None,
         "can_create_next_sprint": planned is None,
         "create_next_sprint_disabled_reason": (
             None
@@ -672,9 +652,7 @@ def _allowed_actions_for_sprint(
 ) -> dict[str, Any]:
     is_planned = sprint.status == SprintStatus.PLANNED
     is_active = sprint.status == SprintStatus.ACTIVE
-    can_start = bool(
-        is_planned and runtime_summary.get("active_sprint_id") is None
-    )
+    can_start = bool(is_planned and runtime_summary.get("active_sprint_id") is None)
     can_close = bool(is_active)
     can_modify_planned = bool(is_planned)
     return {
@@ -682,10 +660,7 @@ def _allowed_actions_for_sprint(
         "start_disabled_reason": (
             None
             if can_start
-            else (
-                "Only planned sprints without another "
-                "active sprint can be started."
-            )
+            else ("Only planned sprints without another active sprint can be started.")
         ),
         "can_close": can_close,
         "close_disabled_reason": (
@@ -745,12 +720,8 @@ def _serialize_sprint_detail(
             story.story_id or 0,
         ),
     )
-    payload = _serialize_sprint_list_item(
-        sprint, runtime_summary=runtime_summary
-    )
-    payload["selected_stories"] = [
-        _serialize_sprint_story(story) for story in stories
-    ]
+    payload = _serialize_sprint_list_item(sprint, runtime_summary=runtime_summary)
+    payload["selected_stories"] = [_serialize_sprint_story(story) for story in stories]
     payload["close_snapshot"] = _load_sprint_close_snapshot(sprint)
     return payload
 
@@ -933,10 +904,7 @@ def _build_story_compliance_boundaries(
         return []
 
     referenced_ids = set()
-    if (
-        hasattr(evidence, "finding_invariant_ids")
-        and evidence.finding_invariant_ids
-    ):
+    if hasattr(evidence, "finding_invariant_ids") and evidence.finding_invariant_ids:
         referenced_ids.update(evidence.finding_invariant_ids)
 
     if not referenced_ids:
@@ -958,12 +926,8 @@ def _build_story_compliance_boundaries(
                 "invariant_id": invariant.id,
                 "type": invariant.type.value,
                 "parameters": parameters,
-                "source_excerpt": source_entry.excerpt
-                if source_entry
-                else None,
-                "source_location": source_entry.location
-                if source_entry
-                else None,
+                "source_excerpt": source_entry.excerpt if source_entry else None,
+                "source_location": source_entry.location if source_entry else None,
             }
         )
     return relevant
@@ -985,9 +949,7 @@ def _build_task_hard_constraints(
     for entry in artifact.source_map:
         source_map.setdefault(entry.invariant_id, entry)
 
-    invariant_map = {
-        invariant.id: invariant for invariant in artifact.invariants
-    }
+    invariant_map = {invariant.id: invariant for invariant in artifact.invariants}
     constraints: list[dict[str, Any]] = []
     for invariant_id in task_metadata.relevant_invariant_ids:
         invariant = invariant_map.get(invariant_id)
@@ -1004,12 +966,8 @@ def _build_task_hard_constraints(
                 "invariant_id": invariant.id,
                 "type": invariant.type.value,
                 "parameters": invariant.parameters.model_dump(mode="json"),
-                "source_excerpt": source_entry.excerpt
-                if source_entry
-                else None,
-                "source_location": source_entry.location
-                if source_entry
-                else None,
+                "source_excerpt": source_entry.excerpt if source_entry else None,
+                "source_location": source_entry.location if source_entry else None,
             }
         )
     return constraints
@@ -1088,23 +1046,15 @@ def _load_packet_story_context(
         else None
     )
     validation_freshness = (
-        "missing"
-        if evidence is None
-        else "current"
-        if input_hash_matches
-        else "stale"
+        "missing" if evidence is None else "current" if input_hash_matches else "stale"
     )
 
     authority = _load_pinned_authority(session, story.accepted_spec_version_id)
-    compiled_artifact = (
-        load_compiled_artifact(authority) if authority else None
-    )
+    compiled_artifact = load_compiled_artifact(authority) if authority else None
     spec_binding_status = (
         "pinned" if story.accepted_spec_version_id is not None else "unpinned"
     )
-    authority_status = (
-        "available" if compiled_artifact is not None else "missing"
-    )
+    authority_status = "available" if compiled_artifact is not None else "missing"
 
     task_metadata = None
     if task is not None:
@@ -1234,15 +1184,11 @@ def _build_story_packet(
                 "validated_at": _serialize_temporal(
                     evidence.validated_at if evidence else None
                 ),
-                "validator_version": evidence.validator_version
-                if evidence
-                else None,
+                "validator_version": evidence.validator_version if evidence else None,
                 "current_story_input_hash": context.current_story_input_hash,
                 "validation_input_hash": context.validation_input_hash,
                 "input_hash_matches": context.input_hash_matches,
-                "rules_checked": list(evidence.rules_checked)
-                if evidence
-                else [],
+                "rules_checked": list(evidence.rules_checked) if evidence else [],
             },
             "story_compliance_boundaries": _build_story_compliance_boundaries(
                 context.authority,
@@ -1366,15 +1312,11 @@ def _build_task_packet(
                 "validated_at": _serialize_temporal(
                     evidence.validated_at if evidence else None
                 ),
-                "validator_version": evidence.validator_version
-                if evidence
-                else None,
+                "validator_version": evidence.validator_version if evidence else None,
                 "current_story_input_hash": context.current_story_input_hash,
                 "validation_input_hash": context.validation_input_hash,
                 "input_hash_matches": context.input_hash_matches,
-                "rules_checked": list(evidence.rules_checked)
-                if evidence
-                else [],
+                "rules_checked": list(evidence.rules_checked) if evidence else [],
             },
             "task_hard_constraints": _build_task_hard_constraints(
                 context.authority,
@@ -1471,21 +1413,16 @@ def get_projects() -> dict[str, object]:
                 {
                     "id": product.product_id,
                     "name": product.name,
-                    "summary": product.description
-                    or "No description provided",
+                    "summary": product.description or "No description provided",
                     "fsm_state": effective_state.get(
                         "fsm_state", OrchestratorState.SETUP_REQUIRED.value
                     ),
-                    "setup_status": effective_state.get(
-                        "setup_status", "failed"
-                    ),
+                    "setup_status": effective_state.get("setup_status", "failed"),
                     "setup_error": effective_state.get("setup_error"),
                     "setup_failure_artifact_id": effective_state.get(
                         "setup_failure_artifact_id"
                     ),
-                    "setup_failure_stage": effective_state.get(
-                        "setup_failure_stage"
-                    ),
+                    "setup_failure_stage": effective_state.get("setup_failure_stage"),
                     "setup_failure_summary": effective_state.get(
                         "setup_failure_summary"
                     ),
@@ -1516,31 +1453,23 @@ async def create_project(
         session_id = str(project_id)
         await workflow_service.initialize_session(session_id=session_id)
 
-        setup_result = await _run_setup(
-            session_id, project_id, req.spec_file_path
-        )
+        setup_result = await _run_setup(session_id, project_id, req.spec_file_path)
 
         return {
             "status": "success",
             "data": {
                 "id": project_id,
                 "name": new_product.name,
-                "setup_status": "passed"
-                if setup_result["passed"]
-                else "failed",
+                "setup_status": "passed" if setup_result["passed"] else "failed",
                 "setup_error": setup_result["error"],
                 "fsm_state": setup_result["fsm_state"],
                 "vision_auto_run": setup_result.get("vision_auto_run"),
-                **_failure_meta(
-                    setup_result, fallback_summary=setup_result["error"]
-                ),
+                **_failure_meta(setup_result, fallback_summary=setup_result["error"]),
             },
         }
     except Exception as exc:
         logger.exception("Error creating project")
-        raise HTTPException(
-            status_code=500, detail="Failed to create project"
-        ) from exc
+        raise HTTPException(status_code=500, detail="Failed to create project") from exc
 
 
 @app.delete("/api/projects/{project_id}")
@@ -1559,9 +1488,7 @@ async def delete_project(project_id: int) -> dict[str, object]:
             _raise_delete_project_failed()
     except Exception as exc:
         logger.exception("Error deleting project %d", project_id)
-        raise HTTPException(
-            status_code=500, detail="Failed to delete project"
-        ) from exc
+        raise HTTPException(status_code=500, detail="Failed to delete project") from exc
     else:
         return {
             "status": "success",
@@ -1591,9 +1518,7 @@ async def retry_project_setup(
             "setup_error": setup_result["error"],
             "fsm_state": setup_result["fsm_state"],
             "vision_auto_run": setup_result.get("vision_auto_run"),
-            **_failure_meta(
-                setup_result, fallback_summary=setup_result["error"]
-            ),
+            **_failure_meta(setup_result, fallback_summary=setup_result["error"]),
         },
     }
 
@@ -1625,9 +1550,7 @@ async def get_project_failure_artifact(
 
     artifact = read_failure_artifact(artifact_id)
     if artifact is None:
-        raise HTTPException(
-            status_code=404, detail="Failure artifact not found"
-        )
+        raise HTTPException(status_code=404, detail="Failure artifact not found")
 
     if artifact.get("project_id") != project_id:
         raise HTTPException(
@@ -1659,9 +1582,7 @@ async def generate_project_vision(
             user_input=req.user_input,
         )
     except VisionPhaseError as exc:
-        raise HTTPException(
-            status_code=exc.status_code, detail=exc.detail
-        ) from exc
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     return {
         "status": "success",
@@ -1682,9 +1603,7 @@ async def get_project_vision_history(project_id: int) -> dict[str, Any]:
             load_state=lambda: _ensure_session(session_id)
         )
     except VisionPhaseError as exc:
-        raise HTTPException(
-            status_code=exc.status_code, detail=exc.detail
-        ) from exc
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     return {
         "status": "success",
@@ -1715,9 +1634,7 @@ async def save_project_vision(
             save_vision_tool=save_vision_tool,
         )
     except VisionPhaseError as exc:
-        raise HTTPException(
-            status_code=exc.status_code, detail=exc.detail
-        ) from exc
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     return {
         "status": "success",
@@ -1745,9 +1662,7 @@ async def generate_project_backlog(
             user_input=req.user_input,
         )
     except BacklogPhaseError as exc:
-        raise HTTPException(
-            status_code=exc.status_code, detail=exc.detail
-        ) from exc
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     return {
         "status": "success",
@@ -1768,9 +1683,7 @@ async def get_project_backlog_history(project_id: int) -> dict[str, Any]:
             load_state=lambda: _ensure_session(session_id)
         )
     except BacklogPhaseError as exc:
-        raise HTTPException(
-            status_code=exc.status_code, detail=exc.detail
-        ) from exc
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     return {
         "status": "success",
@@ -1797,9 +1710,7 @@ async def save_project_backlog(project_id: int) -> dict[str, Any]:
             save_backlog_tool=save_backlog_tool,
         )
     except BacklogPhaseError as exc:
-        raise HTTPException(
-            status_code=exc.status_code, detail=exc.detail
-        ) from exc
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     return {
         "status": "success",
@@ -1827,9 +1738,7 @@ async def generate_project_roadmap(
             user_input=req.user_input,
         )
     except RoadmapPhaseError as exc:
-        raise HTTPException(
-            status_code=exc.status_code, detail=exc.detail
-        ) from exc
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     return {
         "status": "success",
@@ -1850,9 +1759,7 @@ async def get_project_roadmap_history(project_id: int) -> dict[str, Any]:
             load_state=lambda: _ensure_session(session_id)
         )
     except RoadmapPhaseError as exc:
-        raise HTTPException(
-            status_code=exc.status_code, detail=exc.detail
-        ) from exc
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     return {
         "status": "success",
@@ -1878,9 +1785,7 @@ async def save_project_roadmap(project_id: int) -> dict[str, Any]:
             save_roadmap_tool=save_roadmap_tool,
         )
     except RoadmapPhaseError as exc:
-        raise HTTPException(
-            status_code=exc.status_code, detail=exc.detail
-        ) from exc
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     return {
         "status": "success",
@@ -1927,9 +1832,7 @@ async def generate_project_story(
             parent_requirement=parent_requirement,
             user_input=req.user_input,
             load_state=lambda: _ensure_session(session_id),
-            save_state=lambda updated: _save_session_state(
-                session_id, updated
-            ),
+            save_state=lambda updated: _save_session_state(session_id, updated),
             now_iso=_now_iso,
             run_story_agent_from_state=run_story_agent_from_state,
             append_feedback_entry=append_feedback_entry,
@@ -1966,9 +1869,7 @@ async def retry_project_story(
             project_id=project_id,
             parent_requirement=parent_requirement,
             load_state=lambda: _ensure_session(session_id),
-            save_state=lambda updated: _save_session_state(
-                session_id, updated
-            ),
+            save_state=lambda updated: _save_session_state(session_id, updated),
             now_iso=_now_iso,
             run_story_agent_request=run_story_agent_request,
             append_attempt=append_attempt,
@@ -2030,9 +1931,7 @@ async def save_project_story(
             project_id=project_id,
             parent_requirement=parent_requirement,
             load_state=lambda: _ensure_session(session_id),
-            save_state=lambda updated: _save_session_state(
-                session_id, updated
-            ),
+            save_state=lambda updated: _save_session_state(session_id, updated),
             hydrate_context=_hydrate_context,
             build_tool_context=_build_tool_context,
             save_stories_tool=save_stories_tool,
@@ -2063,9 +1962,7 @@ async def merge_project_story(
         data = await merge_story_resolution_service(
             parent_requirement=parent_requirement,
             load_state=lambda: _ensure_session(session_id),
-            save_state=lambda updated: _save_session_state(
-                session_id, updated
-            ),
+            save_state=lambda updated: _save_session_state(session_id, updated),
             now_iso=_now_iso,
         )
     except StoryPhaseError as exc:
@@ -2096,9 +1993,7 @@ async def delete_project_story(
             data = await delete_story_requirement_service(
                 parent_requirement=parent_requirement,
                 load_state=lambda: _ensure_session(session_id),
-                save_state=lambda updated: _save_session_state(
-                    session_id, updated
-                ),
+                save_state=lambda updated: _save_session_state(session_id, updated),
                 now_iso=_now_iso,
                 delete_requirement_stories=lambda normalized_requirement: (
                     story_repo.delete_by_requirement(
@@ -2131,9 +2026,7 @@ async def complete_story_phase(project_id: int) -> dict[str, Any]:
     try:
         data = await complete_story_phase_service(
             load_state=lambda: _ensure_session(session_id),
-            save_state=lambda updated: _save_session_state(
-                session_id, updated
-            ),
+            save_state=lambda updated: _save_session_state(session_id, updated),
             now_iso=_now_iso,
         )
     except StoryPhaseError as exc:
@@ -2202,16 +2095,12 @@ async def generate_project_sprint(
             project_id=project_id,
             load_state=lambda: _ensure_session(session_id),
             save_state=lambda state: _save_session_state(session_id, state),
-            current_planned_sprint_id=_load_current_planned_sprint_id(
-                project_id
-            ),
+            current_planned_sprint_id=_load_current_planned_sprint_id(project_id),
             now_iso=_now_iso,
             run_sprint_agent=run_sprint_agent_from_state,
-            failure_meta_builder=lambda source, fallback_summary=None: (
-                _failure_meta(
-                    cast(dict[str, Any] | None, source),
-                    fallback_summary=cast(str | None, fallback_summary),
-                )
+            failure_meta_builder=lambda source, fallback_summary=None: _failure_meta(
+                cast("dict[str, Any] | None", source),
+                fallback_summary=cast("str | None", fallback_summary),
             ),
             team_velocity_assumption=req.team_velocity_assumption,
             sprint_duration_days=req.sprint_duration_days,
@@ -2262,9 +2151,7 @@ async def reset_project_sprint_planner(project_id: int) -> dict[str, Any]:
         data = await reset_sprint_planner_service(
             load_state=lambda: _ensure_session(session_id),
             save_state=lambda state: _save_session_state(session_id, state),
-            current_planned_sprint_id=_load_current_planned_sprint_id(
-                project_id
-            ),
+            current_planned_sprint_id=_load_current_planned_sprint_id(project_id),
         )
     except SprintPhaseError as exc:
         raise HTTPException(
@@ -2306,9 +2193,7 @@ async def list_project_sprints(project_id: int) -> dict[str, Any]:
     }
 
 
-async def get_project_sprint(
-    project_id: int, sprint_id: int
-) -> dict[str, Any]:
+async def get_project_sprint(project_id: int, sprint_id: int) -> dict[str, Any]:
     """Get detailed information for a specific sprint."""
     product = product_repo.get_by_id(project_id)
     if not product:
@@ -2317,9 +2202,7 @@ async def get_project_sprint(
     with Session(get_engine()) as session:
         try:
             data = get_saved_sprint_detail_service(
-                load_sprint=lambda: _get_saved_sprint(
-                    session, project_id, sprint_id
-                ),
+                load_sprint=lambda: _get_saved_sprint(session, project_id, sprint_id),
                 load_sprints=lambda: session.exec(
                     _saved_sprint_query()
                     .where(Sprint.product_id == project_id)
@@ -2345,17 +2228,13 @@ async def get_project_sprint(
         }
 
 
-def get_sprint_close(
-    project_id: int, sprint_id: int
-) -> SprintCloseReadResponse:
+def get_sprint_close(project_id: int, sprint_id: int) -> SprintCloseReadResponse:
     """Get readiness information for closing an active sprint."""
     with Session(get_engine()) as session:
         try:
             data = get_sprint_close_readiness_service(
                 sprint_id=sprint_id,
-                load_sprint=lambda: _get_saved_sprint(
-                    session, project_id, sprint_id
-                ),
+                load_sprint=lambda: _get_saved_sprint(session, project_id, sprint_id),
                 build_readiness=lambda sprint: _build_sprint_close_readiness(
                     list(sprint.stories)
                 ),
@@ -2404,9 +2283,7 @@ def post_sprint_close(
                 sprint_id=sprint_id,
                 completion_notes=req.completion_notes,
                 follow_up_notes=req.follow_up_notes,
-                load_sprint=lambda: _get_saved_sprint(
-                    session, project_id, sprint_id
-                ),
+                load_sprint=lambda: _get_saved_sprint(session, project_id, sprint_id),
                 build_readiness=lambda sprint: _build_sprint_close_readiness(
                     list(sprint.stories)
                 ),
@@ -2513,9 +2390,7 @@ def get_task_execution(
                         TaskExecutionLog.task_id == task_id,
                         TaskExecutionLog.sprint_id == sprint_id,
                     )
-                    .order_by(
-                        desc(_queryable_attr(TaskExecutionLog.changed_at))
-                    )
+                    .order_by(desc(_queryable_attr(TaskExecutionLog.changed_at)))
                 ).all(),
             )
         except TaskExecutionServiceError as exc:
@@ -2588,9 +2463,7 @@ def post_task_execution(
                         TaskExecutionLog.task_id == task_id,
                         TaskExecutionLog.sprint_id == sprint_id,
                     )
-                    .order_by(
-                        desc(_queryable_attr(TaskExecutionLog.changed_at))
-                    )
+                    .order_by(desc(_queryable_attr(TaskExecutionLog.changed_at)))
                 ).all(),
                 parse_task_metadata=parse_task_metadata,
                 persist_execution_log=_persist_execution_log,
@@ -2715,12 +2588,8 @@ async def save_project_sprint(
         data = await save_sprint_plan_service(
             project_id=project_id,
             load_state=lambda: _ensure_session(str(project_id)),
-            save_state=lambda state: _save_session_state(
-                str(project_id), state
-            ),
-            current_planned_sprint_id=_load_current_planned_sprint_id(
-                project_id
-            ),
+            save_state=lambda state: _save_session_state(str(project_id), state),
+            current_planned_sprint_id=_load_current_planned_sprint_id(project_id),
             now_iso=_now_iso,
             hydrate_context=_hydrate_context,
             build_tool_context=_build_tool_context,
@@ -2740,9 +2609,7 @@ async def save_project_sprint(
     }
 
 
-async def start_project_sprint(
-    project_id: int, sprint_id: int
-) -> dict[str, Any]:
+async def start_project_sprint(project_id: int, sprint_id: int) -> dict[str, Any]:
     """Start an active sprint for a project."""
     product = product_repo.get_by_id(project_id)
     if not product:
@@ -2783,9 +2650,7 @@ async def start_project_sprint(
             data = start_saved_sprint_service(
                 project_id=project_id,
                 sprint_id=sprint_id,
-                load_sprint=lambda: _get_saved_sprint(
-                    session, project_id, sprint_id
-                ),
+                load_sprint=lambda: _get_saved_sprint(session, project_id, sprint_id),
                 load_other_active=lambda: session.exec(
                     select(Sprint).where(
                         Sprint.product_id == project_id,

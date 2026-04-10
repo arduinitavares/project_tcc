@@ -14,7 +14,6 @@ from orchestrator_agent.agent_tools.roadmap_builder.tools import (
 from orchestrator_agent.fsm.states import OrchestratorState
 from services.phases import workflow_state
 
-
 _PRESERVED_ROADMAP_STATES = {
     OrchestratorState.ROADMAP_PERSISTENCE.value,
     OrchestratorState.STORY_INTERVIEW.value,
@@ -197,9 +196,7 @@ async def save_roadmap_draft(
         raise RoadmapPhaseError("No roadmap draft available to save")
 
     if not bool(assessment.get("is_complete", False)):
-        raise RoadmapPhaseError(
-            "Roadmap cannot be saved until is_complete is true"
-        )
+        raise RoadmapPhaseError("Roadmap cannot be saved until is_complete is true")
 
     try:
         roadmap_data = RoadmapBuilderOutput.model_validate(assessment)

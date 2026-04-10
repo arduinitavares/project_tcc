@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -107,7 +106,6 @@ def test_sprint_runtime_consumers_import_sprint_from_models_core_only() -> None:
         assert not (agile_sprint_attr_refs & dotted_refs), module_name
 
         if module_name in task_consumers:
-            assert (
-                "Task"
-                in _module_level_imported_names_from_source(module_path, "models.core")
+            assert "Task" in _module_level_imported_names_from_source(
+                module_path, "models.core"
             ), module_name

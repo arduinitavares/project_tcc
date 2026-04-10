@@ -68,41 +68,36 @@ class TestSprintPlannerToolRegistration:
             getattr(t, "name", None) or getattr(t, "__name__", None)
             for t in state_def.tools
         ]
-        assert (
-            "sprint_planner_tool" in names
-        ), f"sprint_planner_tool not in SETUP_REQUIRED tools: {names}"
+        assert "sprint_planner_tool" in names, (
+            f"sprint_planner_tool not in SETUP_REQUIRED tools: {names}"
+        )
 
     def test_sprint_planner_survives_dedupe(self):
         state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         deduped = _dedupe_tools(state_def.tools)
         names = [
-            getattr(t, "name", None) or getattr(t, "__name__", None)
-            for t in deduped
+            getattr(t, "name", None) or getattr(t, "__name__", None) for t in deduped
         ]
-        assert (
-            "sprint_planner_tool" in names
-        ), f"sprint_planner_tool lost after _dedupe_tools: {names}"
+        assert "sprint_planner_tool" in names, (
+            f"sprint_planner_tool lost after _dedupe_tools: {names}"
+        )
 
     def test_sprint_planner_declaration_valid(self):
         state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         for tool in state_def.tools:
-            name = getattr(tool, "name", None) or getattr(
-                tool, "__name__", None
-            )
+            name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
             if name == "sprint_planner_tool":
                 if isinstance(tool, BaseTool):
                     decl = tool._get_declaration()
                 else:
-                    assert callable(
-                        tool
-                    ), f"sprint_planner_tool should be callable or BaseTool, got {type(tool)}"
+                    assert callable(tool), (
+                        f"sprint_planner_tool should be callable or BaseTool, got {type(tool)}"
+                    )
                     decl = FunctionTool(func=tool)._get_declaration()
-                assert (
-                    decl is not None
-                ), "sprint_planner_tool declaration is None"
-                assert (
-                    decl.name == "sprint_planner_tool"
-                ), f"Declaration name mismatch: {decl.name}"
+                assert decl is not None, "sprint_planner_tool declaration is None"
+                assert decl.name == "sprint_planner_tool", (
+                    f"Declaration name mismatch: {decl.name}"
+                )
                 return
         assert False, "sprint_planner_tool not found in SETUP_REQUIRED tools"
 
@@ -112,8 +107,7 @@ class TestSprintPlannerToolRegistration:
         deduped = _dedupe_tools(state_def.tools)
         tools_dict = _build_tools_dict(deduped)
         assert "sprint_planner_tool" in tools_dict, (
-            f"sprint_planner_tool not in tools_dict! "
-            f"Keys: {list(tools_dict.keys())}"
+            f"sprint_planner_tool not in tools_dict! Keys: {list(tools_dict.keys())}"
         )
 
     def test_all_states_with_sprint_planner(self):
@@ -133,9 +127,7 @@ class TestSprintPlannerToolRegistration:
         state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         names = []
         for tool in state_def.tools:
-            name = getattr(tool, "name", None) or getattr(
-                tool, "__name__", None
-            )
+            name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
             names.append(name)
         seen = set()
         dupes = [n for n in names if n in seen or seen.add(n)]

@@ -17,7 +17,6 @@ Usage:
 """
 
 import logging
-from typing import List, Set
 
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
@@ -27,13 +26,13 @@ from utils.task_metadata import canonical_task_metadata_json
 logger = logging.getLogger(__name__)
 
 
-def _get_existing_tables(engine: Engine) -> Set[str]:
+def _get_existing_tables(engine: Engine) -> set[str]:
     """Return set of table names that exist in the database."""
     inspector = inspect(engine)
     return set(inspector.get_table_names())
 
 
-def _get_existing_columns(engine: Engine, table_name: str) -> Set[str]:
+def _get_existing_columns(engine: Engine, table_name: str) -> set[str]:
     """Return set of column names for a table, or empty set if table doesn't exist."""
     inspector = inspect(engine)
     if table_name not in inspector.get_table_names():
@@ -45,13 +44,13 @@ def _get_existing_columns(engine: Engine, table_name: str) -> Set[str]:
 def _ensure_table_exists(engine: Engine, table_name: str, create_sql: str) -> bool:
     """
     Ensure a table exists, creating it if necessary.
-    
+
     Returns True if the table was created, False if it already existed.
     """
     existing_tables = _get_existing_tables(engine)
     if table_name in existing_tables:
         return False
-    
+
     logger.info(
         "db.migration.create_table",
         extra={"table_name": table_name},
@@ -69,13 +68,13 @@ def _ensure_column_exists(
 ) -> bool:
     """
     Ensure a column exists in a table, adding it if necessary.
-    
+
     Returns True if the column was added, False if it already existed.
     """
     existing_columns = _get_existing_columns(engine, table_name)
     if column_name in existing_columns:
         return False
-    
+
     alter_sql = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}"
     logger.info(
         "db.migration.add_column",
@@ -86,20 +85,20 @@ def _ensure_column_exists(
     return True
 
 
-def _get_existing_indexes(engine: Engine, table_name: str) -> Set[str]:
+def _get_existing_indexes(engine: Engine, table_name: str) -> set[str]:
     """Return set of index names for a table, or empty set if table doesn't exist."""
     inspector = inspect(engine)
     if table_name not in inspector.get_table_names():
         return set()
     indexes = inspector.get_indexes(table_name)
-    return {idx["name"] for idx in indexes}
+    return {name for idx in indexes if (name := idx.get("name")) is not None}
 
 
 def _ensure_index_exists(
     engine: Engine,
     table_name: str,
     index_name: str,
-    column_names: List[str],
+    column_names: list[str],
 ) -> bool:
     """
     Ensure an index exists on a table, creating it if necessary.
@@ -125,11 +124,12 @@ def _ensure_index_exists(
 
     if conflicting_equivalent_indexes:
         conflicts = ", ".join(sorted(conflicting_equivalent_indexes))
-        raise RuntimeError(
+        message = (
             "Non-canonical index detected for "
             f"{table_name}({', '.join(column_names)}): {conflicts}. "
             f"Expected canonical index name: {index_name}."
         )
+        raise RuntimeError(message)
 
     columns_str = ", ".join(column_names)
     create_index_sql = f"CREATE INDEX {index_name} ON {table_name} ({columns_str})"
@@ -194,45 +194,44 @@ CREATE TABLE IF NOT EXISTS spec_authority_acceptance (
 """
 
 
-def migrate_spec_authority_tables(engine: Engine) -> List[str]:
+def migrate_spec_authority_tables(engine: Engine) -> list[str]:
     """
     Ensure all spec authority tables exist with required columns.
-    
+
     Returns list of applied migration actions.
     """
-    actions: List[str] = []
-    
+    actions: list[str] = []
+
     # 1. Ensure spec_registry table exists
     if _ensure_table_exists(engine, "spec_registry", SPEC_REGISTRY_CREATE_SQL):
         actions.append("created table: spec_registry")
-    
+
     # 2. Ensure compiled_spec_authority table exists
     if _ensure_table_exists(
         engine, "compiled_spec_authority", COMPILED_SPEC_AUTHORITY_CREATE_SQL
     ):
         actions.append("created table: compiled_spec_authority")
-    else:
-        # Table exists — ensure compiled_artifact_json column exists
-        if _ensure_column_exists(
-            engine,
-            "compiled_spec_authority",
-            "compiled_artifact_json",
-            "TEXT",
-        ):
-            actions.append("added column: compiled_spec_authority.compiled_artifact_json")
-    
+    # Table exists — ensure compiled_artifact_json column exists
+    elif _ensure_column_exists(
+        engine,
+        "compiled_spec_authority",
+        "compiled_artifact_json",
+        "TEXT",
+    ):
+        actions.append("added column: compiled_spec_authority.compiled_artifact_json")
+
     # 3. Ensure spec_authority_acceptance table exists
     if _ensure_table_exists(
         engine, "spec_authority_acceptance", SPEC_AUTHORITY_ACCEPTANCE_CREATE_SQL
     ):
         actions.append("created table: spec_authority_acceptance")
-    
+
     return actions
 
 
-def migrate_product_spec_cache(engine: Engine) -> List[str]:
+def migrate_product_spec_cache(engine: Engine) -> list[str]:
     """Ensure product spec cache columns exist on products table."""
-    actions: List[str] = []
+    actions: list[str] = []
 
     if _ensure_column_exists(
         engine,
@@ -245,9 +244,9 @@ def migrate_product_spec_cache(engine: Engine) -> List[str]:
     return actions
 
 
-def migrate_performance_indexes(engine: Engine) -> List[str]:
+def migrate_performance_indexes(engine: Engine) -> list[str]:
     """Ensure performance indexes exist."""
-    actions: List[str] = []
+    actions: list[str] = []
 
     # Optimization: Index on UserStory.product_id for faster filtering
     if _ensure_index_exists(
@@ -265,14 +264,13 @@ def migrate_performance_indexes(engine: Engine) -> List[str]:
         "refinement_slot",
         "is_superseded",
     }
-    if linkage_columns.issubset(existing_columns):
-        if _ensure_index_exists(
-            engine,
-            "user_stories",
-            "ix_user_stories_refinement_linkage",
-            ["product_id", "source_requirement", "refinement_slot", "is_superseded"],
-        ):
-            actions.append("created index: ix_user_stories_refinement_linkage")
+    if linkage_columns.issubset(existing_columns) and _ensure_index_exists(
+        engine,
+        "user_stories",
+        "ix_user_stories_refinement_linkage",
+        ["product_id", "source_requirement", "refinement_slot", "is_superseded"],
+    ):
+        actions.append("created index: ix_user_stories_refinement_linkage")
 
     return actions
 
@@ -281,9 +279,10 @@ def migrate_performance_indexes(engine: Engine) -> List[str]:
 # USER STORY REFINEMENT LINKAGE MIGRATION
 # =============================================================================
 
-def migrate_user_story_refinement_linkage(engine: Engine) -> List[str]:
+
+def migrate_user_story_refinement_linkage(engine: Engine) -> list[str]:
     """Ensure refinement linkage columns exist and defaults are backfilled."""
-    actions: List[str] = []
+    actions: list[str] = []
 
     if _ensure_column_exists(
         engine,
@@ -360,9 +359,10 @@ def migrate_user_story_refinement_linkage(engine: Engine) -> List[str]:
 # SPRINT LIFECYCLE MIGRATION
 # =============================================================================
 
-def migrate_sprint_lifecycle(engine: Engine) -> List[str]:
+
+def migrate_sprint_lifecycle(engine: Engine) -> list[str]:
     """Ensure sprint lifecycle columns exist."""
-    actions: List[str] = []
+    actions: list[str] = []
 
     if _ensure_column_exists(
         engine,
@@ -391,10 +391,9 @@ def migrate_sprint_lifecycle(engine: Engine) -> List[str]:
     return actions
 
 
-def migrate_task_metadata(engine: Engine) -> List[str]:
+def migrate_task_metadata(engine: Engine) -> list[str]:
     """Ensure persisted task metadata exists and legacy rows are backfilled."""
-
-    actions: List[str] = []
+    actions: list[str] = []
 
     if _ensure_column_exists(
         engine,
@@ -443,13 +442,16 @@ CREATE TABLE IF NOT EXISTS task_execution_logs (
 )
 """
 
-def migrate_task_execution_logs(engine: Engine) -> List[str]:
-    """Ensure task_execution_logs table exists."""
-    actions: List[str] = []
 
-    if _ensure_table_exists(engine, "task_execution_logs", TASK_EXECUTION_LOGS_CREATE_SQL):
+def migrate_task_execution_logs(engine: Engine) -> list[str]:
+    """Ensure task_execution_logs table exists."""
+    actions: list[str] = []
+
+    if _ensure_table_exists(
+        engine, "task_execution_logs", TASK_EXECUTION_LOGS_CREATE_SQL
+    ):
         actions.append("created table: task_execution_logs")
-        
+
     if _ensure_index_exists(
         engine,
         "task_execution_logs",
@@ -473,21 +475,22 @@ def migrate_task_execution_logs(engine: Engine) -> List[str]:
 # MAIN ENTRY POINT
 # =============================================================================
 
+
 def ensure_schema_current(engine: Engine) -> None:
     """
     Run all idempotent migrations to ensure schema is current.
-    
+
     This function is safe to call at every app startup. It will:
     - Create missing tables
     - Add missing columns to existing tables
     - Log all actions taken
     - Skip migrations that are already applied
-    
+
     Raises:
         RuntimeError: If a migration fails (e.g., SQL error)
     """
     logger.info("db.migration.start", extra={})
-    
+
     try:
         actions = migrate_spec_authority_tables(engine)
         actions.extend(migrate_product_spec_cache(engine))
@@ -509,13 +512,14 @@ def ensure_schema_current(engine: Engine) -> None:
             )
         else:
             logger.info("db.migration.skip", extra={"reason": "schema_current"})
-            
+
     except Exception as exc:
-        logger.error(
+        logger.exception(
             "db.migration.fail",
             extra={"error": str(exc), "error_type": type(exc).__name__},
         )
-        raise RuntimeError(
+        message = (
             f"Database migration failed: {exc}. "
             "If this persists, consider deleting the database file and restarting."
-        ) from exc
+        )
+        raise RuntimeError(message) from exc

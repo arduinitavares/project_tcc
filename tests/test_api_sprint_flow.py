@@ -1,13 +1,14 @@
 """API tests for sprint setup, candidates, and generation flow."""
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi.testclient import TestClient
 from sqlmodel import select
 
+import api as api_module
 from agile_sqlmodel import (
     CompiledSpecAuthority,
     Product,
@@ -33,19 +34,21 @@ from utils.spec_schemas import (
     SpecAuthorityCompilerOutput,
     ValidationEvidence,
 )
-from utils.task_metadata import TaskMetadata, canonical_task_metadata, serialize_task_metadata
-
-import api as api_module
+from utils.task_metadata import (
+    TaskMetadata,
+    canonical_task_metadata,
+    serialize_task_metadata,
+)
 
 
 @dataclass
 class DummyProduct:
     product_id: int
     name: str
-    description: Optional[str] = None
-    vision: Optional[str] = None
-    spec_file_path: Optional[str] = None
-    compiled_authority_json: Optional[str] = None
+    description: str | None = None
+    vision: str | None = None
+    spec_file_path: str | None = None
+    compiled_authority_json: str | None = None
 
 
 class DummyProductRepository:
@@ -61,7 +64,7 @@ class DummyProductRepository:
                 return product
         return None
 
-    def create(self, name: str, description: Optional[str] = None):
+    def create(self, name: str, description: str | None = None):
         product = DummyProduct(
             product_id=len(self.products) + 1,
             name=name,
@@ -73,9 +76,9 @@ class DummyProductRepository:
 
 class DummyWorkflowService:
     def __init__(self) -> None:
-        self.states: Dict[str, Dict[str, object]] = {}
+        self.states: dict[str, dict[str, object]] = {}
 
-    async def initialize_session(self, session_id: Optional[str] = None) -> str:
+    async def initialize_session(self, session_id: str | None = None) -> str:
         sid = str(session_id or "generated")
         self.states[sid] = {"fsm_state": "SETUP_REQUIRED"}
         return sid
@@ -103,7 +106,9 @@ def _build_client(monkeypatch):
     return TestClient(api_module.app), repo, workflow
 
 
-def _seed_story_phase_project(repo: DummyProductRepository, workflow: DummyWorkflowService) -> int:
+def _seed_story_phase_project(
+    repo: DummyProductRepository, workflow: DummyWorkflowService
+) -> int:
     product = repo.create("Sprint Project")
     product.spec_file_path = __file__
     product.compiled_authority_json = '{"ok": true}'
@@ -120,7 +125,9 @@ def _seed_story_phase_project(repo: DummyProductRepository, workflow: DummyWorkf
     return product.product_id
 
 
-def _seed_sprint_setup_project(repo: DummyProductRepository, workflow: DummyWorkflowService) -> int:
+def _seed_sprint_setup_project(
+    repo: DummyProductRepository, workflow: DummyWorkflowService
+) -> int:
     product = repo.create("Sprint Project")
     product.spec_file_path = __file__
     product.compiled_authority_json = '{"ok": true}'
@@ -130,7 +137,7 @@ def _seed_sprint_setup_project(repo: DummyProductRepository, workflow: DummyWork
     return product.product_id
 
 
-def _build_sprint_assessment(*, is_complete: bool = True) -> Dict[str, Any]:
+def _build_sprint_assessment(*, is_complete: bool = True) -> dict[str, Any]:
     return {
         "sprint_goal": "Persist event deltas safely",
         "sprint_number": 1,
@@ -194,9 +201,7 @@ def _seed_saved_sprint(
         start_date=date(2026, 3, 1),
         end_date=date(2026, 3, 15),
         status=SprintStatus.ACTIVE if started else SprintStatus.PLANNED,
-        started_at=(
-            datetime(2026, 3, 2, 9, 0, tzinfo=timezone.utc) if started else None
-        ),
+        started_at=(datetime(2026, 3, 2, 9, 0, tzinfo=UTC) if started else None),
         product_id=product.product_id,
         team_id=team.team_id,
     )
@@ -225,7 +230,7 @@ def _seed_completed_sprint(
     sprint = session.get(Sprint, sprint_id)
     assert sprint is not None
     sprint.status = SprintStatus.COMPLETED
-    sprint.completed_at = datetime(2026, 3, 15, 18, 0, tzinfo=timezone.utc)
+    sprint.completed_at = datetime(2026, 3, 15, 18, 0, tzinfo=UTC)
     session.add(sprint)
     session.commit()
 
@@ -237,7 +242,7 @@ def _seed_task_packet_context(
     repo: DummyProductRepository,
     *,
     pinned: bool,
-    task_metadata: Optional[TaskMetadata] = None,
+    task_metadata: TaskMetadata | None = None,
 ) -> tuple[int, int, int, int]:
     product = repo.create("Task Packet Project")
     session.add(
@@ -268,7 +273,9 @@ def _seed_task_packet_context(
     task = Task(
         description="Implement payload validation for incoming requests",
         story_id=story.story_id,
-        metadata_json=serialize_task_metadata(task_metadata or canonical_task_metadata()),
+        metadata_json=serialize_task_metadata(
+            task_metadata or canonical_task_metadata()
+        ),
     )
     session.add(task)
     session.flush()
@@ -293,7 +300,7 @@ def _seed_task_packet_context(
             spec_hash="a" * 64,
             content="# Spec\n\n## Invariants\n- Requests must include user_id.",
             status="approved",
-            approved_at=datetime.now(timezone.utc),
+            approved_at=datetime.now(UTC),
             approved_by="tester",
         )
         session.add(spec_version)
@@ -340,7 +347,7 @@ def _seed_task_packet_context(
         story.accepted_spec_version_id = spec_version.spec_version_id
         story.validation_evidence = ValidationEvidence(
             spec_version_id=spec_version.spec_version_id,
-            validated_at=datetime.now(timezone.utc),
+            validated_at=datetime.now(UTC),
             passed=True,
             rules_checked=["SPEC_VERSION_EXISTS", "SPEC_PRODUCT_MATCH"],
             invariants_checked=["REQUIRED_FIELD:user_id"],
@@ -355,7 +362,7 @@ def _seed_task_packet_context(
                     capability=None,
                     message="Acceptance criteria may be missing required field 'user_id'.",
                     severity="warning",
-                    created_at=datetime.now(timezone.utc),
+                    created_at=datetime.now(UTC),
                 )
             ],
             alignment_failures=[],
@@ -461,7 +468,9 @@ def test_sprint_generate_failure_stays_in_setup_and_records_attempt(monkeypatch)
             "error": "No eligible stories.",
         }
 
-    monkeypatch.setattr(api_module, "run_sprint_agent_from_state", fake_run_sprint_agent_from_state)
+    monkeypatch.setattr(
+        api_module, "run_sprint_agent_from_state", fake_run_sprint_agent_from_state
+    )
 
     response = client.post(
         f"/api/projects/{project_id}/sprint/generate",
@@ -531,7 +540,9 @@ def test_sprint_failure_validation_errors_are_public_strings_in_history(monkeypa
             "has_full_artifact": True,
         }
 
-    monkeypatch.setattr(api_module, "run_sprint_agent_from_state", fake_run_sprint_agent_from_state)
+    monkeypatch.setattr(
+        api_module, "run_sprint_agent_from_state", fake_run_sprint_agent_from_state
+    )
 
     generate_response = client.post(
         f"/api/projects/{project_id}/sprint/generate",
@@ -552,12 +563,16 @@ def test_sprint_failure_validation_errors_are_public_strings_in_history(monkeypa
 
     assert history_response.status_code == 200
     history_payload = history_response.json()
-    assert history_payload["data"]["items"][0]["output_artifact"]["validation_errors"] == [
+    assert history_payload["data"]["items"][0]["output_artifact"][
+        "validation_errors"
+    ] == [
         "Unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor."
     ]
     assert all(
         isinstance(item, str)
-        for item in history_payload["data"]["items"][0]["output_artifact"]["validation_errors"]
+        for item in history_payload["data"]["items"][0]["output_artifact"][
+            "validation_errors"
+        ]
     )
 
 
@@ -601,13 +616,17 @@ def test_sprint_history_normalizes_legacy_structured_validation_errors(monkeypat
 
     assert history_response.status_code == 200
     history_payload = history_response.json()
-    assert history_payload["data"]["items"][0]["output_artifact"]["validation_errors"] == [
+    assert history_payload["data"]["items"][0]["output_artifact"][
+        "validation_errors"
+    ] == [
         "Unsupported task_kind 'review'. Use one of: analysis, design, implementation, testing, documentation, refactor.",
         "Artifact target looks like a file path.",
     ]
     assert all(
         isinstance(item, str)
-        for item in history_payload["data"]["items"][0]["output_artifact"]["validation_errors"]
+        for item in history_payload["data"]["items"][0]["output_artifact"][
+            "validation_errors"
+        ]
     )
 
 
@@ -636,20 +655,26 @@ def test_sprint_history_rewrites_legacy_task_kind_string_hints(monkeypatch):
 
     assert history_response.status_code == 200
     history_payload = history_response.json()
-    assert history_payload["data"]["items"][0]["output_artifact"]["validation_errors"] == [
+    assert history_payload["data"]["items"][0]["output_artifact"][
+        "validation_errors"
+    ] == [
         "Task 'Get approval' has invalid task_kind. Use one of: analysis, design, implementation, testing, documentation, refactor.",
         "Unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor.",
     ]
     assert all(
         "other" not in item
-        for item in history_payload["data"]["items"][0]["output_artifact"]["validation_errors"]
+        for item in history_payload["data"]["items"][0]["output_artifact"][
+            "validation_errors"
+        ]
     )
 
 
-def test_sprint_generate_success_moves_to_draft_and_marks_assessment_complete(monkeypatch):
+def test_sprint_generate_success_moves_to_draft_and_marks_assessment_complete(
+    monkeypatch,
+):
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_setup_project(repo, workflow)
-    captured: Dict[str, Any] = {}
+    captured: dict[str, Any] = {}
 
     async def fake_run_sprint_agent_from_state(
         state,
@@ -699,7 +724,9 @@ def test_sprint_generate_success_moves_to_draft_and_marks_assessment_complete(mo
             "error": None,
         }
 
-    monkeypatch.setattr(api_module, "run_sprint_agent_from_state", fake_run_sprint_agent_from_state)
+    monkeypatch.setattr(
+        api_module, "run_sprint_agent_from_state", fake_run_sprint_agent_from_state
+    )
 
     response = client.post(
         f"/api/projects/{project_id}/sprint/generate",
@@ -718,7 +745,10 @@ def test_sprint_generate_success_moves_to_draft_and_marks_assessment_complete(mo
     assert payload["data"]["is_complete"] is True
     assert payload["data"]["fsm_state"] == "SPRINT_DRAFT"
     assert workflow.states[str(project_id)]["fsm_state"] == "SPRINT_DRAFT"
-    assert workflow.states[str(project_id)]["sprint_plan_assessment"]["is_complete"] is True
+    assert (
+        workflow.states[str(project_id)]["sprint_plan_assessment"]["is_complete"]
+        is True
+    )
     assert captured["selected_story_ids"] == [12]
     assert captured["team_velocity_assumption"] == "High"
 
@@ -810,7 +840,9 @@ def test_sprint_generate_resets_stale_saved_working_set_before_next_cycle(
             "error": None,
         }
 
-    monkeypatch.setattr(api_module, "run_sprint_agent_from_state", fake_run_sprint_agent_from_state)
+    monkeypatch.setattr(
+        api_module, "run_sprint_agent_from_state", fake_run_sprint_agent_from_state
+    )
 
     response = client.post(
         f"/api/projects/{project_id}/sprint/generate",
@@ -907,8 +939,10 @@ def test_create_next_sprint_reset_clears_legacy_ownerless_working_set(
 def test_sprint_save_sanitizes_assessment_and_uses_tool_contract(monkeypatch):
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_draft_project(repo, workflow)
-    hydrated_context = SimpleNamespace(state={"preserved": True}, session_id=str(project_id))
-    captured: Dict[str, Any] = {}
+    hydrated_context = SimpleNamespace(
+        state={"preserved": True}, session_id=str(project_id)
+    )
+    captured: dict[str, Any] = {}
 
     async def fake_hydrate_context(session_id: str, project_id: int):
         assert session_id == str(project_id)
@@ -980,7 +1014,9 @@ def test_sprint_save_rejects_incomplete_assessment(monkeypatch):
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Sprint cannot be saved until is_complete is true"
+    assert (
+        response.json()["detail"] == "Sprint cannot be saved until is_complete is true"
+    )
 
 
 def test_sprint_save_maps_open_sprint_conflict_to_http_409(monkeypatch):
@@ -1009,7 +1045,10 @@ def test_sprint_save_maps_open_sprint_conflict_to_http_409(monkeypatch):
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Stories already assigned to active or planned sprints: [12]"
+    assert (
+        response.json()["detail"]
+        == "Stories already assigned to active or planned sprints: [12]"
+    )
 
 
 def test_sprint_save_surfaces_unexpected_persistence_tool_error(monkeypatch):
@@ -1149,7 +1188,9 @@ def test_start_sprint_sets_started_at_once_and_logs_event(session, monkeypatch):
     session.add(task)
     session.commit()
 
-    first_response = client.patch(f"/api/projects/{project_id}/sprints/{sprint_id}/start")
+    first_response = client.patch(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/start"
+    )
     assert first_response.status_code == 200
     first_payload = first_response.json()
     sprint = first_payload["data"]["sprint"]
@@ -1163,7 +1204,9 @@ def test_start_sprint_sets_started_at_once_and_logs_event(session, monkeypatch):
     ]
     assert sprint["selected_stories"][0]["tasks"][0]["is_executable"] is True
 
-    second_response = client.patch(f"/api/projects/{project_id}/sprints/{sprint_id}/start")
+    second_response = client.patch(
+        f"/api/projects/{project_id}/sprints/{sprint_id}/start"
+    )
     assert second_response.status_code == 200
     second_payload = second_response.json()
     assert second_payload["data"]["sprint"]["started_at"] == started_at
@@ -1202,7 +1245,7 @@ def test_start_sprint_rejects_when_another_sprint_is_active(session, monkeypatch
         start_date=date(2026, 4, 1),
         end_date=date(2026, 4, 15),
         status=SprintStatus.ACTIVE,
-        started_at=datetime(2026, 4, 1, 9, 0, tzinfo=timezone.utc),
+        started_at=datetime(2026, 4, 1, 9, 0, tzinfo=UTC),
         product_id=project_id,
         team_id=team.team_id,
     )
@@ -1216,7 +1259,10 @@ def test_start_sprint_rejects_when_another_sprint_is_active(session, monkeypatch
     response = client.patch(f"/api/projects/{project_id}/sprints/{sprint_id}/start")
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Another sprint is already active for this project."
+    assert (
+        response.json()["detail"]
+        == "Another sprint is already active for this project."
+    )
 
 
 def test_start_sprint_rejects_completed_sprint(session, monkeypatch):
@@ -1231,7 +1277,7 @@ def test_start_sprint_rejects_completed_sprint(session, monkeypatch):
     sprint = session.get(Sprint, sprint_id)
     assert sprint is not None
     sprint.status = SprintStatus.COMPLETED
-    sprint.completed_at = datetime(2026, 3, 15, 18, 0, tzinfo=timezone.utc)
+    sprint.completed_at = datetime(2026, 3, 15, 18, 0, tzinfo=UTC)
     session.add(sprint)
     session.commit()
 
@@ -1241,7 +1287,9 @@ def test_start_sprint_rejects_completed_sprint(session, monkeypatch):
     assert response.json()["detail"] == "Completed sprints cannot be restarted."
 
 
-def test_get_story_packet_returns_bootstrap_context_for_pinned_story(session, monkeypatch):
+def test_get_story_packet_returns_bootstrap_context_for_pinned_story(
+    session, monkeypatch
+):
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, story_id, _task_id = _seed_task_packet_context(
         session,
@@ -1288,7 +1336,10 @@ def test_get_story_packet_returns_bootstrap_context_for_pinned_story(session, mo
     assert payload["source_snapshot"]["accepted_spec_version_id"] is not None
 
     assert payload["context"]["sprint"]["goal"] == "Ship a trustworthy task packet API"
-    assert payload["context"]["product"]["vision_excerpt"] == "Build trustworthy execution handoffs."
+    assert (
+        payload["context"]["product"]["vision_excerpt"]
+        == "Build trustworthy execution handoffs."
+    )
 
     constraints = payload["constraints"]
     assert constraints["story_acceptance_criteria_text"] == (
@@ -1314,12 +1365,10 @@ def test_get_story_packet_returns_bootstrap_context_for_pinned_story(session, mo
         }
     ]
     assert any(
-        finding["source"] == "validation_warning"
-        for finding in constraints["findings"]
+        finding["source"] == "validation_warning" for finding in constraints["findings"]
     )
     assert any(
-        finding["source"] == "alignment_warning"
-        for finding in constraints["findings"]
+        finding["source"] == "alignment_warning" for finding in constraints["findings"]
     )
 
 
@@ -1351,7 +1400,9 @@ def test_get_task_packet_returns_task_local_execution_context(session, monkeypat
 
     assert payload["task"]["task_id"] == task_id
     assert payload["task"]["status"] == "To Do"
-    assert payload["task"]["label"] == "Implement payload validation for incoming requests"
+    assert (
+        payload["task"]["label"] == "Implement payload validation for incoming requests"
+    )
     assert payload["task"]["task_kind"] == "implementation"
     assert payload["task"]["artifact_targets"] == [
         "payload validator",
@@ -1368,7 +1419,10 @@ def test_get_task_packet_returns_task_local_execution_context(session, monkeypat
     assert payload["context"]["story"]["story_id"] == story_id
     assert payload["context"]["story"]["title"] == "Payload Validation Story"
     assert payload["context"]["sprint"]["goal"] == "Ship a trustworthy task packet API"
-    assert payload["context"]["product"]["vision_excerpt"] == "Build trustworthy execution handoffs."
+    assert (
+        payload["context"]["product"]["vision_excerpt"]
+        == "Build trustworthy execution handoffs."
+    )
 
     constraints = payload["constraints"]
     assert "acceptance_criteria_text" not in constraints
@@ -1397,12 +1451,10 @@ def test_get_task_packet_returns_task_local_execution_context(session, monkeypat
         }
     ]
     assert any(
-        finding["source"] == "validation_warning"
-        for finding in constraints["findings"]
+        finding["source"] == "validation_warning" for finding in constraints["findings"]
     )
     assert any(
-        finding["source"] == "alignment_warning"
-        for finding in constraints["findings"]
+        finding["source"] == "alignment_warning" for finding in constraints["findings"]
     )
 
 
@@ -1436,7 +1488,9 @@ def test_get_task_packet_returns_cancelled_status(session, monkeypatch):
     assert payload["task"]["status"] == "Cancelled"
 
 
-def test_task_packet_metadata_hash_changes_when_task_metadata_changes(session, monkeypatch):
+def test_task_packet_metadata_hash_changes_when_task_metadata_changes(
+    session, monkeypatch
+):
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, _story_id, task_id = _seed_task_packet_context(
         session,
@@ -1475,7 +1529,9 @@ def test_task_packet_metadata_hash_changes_when_task_metadata_changes(session, m
     )
 
 
-def test_build_story_task_plan_orders_identical_descriptions_by_task_id(session, monkeypatch):
+def test_build_story_task_plan_orders_identical_descriptions_by_task_id(
+    session, monkeypatch
+):
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, story_id, first_task_id = _seed_task_packet_context(
         session,
@@ -1512,9 +1568,14 @@ def test_build_story_task_plan_orders_identical_descriptions_by_task_id(session,
         f"/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/packet"
     ).json()["data"]
 
-    assert [item["id"] for item in reversed_plan] == [first_task_id, second_task.task_id]
+    assert [item["id"] for item in reversed_plan] == [
+        first_task_id,
+        second_task.task_id,
+    ]
     assert reversed_plan == forward_plan
-    assert api_module._hash_payload(reversed_plan) == api_module._hash_payload(forward_plan)
+    assert api_module._hash_payload(reversed_plan) == api_module._hash_payload(
+        forward_plan
+    )
     assert [item["id"] for item in payload["task_plan"]["tasks"]] == [
         first_task_id,
         second_task.task_id,
@@ -1572,7 +1633,9 @@ def test_get_task_packet_rejects_unlinked_task_sprint_pair(session, monkeypatch)
         pinned=False,
     )
 
-    team = session.exec(select(Team).where(Team.name == f"Packet Team {project_id}")).first()
+    team = session.exec(
+        select(Team).where(Team.name == f"Packet Team {project_id}")
+    ).first()
     assert team is not None
 
     other_sprint = Sprint(
@@ -1605,7 +1668,9 @@ def test_same_task_gets_different_packet_identity_across_sprints(session, monkey
         pinned=False,
     )
 
-    team = session.exec(select(Team).where(Team.name == f"Packet Team {project_id}")).first()
+    team = session.exec(
+        select(Team).where(Team.name == f"Packet Team {project_id}")
+    ).first()
     assert team is not None
 
     second_sprint = Sprint(
@@ -1628,12 +1693,18 @@ def test_same_task_gets_different_packet_identity_across_sprints(session, monkey
         f"/api/projects/{project_id}/sprints/{second_sprint.sprint_id}/tasks/{task_id}/packet"
     ).json()["data"]
 
-    assert first_payload["metadata"]["packet_id"] != second_payload["metadata"]["packet_id"]
+    assert (
+        first_payload["metadata"]["packet_id"]
+        != second_payload["metadata"]["packet_id"]
+    )
     assert (
         first_payload["metadata"]["source_fingerprint"]
         != second_payload["metadata"]["source_fingerprint"]
     )
-    assert first_payload["context"]["sprint"]["goal"] != second_payload["context"]["sprint"]["goal"]
+    assert (
+        first_payload["context"]["sprint"]["goal"]
+        != second_payload["context"]["sprint"]["goal"]
+    )
 
 
 def test_unpinned_story_packet_has_no_authority_fallback(session, monkeypatch):
@@ -1658,7 +1729,9 @@ def test_unpinned_story_packet_has_no_authority_fallback(session, monkeypatch):
     assert constraints["validation"]["freshness_status"] == "missing"
 
 
-def test_task_packet_marks_validation_as_stale_when_story_content_changes(session, monkeypatch):
+def test_task_packet_marks_validation_as_stale_when_story_content_changes(
+    session, monkeypatch
+):
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, story_id, task_id = _seed_task_packet_context(
         session,
@@ -1668,8 +1741,10 @@ def test_task_packet_marks_validation_as_stale_when_story_content_changes(sessio
 
     story = session.get(UserStory, story_id)
     assert story is not None
-    story.acceptance_criteria = "- include user_id\n- reject invalid payloads\n- log failures"
-    story.ac_updated_at = datetime.now(timezone.utc)
+    story.acceptance_criteria = (
+        "- include user_id\n- reject invalid payloads\n- log failures"
+    )
+    story.ac_updated_at = datetime.now(UTC)
     session.add(story)
     session.commit()
 
@@ -1734,14 +1809,19 @@ def test_packet_renderer_escapes_html_and_xml_safely(session, monkeypatch):
     # Task checklist items should drive the task prompt, not story acceptance criteria.
     assert "Task Checklist" in agent_text
     assert "Verify every task checklist item before claiming completion." in agent_text
-    assert "This prompt assumes the session was already initialized with the parent story prompt. If not, restart with Copy Story Prompt." in agent_text
+    assert (
+        "This prompt assumes the session was already initialized with the parent story prompt. If not, restart with Copy Story Prompt."
+        in agent_text
+    )
     assert "- [ ] Confirm request shape" in agent_text
     assert "- [ ] Cover invalid payload cases" in agent_text
     assert "Acceptance Criteria Checklist" not in agent_text
     assert "Story Acceptance Criteria" not in agent_text
 
 
-def test_story_packet_flavor_render_includes_story_acceptance_criteria(session, monkeypatch):
+def test_story_packet_flavor_render_includes_story_acceptance_criteria(
+    session, monkeypatch
+):
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, story_id, _task_id = _seed_task_packet_context(
         session,
@@ -1794,7 +1874,10 @@ def test_story_packet_human_flavor_renders_top_level_story_fields(session, monke
     assert payload["schema_version"] == "story_packet.v1"
     assert "render" in payload
     assert "# Story: Payload Validation Story" in payload["render"]
-    assert "As a developer, I want payload validation so that requests are safe." in payload["render"]
+    assert (
+        "As a developer, I want payload validation so that requests are safe."
+        in payload["render"]
+    )
     assert "## Story Acceptance Criteria" in payload["render"]
     assert "## Task Plan Reference" in payload["render"]
     assert "## Task Checklist" not in payload["render"]
@@ -1841,7 +1924,10 @@ def test_get_sprint_detail_returns_task_objects(session, monkeypatch):
             artifact_targets=["mock component"],
             workstream_tags=["frontend", "ui"],
             relevant_invariant_ids=[],
-            checklist_items=["Sketch the component states", "Review the accessibility copy"],
+            checklist_items=[
+                "Sketch the component states",
+                "Review the accessibility copy",
+            ],
         ),
     )
 
@@ -1868,7 +1954,9 @@ def test_get_sprint_detail_returns_task_objects(session, monkeypatch):
     assert len(story["tasks"]) > 0
     tasks_by_description = {task["description"]: task for task in story["tasks"]}
 
-    executable_task = tasks_by_description["Implement payload validation for incoming requests"]
+    executable_task = tasks_by_description[
+        "Implement payload validation for incoming requests"
+    ]
     non_executable_task = tasks_by_description["Document payload validation contract"]
 
     assert isinstance(executable_task, dict)

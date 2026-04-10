@@ -13,7 +13,6 @@ from utils.runtime_config import get_openrouter_api_key
 
 from .schemes import SprintPlannerInput, SprintPlannerOutput
 
-
 INSTRUCTIONS_PATH: Path = Path(__file__).parent / "instructions.txt"
 SPRINT_PLANNER_INSTRUCTIONS = load_instruction(INSTRUCTIONS_PATH)
 

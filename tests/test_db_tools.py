@@ -8,20 +8,19 @@ Run with: pytest tests/test_db_tools.py -v
 import sys
 from pathlib import Path
 
-import pytest
 from sqlmodel import Session, select
 
-import tools.db_tools as db_tools
 from agile_sqlmodel import Product, Task, UserStory
 from models.core import Epic, Feature, Theme
+from tools import db_tools
 from tools.db_tools import (
+    CreateOrGetProductInput,
+    CreateTaskInput,
+    CreateUserStoryInput,
     create_or_get_product,
     create_task,
     create_user_story,
     persist_roadmap,
-    CreateOrGetProductInput,
-    CreateUserStoryInput,
-    CreateTaskInput,
 )
 
 # Add parent directory to path
@@ -31,17 +30,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 def test_create_product_new(engine):
     """Test creating a new product."""
     # Patch db_tools to use test engine
-    import tools.db_tools as db_tools
+    from tools import db_tools
 
     db_tools.engine = engine
 
-    from tools.db_tools import create_or_get_product, CreateOrGetProductInput
+    from tools.db_tools import CreateOrGetProductInput, create_or_get_product
 
-    result = create_or_get_product(CreateOrGetProductInput(
-        product_name="Test Project",
-        vision="To revolutionize testing",
-        description=None
-    ))
+    result = create_or_get_product(
+        CreateOrGetProductInput(
+            product_name="Test Project",
+            vision="To revolutionize testing",
+            description=None,
+        )
+    )
 
     assert result["success"] is True
     assert result["action"] == "created"
@@ -51,15 +52,22 @@ def test_create_product_new(engine):
 
 def test_create_product_existing(engine):
     """Test getting an existing product without duplication."""
-
     db_tools.engine = engine
 
     # Create first product
-    result1 = create_or_get_product(CreateOrGetProductInput(product_name="Existing Project", vision=None, description=None))
+    result1 = create_or_get_product(
+        CreateOrGetProductInput(
+            product_name="Existing Project", vision=None, description=None
+        )
+    )
     assert result1["action"] == "created"
 
     # Get same product again
-    result2 = create_or_get_product(CreateOrGetProductInput(product_name="Existing Project", vision=None, description=None))
+    result2 = create_or_get_product(
+        CreateOrGetProductInput(
+            product_name="Existing Project", vision=None, description=None
+        )
+    )
     assert result2["action"] == "updated"
     assert result2["product_id"] == result1["product_id"]
 
@@ -71,11 +79,14 @@ def test_create_product_existing(engine):
 
 def test_persist_roadmap(engine):
     """Test persisting a roadmap hierarchy."""
-
     db_tools.engine = engine
 
     # Create product first
-    prod_result = create_or_get_product(CreateOrGetProductInput(product_name="Roadmap Project", vision=None, description=None))
+    prod_result = create_or_get_product(
+        CreateOrGetProductInput(
+            product_name="Roadmap Project", vision=None, description=None
+        )
+    )
     product_id = prod_result["product_id"]
 
     # Define roadmap
@@ -121,11 +132,14 @@ def test_persist_roadmap(engine):
 
 def test_create_user_story(engine):
     """Test creating a user story under a feature."""
-
     db_tools.engine = engine
 
     # Setup hierarchy
-    prod_result = create_or_get_product(CreateOrGetProductInput(product_name="Story Project", vision=None, description=None))
+    prod_result = create_or_get_product(
+        CreateOrGetProductInput(
+            product_name="Story Project", vision=None, description=None
+        )
+    )
     product_id = prod_result["product_id"]
 
     roadmap = [
@@ -149,14 +163,16 @@ def test_create_user_story(engine):
     feature_id = roadmap_result["created"]["features"][0]["id"]
 
     # Create user story
-    story_result = create_user_story(CreateUserStoryInput(
-        product_id=product_id,
-        feature_id=feature_id,
-        title="Login with email",
-        description="As a user, I want to log in with email and password.",
-        acceptance_criteria="User can enter email/password and be authenticated.",
-        story_points=5,
-    ))
+    story_result = create_user_story(
+        CreateUserStoryInput(
+            product_id=product_id,
+            feature_id=feature_id,
+            title="Login with email",
+            description="As a user, I want to log in with email and password.",
+            acceptance_criteria="User can enter email/password and be authenticated.",
+            story_points=5,
+        )
+    )
 
     assert story_result["success"] is True
     assert story_result["story_id"] == 1
@@ -171,11 +187,14 @@ def test_create_user_story(engine):
 
 def test_create_task(engine):
     """Test creating a task under a story."""
-
     db_tools.engine = engine
 
     # Setup full hierarchy
-    prod_result = create_or_get_product(CreateOrGetProductInput(product_name="Task Project", vision=None, description=None))
+    prod_result = create_or_get_product(
+        CreateOrGetProductInput(
+            product_name="Task Project", vision=None, description=None
+        )
+    )
     product_id = prod_result["product_id"]
 
     roadmap = [
@@ -198,22 +217,26 @@ def test_create_task(engine):
     roadmap_result = persist_roadmap(product_id, roadmap)
     feature_id = roadmap_result["created"]["features"][0]["id"]
 
-    story_result = create_user_story(CreateUserStoryInput(
-        product_id=product_id,
-        feature_id=feature_id,
-        title="Login with email",
-        description="As a user, I want to log in.",
-        acceptance_criteria=None,
-        story_points=None,
-    ))
+    story_result = create_user_story(
+        CreateUserStoryInput(
+            product_id=product_id,
+            feature_id=feature_id,
+            title="Login with email",
+            description="As a user, I want to log in.",
+            acceptance_criteria=None,
+            story_points=None,
+        )
+    )
     story_id = story_result["story_id"]
 
     # Create task
-    task_result = create_task(CreateTaskInput(
-        story_id=story_id,
-        title="Set up email validation",
-        description="Implement email regex validation",
-    ))
+    task_result = create_task(
+        CreateTaskInput(
+            story_id=story_id,
+            title="Set up email validation",
+            description="Implement email regex validation",
+        )
+    )
 
     assert task_result["success"] is True
     assert task_result["task_id"] == 1
@@ -226,23 +249,27 @@ def test_create_task(engine):
 
 def test_query_product_structure(engine):
     """Test querying full product structure."""
-    import tools.db_tools as db_tools
+    from tools import db_tools
 
     db_tools.engine = engine
 
     from tools.db_tools import (
+        CreateOrGetProductInput,
+        CreateUserStoryInput,
         create_or_get_product,
         create_user_story,
         persist_roadmap,
         query_product_structure,
-        CreateOrGetProductInput,
-        CreateUserStoryInput,
     )
 
     # Setup hierarchy
-    prod_result = create_or_get_product(CreateOrGetProductInput(
-        product_name="Query Project", vision="Test vision statement", description=None
-    ))
+    prod_result = create_or_get_product(
+        CreateOrGetProductInput(
+            product_name="Query Project",
+            vision="Test vision statement",
+            description=None,
+        )
+    )
     product_id = prod_result["product_id"]
 
     roadmap = [
@@ -265,14 +292,16 @@ def test_query_product_structure(engine):
     roadmap_result = persist_roadmap(product_id, roadmap)
     feature_id = roadmap_result["created"]["features"][0]["id"]
 
-    create_user_story(CreateUserStoryInput(
-        product_id=product_id,
-        feature_id=feature_id,
-        title="User can login",
-        description="As a user...",
-        story_points=5,
-        acceptance_criteria=None,
-    ))
+    create_user_story(
+        CreateUserStoryInput(
+            product_id=product_id,
+            feature_id=feature_id,
+            title="User can login",
+            description="As a user...",
+            story_points=5,
+            acceptance_criteria=None,
+        )
+    )
 
     # Query structure
     result = query_product_structure(product_id)
@@ -294,11 +323,13 @@ def test_get_story_details(engine):
     db_tools.engine = engine
 
     # Arrange: Create a product and story
-    product_result = create_or_get_product(CreateOrGetProductInput(
-        product_name="Story Details Test Project",
-        vision="Test vision for story details",
-        description=None
-    ))
+    product_result = create_or_get_product(
+        CreateOrGetProductInput(
+            product_name="Story Details Test Project",
+            vision="Test vision for story details",
+            description=None,
+        )
+    )
     product_id = product_result["product_id"]
 
     # Create roadmap structure
@@ -311,7 +342,10 @@ def test_get_story_details(engine):
                     "epic_title": "Test Epic",
                     "epic_summary": "Epic for testing",
                     "features": [
-                        {"title": "Test Feature", "description": "Feature for testing story details"},
+                        {
+                            "title": "Test Feature",
+                            "description": "Feature for testing story details",
+                        },
                     ],
                 }
             ],
@@ -322,26 +356,35 @@ def test_get_story_details(engine):
     feature_id = roadmap_result["created"]["features"][0]["id"]
 
     # Create a test story
-    story_result = create_user_story(CreateUserStoryInput(
-        product_id=product_id,
-        feature_id=feature_id,
-        title="Test Story for Details",
-        description="As a tester, I want to retrieve story details so that I can verify the functionality.",
-        story_points=3,
-        acceptance_criteria="- Story details can be fetched\n- All fields are returned correctly",
-    ))
+    story_result = create_user_story(
+        CreateUserStoryInput(
+            product_id=product_id,
+            feature_id=feature_id,
+            title="Test Story for Details",
+            description="As a tester, I want to retrieve story details so that I can verify the functionality.",
+            story_points=3,
+            acceptance_criteria="- Story details can be fetched\n- All fields are returned correctly",
+        )
+    )
     story_id = story_result["story_id"]
 
     # Act: Call the get_story_details function
     from tools.db_tools import get_story_details
+
     result = get_story_details(story_id)
 
     # Assert: Verify the returned details
     assert result["success"] is True
     assert result["story_id"] == story_id
     assert result["title"] == "Test Story for Details"
-    assert result["description"] == "As a tester, I want to retrieve story details so that I can verify the functionality."
-    assert result["acceptance_criteria"] == "- Story details can be fetched\n- All fields are returned correctly"
+    assert (
+        result["description"]
+        == "As a tester, I want to retrieve story details so that I can verify the functionality."
+    )
+    assert (
+        result["acceptance_criteria"]
+        == "- Story details can be fetched\n- All fields are returned correctly"
+    )
     assert result["status"] == "To Do"  # StoryStatus enum value
     assert result["story_points"] == 3
     assert result["feature_id"] == feature_id
@@ -357,6 +400,7 @@ def test_get_story_details_not_found(engine):
 
     # Act: Try to fetch a story that doesn't exist
     from tools.db_tools import get_story_details
+
     result = get_story_details(999999)
 
     # Assert: Verify the error message

@@ -12,16 +12,10 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import ValidationError
 
-from utils.spec_schemas import (
-    SpecAuthorityCompilerOutput,
-    SpecAuthorityCompilerEnvelope,
-    SpecAuthorityCompilationFailure,
-    SpecAuthorityCompilationSuccess,
-)
 from orchestrator_agent.agent_tools.spec_authority_compiler_agent.compiler_contract import (
     compute_invariant_id,
     compute_prompt_hash,
@@ -29,6 +23,12 @@ from orchestrator_agent.agent_tools.spec_authority_compiler_agent.compiler_contr
 from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (
     SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
     SPEC_AUTHORITY_COMPILER_VERSION,
+)
+from utils.spec_schemas import (
+    SpecAuthorityCompilationFailure,
+    SpecAuthorityCompilationSuccess,
+    SpecAuthorityCompilerEnvelope,
+    SpecAuthorityCompilerOutput,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,7 @@ _META_POLICY_ASSUMPTION = (
 )
 
 
-def _failure(reason: str, blocking_gaps: List[str]) -> SpecAuthorityCompilerOutput:
+def _failure(reason: str, blocking_gaps: list[str]) -> SpecAuthorityCompilerOutput:
     return SpecAuthorityCompilerOutput(
         root=SpecAuthorityCompilationFailure(
             error="SPEC_COMPILATION_FAILED",
@@ -101,7 +101,7 @@ def _extract_json_candidate(raw_text: str) -> str:
         end = text.rfind("}")
         if start == -1 or end == -1 or end < start:
             return text
-        return text[start:end + 1].strip()
+        return text[start : end + 1].strip()
 
 
 def _summarize_validation_error(label: str, exc: ValidationError) -> str:
@@ -116,12 +116,14 @@ def _summarize_validation_error(label: str, exc: ValidationError) -> str:
     return f"{label}: {exc}"
 
 
-def _is_meta_policy_source(location: Optional[str], excerpt: str) -> bool:
+def _is_meta_policy_source(location: str | None, excerpt: str) -> bool:
     location_text = (location or "").strip()
     excerpt_text = (excerpt or "").strip()
     if location_text and _META_POLICY_LOCATION_RE.search(location_text):
         return True
-    return any(pattern.search(excerpt_text) for pattern in _META_POLICY_EXCERPT_PATTERNS)
+    return any(
+        pattern.search(excerpt_text) for pattern in _META_POLICY_EXCERPT_PATTERNS
+    )
 
 
 def _filter_meta_policy_invariants(success: SpecAuthorityCompilationSuccess) -> int:
@@ -129,20 +131,20 @@ def _filter_meta_policy_invariants(success: SpecAuthorityCompilationSuccess) -> 
     if not success.invariants or not success.source_map:
         return 0
 
-    source_map_indexes_by_id: Dict[str, List[int]] = {}
+    source_map_indexes_by_id: dict[str, list[int]] = {}
     for entry_index, entry in enumerate(success.source_map):
         source_map_indexes_by_id.setdefault(entry.invariant_id, []).append(entry_index)
 
     original_ids = [inv.id for inv in success.invariants]
     has_duplicate_ids = len(set(original_ids)) < len(original_ids)
-    use_positional_matching = (
-        has_duplicate_ids and len(success.source_map) >= len(success.invariants)
+    use_positional_matching = has_duplicate_ids and len(success.source_map) >= len(
+        success.invariants
     )
 
-    matched_entry_indexes: Dict[int, List[int]] = {}
+    matched_entry_indexes: dict[int, list[int]] = {}
     matched_source_indexes: set[int] = set()
     for inv_index, inv in enumerate(success.invariants):
-        entry_indexes: List[int] = []
+        entry_indexes: list[int] = []
         if use_positional_matching and inv_index < len(success.source_map):
             entry_indexes.append(inv_index)
         else:
@@ -235,8 +237,8 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
             blocking_gaps=[str(exc)],
         )
 
-    parsed: Optional[SpecAuthorityCompilerOutput] = None
-    validation_gaps: List[str] = []
+    parsed: SpecAuthorityCompilerOutput | None = None
+    validation_gaps: list[str] = []
 
     try:
         parsed = SpecAuthorityCompilerOutput.model_validate(payload)
@@ -250,9 +252,13 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
                 parsed = SpecAuthorityCompilerOutput(root=envelope.result)
                 logger.info("Parsed compiler output as SpecAuthorityCompilerEnvelope")
             except ValidationError as envelope_exc:
-                validation_gaps.append(_summarize_validation_error("envelope", envelope_exc))
+                validation_gaps.append(
+                    _summarize_validation_error("envelope", envelope_exc)
+                )
                 try:
-                    parsed = SpecAuthorityCompilerOutput.model_validate(payload.get("result"))
+                    parsed = SpecAuthorityCompilerOutput.model_validate(
+                        payload.get("result")
+                    )
                     logger.info("Parsed compiler output using envelope.result payload")
                 except ValidationError as result_exc:
                     validation_gaps.append(
@@ -269,7 +275,9 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
         )
 
     if isinstance(parsed.root, SpecAuthorityCompilationFailure):
-        logger.error("Spec authority compiler returned failure: %s", parsed.root.model_dump())
+        logger.error(
+            "Spec authority compiler returned failure: %s", parsed.root.model_dump()
+        )
         return parsed
 
     success: SpecAuthorityCompilationSuccess = parsed.root
@@ -302,29 +310,28 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
     # different types (common LLM behaviour).  A plain dict loses all
     # but the last type; we keep them all so source_map rewriting can
     # try each candidate.
-    original_id_to_types: Dict[str, List[Any]] = {}
+    original_id_to_types: dict[str, list[Any]] = {}
     for _inv in original_invariants:
         original_id_to_types.setdefault(_inv.id, []).append(_inv.type)
 
     # Check if all invariants have duplicate/placeholder IDs (common LLM behavior)
     original_ids = [inv.id for inv in original_invariants]
     has_duplicate_ids = len(set(original_ids)) < len(original_ids)
-    
+
     # When IDs are duplicated, prefer positional matching.
     # This is safe when source_map has at least as many entries as invariants
     # (the first N source_map entries align with the N invariants; extras are
     # additional evidence for the same invariants).
-    use_positional_matching = (
-        has_duplicate_ids
-        and len(success.source_map) >= len(success.invariants)
+    use_positional_matching = has_duplicate_ids and len(success.source_map) >= len(
+        success.invariants
     )
 
-    id_to_excerpt: Dict[str, str] = {}
+    id_to_excerpt: dict[str, str] = {}
     for entry in success.source_map:
         if entry.invariant_id and entry.excerpt and entry.excerpt.strip():
             id_to_excerpt[entry.invariant_id] = entry.excerpt
 
-    def choose_excerpt(invariant_index: int, invariant_id: str) -> Optional[str]:
+    def choose_excerpt(invariant_index: int, invariant_id: str) -> str | None:
         # Prefer positional matching when IDs are duplicated
         if use_positional_matching:
             return success.source_map[invariant_index].excerpt
@@ -371,7 +378,7 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
             )
 
         inv_type = None
-        
+
         # Prefer positional matching when IDs are duplicated/placeholder
         if use_positional_matching and entry_index < len(original_invariants):
             inv_type = original_invariants[entry_index].type
@@ -403,21 +410,20 @@ def normalize_compiler_output(raw_json: str) -> SpecAuthorityCompilerOutput:
                 if inv_type is None:
                     # Fallback: use the first candidate type
                     inv_type = candidate_types[0]
+            # No matching invariant for this source_map entry
+            elif len(success.invariants) == 1:
+                inv_type = success.invariants[0].type
+            elif len(success.source_map) == len(original_invariants):
+                inv_type = original_invariants[entry_index].type
             else:
-                # No matching invariant for this source_map entry
-                if len(success.invariants) == 1:
-                    inv_type = success.invariants[0].type
-                elif len(success.source_map) == len(original_invariants):
-                    inv_type = original_invariants[entry_index].type
-                else:
-                    logger.error("Cannot match source_map entry to invariant type")
-                    return _failure(
-                        reason="SOURCE_MAP_INVARIANT_MISMATCH",
-                        blocking_gaps=[
-                            "Cannot match source_map entry to an invariant type",
-                            f"source_map_index={entry_index}",
-                        ],
-                    )
+                logger.error("Cannot match source_map entry to invariant type")
+                return _failure(
+                    reason="SOURCE_MAP_INVARIANT_MISMATCH",
+                    blocking_gaps=[
+                        "Cannot match source_map entry to an invariant type",
+                        f"source_map_index={entry_index}",
+                    ],
+                )
 
         entry.invariant_id = compute_invariant_id(excerpt, inv_type)
 

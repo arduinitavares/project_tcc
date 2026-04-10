@@ -9,9 +9,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 from statistics import median
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -22,46 +23,46 @@ from pydantic import ValidationError
 from utils.smoke_schema import SmokeRunRecord, parse_smoke_run_record, terminal_status
 
 
-def _safe_int(value: Any) -> Optional[int]:
+def _safe_int(value: Any) -> int | None:
     if isinstance(value, int):
         return value
     return None
 
 
-def _safe_float(value: Any) -> Optional[float]:
+def _safe_float(value: Any) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)
     return None
 
 
-def _median(values: Iterable[Optional[float]]) -> Optional[float]:
+def _median(values: Iterable[float | None]) -> float | None:
     numbers = [v for v in values if isinstance(v, (int, float))]
     if not numbers:
         return None
     return float(median(numbers))
 
 
-def _variant_label(variant: Dict[str, Any]) -> str:
+def _variant_label(variant: dict[str, Any]) -> str:
     refiner = "1" if variant.get("enable_refiner") else "0"
     validator = "1" if variant.get("enable_spec_validator") else "0"
     raw_spec = "1" if variant.get("pass_raw_spec_text") else "0"
     return f"V{refiner}{validator}{raw_spec}"
 
 
-def _get_metrics(record: SmokeRunRecord) -> Dict[str, Any]:
+def _get_metrics(record: SmokeRunRecord) -> dict[str, Any]:
     return record.METRICS.model_dump()
 
 
-def _get_variant(record: SmokeRunRecord) -> Dict[str, Any]:
+def _get_variant(record: SmokeRunRecord) -> dict[str, Any]:
     return record.VARIANT.model_dump()
 
 
-def _get_timing(record: SmokeRunRecord) -> Dict[str, Any]:
+def _get_timing(record: SmokeRunRecord) -> dict[str, Any]:
     return record.TIMING_MS.model_dump()
 
 
-def _read_jsonl(path: Path, *, skip_invalid: bool) -> List[SmokeRunRecord]:
-    records: List[SmokeRunRecord] = []
+def _read_jsonl(path: Path, *, skip_invalid: bool) -> list[SmokeRunRecord]:
+    records: list[SmokeRunRecord] = []
     with path.open("r", encoding="utf-8") as handle:
         for idx, line in enumerate(handle, start=1):
             line = line.strip()
@@ -81,7 +82,7 @@ def _read_jsonl(path: Path, *, skip_invalid: bool) -> List[SmokeRunRecord]:
     return records
 
 
-def _group_key(record: SmokeRunRecord) -> Tuple[int, str]:
+def _group_key(record: SmokeRunRecord) -> tuple[int, str]:
     scenario_id = int(record.SCENARIO_ID)
     variant = _get_variant(record)
     return scenario_id, _variant_label(variant)
@@ -93,13 +94,13 @@ def _format_pct(numerator: int, denominator: int) -> str:
     return f"{(numerator / denominator) * 100:.1f}%"
 
 
-def _format_ms(value: Optional[float]) -> str:
+def _format_ms(value: float | None) -> str:
     if value is None:
         return "-"
     return f"{value:.1f}"
 
 
-def _format_int(value: Optional[int]) -> str:
+def _format_int(value: int | None) -> str:
     if value is None:
         return "-"
     return str(value)
@@ -113,8 +114,8 @@ def _bool_summary(value: Any) -> str:
     return "-"
 
 
-def _normalize_records(records: Iterable[Any]) -> List[SmokeRunRecord]:
-    normalized: List[SmokeRunRecord] = []
+def _normalize_records(records: Iterable[Any]) -> list[SmokeRunRecord]:
+    normalized: list[SmokeRunRecord] = []
     for record in records:
         if isinstance(record, SmokeRunRecord):
             normalized.append(record)
@@ -123,21 +124,21 @@ def _normalize_records(records: Iterable[Any]) -> List[SmokeRunRecord]:
     return normalized
 
 
-def summarize(records: List[Dict[str, Any]]) -> str:
+def summarize(records: list[dict[str, Any]]) -> str:
     normalized = _normalize_records(records)
-    grouped: Dict[Tuple[int, str], List[SmokeRunRecord]] = {}
+    grouped: dict[tuple[int, str], list[SmokeRunRecord]] = {}
     for record in normalized:
         grouped.setdefault(_group_key(record), []).append(record)
 
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append(
         "| Scenario | Variant | Runs | Completed | Crashed | Acceptance Block % | Alignment Reject % | "
         "Success % | Median Total ms | Median Compile ms | Median Pipeline ms | Median Validation ms | Median AC Count |"
     )
     lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 
-    sanity_partial_groups: List[str] = []
-    sanity_unknown_groups: List[str] = []
+    sanity_partial_groups: list[str] = []
+    sanity_unknown_groups: list[str] = []
 
     for (scenario_id, variant_label), rows in sorted(grouped.items()):
         runs = len(rows)
@@ -148,19 +149,25 @@ def summarize(records: List[Dict[str, Any]]) -> str:
         crashed = 0
         unknown = 0
 
-        total_ms: List[Optional[float]] = []
-        compile_ms: List[Optional[float]] = []
-        pipeline_ms: List[Optional[float]] = []
-        validation_ms: List[Optional[float]] = []
-        ac_counts: List[Optional[float]] = []
+        total_ms: list[float | None] = []
+        compile_ms: list[float | None] = []
+        pipeline_ms: list[float | None] = []
+        validation_ms: list[float | None] = []
+        ac_counts: list[float | None] = []
 
         for row in rows:
             metrics = _get_metrics(row)
             timing = _get_timing(row)
 
-            if metrics.get("acceptance_blocked") is True or row.ACCEPTANCE_GATE_BLOCKED is True:
+            if (
+                metrics.get("acceptance_blocked") is True
+                or row.ACCEPTANCE_GATE_BLOCKED is True
+            ):
                 blocked += 1
-            if metrics.get("alignment_rejected") is True or row.ALIGNMENT_REJECTED is True:
+            if (
+                metrics.get("alignment_rejected") is True
+                or row.ALIGNMENT_REJECTED is True
+            ):
                 alignment += 1
 
             status = terminal_status(row)
@@ -182,9 +189,13 @@ def summarize(records: List[Dict[str, Any]]) -> str:
             ac_counts.append(float(ac_count) if ac_count is not None else None)
 
         if completed < runs:
-            sanity_partial_groups.append(f"Scenario {scenario_id} {variant_label} ({completed}/{runs})")
+            sanity_partial_groups.append(
+                f"Scenario {scenario_id} {variant_label} ({completed}/{runs})"
+            )
         if unknown > 0:
-            sanity_unknown_groups.append(f"Scenario {scenario_id} {variant_label} ({unknown} unknown)")
+            sanity_unknown_groups.append(
+                f"Scenario {scenario_id} {variant_label} ({unknown} unknown)"
+            )
 
         success_pct = _format_pct(success, completed) if completed else "-"
 
@@ -230,13 +241,16 @@ def summarize(records: List[Dict[str, Any]]) -> str:
 
     for scenario_id in scenarios:
         rows = [r for r in normalized if int(r.SCENARIO_ID) == scenario_id]
-        counts = {status: 0 for status in status_order}
+        counts = dict.fromkeys(status_order, 0)
         alignment_any = 0
 
         for row in rows:
             status = terminal_status(row)
             counts[status] = counts.get(status, 0) + 1
-            if _get_metrics(row).get("alignment_rejected") is True or row.ALIGNMENT_REJECTED is True:
+            if (
+                _get_metrics(row).get("alignment_rejected") is True
+                or row.ALIGNMENT_REJECTED is True
+            ):
                 alignment_any += 1
 
         if scenario_id == 2 and alignment_any == 0:
@@ -288,26 +302,29 @@ def summarize(records: List[Dict[str, Any]]) -> str:
                 "contract_passed={contract_passed} "
                 "required_fields_missing_count={missing} "
                 "final_story_present={final_story_present} "
-                "spec_version_id_match={spec_match}"
-                .format(
+                "spec_version_id_match={spec_match}".format(
                     run_id=row.RUN_ID,
                     variant=variant_label,
                     stage=metrics.get("stage"),
                     contract_passed=_bool_summary(metrics.get("contract_passed")),
                     missing=_format_int(metrics.get("required_fields_missing_count")),
-                    final_story_present=_bool_summary(metrics.get("final_story_present")),
+                    final_story_present=_bool_summary(
+                        metrics.get("final_story_present")
+                    ),
                     spec_match=_bool_summary(metrics.get("spec_version_id_match")),
                 )
             )
 
     lines.append("## Sanity warnings")
-    warnings: List[str] = []
+    warnings: list[str] = []
     if sanity_alignment_zero:
         warnings.append("Scenario 2 has 0 alignment_rejected across all variants.")
     if sanity_partial_groups:
         warnings.append("Groups with partial runs: " + "; ".join(sanity_partial_groups))
     if sanity_unknown_groups:
-        warnings.append("Groups with unknown terminal status: " + "; ".join(sanity_unknown_groups))
+        warnings.append(
+            "Groups with unknown terminal status: " + "; ".join(sanity_unknown_groups)
+        )
 
     if warnings:
         for warning in warnings:

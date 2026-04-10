@@ -1,7 +1,7 @@
 """Input and output schemas for the Sprint Planner agent."""
 
 import re
-from typing import Annotated, Dict, List, Literal, Optional
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -42,7 +42,7 @@ class SprintPlannerStory(BaseModel):
         Field(description="Priority rank (1 is highest, must be >= 1)."),
     ]
     story_points: Annotated[
-        Optional[int],
+        int | None,
         Field(
             default=None,
             description="Optional story points estimate (>= 1 when provided).",
@@ -53,26 +53,26 @@ class SprintPlannerStory(BaseModel):
         Field(description="Detailed user story description."),
     ]
     acceptance_criteria_items: Annotated[
-        List[str],
+        list[str],
         Field(default_factory=list, description="List of acceptance criteria items."),
     ]
     persona: Annotated[
-        Optional[str],
+        str | None,
         Field(default=None, description="Target persona for the story."),
     ]
     source_requirement: Annotated[
-        Optional[str],
+        str | None,
         Field(default=None, description="Original source requirement or reference."),
     ]
     evaluated_invariant_ids: Annotated[
-        List[str],
+        list[str],
         Field(
             default_factory=list,
             description="Invariant IDs already evaluated for this story and allowed for task binding.",
         ),
     ]
     story_compliance_boundary_summaries: Annotated[
-        List[str],
+        list[str],
         Field(
             default_factory=list,
             description="Summaries of compliance boundaries or architectural constraints applicable to this story.",
@@ -89,7 +89,7 @@ class SprintPlannerInput(BaseModel):
     """
 
     available_stories: Annotated[
-        List[SprintPlannerStory],
+        list[SprintPlannerStory],
         Field(description="Prioritized list of available stories for this sprint."),
     ]
     team_velocity_assumption: Annotated[
@@ -103,14 +103,14 @@ class SprintPlannerInput(BaseModel):
         ),
     ]
     user_context: Annotated[
-        Optional[str],
+        str | None,
         Field(
             default=None,
             description="Optional user context or focus for the sprint.",
         ),
     ]
     max_story_points: Annotated[
-        Optional[int],
+        int | None,
         Field(
             default=None,
             description="Optional story points cap (>= 1) for capacity planning.",
@@ -130,13 +130,12 @@ class SprintPlannerSelectedStory(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    story_id: Annotated[int, Field(description="User story ID selected for the sprint.")]
-    story_title: Annotated[
-        str,
-        Field(min_length=3, description="Story title.")
+    story_id: Annotated[
+        int, Field(description="User story ID selected for the sprint.")
     ]
+    story_title: Annotated[str, Field(min_length=3, description="Story title.")]
     tasks: Annotated[
-        List[StructuredTaskSpec],
+        list[StructuredTaskSpec],
         Field(
             default_factory=list,
             description="Optional structured task list for the story.",
@@ -178,7 +177,7 @@ class SprintPlannerCapacityAnalysis(BaseModel):
         Field(ge=0, description="Number of stories selected."),
     ]
     story_points_used: Annotated[
-        Optional[int],
+        int | None,
         Field(
             default=None,
             ge=0,
@@ -186,7 +185,7 @@ class SprintPlannerCapacityAnalysis(BaseModel):
         ),
     ]
     max_story_points: Annotated[
-        Optional[int],
+        int | None,
         Field(
             default=None,
             ge=1,
@@ -219,19 +218,18 @@ class SprintPlannerOutput(BaseModel):
         Field(min_length=3, description="Single sprint objective statement."),
     ]
     sprint_number: Annotated[
-        int,
-        Field(ge=1, description="Sprint number for this product.")
+        int, Field(ge=1, description="Sprint number for this product.")
     ]
     duration_days: Annotated[
         int,
         Field(ge=1, le=31, description="Sprint duration in days."),
     ]
     selected_stories: Annotated[
-        List[SprintPlannerSelectedStory],
+        list[SprintPlannerSelectedStory],
         Field(description="Stories selected for the sprint backlog."),
     ]
     deselected_stories: Annotated[
-        List[SprintPlannerDeselectedStory],
+        list[SprintPlannerDeselectedStory],
         Field(description="Stories not selected and why."),
     ]
     capacity_analysis: Annotated[
@@ -243,11 +241,10 @@ class SprintPlannerOutput(BaseModel):
 def validate_task_invariant_bindings(
     output: "SprintPlannerOutput",
     *,
-    allowed_invariant_ids_by_story: Dict[int, List[str]],
-) -> List[str]:
+    allowed_invariant_ids_by_story: dict[int, list[str]],
+) -> list[str]:
     """Validate that each task only binds invariants allowed for its parent story."""
-
-    errors: List[str] = []
+    errors: list[str] = []
     for story in output.selected_stories:
         allowed_ids = set(allowed_invariant_ids_by_story.get(story.story_id, []))
         for task in story.tasks:
@@ -269,11 +266,11 @@ def validate_task_decomposition_quality(
     output: "SprintPlannerOutput",
     *,
     include_task_decomposition: bool,
-    has_acceptance_criteria_by_story: Optional[Dict[int, bool]] = None,
-    acceptance_criteria_items_by_story: Optional[Dict[int, List[str]]] = None,
-) -> List[str]:
+    has_acceptance_criteria_by_story: dict[int, bool] | None = None,
+    acceptance_criteria_items_by_story: dict[int, list[str]] | None = None,
+) -> list[str]:
     """Validate deterministic quality gates for sprint task decomposition."""
-    errors: List[str] = []
+    errors: list[str] = []
     has_acceptance_criteria_by_story = has_acceptance_criteria_by_story or {}
     acceptance_criteria_items_by_story = acceptance_criteria_items_by_story or {}
     file_extension_pattern = re.compile(r"\.[a-zA-Z0-9]+$")
@@ -289,7 +286,9 @@ def validate_task_decomposition_quality(
         all_same_targets = True
         first_workstreams = None
         first_targets = None
-        story_acceptance_items = acceptance_criteria_items_by_story.get(story.story_id, [])
+        story_acceptance_items = acceptance_criteria_items_by_story.get(
+            story.story_id, []
+        )
         normalized_story_acceptance_items = {
             _normalize_comparison_text(item)
             for item in story_acceptance_items
@@ -302,7 +301,9 @@ def validate_task_decomposition_quality(
         for task in story.tasks:
             desc = task.description.strip()
             if not desc:
-                errors.append(f"Story {story.story_id}: Found task with empty description.")
+                errors.append(
+                    f"Story {story.story_id}: Found task with empty description."
+                )
 
             if task.task_kind == "other":
                 errors.append(
@@ -333,16 +334,24 @@ def validate_task_decomposition_quality(
             norm_desc = _normalize_comparison_text(desc)
             if norm_desc:
                 if norm_desc in normalized_descriptions:
-                    errors.append(f"Story {story.story_id}: Duplicate or identical task description found: '{desc}'.")
+                    errors.append(
+                        f"Story {story.story_id}: Duplicate or identical task description found: '{desc}'."
+                    )
                 normalized_descriptions.add(norm_desc)
 
-            norm_targets = [_normalize_comparison_text(t) for t in task.artifact_targets]
+            norm_targets = [
+                _normalize_comparison_text(t) for t in task.artifact_targets
+            ]
             if len(norm_targets) != len(set(norm_targets)):
-                errors.append(f"Story {story.story_id} task '{desc}': Contains duplicate artifact_targets.")
+                errors.append(
+                    f"Story {story.story_id} task '{desc}': Contains duplicate artifact_targets."
+                )
 
             norm_tags = [_normalize_comparison_text(t) for t in task.workstream_tags]
             if len(norm_tags) != len(set(norm_tags)):
-                errors.append(f"Story {story.story_id} task '{desc}': Contains duplicate workstream_tags.")
+                errors.append(
+                    f"Story {story.story_id} task '{desc}': Contains duplicate workstream_tags."
+                )
 
             for checklist_item in task.checklist_items:
                 checklist_text = checklist_item.strip()
@@ -387,12 +396,12 @@ def validate_task_decomposition_quality(
 
 
 __all__ = [
-    "SprintPlannerStory",
-    "SprintPlannerInput",
-    "SprintPlannerSelectedStory",
-    "SprintPlannerDeselectedStory",
     "SprintPlannerCapacityAnalysis",
+    "SprintPlannerDeselectedStory",
+    "SprintPlannerInput",
     "SprintPlannerOutput",
-    "validate_task_invariant_bindings",
+    "SprintPlannerSelectedStory",
+    "SprintPlannerStory",
     "validate_task_decomposition_quality",
+    "validate_task_invariant_bindings",
 ]

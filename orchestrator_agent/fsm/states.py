@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class OrchestratorPhase(str, Enum):
     VISION = "VISION"
     SETUP = "SETUP"
@@ -8,6 +9,7 @@ class OrchestratorPhase(str, Enum):
     STORY = "STORY"
     SPRINT = "SPRINT"  # Reserved for future implementation
     SPEC = "SPEC"
+
 
 class OrchestratorState(str, Enum):
     # SETUP
@@ -46,4 +48,3 @@ class OrchestratorState(str, Enum):
     # SPEC PHASE
     SPEC_UPDATE = "SPEC_UPDATE"  # State 21
     SPEC_COMPILE = "SPEC_COMPILE"  # State 22
-

@@ -1,8 +1,7 @@
 """Tests for select_project hydration of session state."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-import pytest
 from sqlmodel import Session
 
 from agile_sqlmodel import Product, SpecRegistry
@@ -40,7 +39,7 @@ def _create_approved_spec(session: Session, product_id: int) -> SpecRegistry:
         content="# Spec content",
         content_ref="specs/spec.md",
         status="approved",
-        approved_at=datetime.now(timezone.utc),
+        approved_at=datetime.now(UTC),
         approved_by="tester",
     )
     session.add(spec)
@@ -50,11 +49,11 @@ def _create_approved_spec(session: Session, product_id: int) -> SpecRegistry:
 
 
 def test_select_project_hydrates_spec_and_authority(session: Session) -> None:
-    spec_loaded_at = datetime.now(timezone.utc)
+    spec_loaded_at = datetime.now(UTC)
     product = _create_product(
         session,
         technical_spec="Spec body",
-        compiled_authority_json="{\"compiled\":true}",
+        compiled_authority_json='{"compiled":true}',
         spec_file_path="specs/spec.md",
         spec_loaded_at=spec_loaded_at,
         description="Desc",
@@ -74,14 +73,14 @@ def test_select_project_hydrates_spec_and_authority(session: Session) -> None:
     assert result["success"] is True
     assert context.state["pending_spec_content"] == "Spec body"
     assert context.state["pending_spec_path"] == "specs/spec.md"
-    assert context.state["compiled_authority_cached"] == "{\"compiled\":true}"
+    assert context.state["compiled_authority_cached"] == '{"compiled":true}'
     assert context.state["latest_spec_version_id"] == spec.spec_version_id
     assert context.state["current_project_name"] == product.name
 
     active_project = context.state["active_project"]
     assert active_project["description"] == "Desc"
     assert active_project["technical_spec"] == "Spec body"
-    assert active_project["compiled_authority_json"] == "{\"compiled\":true}"
+    assert active_project["compiled_authority_json"] == '{"compiled":true}'
     assert active_project["spec_file_path"] == "specs/spec.md"
     expected_loaded_at = spec_loaded_at.replace(tzinfo=None).isoformat()
     assert active_project["spec_loaded_at"] == expected_loaded_at
@@ -108,11 +107,11 @@ def test_select_project_clears_missing_spec_state(session: Session) -> None:
 
 
 def test_get_project_details_includes_spec_fields(session: Session) -> None:
-    spec_loaded_at = datetime.now(timezone.utc)
+    spec_loaded_at = datetime.now(UTC)
     product = _create_product(
         session,
         technical_spec="Spec body",
-        compiled_authority_json="{\"compiled\":true}",
+        compiled_authority_json='{"compiled":true}',
         spec_file_path="specs/spec.md",
         spec_loaded_at=spec_loaded_at,
         description="Desc",
@@ -124,7 +123,7 @@ def test_get_project_details_includes_spec_fields(session: Session) -> None:
     assert result["success"] is True
     details = result["product"]
     assert details["technical_spec"] == "Spec body"
-    assert details["compiled_authority_json"] == "{\"compiled\":true}"
+    assert details["compiled_authority_json"] == '{"compiled":true}'
     assert details["spec_file_path"] == "specs/spec.md"
     expected_loaded_at = spec_loaded_at.replace(tzinfo=None).isoformat()
     assert details["spec_loaded_at"] == expected_loaded_at

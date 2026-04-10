@@ -10,19 +10,19 @@ Test Structure:
 Run with: pytest tests/test_spec_persistence.py -v
 """
 
-import pytest
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
-from sqlmodel import Session, select
-
-from agile_sqlmodel import Product, engine
 from unittest.mock import patch
+
+import pytest
+
+from agile_sqlmodel import Product
 
 # These imports will fail initially (Red phase)
 try:
     from tools.spec_tools import (
-        save_project_specification,
         read_project_specification,
+        save_project_specification,
     )
 except ImportError as e:
     print(f"ImportError importing tools.spec_tools: {e}")
@@ -31,7 +31,7 @@ except ImportError as e:
     read_project_specification = None
 
 
-@pytest.fixture()
+@pytest.fixture
 def compile_stub(monkeypatch):
     """Stub authority compilation to avoid LLM calls and track invocations."""
     calls = {}
@@ -55,6 +55,7 @@ def compile_stub(monkeypatch):
 # Test Fixtures & Setup
 # ============================================================================
 
+
 @pytest.fixture(autouse=True)
 def patch_engine(engine):
     """Patch the engine in spec_tools to use the test database engine"""
@@ -65,6 +66,7 @@ def patch_engine(engine):
 # ============================================================================
 # Test Class 1: Save Tool
 # ============================================================================
+
 
 class TestSaveProjectSpecification:
     """Test suite for save_project_specification tool"""
@@ -90,14 +92,18 @@ class TestSaveProjectSpecification:
         spec_dir.mkdir(exist_ok=True)
         spec_path = spec_dir / "test_quadra.md"
         if not spec_path.exists():
-            spec_path.write_text("# Sistema Inteligente de Câmeras\n\nContent...", encoding="utf-8")
+            spec_path.write_text(
+                "# Sistema Inteligente de Câmeras\n\nContent...", encoding="utf-8"
+            )
 
         # Act
-        result = save_project_specification({
-            "product_id": sample_product.product_id,
-            "spec_source": "file",
-            "content": str(spec_path),
-        })
+        result = save_project_specification(
+            {
+                "product_id": sample_product.product_id,
+                "spec_source": "file",
+                "content": str(spec_path),
+            }
+        )
 
         # Assert - Return value
         assert result["success"] is True
@@ -148,11 +154,13 @@ class TestSaveProjectSpecification:
 """
 
         # Act
-        result = save_project_specification({
-            "product_id": sample_product.product_id,
-            "spec_source": "text",
-            "content": pasted_spec,
-        })
+        result = save_project_specification(
+            {
+                "product_id": sample_product.product_id,
+                "spec_source": "text",
+                "content": pasted_spec,
+            }
+        )
 
         # Assert - Return value
         assert result["success"] is True
@@ -171,7 +179,7 @@ class TestSaveProjectSpecification:
         # Assert - Backup file was created
         created_file = Path(result["spec_path"])
         assert created_file.exists()
-        assert created_file.read_text(encoding='utf-8') == pasted_spec
+        assert created_file.read_text(encoding="utf-8") == pasted_spec
 
         # Assert - Database
         db_session.expire_all()
@@ -192,11 +200,13 @@ class TestSaveProjectSpecification:
             pytest.fail("Tool not implemented yet")
 
         # Act
-        result = save_project_specification({
-            "product_id": sample_product.product_id,
-            "spec_source": "file",
-            "content": "nonexistent/path/spec.md",
-        })
+        result = save_project_specification(
+            {
+                "product_id": sample_product.product_id,
+                "spec_source": "file",
+                "content": "nonexistent/path/spec.md",
+            }
+        )
 
         # Assert
         assert result["success"] is False
@@ -214,14 +224,16 @@ class TestSaveProjectSpecification:
 
         # Arrange: Create 150KB file
         large_file = tmp_path / "large_spec.md"
-        large_file.write_text("X" * 150_000, encoding='utf-8')
+        large_file.write_text("X" * 150_000, encoding="utf-8")
 
         # Act
-        result = save_project_specification({
-            "product_id": sample_product.product_id,
-            "spec_source": "file",
-            "content": str(large_file),
-        })
+        result = save_project_specification(
+            {
+                "product_id": sample_product.product_id,
+                "spec_source": "file",
+                "content": str(large_file),
+            }
+        )
 
         # Assert
         assert result["success"] is False
@@ -241,11 +253,13 @@ class TestSaveProjectSpecification:
         huge_text = "X" * 150_000
 
         # Act
-        result = save_project_specification({
-            "product_id": sample_product.product_id,
-            "spec_source": "text",
-            "content": huge_text,
-        })
+        result = save_project_specification(
+            {
+                "product_id": sample_product.product_id,
+                "spec_source": "text",
+                "content": huge_text,
+            }
+        )
 
         # Assert
         assert result["success"] is False
@@ -265,23 +279,28 @@ class TestSaveProjectSpecification:
 
         # Arrange: Save initial spec
         initial_spec = "# Initial Spec\n## Version 1"
-        save_project_specification({
-            "product_id": sample_product.product_id,
-            "spec_source": "text",
-            "content": initial_spec,
-        })
+        save_project_specification(
+            {
+                "product_id": sample_product.product_id,
+                "spec_source": "text",
+                "content": initial_spec,
+            }
+        )
 
         # Wait a moment to ensure timestamp difference
         import time
+
         time.sleep(0.1)
 
         # Act: Update with new spec
         new_spec = "# Updated Spec\n## Version 2\n\nCompletely new content"
-        result = save_project_specification({
-            "product_id": sample_product.product_id,
-            "spec_source": "text",
-            "content": new_spec,
-        })
+        result = save_project_specification(
+            {
+                "product_id": sample_product.product_id,
+                "spec_source": "text",
+                "content": new_spec,
+            }
+        )
 
         # Assert
         assert result["success"] is True
@@ -307,11 +326,13 @@ class TestSaveProjectSpecification:
             pytest.fail("Tool not implemented yet")
 
         # Act
-        result = save_project_specification({
-            "product_id": 99999,
-            "spec_source": "text",
-            "content": "# Some Spec",
-        })
+        result = save_project_specification(
+            {
+                "product_id": 99999,
+                "spec_source": "text",
+                "content": "# Some Spec",
+            }
+        )
 
         # Assert
         assert result["success"] is False
@@ -328,16 +349,20 @@ class TestSaveProjectSpecification:
             pytest.fail("Tool not implemented yet")
 
         # Act - Missing content
-        result1 = save_project_specification({
-            "product_id": 1,
-            "spec_source": "file",
-        })
+        result1 = save_project_specification(
+            {
+                "product_id": 1,
+                "spec_source": "file",
+            }
+        )
 
         # Act - Missing spec_source
-        result2 = save_project_specification({
-            "product_id": 1,
-            "content": "# Spec",
-        })
+        result2 = save_project_specification(
+            {
+                "product_id": 1,
+                "content": "# Spec",
+            }
+        )
 
         # Assert
         assert result1["success"] is False
@@ -356,11 +381,13 @@ class TestSaveProjectSpecification:
             pytest.fail("Tool not implemented yet")
 
         # Act
-        result = save_project_specification({
-            "product_id": sample_product.product_id,
-            "spec_source": "invalid_value",
-            "content": "# Spec",
-        })
+        result = save_project_specification(
+            {
+                "product_id": sample_product.product_id,
+                "spec_source": "invalid_value",
+                "content": "# Spec",
+            }
+        )
 
         # Assert
         assert result["success"] is False
@@ -371,6 +398,7 @@ class TestSaveProjectSpecification:
 # ============================================================================
 # Test Class 2: Read Tool
 # ============================================================================
+
 
 class TestReadProjectSpecification:
     """Test suite for read_project_specification tool"""
@@ -388,12 +416,14 @@ class TestReadProjectSpecification:
             pytest.fail("Tool not implemented yet")
 
         # Arrange: Create mock context with active project
-        context = MockToolContext(state={
-            "active_project": {
-                "product_id": sample_product_with_spec.product_id,
-                "name": sample_product_with_spec.name,
+        context = MockToolContext(
+            state={
+                "active_project": {
+                    "product_id": sample_product_with_spec.product_id,
+                    "name": sample_product_with_spec.name,
+                }
             }
-        })
+        )
 
         # Act
         result = read_project_specification({}, context)
@@ -403,7 +433,9 @@ class TestReadProjectSpecification:
         assert result["spec_content"] is not None
         assert len(result["spec_content"]) > 0
         assert result["token_estimate"] > 0
-        assert result["token_estimate"] == len(result["spec_content"]) // 4  # Approx formula
+        assert (
+            result["token_estimate"] == len(result["spec_content"]) // 4
+        )  # Approx formula
         assert len(result["sections"]) > 0  # Has extracted headings
         assert result["spec_path"] is not None
         assert "loaded" in result["message"].lower()
@@ -440,12 +472,14 @@ class TestReadProjectSpecification:
             pytest.fail("Tool not implemented yet")
 
         # Arrange: Product exists but technical_spec is None
-        context = MockToolContext(state={
-            "active_project": {
-                "product_id": sample_product.product_id,
-                "name": sample_product.name,
+        context = MockToolContext(
+            state={
+                "active_project": {
+                    "product_id": sample_product.product_id,
+                    "name": sample_product.name,
+                }
             }
-        })
+        )
 
         # Act
         result = read_project_specification({}, context)
@@ -474,7 +508,7 @@ class TestReadProjectSpecification:
             vision="Dual source vision",
             technical_spec="# DB Spec\n\nDatabase body",
             spec_file_path=str(spec_path),
-            spec_loaded_at=datetime.now(timezone.utc),
+            spec_loaded_at=datetime.now(UTC),
         )
         db_session.add(product)
         db_session.commit()
@@ -512,7 +546,7 @@ class TestReadProjectSpecification:
             vision="Fallback source vision",
             technical_spec="",
             spec_file_path=str(spec_path),
-            spec_loaded_at=datetime.now(timezone.utc),
+            spec_loaded_at=datetime.now(UTC),
         )
         db_session.add(product)
         db_session.commit()
@@ -540,6 +574,7 @@ class TestReadProjectSpecification:
 # Test Class 3: Integration Workflows
 # ============================================================================
 
+
 class TestSpecWorkflowIntegration:
     """Integration tests for complete spec workflows"""
 
@@ -563,24 +598,30 @@ class TestSpecWorkflowIntegration:
         spec_dir.mkdir(exist_ok=True)
         spec_path = spec_dir / "test_quadra.md"
         if not spec_path.exists():
-             spec_path.write_text("# Sistema Inteligente de Câmeras\n\nContent...", encoding="utf-8")
+            spec_path.write_text(
+                "# Sistema Inteligente de Câmeras\n\nContent...", encoding="utf-8"
+            )
 
         # Step 2: Save spec from file
-        save_result = save_project_specification({
-            "product_id": product.product_id,
-            "spec_source": "file",
-            "content": str(spec_path),
-        })
+        save_result = save_project_specification(
+            {
+                "product_id": product.product_id,
+                "spec_source": "file",
+                "content": str(spec_path),
+            }
+        )
         assert save_result["success"] is True
         assert save_result["file_created"] is False  # Using original file
 
         # Step 3: Read spec back
-        context = MockToolContext(state={
-            "active_project": {
-                "product_id": product.product_id,
-                "name": product.name,
+        context = MockToolContext(
+            state={
+                "active_project": {
+                    "product_id": product.product_id,
+                    "name": product.name,
+                }
             }
-        })
+        )
         read_result = read_project_specification({}, context)
 
         # Assert: Consistency
@@ -613,7 +654,8 @@ class TestSpecWorkflowIntegration:
         self, db_session, tmp_path, compile_stub
     ):
         """save_project_specification sets spec_persisted=True and preserves
-        pending_spec_content for downstream phases (BACKLOG, ROADMAP, STORY)."""
+        pending_spec_content for downstream phases (BACKLOG, ROADMAP, STORY).
+        """
         product = Product(name="Spec Pending Project", vision="Pending spec")
         db_session.add(product)
         db_session.commit()
@@ -622,10 +664,12 @@ class TestSpecWorkflowIntegration:
         spec_path = tmp_path / "pending_spec.md"
         spec_path.write_text("# Pending Spec\n\nContent", encoding="utf-8")
 
-        context = MockToolContext(state={
-            "pending_spec_path": str(spec_path),
-            "pending_spec_content": "# Pending Spec\n\nContent",
-        })
+        context = MockToolContext(
+            state={
+                "pending_spec_path": str(spec_path),
+                "pending_spec_content": "# Pending Spec\n\nContent",
+            }
+        )
 
         result = save_project_specification(
             {
@@ -649,13 +693,11 @@ class TestSpecWorkflowIntegration:
 # Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def sample_product(db_session):
     """Create a test product WITHOUT specification"""
-    product = Product(
-        name="Test Product",
-        vision="A test product for unit testing"
-    )
+    product = Product(name="Test Product", vision="A test product for unit testing")
     db_session.add(product)
     db_session.commit()
     db_session.refresh(product)
@@ -680,7 +722,7 @@ This is a test specification.
 Stack: Python, FastAPI
 """,
         spec_file_path="specs/test_spec.md",
-        spec_loaded_at=datetime.now(timezone.utc),
+        spec_loaded_at=datetime.now(UTC),
     )
     db_session.add(product)
     db_session.commit()
@@ -691,11 +733,12 @@ Stack: Python, FastAPI
 @pytest.fixture
 def db_session(session):  # Re-use session fixture from conftest.py
     """Use the session provided by conftest.py"""
-    yield session
+    return session
     # No rollback needed as conftest handles it or we're using in-memory db
 
 
 class MockToolContext:
     """Mock Google ADK ToolContext for testing without full ADK runtime"""
+
     def __init__(self, state: dict):
         self.state = state

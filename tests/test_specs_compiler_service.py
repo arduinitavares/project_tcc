@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,16 +13,16 @@ from agile_sqlmodel import (
     SpecAuthorityStatus,
     SpecRegistry,
 )
-import utils.failure_artifacts as failure_artifacts
+from utils import failure_artifacts
 from utils.failure_artifacts import AgentInvocationError
 from utils.spec_schemas import (
     Invariant,
     InvariantType,
     RequiredFieldParams,
+    SourceMapEntry,
     SpecAuthorityCompilationFailure,
     SpecAuthorityCompilationSuccess,
     SpecAuthorityCompilerOutput,
-    SourceMapEntry,
 )
 
 
@@ -102,7 +102,7 @@ def _create_spec_version(
         content=content,
         content_ref=None,
         status="approved",
-        approved_at=datetime.now(timezone.utc),
+        approved_at=datetime.now(UTC),
         approved_by="tester",
         approval_notes="approved",
     )
@@ -122,7 +122,7 @@ def _create_compiled_authority(
         spec_version_id=spec_version_id,
         compiler_version="1.2.3",
         prompt_hash="e" * 64,
-        compiled_at=datetime.now(timezone.utc),
+        compiled_at=datetime.now(UTC),
         compiled_artifact_json=artifact_json,
         scope_themes='["Payments"]',
         invariants='["REQUIRED_FIELD:email"]',
@@ -158,12 +158,14 @@ def test_load_compiled_artifact_returns_none_for_failure_or_invalid_json():
     )
     failure_json = SpecAuthorityCompilerOutput(root=failure).model_dump_json()
 
-    assert load_compiled_artifact(
-        SimpleNamespace(compiled_artifact_json=failure_json)
-    ) is None
-    assert load_compiled_artifact(
-        SimpleNamespace(compiled_artifact_json="not-json")
-    ) is None
+    assert (
+        load_compiled_artifact(SimpleNamespace(compiled_artifact_json=failure_json))
+        is None
+    )
+    assert (
+        load_compiled_artifact(SimpleNamespace(compiled_artifact_json="not-json"))
+        is None
+    )
 
 
 def test_services_package_exports_ensure_accepted_spec_authority():
@@ -196,7 +198,7 @@ def test_ensure_accepted_spec_authority_reuses_existing_accepted_version(
         status="accepted",
         policy="auto",
         decided_by="system",
-        decided_at=datetime.now(timezone.utc),
+        decided_at=datetime.now(UTC),
         rationale="Auto-accepted for test",
         compiler_version=authority.compiler_version,
         prompt_hash=authority.prompt_hash,
@@ -314,7 +316,7 @@ def test_ensure_spec_authority_accepted_returns_existing_acceptance(
         status="accepted",
         policy="human",
         decided_by="reviewer",
-        decided_at=datetime.now(timezone.utc),
+        decided_at=datetime.now(UTC),
         rationale="Manual approval",
         compiler_version=authority.compiler_version,
         prompt_hash=authority.prompt_hash,
@@ -386,9 +388,9 @@ def test_preview_spec_authority_returns_success_and_updates_cache(
 
     assert result["success"] is True
     assert result["compiled_authority"] is not None
-    assert tool_context.state["compiled_authority_cached"] == result[
-        "compiled_authority"
-    ]
+    assert (
+        tool_context.state["compiled_authority_cached"] == result["compiled_authority"]
+    )
 
 
 def test_preview_spec_authority_returns_failure_envelope(monkeypatch):
@@ -420,9 +422,7 @@ def test_preview_spec_authority_returns_invalid_input_envelope():
     assert result["error"].startswith("Invalid input: ")
 
 
-def test_preview_spec_authority_returns_unexpected_exception_error(
-    monkeypatch, caplog
-):
+def test_preview_spec_authority_returns_unexpected_exception_error(monkeypatch, caplog):
     from services.specs import compiler_service
 
     monkeypatch.setattr(
@@ -464,9 +464,9 @@ def test_preview_spec_authority_honors_legacy_tool_compiler_monkeypatch(
     )
 
     assert result["success"] is True
-    assert tool_context.state["compiled_authority_cached"] == result[
-        "compiled_authority"
-    ]
+    assert (
+        tool_context.state["compiled_authority_cached"] == result["compiled_authority"]
+    )
 
 
 def test_resolve_engine_honors_legacy_spec_tools_engine(monkeypatch):
@@ -662,7 +662,10 @@ def test_compile_spec_authority_for_version_returns_cached_authority(
     assert "recompiled" not in result
     assert result["authority_id"] == existing.authority_id
     assert result["content_source"] == "content"
-    assert tool_context.state["compiled_authority_cached"] == existing.compiled_artifact_json
+    assert (
+        tool_context.state["compiled_authority_cached"]
+        == existing.compiled_artifact_json
+    )
     session.refresh(sample_product)
     assert sample_product.compiled_authority_json == existing.compiled_artifact_json
 
@@ -883,7 +886,7 @@ def test_get_compiled_authority_by_version_falls_back_to_legacy_columns(
         spec_version_id=spec_row.spec_version_id,
         compiler_version="9.9.9",
         prompt_hash="f" * 64,
-        compiled_at=datetime.now(timezone.utc),
+        compiled_at=datetime.now(UTC),
         compiled_artifact_json="not-json",
         scope_themes=json.dumps(["Legacy Theme"]),
         invariants=json.dumps(["FORBIDDEN_CAPABILITY:upload"]),
@@ -1005,7 +1008,7 @@ def test_update_spec_and_compile_authority_creates_spec_and_delegates_compile(
             spec_version_id=spec_version_id,
             compiler_version="1.2.3",
             prompt_hash="b" * 64,
-            compiled_at=datetime.now(timezone.utc),
+            compiled_at=datetime.now(UTC),
             compiled_artifact_json=_compiled_success_json(),
             scope_themes='["Payments"]',
             invariants='["REQUIRED_FIELD:email"]',
@@ -1107,7 +1110,7 @@ def test_update_spec_and_compile_authority_honors_tool_compile_override(
             spec_version_id=spec_version_id,
             compiler_version="1.2.3",
             prompt_hash="f" * 64,
-            compiled_at=datetime.now(timezone.utc),
+            compiled_at=datetime.now(UTC),
             compiled_artifact_json=_compiled_success_json(),
             scope_themes='["Payments"]',
             invariants='["REQUIRED_FIELD:email"]',
@@ -1178,7 +1181,7 @@ def test_update_spec_and_compile_authority_honors_tool_acceptance_override(
             spec_version_id=spec_version_id,
             compiler_version="1.2.3",
             prompt_hash="a" * 64,
-            compiled_at=datetime.now(timezone.utc),
+            compiled_at=datetime.now(UTC),
             compiled_artifact_json=_compiled_success_json(),
             scope_themes='["Payments"]',
             invariants='["REQUIRED_FIELD:email"]',
@@ -1261,7 +1264,7 @@ def test_update_spec_and_compile_authority_loads_content_ref(
             spec_version_id=spec_version_id,
             compiler_version="1.2.3",
             prompt_hash="c" * 64,
-            compiled_at=datetime.now(timezone.utc),
+            compiled_at=datetime.now(UTC),
             compiled_artifact_json=_compiled_success_json(),
             scope_themes='["Payments"]',
             invariants='["REQUIRED_FIELD:email"]',
@@ -1343,8 +1346,8 @@ def test_update_spec_and_compile_authority_reuses_existing_version_for_same_hash
             authority = CompiledSpecAuthority(
                 spec_version_id=spec_version_id,
                 compiler_version="1.2.3",
-                prompt_hash=f'{authority_counter["value"]:064d}'[-64:],
-                compiled_at=datetime.now(timezone.utc),
+                prompt_hash=f"{authority_counter['value']:064d}"[-64:],
+                compiled_at=datetime.now(UTC),
                 compiled_artifact_json=_compiled_success_json(),
                 scope_themes='["Payments"]',
                 invariants='["REQUIRED_FIELD:email"]',
@@ -1402,13 +1405,16 @@ def test_update_spec_and_compile_authority_reuses_existing_version_for_same_hash
     assert first["spec_version_id"] == second["spec_version_id"]
     assert second["cache_hit"] is True
     assert len(compile_calls) == 2
-    assert len(
-        session.exec(
-            select(SpecRegistry).where(
-                SpecRegistry.product_id == sample_product.product_id
-            )
-        ).all()
-    ) == 1
+    assert (
+        len(
+            session.exec(
+                select(SpecRegistry).where(
+                    SpecRegistry.product_id == sample_product.product_id
+                )
+            ).all()
+        )
+        == 1
+    )
 
 
 def test_update_spec_and_compile_authority_treats_recompile_none_as_false(
@@ -1430,7 +1436,7 @@ def test_update_spec_and_compile_authority_treats_recompile_none_as_false(
             spec_version_id=spec_version_id,
             compiler_version="1.2.3",
             prompt_hash="d" * 64,
-            compiled_at=datetime.now(timezone.utc),
+            compiled_at=datetime.now(UTC),
             compiled_artifact_json=_compiled_success_json(),
             scope_themes='["Payments"]',
             invariants='["REQUIRED_FIELD:email"]',

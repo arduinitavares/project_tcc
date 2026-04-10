@@ -8,7 +8,7 @@ from pathlib import Path
 def _python_files_importing_compat_schemes() -> list[str]:
     root = Path(__file__).resolve().parents[1]
     current_file = Path(__file__).resolve()
-    compat_import = "from utils" ".schemes import"
+    compat_import = "from utils.schemes import"
     offenders: list[str] = []
     for path in sorted(root.rglob("*.py")):
         if path == root / "utils" / "schemes.py" or path.resolve() == current_file:
@@ -30,8 +30,7 @@ def test_spec_schema_module_exports_validation_and_compiler_models() -> None:
     assert spec_schemas.RequiredFieldParams.__module__ == "utils.spec_schemas"
     assert spec_schemas.Invariant.__module__ == "utils.spec_schemas"
     assert (
-        spec_schemas.SpecAuthorityCompilationSuccess.__module__
-        == "utils.spec_schemas"
+        spec_schemas.SpecAuthorityCompilationSuccess.__module__ == "utils.spec_schemas"
     )
     assert spec_schemas.SpecAuthorityCompilerOutput.__module__ == "utils.spec_schemas"
     assert spec_schemas.StoryDraft.__module__ == "utils.spec_schemas"
@@ -49,7 +48,9 @@ def test_spec_schema_module_exports_validation_and_compiler_models() -> None:
         schemes.SpecAuthorityCompilationSuccess
         is spec_schemas.SpecAuthorityCompilationSuccess
     )
-    assert schemes.SpecAuthorityCompilerOutput is spec_schemas.SpecAuthorityCompilerOutput
+    assert (
+        schemes.SpecAuthorityCompilerOutput is spec_schemas.SpecAuthorityCompilerOutput
+    )
     assert schemes.StoryDraft is spec_schemas.StoryDraft
     assert schemes.StoryDraftInput is spec_schemas.StoryDraftInput
     assert schemes.StoryRefinerInput is spec_schemas.StoryRefinerInput
@@ -61,10 +62,11 @@ def test_services_and_agents_import_spec_schema_module_boundary() -> None:
     from services.specs import compiler_service, story_validation_service
 
     assert (
-        orchestrator_query_service.ValidationEvidence.__module__
-        == "utils.spec_schemas"
+        orchestrator_query_service.ValidationEvidence.__module__ == "utils.spec_schemas"
     )
-    assert compiler_service.SpecAuthorityCompilerInput.__module__ == "utils.spec_schemas"
+    assert (
+        compiler_service.SpecAuthorityCompilerInput.__module__ == "utils.spec_schemas"
+    )
     assert story_validation_service.AlignmentFinding.__module__ == "utils.spec_schemas"
     assert agent.SpecAuthorityCompilerInput.__module__ == "utils.spec_schemas"
 

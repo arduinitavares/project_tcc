@@ -11,7 +11,6 @@ from typing import Any
 
 from fastapi import FastAPI
 
-
 Handler = Callable[..., Any]
 
 

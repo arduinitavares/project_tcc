@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict
+from typing import Any
 
 import pytest
 
@@ -12,28 +12,27 @@ from services import (
     story_runtime,
     vision_runtime,
 )
+from utils import failure_artifacts
 from utils.failure_artifacts import AgentInvocationError
-import utils.failure_artifacts as failure_artifacts
+
+RuntimeCase = dict[str, Any]
 
 
-RuntimeCase = Dict[str, Any]
-
-
-def _story_state() -> Dict[str, Any]:
+def _story_state() -> dict[str, Any]:
     return {
         "pending_spec_content": "SPEC",
         "compiled_authority_cached": '{"ok": true}',
     }
 
 
-def _vision_state() -> Dict[str, Any]:
+def _vision_state() -> dict[str, Any]:
     return {
         "pending_spec_content": "SPEC",
         "compiled_authority_cached": '{"ok": true}',
     }
 
 
-def _backlog_state() -> Dict[str, Any]:
+def _backlog_state() -> dict[str, Any]:
     return {
         "pending_spec_content": "SPEC",
         "compiled_authority_cached": '{"ok": true}',
@@ -43,7 +42,7 @@ def _backlog_state() -> Dict[str, Any]:
     }
 
 
-def _roadmap_state() -> Dict[str, Any]:
+def _roadmap_state() -> dict[str, Any]:
     return {
         "pending_spec_content": "SPEC",
         "compiled_authority_cached": '{"ok": true}',
@@ -105,12 +104,16 @@ RUNTIME_CASES: list[RuntimeCase] = [
 
 def _patch_failure_dir(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(failure_artifacts, "LOGS_DIR", tmp_path / "logs")
-    monkeypatch.setattr(failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures")
+    monkeypatch.setattr(
+        failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures"
+    )
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("case", RUNTIME_CASES, ids=lambda case: case["phase"])
-async def test_runtime_invalid_json_writes_full_failure_artifact(monkeypatch, tmp_path, case: RuntimeCase):
+async def test_runtime_invalid_json_writes_full_failure_artifact(
+    monkeypatch, tmp_path, case: RuntimeCase
+):
     _patch_failure_dir(monkeypatch, tmp_path)
 
     async def fake_invoke(_payload):
@@ -132,7 +135,9 @@ async def test_runtime_invalid_json_writes_full_failure_artifact(monkeypatch, tm
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("case", RUNTIME_CASES, ids=lambda case: case["phase"])
-async def test_runtime_output_validation_writes_full_failure_artifact(monkeypatch, tmp_path, case: RuntimeCase):
+async def test_runtime_output_validation_writes_full_failure_artifact(
+    monkeypatch, tmp_path, case: RuntimeCase
+):
     _patch_failure_dir(monkeypatch, tmp_path)
 
     async def fake_invoke(_payload):
@@ -154,7 +159,9 @@ async def test_runtime_output_validation_writes_full_failure_artifact(monkeypatc
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("case", RUNTIME_CASES, ids=lambda case: case["phase"])
-async def test_runtime_invocation_exception_persists_partial_output(monkeypatch, tmp_path, case: RuntimeCase):
+async def test_runtime_invocation_exception_persists_partial_output(
+    monkeypatch, tmp_path, case: RuntimeCase
+):
     _patch_failure_dir(monkeypatch, tmp_path)
 
     async def fake_invoke(_payload):
@@ -179,7 +186,9 @@ async def test_runtime_invocation_exception_persists_partial_output(monkeypatch,
 
 
 @pytest.mark.asyncio
-async def test_sprint_failure_artifact_keeps_structured_validation_details(monkeypatch, tmp_path):
+async def test_sprint_failure_artifact_keeps_structured_validation_details(
+    monkeypatch, tmp_path
+):
     _patch_failure_dir(monkeypatch, tmp_path)
 
     def fake_fetch_sprint_candidates(*, product_id):
@@ -211,7 +220,9 @@ async def test_sprint_failure_artifact_keeps_structured_validation_details(monke
             ],
         )
 
-    monkeypatch.setattr(sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(
+        sprint_input, "fetch_sprint_candidates", fake_fetch_sprint_candidates
+    )
     monkeypatch.setattr(sprint_runtime, "_invoke_sprint_agent", fake_invoke)
 
     result = await sprint_runtime.run_sprint_agent_from_state(

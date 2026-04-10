@@ -37,7 +37,7 @@ async def test_product_vision_adapter_injects_state_verbatim(monkeypatch) -> Non
 
     state = {
         "pending_spec_content": "SPEC_RAW",
-        "compiled_authority_cached": "{\"invariants\":[\"x\"]}",
+        "compiled_authority_cached": '{"invariants":["x"]}',
         "vision_components": {"project_name": "Demo"},
     }
     context = MockToolContext(state)
@@ -51,7 +51,7 @@ async def test_product_vision_adapter_injects_state_verbatim(monkeypatch) -> Non
     assert captured["tool_context"] is context
     assert captured["args"]["user_raw_text"] == "refine the vision"
     assert captured["args"]["specification_content"] == "SPEC_RAW"
-    assert captured["args"]["compiled_authority"] == "{\"invariants\":[\"x\"]}"
+    assert captured["args"]["compiled_authority"] == '{"invariants":["x"]}'
     assert captured["args"]["prior_vision_state"] == json.dumps(
         {"project_name": "Demo"},
         ensure_ascii=False,
@@ -59,7 +59,9 @@ async def test_product_vision_adapter_injects_state_verbatim(monkeypatch) -> Non
 
 
 @pytest.mark.asyncio
-async def test_backlog_adapter_fail_fast_on_missing_required_context(monkeypatch) -> None:
+async def test_backlog_adapter_fail_fast_on_missing_required_context(
+    monkeypatch,
+) -> None:
     async def fail_if_called(*, args, tool_context):
         pytest.fail("Sub-agent should not run when context is missing")
 
@@ -103,7 +105,7 @@ async def test_roadmap_adapter_passes_full_payload_without_summarization(
     monkeypatch.setattr(adapters._ROADMAP_BUILDER_TOOL, "run_async", fake_run_async)
 
     long_spec = "# Spec\n" + ("A" * 9000)
-    long_authority = "{\"scope_themes\":[\"x\"],\"invariants\":[\"" + ("B" * 3500) + "\"]}"
+    long_authority = '{"scope_themes":["x"],"invariants":["' + ("B" * 3500) + '"]}'
     backlog_items = [
         {
             "priority": 1,
@@ -174,7 +176,7 @@ async def test_story_adapter_derives_requirement_context_from_roadmap(
         {
             "active_project": {"roadmap": roadmap},
             "pending_spec_content": "SPEC_TEXT",
-            "compiled_authority_cached": "{\"invariants\":[]}",
+            "compiled_authority_cached": '{"invariants":[]}',
         }
     )
 
@@ -202,7 +204,7 @@ async def test_story_adapter_fail_fast_without_derived_or_explicit_context(
     context = MockToolContext(
         {
             "pending_spec_content": "SPEC_TEXT",
-            "compiled_authority_cached": "{\"invariants\":[]}",
+            "compiled_authority_cached": '{"invariants":[]}',
             # No roadmap in active_project and no roadmap_result
         }
     )
@@ -254,7 +256,9 @@ async def test_sprint_adapter_injects_refined_candidates_from_state(
         captured["tool_context"] = tool_context
         return {"sprint_goal": "goal", "selected_stories": [], "capacity_analysis": {}}
 
-    monkeypatch.setattr(adapters, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(
+        adapters, "fetch_sprint_candidates", fake_fetch_sprint_candidates
+    )
     monkeypatch.setattr(adapters._SPRINT_PLANNER_TOOL, "run_async", fake_run_async)
 
     context = MockToolContext({"active_project": {"product_id": 7}})
@@ -322,7 +326,9 @@ async def test_sprint_adapter_rejects_non_eligible_selected_story_ids(
     async def fail_if_called(*, args, tool_context):
         pytest.fail("Sub-agent should not run when selection is invalid")
 
-    monkeypatch.setattr(adapters, "fetch_sprint_candidates", fake_fetch_sprint_candidates)
+    monkeypatch.setattr(
+        adapters, "fetch_sprint_candidates", fake_fetch_sprint_candidates
+    )
     monkeypatch.setattr(adapters._SPRINT_PLANNER_TOOL, "run_async", fail_if_called)
 
     context = MockToolContext({"active_project": {"product_id": 1}})

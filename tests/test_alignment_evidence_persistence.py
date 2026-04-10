@@ -2,40 +2,45 @@
 """Tests for alignment findings persisted in ValidationEvidence."""
 
 import json
+from datetime import UTC
 
 import pytest
 from sqlmodel import Session
 
-import tools.spec_tools as spec_tools
 from agile_sqlmodel import (
     CompiledSpecAuthority,
     Product,
-    UserStory,
     SpecRegistry,
+    UserStory,
 )
 from models.core import Epic, Feature, Theme
+from tools import spec_tools
 from tools.spec_tools import (
-    register_spec_version,
     approve_spec_version,
+    register_spec_version,
     validate_story_with_spec_authority,
 )
-from utils.spec_schemas import SpecAuthorityCompilationSuccess, SpecAuthorityCompilerOutput
+from utils.spec_schemas import (
+    SpecAuthorityCompilationSuccess,
+    SpecAuthorityCompilerOutput,
+)
 
 
 @pytest.fixture
 def product_with_spec(session: Session, engine) -> tuple[Product, int]:
     """Create product with pre-compiled spec authority containing FORBIDDEN_CAPABILITY."""
+    import hashlib
+    from datetime import datetime
+
     from agile_sqlmodel import CompiledSpecAuthority
     from utils.spec_schemas import (
+        ForbiddenCapabilityParams,
         Invariant,
         InvariantType,
-        ForbiddenCapabilityParams,
+        SourceMapEntry,
         SpecAuthorityCompilationSuccess,
         SpecAuthorityCompilerOutput,
-        SourceMapEntry,
     )
-    from datetime import datetime, timezone
-    import hashlib
 
     spec_tools.engine = engine
 
@@ -88,13 +93,15 @@ def product_with_spec(session: Session, engine) -> tuple[Product, int]:
         spec_version_id=spec_version_id,
         compiler_version="1.0.0",
         prompt_hash="test",
-        scope_themes="[\"core\"]",
-        invariants="[\"FORBIDDEN_CAPABILITY:web\"]",
+        scope_themes='["core"]',
+        invariants='["FORBIDDEN_CAPABILITY:web"]',
         eligible_feature_ids="[]",
         rejected_features="[]",
         spec_gaps="[]",
-        compiled_artifact_json=SpecAuthorityCompilerOutput(root=success).model_dump_json(),
-        compiled_at=datetime.now(timezone.utc),
+        compiled_artifact_json=SpecAuthorityCompilerOutput(
+            root=success
+        ).model_dump_json(),
+        compiled_at=datetime.now(UTC),
     )
     session.add(authority)
     session.commit()
@@ -148,7 +155,9 @@ def test_alignment_failure_persisted(engine, session: Session, product_with_spec
     session.refresh(story)
     evidence = json.loads(story.validation_evidence)
     assert evidence["alignment_failures"]
-    assert any(f["code"] == "FORBIDDEN_CAPABILITY" for f in evidence["alignment_failures"])
+    assert any(
+        f["code"] == "FORBIDDEN_CAPABILITY" for f in evidence["alignment_failures"]
+    )
 
 
 def test_alignment_warning_persisted(engine, session: Session):
@@ -162,11 +171,16 @@ def test_alignment_warning_persisted(engine, session: Session):
 
     # Create an approved spec + precompiled authority with zero invariants.
     reg = register_spec_version(
-        {"product_id": product.product_id, "content": "# Spec\n\n## Notes\n- No requirements here"},
+        {
+            "product_id": product.product_id,
+            "content": "# Spec\n\n## Notes\n- No requirements here",
+        },
         tool_context=None,
     )
     spec_version_id = reg["spec_version_id"]
-    approve_spec_version({"spec_version_id": spec_version_id, "approved_by": "tester"}, tool_context=None)
+    approve_spec_version(
+        {"spec_version_id": spec_version_id, "approved_by": "tester"}, tool_context=None
+    )
 
     zero_invariant_artifact = SpecAuthorityCompilationSuccess(
         scope_themes=["notes-only"],
@@ -183,11 +197,11 @@ def test_alignment_warning_persisted(engine, session: Session):
         spec_version_id=spec_version_id,
         compiler_version="1.0.0",
         prompt_hash="0" * 64,
-        scope_themes="[\"notes-only\"]",
+        scope_themes='["notes-only"]',
         invariants="[]",
         eligible_feature_ids="[]",
         rejected_features="[]",
-        spec_gaps="[\"No invariants extracted from spec\"]",
+        spec_gaps='["No invariants extracted from spec"]',
         compiled_artifact_json=SpecAuthorityCompilerOutput(
             root=zero_invariant_artifact
         ).model_dump_json(),
@@ -209,7 +223,9 @@ def test_alignment_warning_persisted(engine, session: Session):
     assert any(w["code"] == "NO_INVARIANTS" for w in evidence["alignment_warnings"])
 
 
-def test_alignment_evidence_includes_spec_and_hash(engine, session: Session, product_with_spec):
+def test_alignment_evidence_includes_spec_and_hash(
+    engine, session: Session, product_with_spec
+):
     """Evidence includes spec_version_id and input_hash without vision access."""
     spec_tools.engine = engine
     product, spec_version_id = product_with_spec

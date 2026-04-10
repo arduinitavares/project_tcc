@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -55,9 +54,7 @@ def _attribute_references_from_import(
 
 
 def test_product_vision_tool_imports_runtime_surfaces_from_models_packages() -> None:
-    module_path = (
-        ROOT / "orchestrator_agent/agent_tools/product_vision_tool/tools.py"
-    )
+    module_path = ROOT / "orchestrator_agent/agent_tools/product_vision_tool/tools.py"
 
     core_imports = _imported_names_from(module_path, "models.core")
     db_imports = _imported_names_from(module_path, "models.db")

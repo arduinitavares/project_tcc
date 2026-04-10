@@ -5,8 +5,8 @@ import pytest
 from utils.model_config import (
     OPENROUTER_PRIVACY_ERROR_MESSAGE,
     OPENROUTER_PROVIDER,
-    ZDR_MAX_RETRIES,
     ZDR_MAX_BACKOFF_SECONDS,
+    ZDR_MAX_RETRIES,
     get_openrouter_extra_body,
     is_zdr_routing_error,
 )
@@ -34,8 +34,10 @@ def test_is_zdr_routing_error_detects_zdr_errors():
     assert is_zdr_routing_error(Exception("No ZDR provider available"))
     assert is_zdr_routing_error(Exception("data_collection=deny not supported"))
     assert is_zdr_routing_error(Exception("No providers available for this model"))
-    assert is_zdr_routing_error(Exception("provider unavailable, no matching providers"))
-    
+    assert is_zdr_routing_error(
+        Exception("provider unavailable, no matching providers")
+    )
+
     # Should NOT detect (unrelated errors)
     assert not is_zdr_routing_error(Exception("Connection timeout"))
     assert not is_zdr_routing_error(Exception("Invalid API key"))

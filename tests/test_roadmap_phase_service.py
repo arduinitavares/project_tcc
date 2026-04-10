@@ -31,12 +31,11 @@ def test_record_roadmap_attempt_updates_working_state():
     )
 
     assert count == 1
-    assert state["roadmap_last_input_context"] == {
-        "user_raw_text": "refine"
-    }
-    assert state["product_roadmap_assessment"]["roadmap_releases"][0][
-        "release_name"
-    ] == "M1"
+    assert state["roadmap_last_input_context"] == {"user_raw_text": "refine"}
+    assert (
+        state["product_roadmap_assessment"]["roadmap_releases"][0]["release_name"]
+        == "M1"
+    )
     assert state["roadmap_releases"][0]["release_name"] == "M1"
     assert state["roadmap_attempts"][0]["failure_stage"] == "output_validation"
 

@@ -4,12 +4,10 @@ import sys
 import tempfile
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 # Ensure we can import from the root of the project
-sys.path.insert(
-    0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-)
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Set isolated DB targets before imports that might initialize them
 temp_db_path = tempfile.mktemp(suffix=".db")
@@ -36,13 +34,9 @@ from agile_sqlmodel import (  # noqa: E402
 from models.core import Team
 
 
-def setup_data(
-    session, num_stories=100, num_sprints=5, num_logs=3, num_tasks=5
-):
+def setup_data(session, num_stories=100, num_sprints=5, num_logs=3, num_tasks=5):
     # Create product
-    product = Product(
-        name=f"Bench Product {uuid.uuid4()}", description="Bench"
-    )
+    product = Product(name=f"Bench Product {uuid.uuid4()}", description="Bench")
     session.add(product)
     session.commit()
     session.refresh(product)
@@ -55,7 +49,7 @@ def setup_data(
 
     # Create Sprints
     sprints = []
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for _ in range(num_sprints):
         s = Sprint(
             product_id=product.product_id,
@@ -146,9 +140,7 @@ async def run_benchmark():
             session, num_stories=500, num_sprints=2, num_logs=2, num_tasks=5
         )
 
-    print(
-        f"Set up benchmark data. Product ID: {product_id}, Requirement: {parent_req}"
-    )
+    print(f"Set up benchmark data. Product ID: {product_id}, Requirement: {parent_req}")
 
     start_time = time.time()
     await api.delete_project_story(product_id, parent_req)

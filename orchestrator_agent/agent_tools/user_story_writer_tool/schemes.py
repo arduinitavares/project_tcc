@@ -1,9 +1,8 @@
 """Input and output schemas for the User Story Writer agent."""
 
-from typing import Annotated, List, Literal, Optional
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
 
 _LOW_WARNING_PLACEHOLDER_STRINGS = {
     "only include this key if score is low",
@@ -38,7 +37,7 @@ class UserStoryItem(BaseModel):
         ),
     ]
     acceptance_criteria: Annotated[
-        List[str],
+        list[str],
         Field(
             min_length=1,
             description=(
@@ -49,7 +48,9 @@ class UserStoryItem(BaseModel):
     ]
     invest_score: Annotated[
         Literal["High", "Medium", "Low"],
-        Field(description="INVEST compliance quality grade for this story (Page 73). True effort is tracked in estimated_effort."),
+        Field(
+            description="INVEST compliance quality grade for this story (Page 73). True effort is tracked in estimated_effort."
+        ),
     ]
     estimated_effort: Annotated[
         Literal["XS", "S", "M", "L", "XL"],
@@ -58,14 +59,14 @@ class UserStoryItem(BaseModel):
         ),
     ]
     produced_artifacts: Annotated[
-        List[str],
+        list[str],
         Field(
             description="List of specific artifacts, documents, or deliverables this story produces.",
             default_factory=list,
         ),
     ]
     decomposition_warning: Annotated[
-        Optional[str],
+        str | None,
         Field(
             default=None,
             description=(
@@ -108,25 +109,34 @@ class UserStoryItem(BaseModel):
         """Enforce 'As a ... I want ... so that ...' syntax (Page 72)."""
         stmt = self.statement or ""
         stmt_lower = stmt.lower().strip()
-        
+
         # Strip common markdown bolding just in case the agent formats it
         stmt_lower = stmt_lower.replace("**", "").replace("*", "")
-        
-        if not (stmt_lower.startswith("as a ") or stmt_lower.startswith("as an ") or stmt_lower.startswith("as the ")):
-            raise ValueError("Statement must precisely start with 'As a ...', 'As an ...', or 'As the ...'")
-            
+
+        if not (
+            stmt_lower.startswith("as a ")
+            or stmt_lower.startswith("as an ")
+            or stmt_lower.startswith("as the ")
+        ):
+            raise ValueError(
+                "Statement must precisely start with 'As a ...', 'As an ...', or 'As the ...'"
+            )
+
         if " i want " not in stmt_lower:
             raise ValueError("Statement must contain '... I want ...'")
-            
+
         if " so that " not in stmt_lower:
             raise ValueError("Statement must contain '... so that ...'")
-            
+
         return self
 
     @model_validator(mode="after")
     def _validate_warning_consistency(self):
         """decomposition_warning must be present only when invest_score is Low."""
-        if self.invest_score in ("High", "Medium") and self.decomposition_warning is not None:
+        if (
+            self.invest_score in ("High", "Medium")
+            and self.decomposition_warning is not None
+        ):
             raise ValueError(
                 "decomposition_warning must be omitted (null) when invest_score is "
                 "'High' or 'Medium'."
@@ -204,7 +214,7 @@ class UserStoryWriterOutput(BaseModel):
         Field(description="Copied verbatim from input for traceability."),
     ]
     user_stories: Annotated[
-        List[UserStoryItem],
+        list[UserStoryItem],
         Field(
             min_length=1,
             max_length=8,
@@ -221,7 +231,7 @@ class UserStoryWriterOutput(BaseModel):
         ),
     ]
     clarifying_questions: Annotated[
-        List[str],
+        list[str],
         Field(
             default_factory=list,
             description="Questions for the user if is_complete is False.",

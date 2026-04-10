@@ -1,6 +1,6 @@
 """Focused unit tests for the packet renderer (prompt contract split)."""
 
-from services.packet_renderer import render_packet, render_human_brief
+from services.packet_renderer import render_human_brief, render_packet
 
 
 def _minimal_packet(
@@ -67,6 +67,7 @@ def _minimal_packet(
 # Execution Protocol
 # ------------------------------------------------------------------
 
+
 def test_render_packet_uses_task_checklist_for_task_packets():
     packet = _minimal_packet(
         schema_version="task_packet.v2",
@@ -79,7 +80,10 @@ def test_render_packet_uses_task_checklist_for_task_packets():
 
     assert "Task Checklist" in output
     assert "Verify every task checklist item before claiming completion." in output
-    assert "This prompt assumes the session was already initialized with the parent story prompt. If not, restart with Copy Story Prompt." in output
+    assert (
+        "This prompt assumes the session was already initialized with the parent story prompt. If not, restart with Copy Story Prompt."
+        in output
+    )
     assert "- [ ] Confirm request shape" in output
     assert "- [ ] Add request tests" in output
     assert "Acceptance Criteria Checklist" not in output
@@ -146,7 +150,9 @@ def test_story_packet_human_brief_uses_top_level_story_shape():
 
 
 def test_human_brief_has_no_execution_contract():
-    packet = _minimal_packet(ac_items=["some AC"], task_checklist_items=["some checklist"])
+    packet = _minimal_packet(
+        ac_items=["some AC"], task_checklist_items=["some checklist"]
+    )
     output = render_human_brief(packet)
     assert "<execution_protocol>" not in output
     assert "<completion_report>" not in output

@@ -6,14 +6,12 @@ does not need to do any spec work.
 Run with: pytest tests/unit/test_save_vision_links_spec.py -v
 """
 
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from google.adk.tools import ToolContext
 from sqlalchemy.engine import Engine
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from agile_sqlmodel import Product
 from orchestrator_agent.agent_tools.product_vision_tool.tools import (
@@ -21,10 +19,10 @@ from orchestrator_agent.agent_tools.product_vision_tool.tools import (
     save_vision_tool,
 )
 
-
 # ============================================================================
 # Helpers
 # ============================================================================
+
 
 def _make_context(state: dict) -> MagicMock:
     ctx = MagicMock(spec=ToolContext)
@@ -50,9 +48,11 @@ def _stub_compile_failure(params, tool_context=None):
 # Tests
 # ============================================================================
 
+
 class TestSaveVisionLinksSpec:
     """save_vision_tool must link spec + compile authority when
-    pending_spec_path is present in state."""
+    pending_spec_path is present in state.
+    """
 
     def test_links_spec_when_pending_spec_path_in_state(self, engine: Engine):
         """
@@ -69,23 +69,28 @@ class TestSaveVisionLinksSpec:
         if not p.exists():
             p.write_text("# Test Spec\n## Features\n- F1", encoding="utf-8")
 
-        ctx = _make_context({
-            "pending_spec_path": spec_path,
-            "pending_spec_content": "# Test Spec",
-        })
+        ctx = _make_context(
+            {
+                "pending_spec_path": spec_path,
+                "pending_spec_content": "# Test Spec",
+            }
+        )
 
         vision_input = SaveVisionInput(
             project_name="Spec Link Project",
             product_vision_statement="A great vision.",
         )
 
-        with patch(
-            "orchestrator_agent.agent_tools.product_vision_tool.tools.get_engine",
-            return_value=engine,
-        ), patch(
-            "orchestrator_agent.agent_tools.product_vision_tool.tools.update_spec_and_compile_authority",
-            side_effect=_stub_compile_success,
-        ) as compile_mock:
+        with (
+            patch(
+                "orchestrator_agent.agent_tools.product_vision_tool.tools.get_engine",
+                return_value=engine,
+            ),
+            patch(
+                "orchestrator_agent.agent_tools.product_vision_tool.tools.update_spec_and_compile_authority",
+                side_effect=_stub_compile_success,
+            ) as compile_mock,
+        ):
             result = save_vision_tool(vision_input, ctx)
 
         assert result["success"] is True
@@ -94,6 +99,7 @@ class TestSaveVisionLinksSpec:
         # DB assertions
         with Session(engine) as session:
             product = session.get(Product, product_id)
+            assert product is not None
             assert product.spec_file_path == spec_path
             assert product.spec_loaded_at is not None
 
@@ -122,19 +128,23 @@ class TestSaveVisionLinksSpec:
             product_vision_statement="Vision without spec.",
         )
 
-        with patch(
-            "orchestrator_agent.agent_tools.product_vision_tool.tools.get_engine",
-            return_value=engine,
-        ), patch(
-            "orchestrator_agent.agent_tools.product_vision_tool.tools.update_spec_and_compile_authority",
-            side_effect=_stub_compile_success,
-        ) as compile_mock:
+        with (
+            patch(
+                "orchestrator_agent.agent_tools.product_vision_tool.tools.get_engine",
+                return_value=engine,
+            ),
+            patch(
+                "orchestrator_agent.agent_tools.product_vision_tool.tools.update_spec_and_compile_authority",
+                side_effect=_stub_compile_success,
+            ) as compile_mock,
+        ):
             result = save_vision_tool(vision_input, ctx)
 
         assert result["success"] is True
 
         with Session(engine) as session:
             product = session.get(Product, result["product_id"])
+            assert product is not None
             assert product.spec_file_path is None
             assert product.spec_loaded_at is None
 
@@ -157,21 +167,26 @@ class TestSaveVisionLinksSpec:
         if not p.exists():
             p.write_text("# Test Spec\n", encoding="utf-8")
 
-        ctx = _make_context({
-            "pending_spec_path": spec_path,
-        })
+        ctx = _make_context(
+            {
+                "pending_spec_path": spec_path,
+            }
+        )
 
         vision_input = SaveVisionInput(
             project_name="Compile Fail Project",
             product_vision_statement="Vision here.",
         )
 
-        with patch(
-            "orchestrator_agent.agent_tools.product_vision_tool.tools.get_engine",
-            return_value=engine,
-        ), patch(
-            "orchestrator_agent.agent_tools.product_vision_tool.tools.update_spec_and_compile_authority",
-            side_effect=_stub_compile_failure,
+        with (
+            patch(
+                "orchestrator_agent.agent_tools.product_vision_tool.tools.get_engine",
+                return_value=engine,
+            ),
+            patch(
+                "orchestrator_agent.agent_tools.product_vision_tool.tools.update_spec_and_compile_authority",
+                side_effect=_stub_compile_failure,
+            ),
         ):
             result = save_vision_tool(vision_input, ctx)
 
@@ -181,6 +196,7 @@ class TestSaveVisionLinksSpec:
         # Spec file was linked even though compile failed
         with Session(engine) as session:
             product = session.get(Product, result["product_id"])
+            assert product is not None
             assert product.spec_file_path == spec_path
 
         assert ctx.state.get("spec_persisted") is True
@@ -204,9 +220,11 @@ class TestSaveVisionLinksSpec:
         if not p.exists():
             p.write_text("# Test\n", encoding="utf-8")
 
-        ctx = _make_context({
-            "pending_spec_path": spec_path,
-        })
+        ctx = _make_context(
+            {
+                "pending_spec_path": spec_path,
+            }
+        )
 
         vision_input = SaveVisionInput(
             product_id=p_id,
@@ -214,19 +232,23 @@ class TestSaveVisionLinksSpec:
             product_vision_statement="Updated vision.",
         )
 
-        with patch(
-            "orchestrator_agent.agent_tools.product_vision_tool.tools.get_engine",
-            return_value=engine,
-        ), patch(
-            "orchestrator_agent.agent_tools.product_vision_tool.tools.update_spec_and_compile_authority",
-            side_effect=_stub_compile_success,
-        ) as compile_mock:
+        with (
+            patch(
+                "orchestrator_agent.agent_tools.product_vision_tool.tools.get_engine",
+                return_value=engine,
+            ),
+            patch(
+                "orchestrator_agent.agent_tools.product_vision_tool.tools.update_spec_and_compile_authority",
+                side_effect=_stub_compile_success,
+            ) as compile_mock,
+        ):
             result = save_vision_tool(vision_input, ctx)
 
         assert result["success"] is True
 
         with Session(engine) as session:
             product = session.get(Product, p_id)
+            assert product is not None
             assert product.spec_file_path == spec_path
             assert product.spec_loaded_at is not None
             assert product.vision == "Updated vision."

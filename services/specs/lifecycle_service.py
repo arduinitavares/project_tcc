@@ -2,19 +2,32 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
 import hashlib
-
-from google.adk.tools import ToolContext
-from pydantic import BaseModel, Field
+import logging
 import re
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
+
+from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 from models.core import Product
 from models.db import get_engine
 from models.specs import SpecRegistry
+from services.specs._engine_resolution import resolve_spec_engine
+from services.specs.compiler_service import (
+    UpdateSpecAndCompileAuthorityInput,
+    _resolve_update_spec_and_compile_authority,
+    update_spec_and_compile_authority,
+)
+
+if TYPE_CHECKING:
+    from google.adk.tools import ToolContext
+    from sqlalchemy.engine import Connection, Engine
+
+logger: logging.Logger = logging.getLogger(name=__name__)
+_MAX_SPEC_SIZE_KB = 100
 
 _DEFAULT_GET_ENGINE = get_engine
 
@@ -22,10 +35,10 @@ _DEFAULT_GET_ENGINE = get_engine
 class LinkSpecToProductInput(BaseModel):
     """Input schema for linking an on-disk specification to a product."""
 
-    product_id: int = Field(description="ID of the project to link the specification to")
-    spec_path: str = Field(
-        description="Path to on-disk specification file (.md, .txt)"
+    product_id: int = Field(
+        description="ID of the project to link the specification to"
     )
+    spec_path: str = Field(description="Path to on-disk specification file (.md, .txt)")
 
 
 class ReadProjectSpecificationInput(BaseModel):
@@ -37,10 +50,16 @@ class SaveProjectSpecificationInput(BaseModel):
 
     product_id: int = Field(description="ID of project to attach specification to")
     spec_source: str = Field(
-        description='Source type: "file" (load from file path) or "text" (pasted content)'
+        description=(
+            'Source type: "file" (load from file path) '
+            'or "text" (pasted content)'
+        )
     )
     content: str = Field(
-        description="File path (if spec_source='file') or raw text content (if spec_source='text')"
+        description=(
+            "File path (if spec_source='file') or raw text content "
+            "(if spec_source='text')"
+        )
     )
 
 
@@ -66,10 +85,18 @@ class ApproveSpecVersionInput(BaseModel):
     )
 
 
-def _resolve_engine():
-    """Preserve the legacy spec_tools.engine monkeypatch seam for tests."""
-    from services.specs._engine_resolution import resolve_spec_engine
+def _normalize_input_params(params: object) -> dict[str, Any]:
+    """Normalize lifecycle params from either a Pydantic model or a raw dict."""
+    if isinstance(params, BaseModel):
+        dumped = params.model_dump()
+        return dumped if isinstance(dumped, dict) else {}
+    if isinstance(params, dict):
+        return cast("dict[str, Any]", params)
+    return {}
 
+
+def _resolve_engine() -> Engine | Connection | None:
+    """Preserve the legacy spec_tools.engine monkeypatch seam for tests."""
     return resolve_spec_engine(
         service_get_engine=get_engine,
         default_service_get_engine=_DEFAULT_GET_ENGINE,
@@ -82,16 +109,15 @@ def _compile_spec_authority_from_path(
     spec_path: str,
     tool_context: ToolContext | None,
 ) -> dict[str, Any]:
-    from tools.spec_tools import (  # pylint: disable=import-outside-toplevel
-        UpdateSpecAndCompileAuthorityInput,
-        update_spec_and_compile_authority,
+    compile_spec = (
+        _resolve_update_spec_and_compile_authority()
+        or update_spec_and_compile_authority
     )
-
     compile_input = UpdateSpecAndCompileAuthorityInput(
         product_id=product_id,
         content_ref=spec_path,
     )
-    return update_spec_and_compile_authority(
+    return compile_spec(
         compile_input,
         tool_context=tool_context,
     )
@@ -170,10 +196,13 @@ def _load_spec_text_from_file(path_str: str) -> tuple[str, float] | dict[str, An
         }
 
     file_size_kb = path.stat().st_size / 1024
-    if file_size_kb > 100:
+    if file_size_kb > _MAX_SPEC_SIZE_KB:
         return {
             "success": False,
-            "error": f"File too large ({file_size_kb:.1f}KB). Maximum: 100KB",
+            "error": (
+                f"File too large ({file_size_kb:.1f}KB). "
+                f"Maximum: {_MAX_SPEC_SIZE_KB}KB"
+            ),
         }
 
     try:
@@ -191,10 +220,13 @@ def _write_backup_spec_file(
     *, product_name: str, product_id: int, spec_text: str
 ) -> tuple[str, float] | dict[str, Any]:
     file_size_kb = len(spec_text) / 1024
-    if file_size_kb > 100:
+    if file_size_kb > _MAX_SPEC_SIZE_KB:
         return {
             "success": False,
-            "error": f"Specification too large ({file_size_kb:.1f}KB). Maximum: 100KB",
+            "error": (
+                f"Specification too large ({file_size_kb:.1f}KB). "
+                f"Maximum: {_MAX_SPEC_SIZE_KB}KB"
+            ),
         }
 
     specs_dir = Path("specs")
@@ -207,24 +239,46 @@ def _write_backup_spec_file(
 
     try:
         spec_path_obj.write_text(spec_text, encoding="utf-8")
-    except (OSError, IOError) as exc:
+    except OSError as exc:
         return {
             "success": False,
-            "error": f"Failed to create backup file: {str(exc)}",
+            "error": f"Failed to create backup file: {exc!s}",
         }
 
     return str(spec_path_obj), file_size_kb
 
 
+def _resolve_spec_storage(
+    *,
+    product: Product,
+    parsed: SaveProjectSpecificationInput,
+) -> tuple[str, str, float, bool] | dict[str, Any]:
+    """Resolve the persisted spec text/path pair from file or pasted content."""
+    if parsed.spec_source == "file":
+        loaded = _load_spec_text_from_file(parsed.content)
+        if isinstance(loaded, dict):
+            return loaded
+        spec_text, file_size_kb = loaded
+        return spec_text, parsed.content, file_size_kb, False
+
+    saved = _write_backup_spec_file(
+        product_name=product.name,
+        product_id=parsed.product_id,
+        spec_text=parsed.content,
+    )
+    if isinstance(saved, dict):
+        return saved
+    spec_path, file_size_kb = saved
+    return parsed.content, spec_path, file_size_kb, True
+
+
 def register_spec_version(
-    params: RegisterSpecVersionInput,
+    params: dict[str, Any] | RegisterSpecVersionInput,
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Register a new spec version with DRAFT status and SHA-256 hash."""
     del tool_context
-    if hasattr(params, "model_dump"):
-        params = params.model_dump()
-    parsed = RegisterSpecVersionInput.model_validate(params or {})
+    parsed = RegisterSpecVersionInput.model_validate(_normalize_input_params(params))
 
     spec_hash = hashlib.sha256(parsed.content.encode("utf-8")).hexdigest()
 
@@ -242,7 +296,7 @@ def register_spec_version(
             content=parsed.content,
             content_ref=parsed.content_ref,
             status="draft",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         session.add(spec_version)
         session.commit()
@@ -261,14 +315,12 @@ def register_spec_version(
 
 
 def approve_spec_version(
-    params: ApproveSpecVersionInput,
+    params: dict[str, Any] | ApproveSpecVersionInput,
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Approve a spec version so it becomes eligible for compilation."""
     del tool_context
-    if hasattr(params, "model_dump"):
-        params = params.model_dump()
-    parsed = ApproveSpecVersionInput.model_validate(params or {})
+    parsed = ApproveSpecVersionInput.model_validate(_normalize_input_params(params))
 
     with Session(_resolve_engine()) as session:
         spec_version = session.get(SpecRegistry, parsed.spec_version_id)
@@ -279,7 +331,7 @@ def approve_spec_version(
             }
 
         spec_version.status = "approved"
-        spec_version.approved_at = datetime.now(timezone.utc)
+        spec_version.approved_at = datetime.now(UTC)
         spec_version.approved_by = parsed.approved_by
         spec_version.approval_notes = parsed.approval_notes
 
@@ -303,10 +355,8 @@ def link_spec_to_product(
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Link an on-disk specification file to a product and compile authority."""
-    if hasattr(params, "model_dump"):
-        params = params.model_dump()
     try:
-        parsed = LinkSpecToProductInput.model_validate(params or {})
+        parsed = LinkSpecToProductInput.model_validate(_normalize_input_params(params))
     except ValueError as exc:
         return {"success": False, "error": f"Invalid parameters: {exc}"}
 
@@ -319,10 +369,13 @@ def link_spec_to_product(
         }
 
     file_size_kb = path.stat().st_size / 1024
-    if file_size_kb > 100:
+    if file_size_kb > _MAX_SPEC_SIZE_KB:
         return {
             "success": False,
-            "error": f"File too large ({file_size_kb:.1f}KB). Maximum: 100KB",
+            "error": (
+                f"File too large ({file_size_kb:.1f}KB). "
+                f"Maximum: {_MAX_SPEC_SIZE_KB}KB"
+            ),
         }
 
     with Session(_resolve_engine()) as session:
@@ -335,7 +388,7 @@ def link_spec_to_product(
 
         is_update = product.spec_file_path is not None
         product.spec_file_path = parsed.spec_path
-        product.spec_loaded_at = datetime.now(timezone.utc)
+        product.spec_loaded_at = datetime.now(UTC)
         # NOTE: product.technical_spec is intentionally NOT written.
         # The file on disk + SpecRegistry are the sources of truth.
 
@@ -345,9 +398,12 @@ def link_spec_to_product(
         product_name = product.name
 
     action = "updated" if is_update else "linked"
-    print(
-        f"[link_spec_to_product] Spec {action} "
-        f"for '{product_name}' -> {parsed.spec_path} ({file_size_kb:.1f}KB)"
+    logger.info(
+        "Spec %s for %r -> %s (%.1fKB)",
+        action,
+        product_name,
+        parsed.spec_path,
+        file_size_kb,
     )
 
     if tool_context and tool_context.state is not None:
@@ -389,8 +445,7 @@ def link_spec_to_product(
         "spec_version_id": compile_result.get("spec_version_id"),
         "authority_id": compile_result.get("authority_id"),
         "message": (
-            f"Specification {action} ({file_size_kb:.1f}KB) "
-            "and authority compiled."
+            f"Specification {action} ({file_size_kb:.1f}KB) and authority compiled."
         ),
     }
 
@@ -400,14 +455,14 @@ def save_project_specification(
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Save or update a project's specification and compile authority."""
-    if hasattr(params, "model_dump"):
-        params = params.model_dump()
     try:
-        parsed = SaveProjectSpecificationInput.model_validate(params or {})
+        parsed = SaveProjectSpecificationInput.model_validate(
+            _normalize_input_params(params)
+        )
     except ValueError as exc:
         return {
             "success": False,
-            "error": f"Invalid parameters: {str(exc)}",
+            "error": f"Invalid parameters: {exc!s}",
         }
 
     if parsed.spec_source not in ["file", "text"]:
@@ -426,29 +481,15 @@ def save_project_specification(
                 "error": f"Product {parsed.product_id} not found",
             }
 
-        if parsed.spec_source == "file":
-            loaded = _load_spec_text_from_file(parsed.content)
-            if isinstance(loaded, dict):
-                return loaded
-            spec_text, file_size_kb = loaded
-            spec_path = parsed.content
-            file_created = False
-        else:
-            saved = _write_backup_spec_file(
-                product_name=product.name,
-                product_id=parsed.product_id,
-                spec_text=parsed.content,
-            )
-            if isinstance(saved, dict):
-                return saved
-            spec_path, file_size_kb = saved
-            spec_text = parsed.content
-            file_created = True
+        storage = _resolve_spec_storage(product=product, parsed=parsed)
+        if isinstance(storage, dict):
+            return storage
+        spec_text, spec_path, file_size_kb, file_created = storage
 
         is_update = product.technical_spec is not None
         product.technical_spec = spec_text
         product.spec_file_path = spec_path
-        product.spec_loaded_at = datetime.now(timezone.utc)
+        product.spec_loaded_at = datetime.now(UTC)
 
         session.add(product)
         session.commit()
@@ -502,9 +543,7 @@ def read_project_specification(
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Read the active project's specification through the lifecycle boundary."""
-    if hasattr(params, "model_dump"):
-        params = params.model_dump()
-    ReadProjectSpecificationInput.model_validate(params or {})
+    ReadProjectSpecificationInput.model_validate(_normalize_input_params(params))
 
     if not tool_context or not tool_context.state:
         return {
@@ -513,7 +552,7 @@ def read_project_specification(
             "spec_content": None,
         }
 
-    state: dict[str, Any] = tool_context.state
+    state = cast("dict[str, Any]", tool_context.state)
     active_project = state.get("active_project")
     if not active_project:
         return {
@@ -562,9 +601,10 @@ def read_project_specification(
         sections = extract_markdown_sections(spec_content)
         token_estimate = len(spec_content) // 4
 
-        print(
-            f"[read_project_specification] Loaded spec for "
-            f"'{product.name}' (~{token_estimate} tokens)"
+        logger.info(
+            "Loaded spec for %r (~%s tokens)",
+            product.name,
+            token_estimate,
         )
 
         return {

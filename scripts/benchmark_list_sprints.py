@@ -1,20 +1,27 @@
-import unittest
-from datetime import date, timedelta
-import sys
 import os
+import sys
+from datetime import date, timedelta
 
-from sqlalchemy import event, func
+from sqlalchemy import event
 from sqlalchemy.engine import Engine
-from sqlmodel import Session, SQLModel, create_engine, select
+from sqlmodel import Session, SQLModel, create_engine
 
 # Add repo root to path
 sys.path.append(os.getcwd())
 
-from agile_sqlmodel import Product, Sprint, SprintStatus, SprintStory, StoryStatus, UserStory
-from models.core import Team
-
 # Import the function to be tested
 from orchestrator_agent.agent_tools.sprint_planning import sprint_query_tools
+
+from agile_sqlmodel import (
+    Product,
+    Sprint,
+    SprintStatus,
+    SprintStory,
+    StoryStatus,
+    UserStory,
+)
+from models.core import Team
+
 
 class QueryCounter:
     def __init__(self):
@@ -22,6 +29,7 @@ class QueryCounter:
 
     def __call__(self, conn, cursor, statement, parameters, context, executemany):
         self.count += 1
+
 
 def setup_data(session, product_id):
     # Create 5 teams
@@ -41,8 +49,8 @@ def setup_data(session, product_id):
         team = teams[i % 5]
         sprint = Sprint(
             goal=f"Sprint {i}",
-            start_date=base_date + timedelta(days=i*14),
-            end_date=base_date + timedelta(days=(i+1)*14 - 1),
+            start_date=base_date + timedelta(days=i * 14),
+            end_date=base_date + timedelta(days=(i + 1) * 14 - 1),
             status=SprintStatus.ACTIVE,
             product_id=product_id,
             team_id=team.team_id,
@@ -62,13 +70,14 @@ def setup_data(session, product_id):
             story_points=3,
         )
         session.add(story)
-        session.commit() # Get ID
+        session.commit()  # Get ID
         session.refresh(story)
 
         # Assign to a sprint
         sprint = sprints[i % 20]
         session.add(SprintStory(sprint_id=sprint.sprint_id, story_id=story.story_id))
     session.commit()
+
 
 def run_benchmark():
     # Setup DB
@@ -110,6 +119,7 @@ def run_benchmark():
     print(f"Total queries executed: {query_counter.count}")
 
     return query_counter.count
+
 
 if __name__ == "__main__":
     run_benchmark()

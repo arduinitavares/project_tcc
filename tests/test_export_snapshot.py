@@ -11,15 +11,15 @@ from sqlmodel import Session
 from agile_sqlmodel import (
     CompiledSpecAuthority,
     Product,
+    SpecRegistry,
     Sprint,
     SprintStatus,
     SprintStory,
-    SpecRegistry,
     TimeFrame,
     UserStory,
 )
-from scripts.export_snapshot import export_snapshot_command
 from models.core import Epic, Feature, Team, Theme
+from scripts.export_snapshot import export_snapshot_command
 from tools.export_snapshot import export_project_snapshot_html
 from utils.spec_schemas import (
     Invariant,
@@ -118,7 +118,9 @@ def _insert_current_sprint(
     return sprint
 
 
-def _insert_approved_spec_with_authority(session: Session, product_id: int) -> SpecRegistry:
+def _insert_approved_spec_with_authority(
+    session: Session, product_id: int
+) -> SpecRegistry:
     spec = SpecRegistry(
         product_id=product_id,
         spec_hash="hash123",
@@ -155,13 +157,15 @@ def _insert_approved_spec_with_authority(session: Session, product_id: int) -> S
         compiler_version="1.0.0",
         prompt_hash="a" * 64,
         scope_themes=json.dumps(["Payments"]),
-        invariants=json.dumps([
-            {
-                "id": "INV-0123456789abcdef",
-                "type": "REQUIRED_FIELD",
-                "parameters": {"field_name": "email"},
-            }
-        ]),
+        invariants=json.dumps(
+            [
+                {
+                    "id": "INV-0123456789abcdef",
+                    "type": "REQUIRED_FIELD",
+                    "parameters": {"field_name": "email"},
+                }
+            ]
+        ),
         eligible_feature_ids=json.dumps([]),
         compiled_artifact_json=compiled_json,
     )
@@ -176,7 +180,9 @@ def test_export_snapshot_html_basic(engine, tmp_path: Path) -> None:
         product = _insert_basic_project(session)
         product_id = product.product_id  # Capture before session closes
         story = _insert_story_structure(session, product_id)
-        _insert_current_sprint(session, product_id=product_id, story_ids=[story.story_id])
+        _insert_current_sprint(
+            session, product_id=product_id, story_ids=[story.story_id]
+        )
         _insert_approved_spec_with_authority(session, product_id)
 
     output_path = export_project_snapshot_html(
@@ -199,7 +205,9 @@ def test_export_snapshot_html_basic(engine, tmp_path: Path) -> None:
     assert "INV-0123456789abcdef" in html
 
 
-def test_export_snapshot_only_refined_current_sprint_stories(engine, tmp_path: Path) -> None:
+def test_export_snapshot_only_refined_current_sprint_stories(
+    engine, tmp_path: Path
+) -> None:
     with Session(engine) as session:
         product = _insert_basic_project(session)
         product_id = product.product_id

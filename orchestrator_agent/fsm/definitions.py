@@ -1,6 +1,33 @@
-from typing import Any, List, Set
+from typing import Any
 
 from pydantic import BaseModel, Field
+
+from orchestrator_agent.agent_tools.backlog_primer.tools import save_backlog_tool
+from orchestrator_agent.agent_tools.product_vision_tool.tools import save_vision_tool
+from orchestrator_agent.agent_tools.roadmap_builder.tools import save_roadmap_tool
+from orchestrator_agent.agent_tools.sprint_planner_tool.tools import (
+    save_sprint_plan_tool,
+)
+from orchestrator_agent.agent_tools.user_story_writer_tool.tools import (
+    save_stories_tool,
+)
+
+# --- Tool Imports ---
+from tools.orchestrator_tools import (
+    count_projects,
+    fetch_product_backlog,
+    get_project_by_name,
+    get_project_details,
+    list_projects,
+    load_specification_from_file,
+    select_project,
+)
+from tools.spec_tools import (
+    compile_spec_authority_for_version,
+    preview_spec_authority,
+    read_project_specification,
+    update_spec_and_compile_authority,
+)
 
 from .deterministic_tool_adapters import (
     backlog_primer_tool,
@@ -11,37 +38,19 @@ from .deterministic_tool_adapters import (
 )
 from .states import OrchestratorPhase, OrchestratorState
 
-# --- Tool Imports ---
-from tools.orchestrator_tools import (
-    count_projects,
-    list_projects,
-    get_project_details,
-    get_project_by_name,
-    select_project,
-    load_specification_from_file,
-    fetch_product_backlog,
-)
-from tools.spec_tools import (
-    read_project_specification,
-    compile_spec_authority_for_version,
-    update_spec_and_compile_authority,
-    preview_spec_authority,
-)
-from orchestrator_agent.agent_tools.product_vision_tool.tools import save_vision_tool
-from orchestrator_agent.agent_tools.backlog_primer.tools import save_backlog_tool
-from orchestrator_agent.agent_tools.roadmap_builder.tools import save_roadmap_tool
-from orchestrator_agent.agent_tools.sprint_planner_tool.tools import save_sprint_plan_tool
-from orchestrator_agent.agent_tools.user_story_writer_tool.tools import save_stories_tool
 
 class StateDefinition(BaseModel):
-      name: OrchestratorState
-      phase: OrchestratorPhase
-      instruction: str
-      tools: List[Any] = Field(default_factory=list)
-      allowed_transitions: Set[OrchestratorState] = Field(default_factory=lambda: set[OrchestratorState]())
+    name: OrchestratorState
+    phase: OrchestratorPhase
+    instruction: str
+    tools: list[Any] = Field(default_factory=list)
+    allowed_transitions: set[OrchestratorState] = Field(
+        default_factory=lambda: set[OrchestratorState]()
+    )
 
-      class Config:
-            arbitrary_types_allowed = True
+    class Config:
+        arbitrary_types_allowed = True
+
 
 # --- INSTRUCTIONS ---
 
@@ -510,29 +519,33 @@ STATE_REGISTRY = {
             OrchestratorState.STORY_REVIEW,
             OrchestratorState.SPEC_COMPILE,
             OrchestratorState.SPEC_UPDATE,
-        }
+        },
     ),
     OrchestratorState.VISION_INTERVIEW: StateDefinition(
         name=OrchestratorState.VISION_INTERVIEW,
         phase=OrchestratorPhase.VISION,
         instruction=COMMON_HEADER + VISION_INTERVIEW_INSTRUCTION,
         tools=[product_vision_tool],
-        allowed_transitions={OrchestratorState.VISION_INTERVIEW, OrchestratorState.VISION_REVIEW}
+        allowed_transitions={
+            OrchestratorState.VISION_INTERVIEW,
+            OrchestratorState.VISION_REVIEW,
+        },
     ),
     OrchestratorState.VISION_REVIEW: StateDefinition(
         name=OrchestratorState.VISION_REVIEW,
         phase=OrchestratorPhase.VISION,
         instruction=COMMON_HEADER + VISION_REVIEW_INSTRUCTION,
-        tools=[product_vision_tool, save_vision_tool], # Allow save or revision
-      allowed_transitions={
-         OrchestratorState.VISION_INTERVIEW,
-         OrchestratorState.VISION_PERSISTENCE,
-      }
+        tools=[product_vision_tool, save_vision_tool],  # Allow save or revision
+        allowed_transitions={
+            OrchestratorState.VISION_INTERVIEW,
+            OrchestratorState.VISION_PERSISTENCE,
+        },
     ),
     OrchestratorState.VISION_PERSISTENCE: StateDefinition(
         name=OrchestratorState.VISION_PERSISTENCE,
         phase=OrchestratorPhase.VISION,
-        instruction=COMMON_HEADER + """
+        instruction=COMMON_HEADER
+        + """
 # STATE 3 — VISION COMPLETE (Post-Save)
 
 **Trigger:** Vision has been saved to database via `save_vision_tool`.
@@ -544,137 +557,151 @@ STATE_REGISTRY = {
 2. **Prompt:** "Would you like to generate the backlog now?"
 3. **STOP.**
 """,
-      tools=[backlog_primer_tool],
-      allowed_transitions={OrchestratorState.BACKLOG_INTERVIEW, OrchestratorState.SETUP_REQUIRED}
+        tools=[backlog_primer_tool],
+        allowed_transitions={
+            OrchestratorState.BACKLOG_INTERVIEW,
+            OrchestratorState.SETUP_REQUIRED,
+        },
     ),
-   OrchestratorState.BACKLOG_INTERVIEW: StateDefinition(
-      name=OrchestratorState.BACKLOG_INTERVIEW,
-      phase=OrchestratorPhase.BACKLOG,
-      instruction=COMMON_HEADER + BACKLOG_INTERVIEW_INSTRUCTION,
-      tools=[backlog_primer_tool, save_backlog_tool],
-      allowed_transitions={OrchestratorState.BACKLOG_INTERVIEW, OrchestratorState.BACKLOG_REVIEW, OrchestratorState.BACKLOG_PERSISTENCE}
-   ),
-   OrchestratorState.BACKLOG_REVIEW: StateDefinition(
-      name=OrchestratorState.BACKLOG_REVIEW,
-      phase=OrchestratorPhase.BACKLOG,
-      instruction=COMMON_HEADER + BACKLOG_REVIEW_INSTRUCTION,
-      tools=[backlog_primer_tool, save_backlog_tool],
-      allowed_transitions={
-         OrchestratorState.BACKLOG_INTERVIEW,
-         OrchestratorState.BACKLOG_PERSISTENCE,
-      }
-   ),
-   OrchestratorState.BACKLOG_PERSISTENCE: StateDefinition(
-      name=OrchestratorState.BACKLOG_PERSISTENCE,
-      phase=OrchestratorPhase.BACKLOG,
-      instruction=COMMON_HEADER + BACKLOG_PERSISTENCE_INSTRUCTION,
-      tools=[roadmap_builder_tool, backlog_primer_tool],
-      allowed_transitions={
-         OrchestratorState.ROADMAP_INTERVIEW,
-         OrchestratorState.BACKLOG_INTERVIEW,
-      }
-   ),
-   OrchestratorState.SPRINT_SETUP: StateDefinition(
-      name=OrchestratorState.SPRINT_SETUP,
-      phase=OrchestratorPhase.SPRINT,
-      instruction=COMMON_HEADER + SPRINT_SETUP_INSTRUCTION,
-      tools=[sprint_planner_tool, get_project_details, fetch_product_backlog],
-      allowed_transitions={
-         OrchestratorState.SPRINT_SETUP,
-         OrchestratorState.SPRINT_DRAFT,
-         OrchestratorState.SETUP_REQUIRED,
-      }
-   ),
-   OrchestratorState.SPRINT_DRAFT: StateDefinition(
-      name=OrchestratorState.SPRINT_DRAFT,
-      phase=OrchestratorPhase.SPRINT,
-      instruction=COMMON_HEADER + SPRINT_DRAFT_INSTRUCTION,
-      tools=[sprint_planner_tool, save_sprint_plan_tool, fetch_product_backlog],
-      allowed_transitions={
-         OrchestratorState.SPRINT_SETUP,
-         OrchestratorState.SPRINT_DRAFT,
-         OrchestratorState.SPRINT_PERSISTENCE,
-         OrchestratorState.SETUP_REQUIRED,
-      }
-   ),
-   OrchestratorState.SPRINT_PERSISTENCE: StateDefinition(
-      name=OrchestratorState.SPRINT_PERSISTENCE,
-      phase=OrchestratorPhase.SPRINT,
-      instruction=COMMON_HEADER + SPRINT_PERSISTENCE_INSTRUCTION,
-      tools=[sprint_planner_tool],
-      allowed_transitions={
-         OrchestratorState.SPRINT_DRAFT,
-         OrchestratorState.SETUP_REQUIRED,
-      }
-   ),
-   OrchestratorState.ROADMAP_INTERVIEW: StateDefinition(
-      name=OrchestratorState.ROADMAP_INTERVIEW,
-      phase=OrchestratorPhase.ROADMAP,
-      instruction=COMMON_HEADER + ROADMAP_INTERVIEW_INSTRUCTION,
-      tools=[roadmap_builder_tool, save_roadmap_tool],
-      allowed_transitions={OrchestratorState.ROADMAP_INTERVIEW, OrchestratorState.ROADMAP_REVIEW, OrchestratorState.ROADMAP_PERSISTENCE}
-   ),
-   OrchestratorState.ROADMAP_REVIEW: StateDefinition(
-      name=OrchestratorState.ROADMAP_REVIEW,
-      phase=OrchestratorPhase.ROADMAP,
-      instruction=COMMON_HEADER + ROADMAP_REVIEW_INSTRUCTION,
-      tools=[roadmap_builder_tool, save_roadmap_tool],
-      allowed_transitions={
-         OrchestratorState.ROADMAP_INTERVIEW,
-         OrchestratorState.ROADMAP_PERSISTENCE,
-      }
-   ),
-   OrchestratorState.ROADMAP_PERSISTENCE: StateDefinition(
-      name=OrchestratorState.ROADMAP_PERSISTENCE,
-      phase=OrchestratorPhase.ROADMAP,
-      instruction=COMMON_HEADER + ROADMAP_PERSISTENCE_INSTRUCTION,
-      tools=[user_story_writer_tool, roadmap_builder_tool],
-      allowed_transitions={
-         OrchestratorState.STORY_INTERVIEW,
-         OrchestratorState.STORY_REVIEW,
-         OrchestratorState.ROADMAP_INTERVIEW,
-      }
-   ),
-   OrchestratorState.STORY_INTERVIEW: StateDefinition(
-      name=OrchestratorState.STORY_INTERVIEW,
-      phase=OrchestratorPhase.STORY,
-      instruction=COMMON_HEADER + STORY_INTERVIEW_INSTRUCTION,
-      tools=[user_story_writer_tool],
-      allowed_transitions={OrchestratorState.STORY_INTERVIEW, OrchestratorState.STORY_REVIEW}
-   ),
-   OrchestratorState.STORY_REVIEW: StateDefinition(
-      name=OrchestratorState.STORY_REVIEW,
-      phase=OrchestratorPhase.STORY,
-      instruction=COMMON_HEADER + STORY_REVIEW_INSTRUCTION,
-      tools=[user_story_writer_tool, save_stories_tool],
-      allowed_transitions={
-         OrchestratorState.STORY_INTERVIEW,
-         OrchestratorState.STORY_PERSISTENCE,
-      }
-   ),
-   OrchestratorState.STORY_PERSISTENCE: StateDefinition(
-      name=OrchestratorState.STORY_PERSISTENCE,
-      phase=OrchestratorPhase.STORY,
-      instruction=COMMON_HEADER + STORY_PERSISTENCE_INSTRUCTION,
-      tools=[user_story_writer_tool, fetch_product_backlog, sprint_planner_tool],
-      allowed_transitions={
-         OrchestratorState.STORY_INTERVIEW,
-         OrchestratorState.STORY_REVIEW,
-         OrchestratorState.SPRINT_DRAFT,
-      }
-   ),
+    OrchestratorState.BACKLOG_INTERVIEW: StateDefinition(
+        name=OrchestratorState.BACKLOG_INTERVIEW,
+        phase=OrchestratorPhase.BACKLOG,
+        instruction=COMMON_HEADER + BACKLOG_INTERVIEW_INSTRUCTION,
+        tools=[backlog_primer_tool, save_backlog_tool],
+        allowed_transitions={
+            OrchestratorState.BACKLOG_INTERVIEW,
+            OrchestratorState.BACKLOG_REVIEW,
+            OrchestratorState.BACKLOG_PERSISTENCE,
+        },
+    ),
+    OrchestratorState.BACKLOG_REVIEW: StateDefinition(
+        name=OrchestratorState.BACKLOG_REVIEW,
+        phase=OrchestratorPhase.BACKLOG,
+        instruction=COMMON_HEADER + BACKLOG_REVIEW_INSTRUCTION,
+        tools=[backlog_primer_tool, save_backlog_tool],
+        allowed_transitions={
+            OrchestratorState.BACKLOG_INTERVIEW,
+            OrchestratorState.BACKLOG_PERSISTENCE,
+        },
+    ),
+    OrchestratorState.BACKLOG_PERSISTENCE: StateDefinition(
+        name=OrchestratorState.BACKLOG_PERSISTENCE,
+        phase=OrchestratorPhase.BACKLOG,
+        instruction=COMMON_HEADER + BACKLOG_PERSISTENCE_INSTRUCTION,
+        tools=[roadmap_builder_tool, backlog_primer_tool],
+        allowed_transitions={
+            OrchestratorState.ROADMAP_INTERVIEW,
+            OrchestratorState.BACKLOG_INTERVIEW,
+        },
+    ),
+    OrchestratorState.SPRINT_SETUP: StateDefinition(
+        name=OrchestratorState.SPRINT_SETUP,
+        phase=OrchestratorPhase.SPRINT,
+        instruction=COMMON_HEADER + SPRINT_SETUP_INSTRUCTION,
+        tools=[sprint_planner_tool, get_project_details, fetch_product_backlog],
+        allowed_transitions={
+            OrchestratorState.SPRINT_SETUP,
+            OrchestratorState.SPRINT_DRAFT,
+            OrchestratorState.SETUP_REQUIRED,
+        },
+    ),
+    OrchestratorState.SPRINT_DRAFT: StateDefinition(
+        name=OrchestratorState.SPRINT_DRAFT,
+        phase=OrchestratorPhase.SPRINT,
+        instruction=COMMON_HEADER + SPRINT_DRAFT_INSTRUCTION,
+        tools=[sprint_planner_tool, save_sprint_plan_tool, fetch_product_backlog],
+        allowed_transitions={
+            OrchestratorState.SPRINT_SETUP,
+            OrchestratorState.SPRINT_DRAFT,
+            OrchestratorState.SPRINT_PERSISTENCE,
+            OrchestratorState.SETUP_REQUIRED,
+        },
+    ),
+    OrchestratorState.SPRINT_PERSISTENCE: StateDefinition(
+        name=OrchestratorState.SPRINT_PERSISTENCE,
+        phase=OrchestratorPhase.SPRINT,
+        instruction=COMMON_HEADER + SPRINT_PERSISTENCE_INSTRUCTION,
+        tools=[sprint_planner_tool],
+        allowed_transitions={
+            OrchestratorState.SPRINT_DRAFT,
+            OrchestratorState.SETUP_REQUIRED,
+        },
+    ),
+    OrchestratorState.ROADMAP_INTERVIEW: StateDefinition(
+        name=OrchestratorState.ROADMAP_INTERVIEW,
+        phase=OrchestratorPhase.ROADMAP,
+        instruction=COMMON_HEADER + ROADMAP_INTERVIEW_INSTRUCTION,
+        tools=[roadmap_builder_tool, save_roadmap_tool],
+        allowed_transitions={
+            OrchestratorState.ROADMAP_INTERVIEW,
+            OrchestratorState.ROADMAP_REVIEW,
+            OrchestratorState.ROADMAP_PERSISTENCE,
+        },
+    ),
+    OrchestratorState.ROADMAP_REVIEW: StateDefinition(
+        name=OrchestratorState.ROADMAP_REVIEW,
+        phase=OrchestratorPhase.ROADMAP,
+        instruction=COMMON_HEADER + ROADMAP_REVIEW_INSTRUCTION,
+        tools=[roadmap_builder_tool, save_roadmap_tool],
+        allowed_transitions={
+            OrchestratorState.ROADMAP_INTERVIEW,
+            OrchestratorState.ROADMAP_PERSISTENCE,
+        },
+    ),
+    OrchestratorState.ROADMAP_PERSISTENCE: StateDefinition(
+        name=OrchestratorState.ROADMAP_PERSISTENCE,
+        phase=OrchestratorPhase.ROADMAP,
+        instruction=COMMON_HEADER + ROADMAP_PERSISTENCE_INSTRUCTION,
+        tools=[user_story_writer_tool, roadmap_builder_tool],
+        allowed_transitions={
+            OrchestratorState.STORY_INTERVIEW,
+            OrchestratorState.STORY_REVIEW,
+            OrchestratorState.ROADMAP_INTERVIEW,
+        },
+    ),
+    OrchestratorState.STORY_INTERVIEW: StateDefinition(
+        name=OrchestratorState.STORY_INTERVIEW,
+        phase=OrchestratorPhase.STORY,
+        instruction=COMMON_HEADER + STORY_INTERVIEW_INSTRUCTION,
+        tools=[user_story_writer_tool],
+        allowed_transitions={
+            OrchestratorState.STORY_INTERVIEW,
+            OrchestratorState.STORY_REVIEW,
+        },
+    ),
+    OrchestratorState.STORY_REVIEW: StateDefinition(
+        name=OrchestratorState.STORY_REVIEW,
+        phase=OrchestratorPhase.STORY,
+        instruction=COMMON_HEADER + STORY_REVIEW_INSTRUCTION,
+        tools=[user_story_writer_tool, save_stories_tool],
+        allowed_transitions={
+            OrchestratorState.STORY_INTERVIEW,
+            OrchestratorState.STORY_PERSISTENCE,
+        },
+    ),
+    OrchestratorState.STORY_PERSISTENCE: StateDefinition(
+        name=OrchestratorState.STORY_PERSISTENCE,
+        phase=OrchestratorPhase.STORY,
+        instruction=COMMON_HEADER + STORY_PERSISTENCE_INSTRUCTION,
+        tools=[user_story_writer_tool, fetch_product_backlog, sprint_planner_tool],
+        allowed_transitions={
+            OrchestratorState.STORY_INTERVIEW,
+            OrchestratorState.STORY_REVIEW,
+            OrchestratorState.SPRINT_DRAFT,
+        },
+    ),
     OrchestratorState.SPEC_UPDATE: StateDefinition(
         name=OrchestratorState.SPEC_UPDATE,
         phase=OrchestratorPhase.SPEC,
         instruction=COMMON_HEADER + SPEC_UPDATE_INSTRUCTION,
         tools=[update_spec_and_compile_authority],
-        allowed_transitions={OrchestratorState.SETUP_REQUIRED}
+        allowed_transitions={OrchestratorState.SETUP_REQUIRED},
     ),
     OrchestratorState.SPEC_COMPILE: StateDefinition(
         name=OrchestratorState.SPEC_COMPILE,
         phase=OrchestratorPhase.SPEC,
         instruction=COMMON_HEADER + SPEC_COMPILE_INSTRUCTION,
         tools=[compile_spec_authority_for_version],
-        allowed_transitions={OrchestratorState.SETUP_REQUIRED}
-    )
+        allowed_transitions={OrchestratorState.SETUP_REQUIRED},
+    ),
 }

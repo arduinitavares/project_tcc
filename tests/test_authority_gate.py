@@ -12,13 +12,12 @@ These tests verify that:
 import hashlib
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict
-from unittest.mock import MagicMock, patch
+from datetime import UTC, datetime
+from typing import Any
+from unittest.mock import patch
 
 import pytest
-from pydantic import ValidationError
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from agile_sqlmodel import (
     CompiledSpecAuthority,
@@ -34,17 +33,16 @@ from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_s
     SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
     SPEC_AUTHORITY_COMPILER_VERSION,
 )
+from tools import spec_tools
 from utils.spec_schemas import (
     Invariant,
     InvariantType,
     RequiredFieldParams,
     SourceMapEntry,
-    SpecAuthorityCompilationSuccess,
     SpecAuthorityCompilationFailure,
+    SpecAuthorityCompilationSuccess,
     SpecAuthorityCompilerOutput,
 )
-import tools.spec_tools as spec_tools
-
 
 # --- Fixtures ---
 
@@ -111,7 +109,7 @@ def _create_spec_and_compiled_authority(
         content=spec_content,
         content_ref=None,
         status="approved",
-        approved_at=datetime.now(timezone.utc),
+        approved_at=datetime.now(UTC),
         approved_by="tester",
         approval_notes="approved",
     )
@@ -123,7 +121,7 @@ def _create_spec_and_compiled_authority(
         spec_version_id=spec_version.spec_version_id,
         compiler_version=SPEC_AUTHORITY_COMPILER_VERSION,
         prompt_hash=prompt_hash,
-        compiled_at=datetime.now(timezone.utc),
+        compiled_at=datetime.now(UTC),
         compiled_artifact_json=_create_compiled_artifact_json(),
         scope_themes=json.dumps(["Scope"]),
         invariants=json.dumps(["REQUIRED_FIELD:user_id"]),
@@ -142,7 +140,7 @@ def _create_spec_and_compiled_authority(
             status="accepted",
             policy="auto",
             decided_by="system",
-            decided_at=datetime.now(timezone.utc),
+            decided_at=datetime.now(UTC),
             rationale="Auto-accepted for test",
             compiler_version=SPEC_AUTHORITY_COMPILER_VERSION,
             prompt_hash=prompt_hash,
@@ -179,7 +177,7 @@ def _create_spec_with_failure_authority(
         content=spec_content,
         content_ref=None,
         status="approved",
-        approved_at=datetime.now(timezone.utc),
+        approved_at=datetime.now(UTC),
         approved_by="tester",
         approval_notes="approved",
     )
@@ -192,7 +190,7 @@ def _create_spec_with_failure_authority(
         spec_version_id=spec_version.spec_version_id,
         compiler_version=SPEC_AUTHORITY_COMPILER_VERSION,
         prompt_hash=prompt_hash,
-        compiled_at=datetime.now(timezone.utc),
+        compiled_at=datetime.now(UTC),
         compiled_artifact_json=_create_failure_artifact_json(),  # Failure!
         scope_themes=json.dumps([]),
         invariants=json.dumps([]),
@@ -211,7 +209,7 @@ def _create_spec_with_failure_authority(
         status="accepted",
         policy="auto",
         decided_by="system",
-        decided_at=datetime.now(timezone.utc),
+        decided_at=datetime.now(UTC),
         rationale="Auto-accepted for test",
         compiler_version=SPEC_AUTHORITY_COMPILER_VERSION,
         prompt_hash=prompt_hash,
@@ -280,7 +278,9 @@ class TestAuthorityGateExistingAccepted:
         expected_spec_version_id = spec_version.spec_version_id
 
         # Act
-        with patch.object(spec_tools, "update_spec_and_compile_authority") as mock_update:
+        with patch.object(
+            spec_tools, "update_spec_and_compile_authority"
+        ) as mock_update:
             result = ensure_accepted_spec_authority(
                 product_id=sample_product.product_id,
                 spec_content="Some new spec content",  # Should be ignored
@@ -489,14 +489,18 @@ class TestAuthorityGateUpdateFailure:
             "error": "Compilation failed due to invalid spec format",
         }
 
-        with patch.object(
-            spec_tools, "update_spec_and_compile_authority", return_value=mock_return
+        with (
+            patch.object(
+                spec_tools,
+                "update_spec_and_compile_authority",
+                return_value=mock_return,
+            ),
+            pytest.raises(RuntimeError) as exc,
         ):
-            with pytest.raises(RuntimeError) as exc:
-                ensure_accepted_spec_authority(
-                    product_id=sample_product.product_id,
-                    spec_content="# Invalid spec",
-                )
+            ensure_accepted_spec_authority(
+                product_id=sample_product.product_id,
+                spec_content="# Invalid spec",
+            )
 
         message = str(exc.value).lower()
         assert "failed" in message or "error" in message
@@ -516,14 +520,18 @@ class TestAuthorityGateUpdateFailure:
             "message": "Authority compiled but not auto-accepted",
         }
 
-        with patch.object(
-            spec_tools, "update_spec_and_compile_authority", return_value=mock_return
+        with (
+            patch.object(
+                spec_tools,
+                "update_spec_and_compile_authority",
+                return_value=mock_return,
+            ),
+            pytest.raises(RuntimeError) as exc,
         ):
-            with pytest.raises(RuntimeError) as exc:
-                ensure_accepted_spec_authority(
-                    product_id=sample_product.product_id,
-                    spec_content="# Spec",
-                )
+            ensure_accepted_spec_authority(
+                product_id=sample_product.product_id,
+                spec_content="# Spec",
+            )
 
         message = str(exc.value).lower()
         assert "accepted" in message or "not accepted" in message.replace(" ", "")
@@ -581,7 +589,7 @@ class TestSpecVersionIdInjection:
     def test_recompile_flag_is_passed_through(
         self, session: Session, sample_product: Product, engine
     ) -> None:
-        """recompile flag should be passed to update_spec_and_compile_authority."""
+        """Recompile flag should be passed to update_spec_and_compile_authority."""
         from tools.spec_tools import ensure_accepted_spec_authority
 
         spec_tools.engine = engine
@@ -699,7 +707,9 @@ class TestAuthorityGateLogging:
         ensure_accepted_spec_authority(product_id=sample_product.product_id)
 
         reuse_records = [
-            record for record in caplog.records if record.message == "authority_gate.pass"
+            record
+            for record in caplog.records
+            if record.message == "authority_gate.pass"
         ]
         assert reuse_records
         assert reuse_records[0].__dict__.get("product_id") == sample_product.product_id
@@ -734,7 +744,9 @@ class TestAuthorityGateLogging:
             if record.message == "authority_gate.updated"
         ]
         assert compile_records
-        assert compile_records[0].__dict__.get("product_id") == sample_product.product_id
+        assert (
+            compile_records[0].__dict__.get("product_id") == sample_product.product_id
+        )
 
     def test_authority_gate_logs_fail(
         self, session: Session, sample_product: Product, engine, caplog
@@ -749,7 +761,9 @@ class TestAuthorityGateLogging:
             ensure_accepted_spec_authority(product_id=sample_product.product_id)
 
         fail_records = [
-            record for record in caplog.records if record.message == "authority_gate.fail_no_source"
+            record
+            for record in caplog.records
+            if record.message == "authority_gate.fail_no_source"
         ]
         assert fail_records
         assert fail_records[0].__dict__.get("reason") == "missing_inputs"

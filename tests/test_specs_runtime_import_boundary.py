@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -47,7 +46,9 @@ def _module_import_aliases(module_path: Path, module_name: str) -> set[str]:
     return aliases
 
 
-def _attribute_references_from_import(module_path: Path, import_names: set[str]) -> set[str]:
+def _attribute_references_from_import(
+    module_path: Path, import_names: set[str]
+) -> set[str]:
     source_text = module_path.read_text(encoding="utf-8")
     tree = ast.parse(source_text, filename=str(module_path))
     referenced: set[str] = set()

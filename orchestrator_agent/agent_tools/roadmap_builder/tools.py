@@ -1,8 +1,8 @@
 """Tools for the Roadmap Builder agent."""
 
-from typing import Annotated, Any, Dict
 import json
 import time
+from typing import Annotated, Any
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
@@ -31,14 +31,14 @@ class SaveRoadmapToolInput(BaseModel):
 def save_roadmap_tool(
     input_data: SaveRoadmapToolInput,
     tool_context: ToolContext | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Saves the generated roadmap to the Product.roadmap field in the database.
     Input must be the full RoadmapBuilderOutput object.
     """
     engine = get_engine()
     start_ts = time.perf_counter()
-    
+
     with Session(engine) as session:
         # Retrieve the product
         product = session.exec(

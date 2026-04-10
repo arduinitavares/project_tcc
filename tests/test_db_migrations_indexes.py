@@ -52,7 +52,9 @@ def test_migrate_performance_indexes_fails_on_non_canonical_equivalent_index() -
     _create_min_user_stories_schema(engine)
     with engine.begin() as conn:
         conn.execute(
-            text("CREATE INDEX legacy_user_stories_product_id ON user_stories (product_id)")
+            text(
+                "CREATE INDEX legacy_user_stories_product_id ON user_stories (product_id)"
+            )
         )
 
     with pytest.raises(RuntimeError) as exc_info:

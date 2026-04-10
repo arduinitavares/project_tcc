@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 import inspect
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, cast
 
 from orchestrator_agent.agent_tools.backlog_primer.tools import SaveBacklogInput
 from orchestrator_agent.fsm.states import OrchestratorState
 from services.phases import workflow_state
-
 
 VALID_BACKLOG_GENERATION_STATES = {
     OrchestratorState.VISION_PERSISTENCE.value,
@@ -110,9 +109,7 @@ async def generate_backlog_draft(
         raise BacklogPhaseError("Setup required before backlog")
 
     if fsm_state not in VALID_BACKLOG_GENERATION_STATES:
-        raise BacklogPhaseError(
-            "Invalid FSM State for backlog: " f"{fsm_state}"
-        )
+        raise BacklogPhaseError(f"Invalid FSM State for backlog: {fsm_state}")
 
     attempts = ensure_backlog_attempts(state)
     has_attempts = len(attempts) > 0
@@ -196,9 +193,7 @@ async def save_backlog_draft(
         raise BacklogPhaseError("No backlog draft available to save")
 
     if not bool(assessment.get("is_complete", False)):
-        raise BacklogPhaseError(
-            "Backlog cannot be saved until is_complete is true"
-        )
+        raise BacklogPhaseError("Backlog cannot be saved until is_complete is true")
 
     items = assessment.get("backlog_items")
     if not isinstance(items, list) or len(items) == 0:
@@ -213,6 +208,7 @@ async def save_backlog_draft(
     )
     if inspect.isawaitable(result):
         result = await result
+    result = cast("dict[str, Any]", result)
 
     if not result.get("success"):
         raise BacklogPhaseError(

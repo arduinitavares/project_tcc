@@ -31,3 +31,9 @@ logs/
 
 # Exported snapshots
 artifacts/exports/*.html
+
+# Local coverage and workspace artifacts
+.coverage
+.coverage.*
+entities.json
+mempalace.yaml

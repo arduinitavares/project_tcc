@@ -8,7 +8,8 @@ prior states). The Orchestrator LLM passes only user intent fields.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional, Sequence, cast
+from collections.abc import Sequence
+from typing import Any, cast
 
 from google.adk.tools import AgentTool, ToolContext
 
@@ -30,7 +31,6 @@ from orchestrator_agent.agent_tools.user_story_writer_tool.agent import (
 from services.sprint_input import prepare_sprint_input_context
 from tools.orchestrator_tools import fetch_sprint_candidates
 
-
 _PRODUCT_VISION_TOOL = AgentTool(agent=vision_agent)
 _BACKLOG_PRIMER_TOOL = AgentTool(agent=backlog_agent)
 _ROADMAP_BUILDER_TOOL = AgentTool(agent=roadmap_agent)
@@ -38,11 +38,11 @@ _SPRINT_PLANNER_TOOL = AgentTool(agent=sprint_planner_agent)
 _USER_STORY_WRITER_TOOL = AgentTool(agent=story_writer_agent)
 
 
-def _state(tool_context: Optional[ToolContext]) -> Dict[str, Any]:
+def _state(tool_context: ToolContext | None) -> dict[str, Any]:
     """Return state dict from ToolContext or empty dict when unavailable."""
     if not tool_context or tool_context.state is None:
         return {}
-    return cast(Dict[str, Any], tool_context.state)
+    return cast("dict[str, Any]", tool_context.state)
 
 
 def _as_text(value: Any) -> str:
@@ -74,7 +74,7 @@ def _missing_context_error(
     code: str,
     missing_context: Sequence[str],
     guidance: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build standardized fail-fast payload for orchestration states."""
     missing = list(missing_context)
     return {
@@ -82,10 +82,7 @@ def _missing_context_error(
         "error": code,
         "missing_context": missing,
         "clarifying_questions": [
-            (
-                f"Missing context: {', '.join(missing)}. "
-                f"{guidance}"
-            )
+            (f"Missing context: {', '.join(missing)}. {guidance}")
         ],
         "message": (
             "Deterministic adapter blocked tool execution due to missing "
@@ -94,7 +91,7 @@ def _missing_context_error(
     }
 
 
-def _parse_roadmap_payload(value: Any) -> Optional[Dict[str, Any]]:
+def _parse_roadmap_payload(value: Any) -> dict[str, Any] | None:
     """Parse roadmap payload from state into a dict when possible."""
     if isinstance(value, dict):
         return value
@@ -107,11 +104,11 @@ def _parse_roadmap_payload(value: Any) -> Optional[Dict[str, Any]]:
         except json.JSONDecodeError:
             return None
         if isinstance(parsed, dict):
-            return cast(Dict[str, Any], parsed)
+            return cast("dict[str, Any]", parsed)
     return None
 
 
-def _extract_roadmap_dict(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _extract_roadmap_dict(state: dict[str, Any]) -> dict[str, Any] | None:
     """Load roadmap from active_project first, then roadmap_result."""
     active_project = state.get("active_project")
     if isinstance(active_project, dict):
@@ -126,9 +123,9 @@ def _extract_roadmap_dict(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 def _derive_requirement_context(
     *,
-    state: Dict[str, Any],
+    state: dict[str, Any],
     parent_requirement: str,
-) -> Optional[str]:
+) -> str | None:
     """Derive requirement context from roadmap release metadata."""
     roadmap = _extract_roadmap_dict(state)
     if not roadmap:
@@ -152,7 +149,7 @@ def _derive_requirement_context(
         theme = _as_text(release.get("theme")).strip()
         focus_area = _as_text(release.get("focus_area")).strip()
         reasoning = _as_text(release.get("reasoning")).strip()
-        parts: List[str] = []
+        parts: list[str] = []
         if theme:
             parts.append(f"Theme: {theme}")
         if focus_area:
@@ -183,7 +180,7 @@ def _normalize_duration_days(value: Any) -> int:
     return max(1, min(parsed, 31))
 
 
-def _normalize_positive_int(value: Any) -> Optional[int]:
+def _normalize_positive_int(value: Any) -> int | None:
     """Normalize optional positive integer fields."""
     if value is None:
         return None
@@ -200,12 +197,12 @@ def _coerce_priority(value: Any, fallback: int) -> int:
     return parsed if parsed is not None else max(1, fallback)
 
 
-def _normalize_selected_story_ids(value: Any) -> List[int]:
+def _normalize_selected_story_ids(value: Any) -> list[int]:
     """Normalize selected story IDs while preserving order and uniqueness."""
     if not isinstance(value, list):
         return []
     seen = set()
-    normalized: List[int] = []
+    normalized: list[int] = []
     for item in value:
         parsed = _normalize_positive_int(item)
         if parsed is None or parsed in seen:
@@ -215,7 +212,7 @@ def _normalize_selected_story_ids(value: Any) -> List[int]:
     return normalized
 
 
-def _selection_error(invalid_ids: Sequence[int]) -> Dict[str, Any]:
+def _selection_error(invalid_ids: Sequence[int]) -> dict[str, Any]:
     """Build deterministic error payload for invalid sprint selections."""
     invalid = list(invalid_ids)
     invalid_text = ", ".join(str(item) for item in invalid)
@@ -238,8 +235,8 @@ def _selection_error(invalid_ids: Sequence[int]) -> Dict[str, Any]:
 
 async def product_vision_tool(
     user_raw_text: str,
-    tool_context: Optional[ToolContext] = None,
-) -> Dict[str, Any]:
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Deterministic adapter for product_vision_tool."""
     if tool_context is None:
         return _missing_context_error(
@@ -256,13 +253,13 @@ async def product_vision_tool(
         "prior_vision_state": _json_or_no_history(state.get("vision_components")),
     }
     result = await _PRODUCT_VISION_TOOL.run_async(args=args, tool_context=tool_context)
-    return cast(Dict[str, Any], result)
+    return cast("dict[str, Any]", result)
 
 
 async def backlog_primer_tool(
     user_input: str,
-    tool_context: Optional[ToolContext] = None,
-) -> Dict[str, Any]:
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Deterministic adapter for backlog_primer_tool."""
     if tool_context is None:
         return _missing_context_error(
@@ -280,7 +277,7 @@ async def backlog_primer_tool(
     technical_spec = _as_text(state.get("pending_spec_content")).strip()
     compiled_authority = _as_text(state.get("compiled_authority_cached")).strip()
 
-    missing: List[str] = []
+    missing: list[str] = []
     if not vision:
         missing.append("active_project.vision")
     if not technical_spec:
@@ -306,14 +303,14 @@ async def backlog_primer_tool(
         "user_input": user_input,
     }
     result = await _BACKLOG_PRIMER_TOOL.run_async(args=args, tool_context=tool_context)
-    return cast(Dict[str, Any], result)
+    return cast("dict[str, Any]", result)
 
 
 async def roadmap_builder_tool(
     user_input: str,
     time_increment: str = "Milestone-based",
-    tool_context: Optional[ToolContext] = None,
-) -> Dict[str, Any]:
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Deterministic adapter for roadmap_builder_tool."""
     if tool_context is None:
         return _missing_context_error(
@@ -329,16 +326,16 @@ async def roadmap_builder_tool(
         vision = _as_text(active_project.get("vision")).strip()
 
     approved_backlog = state.get("approved_backlog")
-    backlog_items: List[Dict[str, Any]] = []
+    backlog_items: list[dict[str, Any]] = []
     if isinstance(approved_backlog, dict) and isinstance(
         approved_backlog.get("items"), list
     ):
-        backlog_items = cast(List[Dict[str, Any]], approved_backlog["items"])
+        backlog_items = cast("list[dict[str, Any]]", approved_backlog["items"])
 
     technical_spec = _as_text(state.get("pending_spec_content")).strip()
     compiled_authority = _as_text(state.get("compiled_authority_cached")).strip()
 
-    missing: List[str] = []
+    missing: list[str] = []
     if not vision:
         missing.append("active_project.vision")
     if not backlog_items:
@@ -368,18 +365,18 @@ async def roadmap_builder_tool(
         "user_input": user_input,
     }
     result = await _ROADMAP_BUILDER_TOOL.run_async(args=args, tool_context=tool_context)
-    return cast(Dict[str, Any], result)
+    return cast("dict[str, Any]", result)
 
 
 async def sprint_planner_tool(
     team_velocity_assumption: str = "Medium",
     sprint_duration_days: int = 14,
     user_context: str = "",
-    max_story_points: Optional[int] = None,
+    max_story_points: int | None = None,
     include_task_decomposition: bool = True,
-    selected_story_ids: Optional[List[int]] = None,
-    tool_context: Optional[ToolContext] = None,
-) -> Dict[str, Any]:
+    selected_story_ids: list[int] | None = None,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Deterministic adapter for sprint_planner_tool."""
     if tool_context is None:
         return _missing_context_error(
@@ -431,17 +428,17 @@ async def sprint_planner_tool(
         )
 
     result = await _SPRINT_PLANNER_TOOL.run_async(
-        args=cast(Dict[str, Any], prepared["input_context"]),
+        args=cast("dict[str, Any]", prepared["input_context"]),
         tool_context=tool_context,
     )
-    return cast(Dict[str, Any], result)
+    return cast("dict[str, Any]", result)
 
 
 async def user_story_writer_tool(
     parent_requirement: str,
     requirement_context: str = "",
-    tool_context: Optional[ToolContext] = None,
-) -> Dict[str, Any]:
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """Deterministic adapter for user_story_writer_tool."""
     if tool_context is None:
         return _missing_context_error(
@@ -459,7 +456,7 @@ async def user_story_writer_tool(
     )
     resolved_requirement_context = derived_context or requirement_context.strip()
 
-    missing: List[str] = []
+    missing: list[str] = []
     if not technical_spec:
         missing.append("pending_spec_content")
     if not compiled_authority:
@@ -486,12 +483,12 @@ async def user_story_writer_tool(
     result = await _USER_STORY_WRITER_TOOL.run_async(
         args=args, tool_context=tool_context
     )
-    return cast(Dict[str, Any], result)
+    return cast("dict[str, Any]", result)
 
 
 __all__ = [
-    "product_vision_tool",
     "backlog_primer_tool",
+    "product_vision_tool",
     "roadmap_builder_tool",
     "sprint_planner_tool",
     "user_story_writer_tool",

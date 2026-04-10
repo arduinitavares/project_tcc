@@ -12,8 +12,9 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-
-_TEST_MODEL_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "models.test.yaml"
+_TEST_MODEL_CONFIG_PATH = (
+    Path(__file__).resolve().parents[1] / "config" / "models.test.yaml"
+)
 os.environ.setdefault("MODEL_CONFIG_PATH", str(_TEST_MODEL_CONFIG_PATH))
 os.environ.setdefault("RELAX_ZDR_FOR_TESTS", "true")
 os.environ.setdefault("PROJECT_TCC_DB_URL", "sqlite:///:memory:")
@@ -24,7 +25,9 @@ os.environ.setdefault(
 )
 
 from utils import model_config  # pylint: disable=wrong-import-position
-from utils.runtime_config import clear_runtime_config_cache  # pylint: disable=wrong-import-position
+from utils.runtime_config import (
+    clear_runtime_config_cache,  # pylint: disable=wrong-import-position
+)
 
 model_config.clear_config_cache()
 clear_runtime_config_cache()
@@ -53,29 +56,12 @@ def engine(test_db_url: str):  # pylint: disable=redefined-outer-name
         test_db_url,
         echo=False,
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool
+        poolclass=StaticPool,
     )
 
     # Import here to avoid circular imports.
     # We disable unused-import as these models are needed to populate
     # SQLModel.metadata before create_all() is called.
-    from agile_sqlmodel import (  # pylint: disable=import-outside-toplevel, unused-import
-        CompiledSpecAuthority,
-        Epic,
-        Feature,
-        Product,
-        Sprint,
-        SprintStory,
-        SpecRegistry,
-        Task,
-        Theme,
-        UserStory,
-        WorkflowEvent,
-    )
-    from models.core import (  # pylint: disable=import-outside-toplevel, unused-import
-        Team,
-        TeamMember,
-    )
 
     # Create all tables
     SQLModel.metadata.create_all(_engine)
@@ -90,16 +76,18 @@ def engine(test_db_url: str):  # pylint: disable=redefined-outer-name
 def patch_get_engine_globally(engine, monkeypatch):
     """
     Automatically patch get_engine() in all modules to return the test engine.
-    
+
     This ensures tests never accidentally hit the production database.
     The autouse=True means this runs for every test automatically.
     """
     # Patch the agile_sqlmodel module's get_engine function
     import agile_sqlmodel
+
     monkeypatch.setattr(agile_sqlmodel, "get_engine", lambda: engine)
     from models import db as model_db
+
     monkeypatch.setattr(model_db, "get_engine", lambda: engine)
-    
+
     # Also patch in all modules that import get_engine
     # These need explicit patching because they import at module load time
     modules_to_patch = [
@@ -117,10 +105,11 @@ def patch_get_engine_globally(engine, monkeypatch):
         "services.orchestrator_context_service",
         "services.orchestrator_query_service",
     ]
-    
+
     for module_path in modules_to_patch:
         try:
             import importlib
+
             module = importlib.import_module(module_path)
             if hasattr(module, "get_engine"):
                 monkeypatch.setattr(module, "get_engine", lambda: engine)

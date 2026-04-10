@@ -239,9 +239,8 @@ def test_api_startup_skips_missing_sessions_table_error(
     workflow_service = _workflow_service(tmp_path / "startup_sessions.db")
     monkeypatch.setattr(api_module, "workflow_service", workflow_service)
 
-    with caplog.at_level(logging.ERROR):
-        with TestClient(api_module.app):
-            pass
+    with caplog.at_level(logging.ERROR), TestClient(api_module.app):
+        pass
 
     messages = [record.getMessage() for record in caplog.records]
     assert "Failed migrating legacy setup states" not in " ".join(messages)

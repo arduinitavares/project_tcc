@@ -1,9 +1,5 @@
 from orchestrator_agent.fsm.states import OrchestratorState
-
 from services.phases import workflow_state
-from services.phases.backlog_service import backlog_state_from_complete
-from services.phases.roadmap_service import roadmap_state_from_complete
-from services.phases.vision_service import vision_state_from_complete
 
 
 def test_failure_meta_uses_fallback_summary_when_source_summary_missing():
@@ -33,15 +29,25 @@ def test_sprint_state_helpers_delegate_to_shared_workflow_state(monkeypatch):
 
     def fake_set_phase_fsm_state(state, **kwargs):
         called["kwargs"] = kwargs
-        next_state = kwargs["review_state"] if kwargs["is_complete"] else kwargs["interview_state"]
+        next_state = (
+            kwargs["review_state"]
+            if kwargs["is_complete"]
+            else kwargs["interview_state"]
+        )
         state["fsm_state"] = next_state
         state["fsm_state_entered_at"] = kwargs["now_iso"]()
         return next_state
 
     monkeypatch.setattr(workflow_state, "set_phase_fsm_state", fake_set_phase_fsm_state)
 
-    assert workflow_state.sprint_state_from_complete(True) == OrchestratorState.SPRINT_DRAFT.value
-    assert workflow_state.sprint_state_from_complete(False) == OrchestratorState.SPRINT_SETUP.value
+    assert (
+        workflow_state.sprint_state_from_complete(True)
+        == OrchestratorState.SPRINT_DRAFT.value
+    )
+    assert (
+        workflow_state.sprint_state_from_complete(False)
+        == OrchestratorState.SPRINT_SETUP.value
+    )
 
     state: dict[str, object] = {}
     next_state = workflow_state.set_sprint_fsm_state(
@@ -115,8 +121,12 @@ def test_sprint_attempt_helpers_delegate_to_shared_workflow_state(monkeypatch):
         state[kwargs["assessment_key"]] = kwargs["output_artifact"]
         return 1
 
-    monkeypatch.setattr(workflow_state, "ensure_phase_attempts", fake_ensure_phase_attempts)
-    monkeypatch.setattr(workflow_state, "record_phase_attempt", fake_record_phase_attempt)
+    monkeypatch.setattr(
+        workflow_state, "ensure_phase_attempts", fake_ensure_phase_attempts
+    )
+    monkeypatch.setattr(
+        workflow_state, "record_phase_attempt", fake_record_phase_attempt
+    )
 
     state: dict[str, object] = {}
     assert sprint_service.ensure_sprint_attempts(state) is attempts
@@ -184,7 +194,9 @@ def test_vision_attempt_helpers_delegate_to_shared_workflow_state(
             state[kwargs["mirrored_state_key"]] = mirrored
         return 1
 
-    monkeypatch.setattr(workflow_state, "record_phase_attempt", fake_record_phase_attempt)
+    monkeypatch.setattr(
+        workflow_state, "record_phase_attempt", fake_record_phase_attempt
+    )
 
     state: dict[str, object] = {}
     count = vision_service.record_vision_attempt(
@@ -226,7 +238,9 @@ def test_backlog_attempt_helpers_delegate_to_shared_workflow_state(
             state[kwargs["mirrored_state_key"]] = mirrored
         return 1
 
-    monkeypatch.setattr(workflow_state, "record_phase_attempt", fake_record_phase_attempt)
+    monkeypatch.setattr(
+        workflow_state, "record_phase_attempt", fake_record_phase_attempt
+    )
 
     state: dict[str, object] = {}
     count = backlog_service.record_backlog_attempt(
@@ -264,7 +278,9 @@ def test_roadmap_attempt_helpers_delegate_to_shared_workflow_state(
             state[kwargs["mirrored_state_key"]] = mirrored
         return 1
 
-    monkeypatch.setattr(workflow_state, "record_phase_attempt", fake_record_phase_attempt)
+    monkeypatch.setattr(
+        workflow_state, "record_phase_attempt", fake_record_phase_attempt
+    )
 
     state: dict[str, object] = {}
     count = roadmap_service.record_roadmap_attempt(

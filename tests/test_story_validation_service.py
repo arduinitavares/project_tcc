@@ -1,9 +1,11 @@
+from datetime import UTC, datetime
 from types import SimpleNamespace
-from datetime import datetime, timezone
 
 from agile_sqlmodel import CompiledSpecAuthority, Product, SpecRegistry, UserStory
-from utils.spec_schemas import Invariant, InvariantType, RequiredFieldParams
 from utils.spec_schemas import (
+    Invariant,
+    InvariantType,
+    RequiredFieldParams,
     SourceMapEntry,
     SpecAuthorityCompilationSuccess,
     SpecAuthorityCompilerOutput,
@@ -19,10 +21,15 @@ def test_services_package_exports_validate_story_with_spec_authority():
         specs.validate_story_with_spec_authority
         is story_validation_service.validate_story_with_spec_authority
     )
-    assert specs.compute_story_input_hash is story_validation_service.compute_story_input_hash
+    assert (
+        specs.compute_story_input_hash
+        is story_validation_service.compute_story_input_hash
+    )
 
 
-def test_validate_story_with_spec_authority_returns_missing_story_error(session, monkeypatch):
+def test_validate_story_with_spec_authority_returns_missing_story_error(
+    session, monkeypatch
+):
     from services.specs import story_validation_service
 
     monkeypatch.setattr(
@@ -170,7 +177,10 @@ def test_run_llm_spec_validation_uses_injected_helpers():
     )
 
     assert result["passed"] is True
-    assert '"compiled_authority_json": "{\\"compiled\\": \\"from artifact\\"}"' in captured["payload"]
+    assert (
+        '"compiled_authority_json": "{\\"compiled\\": \\"from artifact\\"}"'
+        in captured["payload"]
+    )
     assert captured["raw_text"].startswith('{"is_compliant": true')
 
 
@@ -211,7 +221,7 @@ def test_persist_validation_evidence_updates_story_and_acceptance(session):
         spec_hash="a" * 64,
         version_number=1,
         status="approved",
-        approved_at=datetime.now(timezone.utc),
+        approved_at=datetime.now(UTC),
         approved_by="tester",
         approval_notes=None,
     )
@@ -221,7 +231,7 @@ def test_persist_validation_evidence_updates_story_and_acceptance(session):
 
     evidence = ValidationEvidence(
         spec_version_id=spec_version.spec_version_id,
-        validated_at=datetime.now(timezone.utc),
+        validated_at=datetime.now(UTC),
         passed=True,
         rules_checked=["SPEC_VERSION_EXISTS"],
         invariants_checked=[],
@@ -265,7 +275,7 @@ def test_validate_story_with_spec_authority_uses_service_owned_defaults(
         spec_hash="b" * 64,
         version_number=1,
         status="approved",
-        approved_at=datetime.now(timezone.utc),
+        approved_at=datetime.now(UTC),
         approved_by="tester",
         approval_notes=None,
     )

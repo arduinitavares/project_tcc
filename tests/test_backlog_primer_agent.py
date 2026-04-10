@@ -6,10 +6,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
-from sqlmodel import Session as SqlSession, create_engine, SQLModel, select
+from sqlmodel import Session as SqlSession
+from sqlmodel import SQLModel, create_engine, select
 
 from agile_sqlmodel import Product, UserStory
-from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_key
 from orchestrator_agent.agent_tools.backlog_primer.schemes import (
     BacklogItem,
     InputSchema,
@@ -19,6 +19,7 @@ from orchestrator_agent.agent_tools.backlog_primer.tools import (
     SaveBacklogInput,
     save_backlog_tool,
 )
+from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_key
 
 
 class TestBacklogPrimerSchemas:
@@ -28,7 +29,7 @@ class TestBacklogPrimerSchemas:
         payload: dict[str, Any] = {
             "product_vision_statement": "For teams who need clarity...",
             "technical_spec": "Spec: must support SSO and audit logging.",
-            "compiled_authority": "{\"scope_themes\":[\"Auth\"],\"invariants\":[]}",
+            "compiled_authority": '{"scope_themes":["Auth"],"invariants":[]}',
             "prior_backlog_state": "NO_HISTORY",
             "user_input": "Focus on onboarding and analytics.",
         }
@@ -56,9 +57,7 @@ class TestBacklogPrimerSchemas:
                 },
             ],
             "is_complete": False,
-            "clarifying_questions": [
-                "Which user segment should be prioritized first?"
-            ],
+            "clarifying_questions": ["Which user segment should be prioritized first?"],
         }
 
         parsed = OutputSchema.model_validate_json(json.dumps(payload))
@@ -214,14 +213,18 @@ class TestSaveBacklogTool:
                 select(UserStory).where(UserStory.product_id == 1)
             ).first()
             assert story is not None
-            assert story.source_requirement == normalize_requirement_key("User authentication")
+            assert story.source_requirement == normalize_requirement_key(
+                "User authentication"
+            )
             assert story.refinement_slot == 1
             assert story.story_origin == "backlog_seed"
             assert story.is_refined is False
             assert story.is_superseded is False
 
     @pytest.mark.asyncio
-    async def test_backlog_resave_after_refinement_does_not_insert_duplicates(self) -> None:
+    async def test_backlog_resave_after_refinement_does_not_insert_duplicates(
+        self,
+    ) -> None:
         mock_context = MagicMock()
         mock_context.state = {}
         test_engine = create_engine("sqlite://", echo=False)
@@ -266,5 +269,7 @@ class TestSaveBacklogTool:
         assert result["success"] is True
         assert result["saved_count"] == 0
         with SqlSession(test_engine) as session:
-            count = len(session.exec(select(UserStory).where(UserStory.product_id == 1)).all())
+            count = len(
+                session.exec(select(UserStory).where(UserStory.product_id == 1)).all()
+            )
             assert count == 1

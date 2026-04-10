@@ -175,9 +175,7 @@ async def save_vision_draft(
         raise VisionPhaseError("No vision draft available to save")
 
     if not bool(assessment.get("is_complete", False)):
-        raise VisionPhaseError(
-            "Vision cannot be saved until is_complete is true"
-        )
+        raise VisionPhaseError("Vision cannot be saved until is_complete is true")
 
     statement = assessment.get("product_vision_statement")
     if not isinstance(statement, str) or not statement.strip():

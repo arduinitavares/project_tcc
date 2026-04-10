@@ -1,16 +1,20 @@
-
-import time
 import sys
+import time
 from pathlib import Path
-from sqlmodel import Session, create_engine, SQLModel
+
 from sqlalchemy import Engine, event
+from sqlmodel import Session, SQLModel, create_engine
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from orchestrator_agent.agent_tools.sprint_planning.tools import plan_sprint_tool, PlanSprintInput
-from agile_sqlmodel import Product, UserStory, StoryStatus
-from models.core import ProductTeam, Epic, Feature, Team, Theme
+from orchestrator_agent.agent_tools.sprint_planning.tools import (
+    PlanSprintInput,
+    plan_sprint_tool,
+)
+
+from agile_sqlmodel import Product, StoryStatus, UserStory
+from models.core import Feature, ProductTeam, Team
 
 # Setup in-memory DB for benchmarking
 engine = create_engine("sqlite:///:memory:")
@@ -18,7 +22,9 @@ SQLModel.metadata.create_all(engine)
 
 # Patch the engine in the tools module
 import orchestrator_agent.agent_tools.sprint_planning.tools as sprint_tools
+
 sprint_tools.engine = engine
+
 
 def seed_database():
     with Session(engine) as session:
@@ -43,11 +49,13 @@ def seed_database():
         session.commit()
 
         # Create Feature for Product A (to test joinedload)
-        f1 = Feature(title="Feature 1", description="Desc", epic_id=1) # epic_id doesn't exist but FKs might fail if enforced.
+        f1 = Feature(
+            title="Feature 1", description="Desc", epic_id=1
+        )  # epic_id doesn't exist but FKs might fail if enforced.
         # Actually agile_sqlmodel enforces FKs via PRAGMA, so I should probably be careful or just create structure properly.
         # But wait, Feature requires Epic. Epic requires Theme.
         # Let's create full hierarchy to be safe and test join performance.
-        from models.core import Theme, Epic
+        from models.core import Epic, Theme
 
         theme = Theme(title="Theme 1", product_id=p1.product_id)
         session.add(theme)
@@ -72,8 +80,8 @@ def seed_database():
                 title=f"Valid Story {i}",
                 status=StoryStatus.TO_DO,
                 product_id=p1.product_id,
-                feature_id=feature.feature_id, # Link to feature to trigger join
-                story_points=3
+                feature_id=feature.feature_id,  # Link to feature to trigger join
+                story_points=3,
             )
             session.add(s)
             session.commit()
@@ -86,7 +94,7 @@ def seed_database():
                 title=f"Wrong Product Story {i}",
                 status=StoryStatus.TO_DO,
                 product_id=p2.product_id,
-                story_points=5
+                story_points=5,
             )
             session.add(s)
             session.commit()
@@ -99,7 +107,7 @@ def seed_database():
                 title=f"Wrong Status Story {i}",
                 status=StoryStatus.IN_PROGRESS,
                 product_id=p1.product_id,
-                story_points=2
+                story_points=2,
             )
             session.add(s)
             session.commit()
@@ -108,19 +116,24 @@ def seed_database():
 
         return p1.product_id, team.team_id, story_ids
 
+
 def benchmark():
     product_id, team_id, all_story_ids = seed_database()
 
     # Add some non-existent IDs
     input_story_ids = all_story_ids + [9999, 10000]
 
-    print(f"Benchmarking with {len(input_story_ids)} input stories ({len(all_story_ids)} existing).")
+    print(
+        f"Benchmarking with {len(input_story_ids)} input stories ({len(all_story_ids)} existing)."
+    )
 
     # Reset query count
     query_count = 0
 
     @event.listens_for(Engine, "before_cursor_execute")
-    def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+    def before_cursor_execute(
+        conn, cursor, statement, parameters, context, executemany
+    ):
         nonlocal query_count
         query_count += 1
         # Optional: Print statement to see what's happening (noisy)
@@ -131,7 +144,7 @@ def benchmark():
         team_id=team_id,
         sprint_goal="Benchmark Sprint",
         selected_story_ids=input_story_ids,
-        duration_days=14
+        duration_days=14,
     )
 
     # Measure
@@ -149,14 +162,17 @@ def benchmark():
         print(result.get("error"))
         sys.exit(1)
 
-    print(f"Result Stories: {len(result['draft']['validated_stories'])} valid, {len(result['warnings'] or [])} invalid.")
+    print(
+        f"Result Stories: {len(result['draft']['validated_stories'])} valid, {len(result['warnings'] or [])} invalid."
+    )
 
     # Validation
     # We expect 30 valid stories.
     # We expect 22 invalid (10 wrong prod, 10 wrong status, 2 not found)
-    assert len(result['draft']['validated_stories']) == 30
-    assert len(result['draft']['invalid_stories']) == 22
+    assert len(result["draft"]["validated_stories"]) == 30
+    assert len(result["draft"]["invalid_stories"]) == 22
     print("Validation counts match expectations.")
+
 
 if __name__ == "__main__":
     benchmark()

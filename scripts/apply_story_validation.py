@@ -31,7 +31,6 @@ from agile_sqlmodel import (  # noqa: E402
 from tools.spec_tools import validate_story_with_spec_authority  # noqa: E402
 from utils.logging_config import configure_logging  # noqa: E402
 
-
 LOGGER_NAME = "scripts.apply_story_validation"
 logger = logging.getLogger(LOGGER_NAME)
 engine = get_engine()
@@ -67,7 +66,9 @@ class ValidationRunResult:
     @property
     def failed_count(self) -> int:
         return sum(
-            1 for outcome in self.outcomes if not outcome.passed and not outcome.error_message
+            1
+            for outcome in self.outcomes
+            if not outcome.passed and not outcome.error_message
         )
 
     @property
@@ -99,7 +100,9 @@ def _load_invariant_map(spec_version_id: int) -> dict[str, dict]:
         return {}
     try:
         artifact = json.loads(auth.compiled_artifact_json)
-        invariants = artifact.get("invariants", []) if isinstance(artifact, dict) else []
+        invariants = (
+            artifact.get("invariants", []) if isinstance(artifact, dict) else []
+        )
         return {
             inv.get("id"): inv
             for inv in invariants
@@ -307,9 +310,7 @@ def _emit_run_logs(
         if result.spec_version_id is not None:
             _log_info(f"Using Spec Version {result.spec_version_id}")
         if result.eligible_story_count:
-            _log_info(
-                f"Found {result.eligible_story_count} eligible refined stories."
-            )
+            _log_info(f"Found {result.eligible_story_count} eligible refined stories.")
 
     for outcome in result.outcomes:
         if outcome.error_message:
@@ -374,7 +375,9 @@ def main(argv: list[str] | None = None) -> int:
     selected_latest_message = None
     if args.product_id is None:
         with Session(engine) as session:
-            latest = session.exec(select(Product).order_by(Product.product_id.desc())).first()
+            latest = session.exec(
+                select(Product).order_by(Product.product_id.desc())
+            ).first()
         if not latest or latest.product_id is None:
             logger.error("No products found in DB.")
             return 1

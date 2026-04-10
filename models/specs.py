@@ -56,6 +56,7 @@ class SpecRegistry(SQLModel, table=True):
         sa_relationship_kwargs={"uselist": False},
     )
 
+
 class CompiledSpecAuthority(SQLModel, table=True):
     """Cached compilation output for an approved spec version."""
 
@@ -104,9 +105,8 @@ class CompiledSpecAuthority(SQLModel, table=True):
         description="JSON array of detected spec ambiguities or gaps",
     )
 
-    spec_version: SpecRegistry = Relationship(
-        back_populates="compiled_authority"
-    )
+    spec_version: SpecRegistry = Relationship(back_populates="compiled_authority")
+
 
 class SpecAuthorityAcceptance(SQLModel, table=True):
     """Append-only acceptance decisions for compiled spec authority."""
@@ -133,8 +133,6 @@ class SpecAuthorityAcceptance(SQLModel, table=True):
         sa_type=Text,
         description="Optional acceptance rationale",
     )
-    compiler_version: str = Field(
-        description="Compiler version at decision time"
-    )
+    compiler_version: str = Field(description="Compiler version at decision time")
     prompt_hash: str = Field(description="Prompt hash at decision time")
     spec_hash: str = Field(description="Spec hash at decision time")

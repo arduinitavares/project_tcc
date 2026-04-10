@@ -8,7 +8,6 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
@@ -16,20 +15,23 @@ sys.path.append(str(project_root))
 from sqlmodel import Session, select
 
 from agile_sqlmodel import UserStory, get_engine
-from db.migrations import migrate_performance_indexes, migrate_user_story_refinement_linkage
+from db.migrations import (
+    migrate_performance_indexes,
+    migrate_user_story_refinement_linkage,
+)
 from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_key
 
 
 @dataclass
 class ReconcileSummary:
     product_id: int
-    migrated_actions: List[str]
-    canonical_story_ids: List[int]
-    superseded_story_ids: List[int]
-    placeholder_story_ids: List[int]
-    unresolved_story_ids: List[int]
+    migrated_actions: list[str]
+    canonical_story_ids: list[int]
+    superseded_story_ids: list[int]
+    placeholder_story_ids: list[int]
+    unresolved_story_ids: list[int]
 
-    def as_dict(self) -> Dict[str, object]:
+    def as_dict(self) -> dict[str, object]:
         return {
             "product_id": self.product_id,
             "migrated_actions": self.migrated_actions,
@@ -44,7 +46,7 @@ class ReconcileSummary:
         }
 
 
-def _story_fingerprint(story: UserStory) -> Tuple[str, str, str]:
+def _story_fingerprint(story: UserStory) -> tuple[str, str, str]:
     return (
         normalize_requirement_key(story.title or ""),
         normalize_requirement_key(story.story_description or ""),
@@ -54,14 +56,14 @@ def _story_fingerprint(story: UserStory) -> Tuple[str, str, str]:
 
 def reconcile_product(product_id: int) -> ReconcileSummary:
     engine = get_engine()
-    actions: List[str] = []
+    actions: list[str] = []
     actions.extend(migrate_user_story_refinement_linkage(engine))
     actions.extend(migrate_performance_indexes(engine))
 
-    canonical_ids: List[int] = []
-    superseded_ids: List[int] = []
-    placeholder_ids: List[int] = []
-    unresolved_ids: List[int] = []
+    canonical_ids: list[int] = []
+    superseded_ids: list[int] = []
+    placeholder_ids: list[int] = []
+    unresolved_ids: list[int] = []
 
     with Session(engine) as session:
         stories = session.exec(
@@ -94,7 +96,7 @@ def reconcile_product(product_id: int) -> ReconcileSummary:
             .order_by(UserStory.story_id.asc())
         ).all()
 
-        by_fp: Dict[Tuple[str, str, str], List[UserStory]] = {}
+        by_fp: dict[tuple[str, str, str], list[UserStory]] = {}
         for story in refreshed:
             fp = _story_fingerprint(story)
             by_fp.setdefault(fp, []).append(story)
@@ -131,8 +133,12 @@ def reconcile_product(product_id: int) -> ReconcileSummary:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Reconcile mixed backlog/refinement stories.")
-    parser.add_argument("--product-id", type=int, required=True, help="Product ID to reconcile.")
+    parser = argparse.ArgumentParser(
+        description="Reconcile mixed backlog/refinement stories."
+    )
+    parser.add_argument(
+        "--product-id", type=int, required=True, help="Product ID to reconcile."
+    )
     parser.add_argument(
         "--output",
         type=Path,
@@ -143,9 +149,14 @@ def main() -> None:
 
     summary = reconcile_product(args.product_id)
 
-    output = args.output or Path("artifacts/query_results") / f"reconcile_product_{args.product_id}.json"
+    output = (
+        args.output
+        or Path("artifacts/query_results") / f"reconcile_product_{args.product_id}.json"
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(summary.as_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
+    output.write_text(
+        json.dumps(summary.as_dict(), indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
     print(json.dumps(summary.as_dict(), indent=2, ensure_ascii=False))
     print(f"Wrote reconciliation report: {output}")

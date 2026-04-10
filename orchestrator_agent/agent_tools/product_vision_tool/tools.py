@@ -3,11 +3,11 @@
 product_tools.py
 """
 
-from typing import Annotated, Any, Dict, Optional
-from datetime import datetime, timezone
-from pathlib import Path
 import json
 import time
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Annotated, Any
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
@@ -23,21 +23,27 @@ from tools.spec_tools import (
     update_spec_and_compile_authority,
 )
 
-
 # --- Tool for SAVING the vision ---
 
 
 class SaveVisionInput(BaseModel):
     """Schema for the 'save_vision' tool."""
 
-    product_id: Annotated[Optional[int], Field(description="ID of the project to update. If None, creates a NEW project.")] = None
+    product_id: Annotated[
+        int | None,
+        Field(
+            description="ID of the project to update. If None, creates a NEW project."
+        ),
+    ] = None
     project_name: Annotated[str, Field(description="Unique name of the project.")]
-    product_vision_statement: Annotated[str, Field(description="Finalized vision text.")]
+    product_vision_statement: Annotated[
+        str, Field(description="Finalized vision text.")
+    ]
 
 
 def save_vision_tool(
     vision_input: SaveVisionInput, tool_context: ToolContext
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     COMMITS the finalized Product Vision to the Business Database.
     Creates a NEW project if product_id is None, otherwise updates EXISTING.
@@ -95,11 +101,13 @@ def save_vision_tool(
                         ),
                     }
 
-            active_record: Optional[Product] = None
+            active_record: Product | None = None
 
             if p_id is None:
                 # Check for existing project by name to prevent duplicates
-                statement = select(Product).where(Product.name == vision_input.project_name)
+                statement = select(Product).where(
+                    Product.name == vision_input.project_name
+                )
                 existing_by_name = session.exec(statement).first()
 
                 if existing_by_name:
@@ -116,7 +124,9 @@ def save_vision_tool(
                     roadmap_content = existing_by_name.roadmap
                 else:
                     # CREATE MODE
-                    print(f"   [DB] Creating NEW project: '{vision_input.project_name}'")
+                    print(
+                        f"   [DB] Creating NEW project: '{vision_input.project_name}'"
+                    )
                     new_project = Product(
                         name=vision_input.project_name,
                         vision=vision_input.product_vision_statement,
@@ -132,22 +142,23 @@ def save_vision_tool(
                 # UPDATE MODE
                 existing_project = session.get(Product, p_id)
                 if not existing_project:
-                    return {"success": False, "error": f"Product with ID {p_id} not found. Pass product_id=None to create a new project."}
-                
+                    return {
+                        "success": False,
+                        "error": f"Product with ID {p_id} not found. Pass product_id=None to create a new project.",
+                    }
+
                 print(f"   [DB] Updating ID: {p_id}")
                 existing_project.vision = vision_input.product_vision_statement
-                existing_project.name = vision_input.project_name # Allow renaming
+                existing_project.name = vision_input.project_name  # Allow renaming
                 session.add(existing_project)
                 session.commit()
                 active_record = existing_project
                 roadmap_content = existing_project.roadmap
 
             # Update the context state so subsequent tools know the active project
-            tool_context.state["current_project_name"] = (
-                vision_input.project_name
-            )
+            tool_context.state["current_project_name"] = vision_input.project_name
             # Also set it as the active selection.
-            # Simplified Update: We only set what we know. We do not attempt to preserve 'structure' 
+            # Simplified Update: We only set what we know. We do not attempt to preserve 'structure'
             # or other fields from potentially non-existent previous state, as this caused crashes.
             tool_context.state["active_project"] = {
                 "product_id": p_id,
@@ -155,9 +166,15 @@ def save_vision_tool(
                 "description": active_record.description if active_record else None,
                 "vision": vision_input.product_vision_statement,
                 "roadmap": roadmap_content,
-                "technical_spec": active_record.technical_spec if active_record else None,
-                "compiled_authority_json": active_record.compiled_authority_json if active_record else None,
-                "spec_file_path": active_record.spec_file_path if active_record else None,
+                "technical_spec": active_record.technical_spec
+                if active_record
+                else None,
+                "compiled_authority_json": active_record.compiled_authority_json
+                if active_record
+                else None,
+                "spec_file_path": active_record.spec_file_path
+                if active_record
+                else None,
                 "spec_loaded_at": (
                     active_record.spec_loaded_at.isoformat()
                     if active_record and active_record.spec_loaded_at
@@ -205,11 +222,11 @@ def save_vision_tool(
 
     except SQLAlchemyError as e:
         print(f"   [DB Error] {e}")
-        return {"success": False, "error": f"Database Error: {str(e)}"}
+        return {"success": False, "error": f"Database Error: {e!s}"}
 
 
 def _link_spec_if_pending(
-    product_id: Optional[int],
+    product_id: int | None,
     tool_context: ToolContext,
 ) -> None:
     """Link the spec file to the product and compile authority.
@@ -243,12 +260,10 @@ def _link_spec_if_pending(
         if not product:
             return
         product.spec_file_path = spec_path
-        product.spec_loaded_at = datetime.now(timezone.utc)
+        product.spec_loaded_at = datetime.now(UTC)
         session.add(product)
         session.commit()
-        print(
-            f"   [save_vision_tool] Spec linked → {spec_path}"
-        )
+        print(f"   [save_vision_tool] Spec linked → {spec_path}")
 
     state["spec_persisted"] = True
 

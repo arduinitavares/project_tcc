@@ -3,8 +3,7 @@ Test suite for orchestrator decision-making tools.
 Tests the query tools used by the orchestrator agent.
 """
 
-import pytest
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from agile_sqlmodel import Product, StoryStatus, UserStory
 from tools.orchestrator_tools import (
@@ -43,15 +42,21 @@ def test_count_projects_with_data(engine):
 
     orch_tools.engine = engine
 
-    import tools.db_tools as db_tools
-    from tools.db_tools import create_or_get_product, CreateOrGetProductInput
+    from tools import db_tools
+    from tools.db_tools import CreateOrGetProductInput, create_or_get_product
 
     db_tools.engine = engine
 
     # Create 3 products
-    create_or_get_product(CreateOrGetProductInput(product_name="Project A", vision=None, description=None))
-    create_or_get_product(CreateOrGetProductInput(product_name="Project B", vision=None, description=None))
-    create_or_get_product(CreateOrGetProductInput(product_name="Project C", vision=None, description=None))
+    create_or_get_product(
+        CreateOrGetProductInput(product_name="Project A", vision=None, description=None)
+    )
+    create_or_get_product(
+        CreateOrGetProductInput(product_name="Project B", vision=None, description=None)
+    )
+    create_or_get_product(
+        CreateOrGetProductInput(product_name="Project C", vision=None, description=None)
+    )
 
     state = {}
     context = MockToolContext(state)
@@ -83,21 +88,23 @@ def test_list_projects_with_data(engine):
 
     orch_tools.engine = engine
 
-    import tools.db_tools as db_tools
+    from tools import db_tools
     from tools.db_tools import (
+        CreateOrGetProductInput,
+        CreateUserStoryInput,
         create_or_get_product,
         create_user_story,
         persist_roadmap,
-        CreateOrGetProductInput,
-        CreateUserStoryInput
     )
 
     db_tools.engine = engine
 
     # Create a product with structure
-    prod_result = create_or_get_product(CreateOrGetProductInput(
-        product_name="Test Project", vision="Test vision", description=None
-    ))
+    prod_result = create_or_get_product(
+        CreateOrGetProductInput(
+            product_name="Test Project", vision="Test vision", description=None
+        )
+    )
     product_id = prod_result["product_id"]
 
     # Add roadmap
@@ -121,14 +128,16 @@ def test_list_projects_with_data(engine):
     feature_id = roadmap_result["created"]["features"][0]["id"]
 
     # Add a user story
-    create_user_story(CreateUserStoryInput(
-        product_id=product_id,
-        feature_id=feature_id,
-        title="Login as user",
-        description="As a user...",
-        acceptance_criteria=None,
-        story_points=None,
-    ))
+    create_user_story(
+        CreateUserStoryInput(
+            product_id=product_id,
+            feature_id=feature_id,
+            title="Login as user",
+            description="As a user...",
+            acceptance_criteria=None,
+            story_points=None,
+        )
+    )
 
     # Now list projects
     state = {}
@@ -164,21 +173,23 @@ def test_get_project_details_with_structure(engine):
 
     orch_tools.engine = engine
 
-    import tools.db_tools as db_tools
+    from tools import db_tools
     from tools.db_tools import (
+        CreateOrGetProductInput,
+        CreateUserStoryInput,
         create_or_get_product,
         create_user_story,
         persist_roadmap,
-        CreateOrGetProductInput,
-        CreateUserStoryInput
     )
 
     db_tools.engine = engine
 
     # Create a complete project structure
-    prod_result = create_or_get_product(CreateOrGetProductInput(
-        product_name="Full Project", vision="Complete vision", description=None
-    ))
+    prod_result = create_or_get_product(
+        CreateOrGetProductInput(
+            product_name="Full Project", vision="Complete vision", description=None
+        )
+    )
     product_id = prod_result["product_id"]
 
     roadmap = [
@@ -209,14 +220,16 @@ def test_get_project_details_with_structure(engine):
 
     # Add user stories
     for feature in roadmap_result["created"]["features"]:
-        create_user_story(CreateUserStoryInput(
-            product_id=product_id,
-            feature_id=feature["id"],
-            title=f"Story for {feature['title']}",
-            description="As a user...",
-            acceptance_criteria=None,
-            story_points=None,
-        ))
+        create_user_story(
+            CreateUserStoryInput(
+                product_id=product_id,
+                feature_id=feature["id"],
+                title=f"Story for {feature['title']}",
+                description="As a user...",
+                acceptance_criteria=None,
+                story_points=None,
+            )
+        )
 
     # Get details
     result = get_project_details(product_id)
@@ -247,13 +260,17 @@ def test_get_project_by_name_found(engine):
 
     orch_tools.engine = engine
 
-    import tools.db_tools as db_tools
-    from tools.db_tools import create_or_get_product, CreateOrGetProductInput
+    from tools import db_tools
+    from tools.db_tools import CreateOrGetProductInput, create_or_get_product
 
     db_tools.engine = engine
 
     # Create product
-    prod_result = create_or_get_product(CreateOrGetProductInput(product_name="Findable Project", vision=None, description=None))
+    prod_result = create_or_get_product(
+        CreateOrGetProductInput(
+            product_name="Findable Project", vision=None, description=None
+        )
+    )
     product_id = prod_result["product_id"]
 
     # Find it by name

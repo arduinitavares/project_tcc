@@ -1,14 +1,14 @@
 """Tests for validation mode routing: deterministic, llm, and hybrid."""
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlmodel import Session
 
-import tools.spec_tools as spec_tools
 from agile_sqlmodel import CompiledSpecAuthority, Product, SpecRegistry, UserStory
 from models.core import Epic, Feature, Theme
+from tools import spec_tools
 from tools.spec_tools import validate_story_with_spec_authority
 from utils.spec_schemas import (
     ForbiddenCapabilityParams,
@@ -29,7 +29,7 @@ def _create_compiled_spec(session: Session, product_id: int) -> int:
         spec_hash="a" * 64,
         version_number=1,
         status="approved",
-        approved_at=datetime.now(timezone.utc),
+        approved_at=datetime.now(UTC),
         approved_by="tester",
         approval_notes=None,
     )
@@ -63,13 +63,15 @@ def _create_compiled_spec(session: Session, product_id: int) -> int:
         spec_version_id=spec.spec_version_id,
         compiler_version="1.0.0",
         prompt_hash="0" * 64,
-        compiled_at=datetime.now(timezone.utc),
+        compiled_at=datetime.now(UTC),
         scope_themes=json.dumps(["core"]),
         invariants=json.dumps(["REQUIRED_FIELD:user_id"]),
         eligible_feature_ids=json.dumps([]),
         rejected_features=json.dumps([]),
         spec_gaps=json.dumps([]),
-        compiled_artifact_json=SpecAuthorityCompilerOutput(root=artifact).model_dump_json(),
+        compiled_artifact_json=SpecAuthorityCompilerOutput(
+            root=artifact
+        ).model_dump_json(),
     )
     session.add(compiled)
     session.commit()
@@ -139,13 +141,15 @@ def _build_authority_for_alignment(
         spec_version_id=1,
         compiler_version="1.0.0",
         prompt_hash="0" * 64,
-        compiled_at=datetime.now(timezone.utc),
+        compiled_at=datetime.now(UTC),
         scope_themes=json.dumps(["core"]),
         invariants=json.dumps([f"{inv.type}:{inv.id}" for inv in invariants]),
         eligible_feature_ids=json.dumps([]),
         rejected_features=json.dumps([]),
         spec_gaps=json.dumps([]),
-        compiled_artifact_json=SpecAuthorityCompilerOutput(root=artifact).model_dump_json(),
+        compiled_artifact_json=SpecAuthorityCompilerOutput(
+            root=artifact
+        ).model_dump_json(),
     )
 
 
@@ -242,7 +246,11 @@ def test_llm_payload_includes_feature_context_orphan_story(
     monkeypatch.setattr(spec_tools, "_invoke_spec_validator_async", _capture_payload)
 
     result = validate_story_with_spec_authority(
-        {"story_id": orphan_story.story_id, "spec_version_id": spec_version_id, "mode": "llm"},
+        {
+            "story_id": orphan_story.story_id,
+            "spec_version_id": spec_version_id,
+            "mode": "llm",
+        },
         tool_context=None,
     )
 
@@ -332,7 +340,7 @@ def test_hybrid_mode_fails_when_deterministic_alignment_fails(
                     capability="cloud",
                     message="cloud capability is forbidden",
                     severity="failure",
-                    created_at=datetime.now(timezone.utc),
+                    created_at=datetime.now(UTC),
                 )
             ],
             [],
@@ -352,7 +360,11 @@ def test_hybrid_mode_fails_when_deterministic_alignment_fails(
     )
 
     result = validate_story_with_spec_authority(
-        {"story_id": story.story_id, "spec_version_id": spec_version_id, "mode": "hybrid"},
+        {
+            "story_id": story.story_id,
+            "spec_version_id": spec_version_id,
+            "mode": "hybrid",
+        },
         tool_context=None,
     )
     assert result["success"] is True
@@ -416,7 +428,9 @@ def test_env_default_mode_invalid_falls_back_to_deterministic(
     monkeypatch.setenv("SPEC_VALIDATION_DEFAULT_MODE", "not-a-mode")
 
     def _should_not_be_called(*_args, **_kwargs):
-        raise AssertionError("LLM adapter should not run when env default mode is invalid")
+        raise AssertionError(
+            "LLM adapter should not run when env default mode is invalid"
+        )
 
     monkeypatch.setattr(spec_tools, "_run_llm_spec_validation", _should_not_be_called)
 
@@ -463,7 +477,9 @@ def test_deterministic_forbidden_capability_keyword_match() -> None:
     assert any(f.code == "FORBIDDEN_CAPABILITY" for f in failures)
 
 
-def test_deterministic_forbidden_capability_ignores_policy_boilerplate_context() -> None:
+def test_deterministic_forbidden_capability_ignores_policy_boilerplate_context() -> (
+    None
+):
     story = UserStory(
         product_id=1,
         feature_id=None,
@@ -503,7 +519,9 @@ def test_deterministic_forbidden_capability_ignores_policy_boilerplate_context()
     assert messages == []
 
 
-def test_deterministic_forbidden_capability_still_fails_for_integrity_enforcement_feature() -> None:
+def test_deterministic_forbidden_capability_still_fails_for_integrity_enforcement_feature() -> (
+    None
+):
     story = UserStory(
         product_id=1,
         feature_id=None,
@@ -540,7 +558,9 @@ def test_deterministic_forbidden_capability_still_fails_for_integrity_enforcemen
     assert any(f.code == "FORBIDDEN_CAPABILITY" for f in failures)
 
 
-def test_deterministic_forbidden_capability_not_suppressed_by_generic_references_word() -> None:
+def test_deterministic_forbidden_capability_not_suppressed_by_generic_references_word() -> (
+    None
+):
     story = UserStory(
         product_id=1,
         feature_id=None,
@@ -650,7 +670,7 @@ def test_hybrid_mode_ignores_policy_boilerplate_when_llm_passes(
         spec_hash="b" * 64,
         version_number=1,
         status="approved",
-        approved_at=datetime.now(timezone.utc),
+        approved_at=datetime.now(UTC),
         approved_by="tester",
         approval_notes=None,
     )
@@ -696,13 +716,15 @@ def test_hybrid_mode_ignores_policy_boilerplate_when_llm_passes(
         spec_version_id=spec.spec_version_id,
         compiler_version="1.0.0",
         prompt_hash="0" * 64,
-        compiled_at=datetime.now(timezone.utc),
+        compiled_at=datetime.now(UTC),
         scope_themes=json.dumps(["assignment policy"]),
         invariants=json.dumps(["FORBIDDEN_CAPABILITY:plagiarism"]),
         eligible_feature_ids=json.dumps([]),
         rejected_features=json.dumps([]),
         spec_gaps=json.dumps([]),
-        compiled_artifact_json=SpecAuthorityCompilerOutput(root=artifact).model_dump_json(),
+        compiled_artifact_json=SpecAuthorityCompilerOutput(
+            root=artifact
+        ).model_dump_json(),
     )
     session.add(compiled)
     session.commit()
@@ -731,7 +753,9 @@ def test_hybrid_mode_ignores_policy_boilerplate_when_llm_passes(
     assert result["success"] is True
     assert result["mode"] == "hybrid"
     assert result["passed"] is True
-    assert not any(f["code"] == "FORBIDDEN_CAPABILITY" for f in result["alignment_failures"])
+    assert not any(
+        f["code"] == "FORBIDDEN_CAPABILITY" for f in result["alignment_failures"]
+    )
 
 
 def test_structural_rule_detects_offline_cloud_connectivity_contradiction() -> None:
@@ -767,12 +791,13 @@ def test_structural_rule_detects_impossible_latency_requirement() -> None:
     )
 
     assert any(
-        failure.rule == "RULE_IMPOSSIBLE_LATENCY_REQUIREMENT"
-        for failure in failures
+        failure.rule == "RULE_IMPOSSIBLE_LATENCY_REQUIREMENT" for failure in failures
     )
 
 
-def test_structural_rule_detects_scope_mismatch_placeholder_acceptance_criteria() -> None:
+def test_structural_rule_detects_scope_mismatch_placeholder_acceptance_criteria() -> (
+    None
+):
     story = UserStory(
         product_id=1,
         feature_id=None,

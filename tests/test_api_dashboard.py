@@ -1,7 +1,6 @@
 """API tests for deterministic setup-first dashboard endpoints."""
 
 from dataclasses import dataclass
-from typing import Dict, Optional
 
 from fastapi.testclient import TestClient
 
@@ -10,8 +9,7 @@ import api as api_module
 
 def test_api_uses_public_spec_lifecycle_wrapper():
     assert (
-        api_module.link_spec_to_product.__module__
-        == "services.specs.lifecycle_service"
+        api_module.link_spec_to_product.__module__ == "services.specs.lifecycle_service"
     )
 
 
@@ -19,10 +17,10 @@ def test_api_uses_public_spec_lifecycle_wrapper():
 class DummyProduct:
     product_id: int
     name: str
-    description: Optional[str] = None
-    vision: Optional[str] = None
-    spec_file_path: Optional[str] = None
-    compiled_authority_json: Optional[str] = None
+    description: str | None = None
+    vision: str | None = None
+    spec_file_path: str | None = None
+    compiled_authority_json: str | None = None
 
 
 class DummyProductRepository:
@@ -38,7 +36,7 @@ class DummyProductRepository:
                 return product
         return None
 
-    def create(self, name: str, description: Optional[str] = None):
+    def create(self, name: str, description: str | None = None):
         product = DummyProduct(
             product_id=len(self.products) + 1,
             name=name,
@@ -50,11 +48,11 @@ class DummyProductRepository:
 
 class DummyWorkflowService:
     def __init__(self) -> None:
-        self.states: Dict[str, Dict[str, object]] = {}
+        self.states: dict[str, dict[str, object]] = {}
         self.single_calls: list[str] = []
         self.batch_calls: list[list[str]] = []
 
-    async def initialize_session(self, session_id: Optional[str] = None) -> str:
+    async def initialize_session(self, session_id: str | None = None) -> str:
         sid = str(session_id or "generated")
         self.states[sid] = {"fsm_state": "SETUP_REQUIRED"}
         return sid
@@ -139,7 +137,7 @@ def _build_client(monkeypatch):
 
     monkeypatch.setattr(api_module, "select_project", fake_select_project)
     monkeypatch.setattr(api_module, "link_spec_to_product", fake_link_spec_to_product)
-    
+
     async def fake_run_vision_agent_from_state(state, *, project_id, user_input):
         return {
             "success": True,
@@ -147,7 +145,9 @@ def _build_client(monkeypatch):
                 "user_raw_text": user_input or "",
                 "prior_vision_state": "NO_HISTORY",
                 "specification_content": state.get("pending_spec_content", "SPEC"),
-                "compiled_authority": state.get("compiled_authority_cached", '{"ok": true}'),
+                "compiled_authority": state.get(
+                    "compiled_authority_cached", '{"ok": true}'
+                ),
             },
             "output_artifact": {
                 "updated_components": {
@@ -172,7 +172,9 @@ def _build_client(monkeypatch):
             "has_full_artifact": False,
         }
 
-    monkeypatch.setattr(api_module, "run_vision_agent_from_state", fake_run_vision_agent_from_state)
+    monkeypatch.setattr(
+        api_module, "run_vision_agent_from_state", fake_run_vision_agent_from_state
+    )
 
     return TestClient(api_module.app), repo, workflow
 
@@ -259,7 +261,7 @@ def test_get_projects_uses_batch_session_lookup(monkeypatch):
 def test_create_project_returns_500_when_repository_does_not_persist(monkeypatch):
     client, repo, _workflow = _build_client(monkeypatch)
 
-    def create_without_id(name: str, description: Optional[str] = None):
+    def create_without_id(name: str, description: str | None = None):
         product = DummyProduct(
             product_id=None,  # type: ignore[arg-type]
             name=name,
@@ -357,7 +359,9 @@ def test_create_project_auto_vision_failure_is_recorded(monkeypatch):
                 "user_raw_text": user_input or "",
                 "prior_vision_state": "NO_HISTORY",
                 "specification_content": state.get("pending_spec_content", "SPEC"),
-                "compiled_authority": state.get("compiled_authority_cached", '{"ok": true}'),
+                "compiled_authority": state.get(
+                    "compiled_authority_cached", '{"ok": true}'
+                ),
             },
             "output_artifact": {
                 "error": "VISION_GENERATION_FAILED",
@@ -388,7 +392,10 @@ def test_create_project_auto_vision_failure_is_recorded(monkeypatch):
     assert payload["data"]["vision_auto_run"]["attempted"] is True
     assert payload["data"]["vision_auto_run"]["success"] is False
     assert payload["data"]["vision_auto_run"]["is_complete"] is None
-    assert payload["data"]["vision_auto_run"]["failure_artifact_id"] == "vision-auto-failure"
+    assert (
+        payload["data"]["vision_auto_run"]["failure_artifact_id"]
+        == "vision-auto-failure"
+    )
 
     history = workflow.states["1"]["vision_attempts"]
     assert isinstance(history, list)

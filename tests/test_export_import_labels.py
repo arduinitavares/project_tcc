@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -59,7 +59,7 @@ def _seed_case_data(session: Session) -> tuple[int, int]:
         spec_hash="a" * 64,
         version_number=1,
         status="approved",
-        approved_at=datetime.now(timezone.utc),
+        approved_at=datetime.now(UTC),
         approved_by="tester",
         approval_notes=None,
     )
@@ -93,13 +93,15 @@ def _seed_case_data(session: Session) -> tuple[int, int]:
         spec_version_id=spec.spec_version_id,
         compiler_version="1.0.0",
         prompt_hash="0" * 64,
-        compiled_at=datetime.now(timezone.utc),
+        compiled_at=datetime.now(UTC),
         scope_themes=json.dumps(["core"]),
         invariants=json.dumps(["REQUIRED_FIELD:user_id"]),
         eligible_feature_ids=json.dumps([]),
         rejected_features=json.dumps([]),
         spec_gaps=json.dumps([]),
-        compiled_artifact_json=SpecAuthorityCompilerOutput(root=artifact).model_dump_json(),
+        compiled_artifact_json=SpecAuthorityCompilerOutput(
+            root=artifact
+        ).model_dump_json(),
     )
     session.add(compiled)
     session.commit()
@@ -107,12 +109,19 @@ def _seed_case_data(session: Session) -> tuple[int, int]:
     return story.story_id, spec.spec_version_id
 
 
-def test_export_labeling_rows_contains_context(engine, session: Session, monkeypatch: pytest.MonkeyPatch):
+def test_export_labeling_rows_contains_context(
+    engine, session: Session, monkeypatch: pytest.MonkeyPatch
+):
     story_id, spec_version_id = _seed_case_data(session)
     monkeypatch.setattr(exporter, "get_engine", lambda: engine)
 
     cases = [
-        {"case_id": "c1", "story_id": story_id, "spec_version_id": spec_version_id, "enabled": True}
+        {
+            "case_id": "c1",
+            "story_id": story_id,
+            "spec_version_id": spec_version_id,
+            "enabled": True,
+        }
     ]
     rows = exporter.build_labeling_rows(cases)
     assert len(rows) == 1

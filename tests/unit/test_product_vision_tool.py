@@ -17,7 +17,6 @@ from orchestrator_agent.agent_tools.product_vision_tool.tools import (
 
 def test_save_vision_tool_creates_project_and_returns_dict(engine: Engine):
     """Test that save_vision_tool creates a project and returns the correct dictionary structure."""
-    
     # Mock ToolContext
     tool_context = MagicMock(spec=ToolContext)
     tool_context.state = {}
@@ -25,13 +24,13 @@ def test_save_vision_tool_creates_project_and_returns_dict(engine: Engine):
     # Input data
     vision_input = SaveVisionInput(
         project_name="New Test Project",
-        product_vision_statement="A vision for the future."
+        product_vision_statement="A vision for the future.",
     )
 
     # Patch get_engine to use our test fixture engine
     with patch(
         "orchestrator_agent.agent_tools.product_vision_tool.tools.get_engine",
-        return_value=engine
+        return_value=engine,
     ):
         result = save_vision_tool(vision_input, tool_context)
 
@@ -59,7 +58,6 @@ def test_save_vision_tool_creates_project_and_returns_dict(engine: Engine):
 
 def test_save_vision_tool_updates_existing_project(engine: Engine):
     """Test that save_vision_tool updates an existing project and returns the ID."""
-    
     # Pre-populate DB
     with Session(engine) as session:
         existing_project = Product(name="Existing Project", vision="Old vision")
@@ -75,13 +73,13 @@ def test_save_vision_tool_updates_existing_project(engine: Engine):
     vision_input = SaveVisionInput(
         product_id=original_id,
         project_name="Existing Project",
-        product_vision_statement="New Updated Vision"
+        product_vision_statement="New Updated Vision",
     )
 
     # Patch get_engine
     with patch(
         "orchestrator_agent.agent_tools.product_vision_tool.tools.get_engine",
-        return_value=engine
+        return_value=engine,
     ):
         result = save_vision_tool(vision_input, tool_context)
 
@@ -131,9 +129,10 @@ def test_save_vision_tool_handles_missing_active_project(engine: Engine):
     }
 
 
-def test_save_vision_tool_updates_existing_project_by_name_when_id_is_none(engine: Engine):
+def test_save_vision_tool_updates_existing_project_by_name_when_id_is_none(
+    engine: Engine,
+):
     """Test that save_vision_tool falls back to update if name exists but ID is None."""
-    
     # 1. Pre-seed the DB with a project
     with Session(engine) as session:
         existing = Product(name="Duplicate Name Project", vision="Old Vision")
@@ -150,12 +149,12 @@ def test_save_vision_tool_updates_existing_project_by_name_when_id_is_none(engin
     vision_input = SaveVisionInput(
         project_name="Duplicate Name Project",
         product_id=None,
-        product_vision_statement="New Updated Vision"
+        product_vision_statement="New Updated Vision",
     )
 
     with patch(
         "orchestrator_agent.agent_tools.product_vision_tool.tools.get_engine",
-        return_value=engine
+        return_value=engine,
     ):
         result = save_vision_tool(vision_input, tool_context)
 
@@ -169,6 +168,7 @@ def test_save_vision_tool_updates_existing_project_by_name_when_id_is_none(engin
         updated = session.get(Product, existing_id)
         assert updated.vision == "New Updated Vision"
         # Ensure no duplicate was created
-        all_prods = session.exec(select(Product).where(Product.name == "Duplicate Name Project")).all()
+        all_prods = session.exec(
+            select(Product).where(Product.name == "Duplicate Name Project")
+        ).all()
         assert len(all_prods) == 1
-

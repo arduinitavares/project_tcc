@@ -1,23 +1,29 @@
-
 import unittest
-from sqlmodel import SQLModel, create_engine
+
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
+from sqlmodel import SQLModel, create_engine
 
 # Import the modules to be tested
 import tools.orchestrator_tools as orch_tools
 from tools import db_tools
-from tools.db_tools import create_or_get_product, create_user_story, persist_roadmap, CreateOrGetProductInput, CreateUserStoryInput
+from tools.db_tools import (
+    CreateOrGetProductInput,
+    CreateUserStoryInput,
+    create_or_get_product,
+    create_user_story,
+    persist_roadmap,
+)
 
 
 class MockToolContext:
     """Mock ToolContext for testing."""
+
     def __init__(self, state):
         self.state = state
 
 
 class TestOrchestratorTools(unittest.TestCase):
-
     def setUp(self):
         """Create a fresh in-memory database for each test."""
 
@@ -50,9 +56,21 @@ class TestOrchestratorTools(unittest.TestCase):
 
     def test_count_projects_with_data(self):
         """Test counting projects when products exist."""
-        create_or_get_product(CreateOrGetProductInput(product_name="Project A", vision=None, description=None))
-        create_or_get_product(CreateOrGetProductInput(product_name="Project B", vision=None, description=None))
-        create_or_get_product(CreateOrGetProductInput(product_name="Project C", vision=None, description=None))
+        create_or_get_product(
+            CreateOrGetProductInput(
+                product_name="Project A", vision=None, description=None
+            )
+        )
+        create_or_get_product(
+            CreateOrGetProductInput(
+                product_name="Project B", vision=None, description=None
+            )
+        )
+        create_or_get_product(
+            CreateOrGetProductInput(
+                product_name="Project C", vision=None, description=None
+            )
+        )
         state = {}
         context = MockToolContext(state)
         result = orch_tools.count_projects({}, context)
@@ -61,11 +79,13 @@ class TestOrchestratorTools(unittest.TestCase):
 
     def test_get_story_details_tool(self):
         """Test fetching story details via db_tools."""
-        product_result = create_or_get_product(CreateOrGetProductInput(
-            product_name="Story Details Integration",
-            vision="Integration test vision",
-            description=None
-        ))
+        product_result = create_or_get_product(
+            CreateOrGetProductInput(
+                product_name="Story Details Integration",
+                vision="Integration test vision",
+                description=None,
+            )
+        )
         product_id = product_result["product_id"]
 
         roadmap = [
@@ -77,7 +97,10 @@ class TestOrchestratorTools(unittest.TestCase):
                         "epic_title": "Integration Epic",
                         "epic_summary": "Epic for integration test",
                         "features": [
-                            {"title": "Integration Feature", "description": "Feature for integration test"},
+                            {
+                                "title": "Integration Feature",
+                                "description": "Feature for integration test",
+                            },
                         ],
                     }
                 ],
@@ -87,14 +110,16 @@ class TestOrchestratorTools(unittest.TestCase):
         roadmap_result = persist_roadmap(product_id, roadmap)
         feature_id = roadmap_result["created"]["features"][0]["id"]
 
-        story_result = create_user_story(CreateUserStoryInput(
-            product_id=product_id,
-            feature_id=feature_id,
-            title="Integration Story",
-            description="As a user, I want to fetch story details so that I can inspect them.",
-            story_points=2,
-            acceptance_criteria="- Details can be retrieved"
-        ))
+        story_result = create_user_story(
+            CreateUserStoryInput(
+                product_id=product_id,
+                feature_id=feature_id,
+                title="Integration Story",
+                description="As a user, I want to fetch story details so that I can inspect them.",
+                story_points=2,
+                acceptance_criteria="- Details can be retrieved",
+            )
+        )
         story_id = story_result["story_id"]
 
         result = db_tools.get_story_details(story_id)
@@ -126,7 +151,9 @@ class TestOrchestratorTools(unittest.TestCase):
     def test_list_projects_with_data(self):
         """Test listing projects with summary data."""
         prod_result = create_or_get_product(
-            CreateOrGetProductInput(product_name="Test Project", vision="Test vision", description=None)
+            CreateOrGetProductInput(
+                product_name="Test Project", vision="Test vision", description=None
+            )
         )
         product_id = prod_result["product_id"]
         roadmap = [
@@ -186,7 +213,9 @@ class TestOrchestratorTools(unittest.TestCase):
     def test_get_project_details_with_structure(self):
         """Test getting detailed structure of a project."""
         prod_result = create_or_get_product(
-            CreateOrGetProductInput(product_name="Full Project", vision="Complete vision", description=None)
+            CreateOrGetProductInput(
+                product_name="Full Project", vision="Complete vision", description=None
+            )
         )
         product_id = prod_result["product_id"]
         roadmap = [
@@ -241,12 +270,17 @@ class TestOrchestratorTools(unittest.TestCase):
 
     def test_get_project_by_name_found(self):
         """Test finding project by name successfully."""
-        prod_result = create_or_get_product(CreateOrGetProductInput(product_name="Findable Project", vision=None, description=None))
+        prod_result = create_or_get_product(
+            CreateOrGetProductInput(
+                product_name="Findable Project", vision=None, description=None
+            )
+        )
         product_id = prod_result["product_id"]
         result = orch_tools.get_project_by_name("Findable Project")
         self.assertTrue(result["success"])
         self.assertEqual(result["product_id"], product_id)
         self.assertEqual(result["product_name"], "Findable Project")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

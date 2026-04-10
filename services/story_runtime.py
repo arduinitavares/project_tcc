@@ -1,8 +1,11 @@
+"""Runtime helpers for invoking the story-generation agent from workflow state."""
+
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, TypedDict
 
 from pydantic import ValidationError
 
@@ -14,14 +17,48 @@ from orchestrator_agent.agent_tools.user_story_writer_tool.schemes import (
     UserStoryWriterOutput,
 )
 from services.interview_runtime import hydrate_story_runtime_from_legacy
-from utils.adk_runner import get_agent_model_info, invoke_agent_to_text, parse_json_payload
-from utils.failure_artifacts import AgentInvocationError, write_failure_artifact
+from utils.adk_runner import (
+    get_agent_model_info,
+    invoke_agent_to_text,
+    parse_json_payload,
+)
+from utils.failure_artifacts import (
+    AgentInvocationError,
+    FailureArtifactResult,
+    FailureMetadataDict,
+    write_failure_artifact,
+)
 from utils.runtime_config import STORY_RUNNER_IDENTITY
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(name=__name__)
 
 
-def _as_text(value: Any) -> str:
+class StoryInputContext(TypedDict):
+    """Serialized request payload expected by the story-generation agent."""
+
+    parent_requirement: str
+    requirement_context: str
+    technical_spec: str
+    compiled_authority: str
+    global_roadmap_context: str
+    already_generated_milestone_stories: str
+    artifact_registry: dict[str, str]
+
+
+type ValidationErrors = list[dict[str, object]]
+
+
+@dataclass(frozen=True)
+class _FailureDetails:
+    """Structured details describing a story-runtime failure."""
+
+    message: str
+    raw_text: str | None = None
+    validation_errors: ValidationErrors | None = None
+    exception: BaseException | None = None
+
+
+def _as_text(value: object) -> str:
     if value is None:
         return ""
     if isinstance(value, str):
@@ -32,64 +69,137 @@ def _as_text(value: Any) -> str:
         return str(value)
 
 
-def build_story_input_context(
-    state: Dict[str, Any],
+def _normalize_validation_errors(errors: object) -> ValidationErrors:
+    normalized: ValidationErrors = []
+    if not isinstance(errors, list):
+        return normalized
+
+    for error in errors:
+        if not isinstance(error, dict):
+            continue
+        normalized.append({str(key): value for key, value in error.items()})
+    return normalized
+
+
+def _as_object_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    return {str(key): item for key, item in value.items()}
+
+
+def _build_requirement_context(
+    roadmap_releases: list[object],
     *,
     parent_requirement: str,
-) -> Dict[str, Any]:
-    # Extract the context for this specific requirement from the roadmap
-    roadmap_releases = state.get("roadmap_releases") or []
+) -> str:
     requirement_context = f"Requirement: {parent_requirement}"
-    
+
     for release in roadmap_releases:
-        if parent_requirement in release.get("items", []):
-            theme = release.get("theme", "No theme specified")
-            reasoning = release.get("reasoning", "No reasoning specified")
-            focus = release.get("focus_area", "No focus area specified")
-            requirement_context = (
-                f"Part of Release: {release.get('release_name', 'Unknown')}\n"
-                f"Theme: {theme}\n"
-                f"Focus Area: {focus}\n"
-                f"Strategic Reasoning: {reasoning}"
-            )
-            break
-
-    global_roadmap_context = "Global Roadmap Constraints (Do not overlap with sibling requirements):\n"
-    for r_idx, release in enumerate(roadmap_releases):
-        global_roadmap_context += f"Milestone {r_idx + 1}: {release.get('release_name', 'Unnamed')}\n"
-        for item in release.get("items", []):
-            global_roadmap_context += f"  - {item}\n"
-
-    already_generated = "Already Generated Stories (Do not duplicate these):\n"
-    artifact_registry: Dict[str, str] = {}
-    story_outputs = state.get("story_outputs", {})
-    added_any_stories = False
-    for req_name, artifact in story_outputs.items():
-        if req_name == parent_requirement:
+        release_map: dict[str, object] | None = _as_object_dict(release)
+        if release_map is None:
             continue
-        if isinstance(artifact, dict):
-            stories = artifact.get("user_stories", [])
-            if stories:
-                added_any_stories = True
-                already_generated += f"\nRequirement: '{req_name}' contains:\n"
-                for story in stories:
-                    already_generated += f"  - {story.get('story_title', 'Untitled')}: {story.get('statement', '')}\n"
-                    
-                    # Build artifact registry
-                    produced_artifacts = story.get("produced_artifacts", [])
-                    for pa in produced_artifacts:
-                        if isinstance(pa, str) and pa.strip():
-                            artifact_registry[pa.strip()] = req_name
+        items: object = release_map.get("items")
+        if not isinstance(items, list) or parent_requirement not in items:
+            continue
+
+        theme: object = release_map.get("theme", "No theme specified")
+        reasoning: object = release_map.get("reasoning", "No reasoning specified")
+        focus: object = release_map.get("focus_area", "No focus area specified")
+        return (
+            f"Part of Release: {release_map.get('release_name', 'Unknown')}\n"
+            f"Theme: {theme}\n"
+            f"Focus Area: {focus}\n"
+            f"Strategic Reasoning: {reasoning}"
+        )
+
+    return requirement_context
+
+
+def _build_global_roadmap_context(roadmap_releases: list[object]) -> str:
+    lines: list[str] = [
+        "Global Roadmap Constraints (Do not overlap with sibling requirements):"
+    ]
+    for index, release in enumerate(roadmap_releases, start=1):
+        release_map: dict[str, object] | None = _as_object_dict(release)
+        if release_map is None:
+            continue
+        lines.append(f"Milestone {index}: {release_map.get('release_name', 'Unnamed')}")
+        items: object = release_map.get("items")
+        if not isinstance(items, list):
+            continue
+        lines.extend(f"  - {item}" for item in items)
+    return "\n".join(lines)
+
+
+def _story_summary_line(story: dict[str, object]) -> str:
+    title: object = story.get("story_title", "Untitled")
+    statement: object = story.get("statement", "")
+    return f"  - {title}: {statement}"
+
+
+def _build_already_generated_story_context(
+    story_outputs: dict[str, object],
+    *,
+    parent_requirement: str,
+) -> tuple[str, dict[str, str]]:
+    artifact_registry: dict[str, str] = {}
+    sections: list[str] = ["Already Generated Stories (Do not duplicate these):"]
+    added_any_stories = False
+
+    for req_name, artifact in story_outputs.items():
+        artifact_map: dict[str, object] | None = _as_object_dict(artifact)
+        if req_name == parent_requirement or artifact_map is None:
+            continue
+        stories = artifact_map.get("user_stories")
+        if not isinstance(stories, list) or not stories:
+            continue
+
+        added_any_stories = True
+        sections.extend(("", f"Requirement: '{req_name}' contains:"))
+        for story in stories:
+            story_map: dict[str, object] | None = _as_object_dict(story)
+            if story_map is None:
+                continue
+            sections.append(_story_summary_line(story_map))
+            produced_artifacts = story_map.get("produced_artifacts")
+            if not isinstance(produced_artifacts, list):
+                continue
+            for produced_artifact in produced_artifacts:
+                if isinstance(produced_artifact, str) and produced_artifact.strip():
+                    artifact_registry[produced_artifact.strip()] = req_name
 
     if not added_any_stories:
-        already_generated = "No stories generated yet for other requirements."
+        return "No stories generated yet for other requirements.", artifact_registry
 
+    return "\n".join(sections).strip(), artifact_registry
+
+
+def build_story_input_context(
+    state: dict[str, Any],
+    *,
+    parent_requirement: str,
+) -> StoryInputContext:
+    """Build the prompt context used by the story-generation agent."""
+    roadmap_releases = state.get("roadmap_releases") or []
+    if not isinstance(roadmap_releases, list):
+        roadmap_releases = []
+
+    story_outputs = state.get("story_outputs") or {}
+    if not isinstance(story_outputs, dict):
+        story_outputs = {}
+
+    already_generated, artifact_registry = _build_already_generated_story_context(
+        story_outputs,
+        parent_requirement=parent_requirement,
+    )
     return {
         "parent_requirement": parent_requirement,
-        "requirement_context": requirement_context,
+        "requirement_context": _build_requirement_context(
+            roadmap_releases, parent_requirement=parent_requirement
+        ),
         "technical_spec": _as_text(state.get("pending_spec_content")),
         "compiled_authority": _as_text(state.get("compiled_authority_cached")),
-        "global_roadmap_context": global_roadmap_context.strip(),
+        "global_roadmap_context": _build_global_roadmap_context(roadmap_releases),
         "already_generated_milestone_stories": already_generated.strip(),
         "artifact_registry": artifact_registry,
     }
@@ -108,19 +218,18 @@ def _failure(
     *,
     project_id: int,
     parent_requirement: str,
-    input_context: Dict[str, Any],
+    input_context: StoryInputContext,
     failure_stage: str,
-    message: str,
-    raw_text: Optional[str] = None,
-    validation_errors: Optional[List[Dict[str, Any]]] = None,
-    exception: Optional[BaseException] = None,
-) -> Dict[str, Any]:
-    artifact_result = write_failure_artifact(
+    details: _FailureDetails,
+) -> dict[str, Any]:
+    """Build a normalized failed story-runtime response with artifact metadata."""
+    message = details.message
+    artifact_result: FailureArtifactResult = write_failure_artifact(
         phase="story",
         project_id=project_id,
         failure_stage=failure_stage,
         failure_summary=message,
-        raw_output=raw_text,
+        raw_output=details.raw_text,
         context={
             "parent_requirement": parent_requirement,
             "input_context": input_context,
@@ -130,12 +239,12 @@ def _failure(
             "app_name": STORY_RUNNER_IDENTITY.app_name,
             "user_id": STORY_RUNNER_IDENTITY.user_id,
         },
-        validation_errors=validation_errors,
-        exception=exception,
+        validation_errors=details.validation_errors,
+        exception=details.exception,
     )
-    metadata = artifact_result["metadata"]
+    metadata: FailureMetadataDict = artifact_result["metadata"]
 
-    if exception is not None:
+    if details.exception is not None:
         logger.exception(
             "Story generation failed [artifact_id=%s stage=%s]: %s",
             metadata["failure_artifact_id"],
@@ -150,13 +259,17 @@ def _failure(
             message,
         )
 
-    artifact: Dict[str, Any] = {
+    artifact: dict[str, Any] = {
         "error": "STORY_GENERATION_FAILED",
         "message": message,
         "is_complete": False,
         "clarifying_questions": [],
+        "failure_artifact_id": metadata["failure_artifact_id"],
+        "failure_stage": metadata["failure_stage"],
+        "failure_summary": metadata["failure_summary"],
+        "raw_output_preview": metadata["raw_output_preview"],
+        "has_full_artifact": metadata["has_full_artifact"],
     }
-    artifact.update(metadata)
 
     return {
         "success": False,
@@ -164,18 +277,22 @@ def _failure(
         "output_artifact": artifact,
         "is_complete": None,
         "error": message,
-        **metadata,
+        "failure_artifact_id": metadata["failure_artifact_id"],
+        "failure_stage": metadata["failure_stage"],
+        "failure_summary": metadata["failure_summary"],
+        "raw_output_preview": metadata["raw_output_preview"],
+        "has_full_artifact": metadata["has_full_artifact"],
     }
 
 
 def _with_failure_metadata(
-    result: Dict[str, Any],
+    result: dict[str, Any],
     *,
     classification: str,
-    draft_kind: Optional[str],
+    draft_kind: str | None,
     is_reusable: bool,
-    request_payload: Dict[str, Any],
-) -> Dict[str, Any]:
+    request_payload: StoryInputContext,
+) -> dict[str, Any]:
     result.update(
         {
             "classification": classification,
@@ -188,10 +305,10 @@ def _with_failure_metadata(
 
 
 def _get_latest_reusable_story_artifact(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     *,
     parent_requirement: str,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     runtime = hydrate_story_runtime_from_legacy(
         state,
         parent_requirement=parent_requirement,
@@ -211,7 +328,7 @@ def _get_latest_reusable_story_artifact(
     return None
 
 
-def _collect_unabsorbed_feedback_text(runtime: Dict[str, Any]) -> List[str]:
+def _collect_unabsorbed_feedback_text(runtime: dict[str, Any]) -> list[str]:
     feedback_projection = runtime.get("feedback_projection") or {}
     if not isinstance(feedback_projection, dict):
         return []
@@ -220,7 +337,7 @@ def _collect_unabsorbed_feedback_text(runtime: Dict[str, Any]) -> List[str]:
     if not isinstance(items, list):
         return []
 
-    feedback_text: List[str] = []
+    feedback_text: list[str] = []
     for item in items:
         if not isinstance(item, dict):
             continue
@@ -233,12 +350,15 @@ def _collect_unabsorbed_feedback_text(runtime: Dict[str, Any]) -> List[str]:
 
 
 def build_story_request_payload(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     *,
     parent_requirement: str,
-    current_user_input: Optional[str] = None,
-) -> Dict[str, Any]:
-    input_context = build_story_input_context(state, parent_requirement=parent_requirement)
+    current_user_input: str | None = None,
+) -> StoryInputContext:
+    """Build a deterministic story-agent request payload from runtime state."""
+    input_context: StoryInputContext = build_story_input_context(
+        state, parent_requirement=parent_requirement
+    )
     runtime = hydrate_story_runtime_from_legacy(
         state,
         parent_requirement=parent_requirement,
@@ -253,13 +373,15 @@ def build_story_request_payload(
             reusable_artifact_json = json.dumps(reusable_artifact, indent=2)
         except (TypeError, ValueError):
             logger.warning(
-                "Skipping reusable story draft injection due to unserializable artifact",
+                (
+                    "Skipping reusable story draft injection due to "
+                    "unserializable artifact"
+                ),
                 extra={"parent_requirement": parent_requirement},
             )
         else:
             input_context["requirement_context"] += (
-                "\n\n--- PREVIOUS DRAFT TO REFINE ---\n"
-                f"{reusable_artifact_json}"
+                f"\n\n--- PREVIOUS DRAFT TO REFINE ---\n{reusable_artifact_json}"
             )
 
     feedback_items = _collect_unabsorbed_feedback_text(runtime)
@@ -267,19 +389,19 @@ def build_story_request_payload(
         feedback_items.append(current_user_input)
     if feedback_items:
         input_context["requirement_context"] += (
-            "\n\n--- USER REFINEMENT FEEDBACK ---\n"
-            + "\n".join(feedback_items)
+            "\n\n--- USER REFINEMENT FEEDBACK ---\n" + "\n".join(feedback_items)
         )
 
     return input_context
 
 
 async def run_story_agent_request(
-    request_payload: Dict[str, Any],
+    request_payload: StoryInputContext,
     *,
     project_id: int,
     parent_requirement: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
+    """Run the story agent for a prepared request payload and normalize failures."""
     try:
         payload = UserStoryWriterInput.model_validate(request_payload)
     except ValidationError as exc:
@@ -289,9 +411,11 @@ async def run_story_agent_request(
                 parent_requirement=parent_requirement,
                 input_context=request_payload,
                 failure_stage="input_validation",
-                message=f"Story input validation failed: {exc}",
-                validation_errors=exc.errors(),
-                exception=exc,
+                details=_FailureDetails(
+                    message=f"Story input validation failed: {exc}",
+                    validation_errors=_normalize_validation_errors(exc.errors()),
+                    exception=exc,
+                ),
             ),
             classification="nonreusable_schema_failure",
             draft_kind=None,
@@ -308,24 +432,28 @@ async def run_story_agent_request(
                 parent_requirement=parent_requirement,
                 input_context=request_payload,
                 failure_stage="invocation_exception",
-                message=f"Story runtime failed: {exc}",
-                raw_text=exc.partial_output,
-                exception=exc,
+                details=_FailureDetails(
+                    message=f"Story runtime failed: {exc}",
+                    raw_text=exc.partial_output,
+                    exception=exc,
+                ),
             ),
             classification="nonreusable_provider_failure",
             draft_kind=None,
             is_reusable=False,
             request_payload=request_payload,
         )
-    except Exception as exc:  # pylint: disable=broad-except
+    except ValueError as exc:
         return _with_failure_metadata(
             _failure(
                 project_id=project_id,
                 parent_requirement=parent_requirement,
                 input_context=request_payload,
                 failure_stage="invocation_exception",
-                message=f"Story runtime failed: {exc}",
-                exception=exc,
+                details=_FailureDetails(
+                    message=f"Story runtime failed: {exc}",
+                    exception=exc,
+                ),
             ),
             classification="nonreusable_provider_failure",
             draft_kind=None,
@@ -341,8 +469,10 @@ async def run_story_agent_request(
                 parent_requirement=parent_requirement,
                 input_context=request_payload,
                 failure_stage="invalid_json",
-                message="Story response is not valid JSON",
-                raw_text=raw_text,
+                details=_FailureDetails(
+                    message="Story response is not valid JSON",
+                    raw_text=raw_text,
+                ),
             ),
             classification="nonreusable_schema_failure",
             draft_kind=None,
@@ -351,7 +481,9 @@ async def run_story_agent_request(
         )
 
     try:
-        output_model = UserStoryWriterOutput.model_validate(parsed)
+        output_model: UserStoryWriterOutput = UserStoryWriterOutput.model_validate(
+            parsed
+        )
     except ValidationError as exc:
         return _with_failure_metadata(
             _failure(
@@ -359,10 +491,12 @@ async def run_story_agent_request(
                 parent_requirement=parent_requirement,
                 input_context=request_payload,
                 failure_stage="output_validation",
-                message=f"Story output validation failed: {exc}",
-                raw_text=raw_text,
-                validation_errors=exc.errors(),
-                exception=exc,
+                details=_FailureDetails(
+                    message=f"Story output validation failed: {exc}",
+                    raw_text=raw_text,
+                    validation_errors=_normalize_validation_errors(exc.errors()),
+                    exception=exc,
+                ),
             ),
             classification="nonreusable_schema_failure",
             draft_kind=None,
@@ -370,7 +504,7 @@ async def run_story_agent_request(
             request_payload=request_payload,
         )
 
-    output_artifact = output_model.model_dump(exclude_none=True)
+    output_artifact: dict[str, Any] = output_model.model_dump(exclude_none=True)
     return {
         "success": True,
         "input_context": request_payload,
@@ -394,13 +528,14 @@ async def run_story_agent_request(
 
 
 async def run_story_agent_from_state(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     *,
     project_id: int,
     parent_requirement: str,
-    user_input: Optional[str],
-) -> Dict[str, Any]:
-    request_payload = build_story_request_payload(
+    user_input: str | None,
+) -> dict[str, Any]:
+    """Build a story request from state and execute it through the story agent."""
+    request_payload: StoryInputContext = build_story_request_payload(
         state,
         parent_requirement=parent_requirement,
         current_user_input=user_input,

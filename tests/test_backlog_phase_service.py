@@ -36,9 +36,7 @@ def test_record_backlog_attempt_updates_working_state():
     )
 
     assert count == 1
-    assert state["backlog_last_input_context"] == {
-        "user_raw_text": "refine"
-    }
+    assert state["backlog_last_input_context"] == {"user_raw_text": "refine"}
     assert state["product_backlog_assessment"]["backlog_items"][0]["title"] == (
         "Seed backlog item"
     )

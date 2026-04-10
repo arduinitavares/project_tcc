@@ -1,7 +1,6 @@
 """API tests for roadmap generation, history, and save flow."""
 
 from dataclasses import dataclass
-from typing import Dict, Optional
 
 from fastapi.testclient import TestClient
 
@@ -12,10 +11,10 @@ import api as api_module
 class DummyProduct:
     product_id: int
     name: str
-    description: Optional[str] = None
-    vision: Optional[str] = None
-    spec_file_path: Optional[str] = None
-    compiled_authority_json: Optional[str] = None
+    description: str | None = None
+    vision: str | None = None
+    spec_file_path: str | None = None
+    compiled_authority_json: str | None = None
 
 
 class DummyProductRepository:
@@ -31,7 +30,7 @@ class DummyProductRepository:
                 return product
         return None
 
-    def create(self, name: str, description: Optional[str] = None):
+    def create(self, name: str, description: str | None = None):
         product = DummyProduct(
             product_id=len(self.products) + 1,
             name=name,
@@ -43,9 +42,9 @@ class DummyProductRepository:
 
 class DummyWorkflowService:
     def __init__(self) -> None:
-        self.states: Dict[str, Dict[str, object]] = {}
+        self.states: dict[str, dict[str, object]] = {}
 
-    async def initialize_session(self, session_id: Optional[str] = None) -> str:
+    async def initialize_session(self, session_id: str | None = None) -> str:
         sid = str(session_id or "generated")
         self.states[sid] = {"fsm_state": "SETUP_REQUIRED"}
         return sid
@@ -135,9 +134,7 @@ def _build_client(monkeypatch):
                 ],
                 "roadmap_summary": "Draft roadmap",
                 "is_complete": is_complete,
-                "clarifying_questions": []
-                if is_complete
-                else ["Need more detail"],
+                "clarifying_questions": [] if is_complete else ["Need more detail"],
             },
             "is_complete": is_complete,
             "error": None,

@@ -29,7 +29,6 @@ from utils.runtime_config import RuntimeConfigError, clear_runtime_config_cache
 
 def _create_sqlite_engine(db_path: Path) -> Engine:
     """Create a SQLite engine with foreign keys enabled."""
-
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
 
     @event.listens_for(engine, "connect")
@@ -51,7 +50,6 @@ def _clear_runtime_cache() -> None:
 
 def test_delete_project_removes_sprints_and_story_logs(tmp_path: Path) -> None:
     """Ensure delete_project clears sprints and story completion logs."""
-
     db_path = tmp_path / "delete_project_test.db"
     engine = _create_sqlite_engine(db_path)
 
@@ -128,7 +126,6 @@ def test_delete_project_removes_sprints_and_story_logs(tmp_path: Path) -> None:
 
 def test_delete_project_removes_compiled_spec_authority(tmp_path: Path) -> None:
     """Ensure delete_project clears compiled spec authority records."""
-
     db_path = tmp_path / "delete_project_spec.db"
     engine = _create_sqlite_engine(db_path)
 

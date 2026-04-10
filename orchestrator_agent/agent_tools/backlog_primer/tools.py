@@ -1,19 +1,18 @@
 """Tools for backlog_primer agent."""
 
-from typing import Annotated, Any, Dict, List, Optional
 import json
 import time
+from typing import Annotated, Any
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session, select
 
-from models.db import get_engine
 from models.core import UserStory
+from models.db import get_engine
 from models.enums import StoryStatus, WorkflowEventType
 from models.events import WorkflowEvent
 from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_key
-
 
 from .schemes import BacklogItem
 
@@ -23,18 +22,20 @@ class SaveBacklogInput(BaseModel):
 
     product_id: Annotated[int, Field(description="The product ID.")]
     backlog_items: Annotated[
-        List[Dict[str, Any]],
+        list[dict[str, Any]],
         Field(
             default_factory=list,
             description=(
                 "List of approved backlog items from backlog_primer_tool output. "
                 "Each must have: priority, requirement, value_driver, justification, estimated_effort."
-            )
+            ),
         ),
     ]
 
 
-def _resolve_backlog_items_from_state(tool_context: ToolContext) -> List[Dict[str, Any]]:
+def _resolve_backlog_items_from_state(
+    tool_context: ToolContext,
+) -> list[dict[str, Any]]:
     """Fallback loader for approved backlog items stored in volatile state."""
     state = tool_context.state or {}
 
@@ -55,8 +56,8 @@ def _resolve_backlog_items_from_state(tool_context: ToolContext) -> List[Dict[st
 
 async def save_backlog_tool(
     save_input: SaveBacklogInput,
-    tool_context: Optional[ToolContext] = None,
-) -> Dict[str, Any]:
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
     """
     Save approved backlog items to the DATABASE as UserStory records.
 
@@ -80,8 +81,8 @@ async def save_backlog_tool(
         )
 
     # Validate backlog items using BacklogItem schema
-    validated_items: List[BacklogItem] = []
-    validation_errors: List[str] = []
+    validated_items: list[BacklogItem] = []
+    validation_errors: list[str] = []
 
     for idx, item in enumerate(normalized_input.backlog_items):
         try:
@@ -110,7 +111,7 @@ async def save_backlog_tool(
     start_ts = time.perf_counter()
     engine = get_engine()
     created_count = 0
-    
+
     with Session(engine) as session:
         for item in validated_items:
             normalized_requirement = normalize_requirement_key(item.requirement)
@@ -144,30 +145,38 @@ async def save_backlog_tool(
             # requirement -> title
             # priority -> rank (converted to string to ensure sortability? or just numeric string)
             # estimated_effort -> story_points (approximate mapping)
-            
+
             # Map 'S', 'M', 'L', 'XL' (and legacy Low/Medium/High) to points
             points = None
             effort_str = str(item.estimated_effort).strip().upper()
-            
+
             # T-Shirt Sizing from schema
-            if effort_str == 'S': points = 1
-            elif effort_str == 'M': points = 3
-            elif effort_str == 'L': points = 5
-            elif effort_str == 'XL': points = 8
+            if effort_str == "S":
+                points = 1
+            elif effort_str == "M":
+                points = 3
+            elif effort_str == "L":
+                points = 5
+            elif effort_str == "XL":
+                points = 8
             # Legacy/Fallback
-            elif effort_str == 'LOW': points = 1
-            elif effort_str == 'MEDIUM': points = 3
-            elif effort_str == 'HIGH': points = 5
-            elif effort_str.isdigit(): points = int(effort_str)
+            elif effort_str == "LOW":
+                points = 1
+            elif effort_str == "MEDIUM":
+                points = 3
+            elif effort_str == "HIGH":
+                points = 5
+            elif effort_str.isdigit():
+                points = int(effort_str)
 
             new_story = UserStory(
                 title=item.requirement,
                 product_id=normalized_input.product_id,
                 status=StoryStatus.TO_DO,
-                rank=str(item.priority), # Storing priority as rank
+                rank=str(item.priority),  # Storing priority as rank
                 story_points=points,
-                story_description=item.justification, # Using justification as initial description context
-                acceptance_criteria=None, # To be filled by UserStory Writer later
+                story_description=item.justification,  # Using justification as initial description context
+                acceptance_criteria=None,  # To be filled by UserStory Writer later
                 source_requirement=normalized_requirement,
                 refinement_slot=slot,
                 story_origin="backlog_seed",
@@ -176,7 +185,7 @@ async def save_backlog_tool(
             )
             session.add(new_story)
             created_count += 1
-        
+
         duration_seconds = tool_context.state.get("backlog_generation_duration")
         if duration_seconds is None:
             duration_seconds = round(time.perf_counter() - start_ts, 3)
@@ -199,7 +208,9 @@ async def save_backlog_tool(
         )
         session.commit()
 
-    print(f"\n\033[92m[Backlog Saved]\033[0m {created_count} new items persisted to DB (Total processed: {len(validated_items)})")
+    print(
+        f"\n\033[92m[Backlog Saved]\033[0m {created_count} new items persisted to DB (Total processed: {len(validated_items)})"
+    )
 
     return {
         "success": True,
@@ -207,7 +218,7 @@ async def save_backlog_tool(
         "saved_count": created_count,
         "total_items": len(validated_items),
         "message": f"Backlog saved. {created_count} new stories created in database.",
-        "next_phase": "roadmap", # Or "sprint_planning" if user prefers
+        "next_phase": "roadmap",  # Or "sprint_planning" if user prefers
     }
 
 

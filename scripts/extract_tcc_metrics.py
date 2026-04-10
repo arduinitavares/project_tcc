@@ -22,30 +22,30 @@ Date: 2026-02-01
 
 import argparse
 import csv
-import hashlib
 import json
 import sqlite3
 import subprocess
 import sys
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from utils.runtime_config import resolve_database_target
-
 
 # ============================================================================
 # Data Classes for Metrics
 # ============================================================================
 
+
 @dataclass
 class ProductMetrics:
     """Metrics for a single product/project."""
+
     product_id: int
     product_name: str
     created_at: str
-    
+
     # Story counts
     total_stories: int = 0
     stories_with_spec_version_id: int = 0
@@ -53,7 +53,7 @@ class ProductMetrics:
     stories_with_validation_evidence: int = 0
     stories_approved_first_pass: int = 0
     stories_refined: int = 0
-    
+
     # Sprint metrics
     sprint_count: int = 0
     sprint_plan_drafts: int = 0
@@ -68,7 +68,7 @@ class ProductMetrics:
     avg_backlog_duration_sec: float = 0.0
     avg_roadmap_duration_sec: float = 0.0
     avg_stories_duration_sec: float = 0.0
-    
+
     # Workflow timing (from WorkflowEvent)
     total_sprint_planning_duration_sec: float = 0.0
     avg_sprint_planning_duration_sec: float = 0.0
@@ -78,7 +78,7 @@ class ProductMetrics:
     stories_with_evidence_links: int = 0
     total_tasks: int = 0
     completed_tasks: int = 0
-    
+
     # Spec Authority metrics
     spec_versions_count: int = 0
     spec_versions_approved: int = 0
@@ -90,18 +90,19 @@ class ProductMetrics:
 @dataclass
 class SmokeRunMetrics:
     """Aggregated metrics from smoke_runs.jsonl."""
+
     total_runs: int = 0
     pipeline_ran_count: int = 0
     alignment_rejected_count: int = 0
     acceptance_blocked_count: int = 0
     contract_passed_count: int = 0
-    
+
     # Timing aggregates (milliseconds)
     avg_total_ms: float = 0.0
     avg_compile_ms: float = 0.0
     avg_pipeline_ms: float = 0.0
     avg_validation_ms: float = 0.0
-    
+
     # Spec version pinning
     spec_version_id_match_count: int = 0
     spec_version_id_mismatch_count: int = 0
@@ -110,24 +111,25 @@ class SmokeRunMetrics:
 @dataclass
 class ExtractionResult:
     """Complete extraction result."""
+
     extraction_timestamp: str
     db_path: str
     db_filename: str
-    commit_hash: Optional[str]
-    
+    commit_hash: str | None
+
     # Schema info
     tables: list = field(default_factory=list)
-    
+
     # Per-product metrics
     products: list = field(default_factory=list)
-    
+
     # Smoke run metrics (if available)
-    smoke_runs: Optional[SmokeRunMetrics] = None
-    
+    smoke_runs: SmokeRunMetrics | None = None
+
     # Workflow events summary
     workflow_events_by_type: dict = field(default_factory=dict)
     state_dwell_by_state: dict = field(default_factory=dict)
-    
+
     # Task mapping notes
     task_mapping_notes: str = ""
 
@@ -136,7 +138,8 @@ class ExtractionResult:
 # Database Extraction Functions
 # ============================================================================
 
-def get_git_commit_hash() -> Optional[str]:
+
+def get_git_commit_hash() -> str | None:
     """Get current git commit hash, or None if not in a git repo."""
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -154,7 +157,7 @@ def get_schema_summary(cursor: sqlite3.Cursor) -> list[dict]:
     """Extract schema summary for all tables."""
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     tables = []
-    
+
     for (table_name,) in cursor.fetchall():
         cursor.execute(f"PRAGMA table_info({table_name})")
         columns = [
@@ -162,27 +165,23 @@ def get_schema_summary(cursor: sqlite3.Cursor) -> list[dict]:
                 "name": col[1],
                 "type": col[2],
                 "notnull": bool(col[3]),
-                "pk": bool(col[5])
+                "pk": bool(col[5]),
             }
             for col in cursor.fetchall()
         ]
-        
+
         cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
         row_count = cursor.fetchone()[0]
-        
-        tables.append({
-            "name": table_name,
-            "columns": columns,
-            "row_count": row_count
-        })
-    
+
+        tables.append({"name": table_name, "columns": columns, "row_count": row_count})
+
     return tables
 
 
 def extract_product_metrics(cursor: sqlite3.Cursor) -> list[ProductMetrics]:
     """Extract metrics for each product in the database."""
     products = []
-    
+
     # Get all products
     cursor.execute("""
         SELECT product_id, name, created_at 
@@ -190,26 +189,27 @@ def extract_product_metrics(cursor: sqlite3.Cursor) -> list[ProductMetrics]:
         ORDER BY product_id
     """)
     product_rows = cursor.fetchall()
-    
+
     for product_id, name, created_at in product_rows:
         metrics = ProductMetrics(
-            product_id=product_id,
-            product_name=name,
-            created_at=str(created_at)
+            product_id=product_id, product_name=name, created_at=str(created_at)
         )
-        
+
         # Story counts
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT COUNT(*) FROM user_stories WHERE product_id = ?
-        """, (product_id,))
+        """,
+            (product_id,),
+        )
         metrics.total_stories = cursor.fetchone()[0]
-        
+
         # Check if accepted_spec_version_id column exists
         cursor.execute("PRAGMA table_info(user_stories)")
         columns = [col[1] for col in cursor.fetchall()]
 
-        has_is_refined = 'is_refined' in columns
-        has_is_superseded = 'is_superseded' in columns
+        has_is_refined = "is_refined" in columns
+        has_is_superseded = "is_superseded" in columns
 
         refined_scope_where = "product_id = ?"
         if has_is_refined:
@@ -222,12 +222,15 @@ def extract_product_metrics(cursor: sqlite3.Cursor) -> list[ProductMetrics]:
             (product_id,),
         )
         metrics.stories_refined = cursor.fetchone()[0]
-        
-        if 'accepted_spec_version_id' in columns:
-            cursor.execute("""
+
+        if "accepted_spec_version_id" in columns:
+            cursor.execute(
+                """
                 SELECT COUNT(*) FROM user_stories 
                 WHERE product_id = ? AND accepted_spec_version_id IS NOT NULL
-            """, (product_id,))
+            """,
+                (product_id,),
+            )
             metrics.stories_with_spec_version_id = cursor.fetchone()[0]
 
             cursor.execute(
@@ -238,49 +241,61 @@ def extract_product_metrics(cursor: sqlite3.Cursor) -> list[ProductMetrics]:
                 (product_id,),
             )
             metrics.refined_stories_with_spec_version_id = cursor.fetchone()[0]
-        
-        if 'validation_evidence' in columns:
-            cursor.execute("""
+
+        if "validation_evidence" in columns:
+            cursor.execute(
+                """
                 SELECT COUNT(*) FROM user_stories 
                 WHERE product_id = ? AND validation_evidence IS NOT NULL
-            """, (product_id,))
+            """,
+                (product_id,),
+            )
             metrics.stories_with_validation_evidence = cursor.fetchone()[0]
-        
+
         # Sprint counts
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT COUNT(*) FROM sprints WHERE product_id = ?
-        """, (product_id,))
+        """,
+            (product_id,),
+        )
         metrics.sprint_count = cursor.fetchone()[0]
-        
+
         # Workflow events
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT event_type, COUNT(*) 
             FROM workflow_events 
             WHERE product_id = ?
             GROUP BY event_type
-        """, (product_id,))
+        """,
+            (product_id,),
+        )
         for event_type, count in cursor.fetchall():
-            if event_type == 'VISION_SAVED':
+            if event_type == "VISION_SAVED":
                 metrics.vision_saves = count
-            elif event_type == 'SPEC_COMPILED':
+            elif event_type == "SPEC_COMPILED":
                 metrics.spec_compiles = count
-            elif event_type == 'BACKLOG_SAVED':
+            elif event_type == "BACKLOG_SAVED":
                 metrics.backlog_saves = count
-            elif event_type == 'ROADMAP_SAVED':
+            elif event_type == "ROADMAP_SAVED":
                 metrics.roadmap_saves = count
-            elif event_type == 'STORIES_SAVED':
+            elif event_type == "STORIES_SAVED":
                 metrics.stories_saves = count
-            if event_type == 'SPRINT_PLAN_DRAFT':
+            if event_type == "SPRINT_PLAN_DRAFT":
                 metrics.sprint_plan_drafts = count
-            elif event_type == 'SPRINT_PLAN_SAVED':
+            elif event_type == "SPRINT_PLAN_SAVED":
                 metrics.sprint_plan_saves = count
-        
+
         # Sprint planning timing
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT SUM(duration_seconds), AVG(duration_seconds)
             FROM workflow_events 
             WHERE product_id = ? AND event_type = 'SPRINT_PLAN_SAVED' AND duration_seconds IS NOT NULL
-        """, (product_id,))
+        """,
+            (product_id,),
+        )
         result = cursor.fetchone()
         if result[0]:
             metrics.total_sprint_planning_duration_sec = round(result[0], 2)
@@ -308,79 +323,108 @@ def extract_product_metrics(cursor: sqlite3.Cursor) -> list[ProductMetrics]:
             avg_val = cursor.fetchone()[0]
             if avg_val:
                 setattr(metrics, attr, round(avg_val, 2))
-        
+
         # Flow Efficiency (Cycle Time)
-        if 'completed_at' in columns:
-            cursor.execute("""
+        if "completed_at" in columns:
+            cursor.execute(
+                """
                 SELECT AVG((julianday(completed_at) - julianday(created_at)) * 24)
                 FROM user_stories
                 WHERE product_id = ? AND completed_at IS NOT NULL AND created_at IS NOT NULL
-            """, (product_id,))
+            """,
+                (product_id,),
+            )
             cycle_time = cursor.fetchone()[0]
             if cycle_time:
                 metrics.avg_story_cycle_time_hours = round(cycle_time, 2)
-        
+
         # Execution Evidence (DoD)
-        if 'evidence_links' in columns:
-            cursor.execute("""
+        if "evidence_links" in columns:
+            cursor.execute(
+                """
                 SELECT COUNT(*) FROM user_stories
                 WHERE product_id = ? AND evidence_links IS NOT NULL AND evidence_links != '[]'
-            """, (product_id,))
+            """,
+                (product_id,),
+            )
             metrics.stories_with_evidence_links = cursor.fetchone()[0]
-            
+
         # Task Execution metrics (Dev Support Agent)
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'"
+        )
         if cursor.fetchone():
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT COUNT(*), SUM(CASE WHEN t.status = 'DONE' THEN 1 ELSE 0 END)
                 FROM tasks t
                 JOIN user_stories us ON t.story_id = us.story_id
                 WHERE us.product_id = ?
-            """, (product_id,))
+            """,
+                (product_id,),
+            )
             task_res = cursor.fetchone()
             if task_res:
                 metrics.total_tasks = task_res[0] or 0
                 metrics.completed_tasks = task_res[1] or 0
 
         # Spec Authority metrics (if tables exist)
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='spec_registry'")
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='spec_registry'"
+        )
         if cursor.fetchone():
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT COUNT(*) FROM spec_registry WHERE product_id = ?
-            """, (product_id,))
+            """,
+                (product_id,),
+            )
             metrics.spec_versions_count = cursor.fetchone()[0]
-            
-            cursor.execute("""
+
+            cursor.execute(
+                """
                 SELECT COUNT(*) FROM spec_registry 
                 WHERE product_id = ? AND status = 'approved'
-            """, (product_id,))
+            """,
+                (product_id,),
+            )
             metrics.spec_versions_approved = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='compiled_spec_authority'")
+
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='compiled_spec_authority'"
+        )
         if cursor.fetchone():
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT COUNT(*) FROM compiled_spec_authority csa
                 JOIN spec_registry sr ON csa.spec_version_id = sr.spec_version_id
                 WHERE sr.product_id = ?
-            """, (product_id,))
+            """,
+                (product_id,),
+            )
             metrics.compiled_authorities_count = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='spec_authority_acceptance'")
+
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='spec_authority_acceptance'"
+        )
         if cursor.fetchone():
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT status, COUNT(*) 
                 FROM spec_authority_acceptance 
                 WHERE product_id = ?
                 GROUP BY status
-            """, (product_id,))
+            """,
+                (product_id,),
+            )
             for status, count in cursor.fetchall():
-                if status == 'accepted':
+                if status == "accepted":
                     metrics.spec_accepted_count = count
-                elif status == 'rejected':
+                elif status == "rejected":
                     metrics.spec_rejected_count = count
-        
+
         products.append(metrics)
-    
+
     return products
 
 
@@ -396,7 +440,7 @@ def extract_workflow_events_summary(cursor: sqlite3.Cursor) -> dict:
         GROUP BY event_type
         ORDER BY event_type
     """)
-    
+
     summary = {}
     for row in cursor.fetchall():
         event_type, count, avg_duration, total_duration, min_ts, max_ts = row
@@ -405,9 +449,9 @@ def extract_workflow_events_summary(cursor: sqlite3.Cursor) -> dict:
             "avg_duration_sec": round(avg_duration, 2) if avg_duration else None,
             "total_duration_sec": round(total_duration, 2) if total_duration else None,
             "first_event": min_ts,
-            "last_event": max_ts
+            "last_event": max_ts,
         }
-    
+
     return summary
 
 
@@ -443,19 +487,19 @@ def extract_state_dwell_summary(cursor: sqlite3.Cursor) -> dict:
     return summary
 
 
-def extract_smoke_run_metrics(artifacts_dir: Path) -> Optional[SmokeRunMetrics]:
+def extract_smoke_run_metrics(artifacts_dir: Path) -> SmokeRunMetrics | None:
     """Extract metrics from smoke_runs.jsonl if available."""
     smoke_file = artifacts_dir / "smoke_runs.jsonl"
     if not smoke_file.exists():
         return None
-    
+
     metrics = SmokeRunMetrics()
     total_ms_list = []
     compile_ms_list = []
     pipeline_ms_list = []
     validation_ms_list = []
-    
-    with open(smoke_file, 'r', encoding='utf-8') as f:
+
+    with open(smoke_file, encoding="utf-8") as f:
         for line in f:
             if not line.strip():
                 continue
@@ -491,17 +535,21 @@ def extract_smoke_run_metrics(artifacts_dir: Path) -> Optional[SmokeRunMetrics]:
                 pipeline_ms_list.append(timing["pipeline_ms"])
             if timing.get("validation_ms") is not None:
                 validation_ms_list.append(timing["validation_ms"])
-    
+
     # Calculate averages
     if total_ms_list:
         metrics.avg_total_ms = round(sum(total_ms_list) / len(total_ms_list), 2)
     if compile_ms_list:
         metrics.avg_compile_ms = round(sum(compile_ms_list) / len(compile_ms_list), 2)
     if pipeline_ms_list:
-        metrics.avg_pipeline_ms = round(sum(pipeline_ms_list) / len(pipeline_ms_list), 2)
+        metrics.avg_pipeline_ms = round(
+            sum(pipeline_ms_list) / len(pipeline_ms_list), 2
+        )
     if validation_ms_list:
-        metrics.avg_validation_ms = round(sum(validation_ms_list) / len(validation_ms_list), 2)
-    
+        metrics.avg_validation_ms = round(
+            sum(validation_ms_list) / len(validation_ms_list), 2
+        )
+
     return metrics
 
 
@@ -541,46 +589,73 @@ The database does NOT encode T1-T5 directly. Proposed mapping:
 # Output Functions
 # ============================================================================
 
+
 def write_csv_results(output_dir: Path, result: ExtractionResult):
     """Write per-query CSV files."""
     query_dir = output_dir / "query_results"
     query_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Products summary
     if result.products:
-        with open(query_dir / "products_metrics.csv", 'w', newline='', encoding='utf-8') as f:
+        with open(
+            query_dir / "products_metrics.csv", "w", newline="", encoding="utf-8"
+        ) as f:
             writer = csv.DictWriter(f, fieldnames=asdict(result.products[0]).keys())
             writer.writeheader()
             for p in result.products:
                 writer.writerow(asdict(p))
-    
+
     # Workflow events
     if result.workflow_events_by_type:
-        with open(query_dir / "workflow_events_summary.csv", 'w', newline='', encoding='utf-8') as f:
+        with open(
+            query_dir / "workflow_events_summary.csv", "w", newline="", encoding="utf-8"
+        ) as f:
             writer = csv.writer(f)
-            writer.writerow(["event_type", "count", "avg_duration_sec", "total_duration_sec", "first_event", "last_event"])
+            writer.writerow(
+                [
+                    "event_type",
+                    "count",
+                    "avg_duration_sec",
+                    "total_duration_sec",
+                    "first_event",
+                    "last_event",
+                ]
+            )
             for event_type, data in result.workflow_events_by_type.items():
-                writer.writerow([
-                    event_type,
-                    data["count"],
-                    data["avg_duration_sec"],
-                    data["total_duration_sec"],
-                    data["first_event"],
-                    data["last_event"]
-                ])
+                writer.writerow(
+                    [
+                        event_type,
+                        data["count"],
+                        data["avg_duration_sec"],
+                        data["total_duration_sec"],
+                        data["first_event"],
+                        data["last_event"],
+                    ]
+                )
 
     if result.state_dwell_by_state:
-        with open(query_dir / "state_dwell_summary.csv", "w", newline="", encoding="utf-8") as f:
+        with open(
+            query_dir / "state_dwell_summary.csv", "w", newline="", encoding="utf-8"
+        ) as f:
             writer = csv.writer(f)
-            writer.writerow(["from_state", "count", "avg_duration_sec", "total_duration_sec"])
+            writer.writerow(
+                ["from_state", "count", "avg_duration_sec", "total_duration_sec"]
+            )
             for state_name, data in result.state_dwell_by_state.items():
                 writer.writerow(
-                    [state_name, data["count"], data["avg_duration_sec"], data["total_duration_sec"]]
+                    [
+                        state_name,
+                        data["count"],
+                        data["avg_duration_sec"],
+                        data["total_duration_sec"],
+                    ]
                 )
-    
+
     # Smoke runs
     if result.smoke_runs:
-        with open(query_dir / "smoke_runs_metrics.csv", 'w', newline='', encoding='utf-8') as f:
+        with open(
+            query_dir / "smoke_runs_metrics.csv", "w", newline="", encoding="utf-8"
+        ) as f:
             writer = csv.DictWriter(f, fieldnames=asdict(result.smoke_runs).keys())
             writer.writeheader()
             writer.writerow(asdict(result.smoke_runs))
@@ -588,9 +663,9 @@ def write_csv_results(output_dir: Path, result: ExtractionResult):
 
 def write_summary_csv(output_file: Path, result: ExtractionResult):
     """Write main metrics summary CSV."""
-    with open(output_file, 'w', newline='', encoding='utf-8') as f:
+    with open(output_file, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        
+
         # Header section
         writer.writerow(["=== EXTRACTION METADATA ==="])
         writer.writerow(["timestamp", result.extraction_timestamp])
@@ -598,7 +673,7 @@ def write_summary_csv(output_file: Path, result: ExtractionResult):
         writer.writerow(["db_filename", result.db_filename])
         writer.writerow(["commit_hash", result.commit_hash or "N/A"])
         writer.writerow([])
-        
+
         # Per-product metrics
         writer.writerow(["=== PRODUCT METRICS ==="])
         if result.products:
@@ -607,12 +682,21 @@ def write_summary_csv(output_file: Path, result: ExtractionResult):
             for p in result.products:
                 writer.writerow(list(asdict(p).values()))
         writer.writerow([])
-        
+
         # Workflow events
         writer.writerow(["=== WORKFLOW EVENTS ==="])
-        writer.writerow(["event_type", "count", "avg_duration_sec", "total_duration_sec"])
+        writer.writerow(
+            ["event_type", "count", "avg_duration_sec", "total_duration_sec"]
+        )
         for event_type, data in result.workflow_events_by_type.items():
-            writer.writerow([event_type, data["count"], data["avg_duration_sec"], data["total_duration_sec"]])
+            writer.writerow(
+                [
+                    event_type,
+                    data["count"],
+                    data["avg_duration_sec"],
+                    data["total_duration_sec"],
+                ]
+            )
 
 
 def write_summary_json(output_file: Path, result: ExtractionResult):
@@ -622,19 +706,17 @@ def write_summary_json(output_file: Path, result: ExtractionResult):
             "timestamp": result.extraction_timestamp,
             "db_path": result.db_path,
             "db_filename": result.db_filename,
-            "commit_hash": result.commit_hash
+            "commit_hash": result.commit_hash,
         },
-        "schema": {
-            "tables": result.tables
-        },
+        "schema": {"tables": result.tables},
         "products": [asdict(p) for p in result.products],
         "workflow_events": result.workflow_events_by_type,
         "state_dwell_by_state": result.state_dwell_by_state,
         "smoke_runs": asdict(result.smoke_runs) if result.smoke_runs else None,
-        "task_mapping_notes": result.task_mapping_notes
+        "task_mapping_notes": result.task_mapping_notes,
     }
-    
-    with open(output_file, 'w', encoding='utf-8') as f:
+
+    with open(output_file, "w", encoding="utf-8") as f:
         json.dump(output_dict, f, indent=2, ensure_ascii=False)
 
 
@@ -648,20 +730,26 @@ def print_markdown_summary(result: ExtractionResult):
     print(f"**Extraction Time:** {result.extraction_timestamp}")
     print(f"**Commit Hash:** {result.commit_hash or 'N/A'}")
     print()
-    
+
     # Products table
     print("## Products Summary")
     print()
-    print("| Product ID | Name | Stories | Refined | Refined w/ Spec Version | Sprints | Sprint Plan Events |")
-    print("|------------|------|---------|---------|--------------------------|---------|-------------------|")
+    print(
+        "| Product ID | Name | Stories | Refined | Refined w/ Spec Version | Sprints | Sprint Plan Events |"
+    )
+    print(
+        "|------------|------|---------|---------|--------------------------|---------|-------------------|"
+    )
     for p in result.products:
-        name_short = p.product_name[:40] + "..." if len(p.product_name) > 40 else p.product_name
+        name_short = (
+            p.product_name[:40] + "..." if len(p.product_name) > 40 else p.product_name
+        )
         print(
             f"| {p.product_id} | {name_short} | {p.total_stories} | {p.stories_refined} | "
             f"{p.refined_stories_with_spec_version_id} | {p.sprint_count} | {p.sprint_plan_saves} |"
         )
     print()
-    
+
     # Workflow events
     print("## Workflow Events Summary")
     print()
@@ -683,29 +771,41 @@ def print_markdown_summary(result: ExtractionResult):
                 f"| {state_name} | {data['count']} | {data['avg_duration_sec']} | {data['total_duration_sec']} |"
             )
         print()
-    
+
     # Spec Authority Pinning Coverage
     print("## Spec Authority Pinning Coverage")
     print()
     total_refined = sum(p.stories_refined for p in result.products)
-    refined_with_spec = sum(p.refined_stories_with_spec_version_id for p in result.products)
+    refined_with_spec = sum(
+        p.refined_stories_with_spec_version_id for p in result.products
+    )
     pct = (refined_with_spec / total_refined * 100) if total_refined > 0 else 0
     print(f"- Total canonical refined stories: {total_refined}")
-    print(f"- Refined stories with valid `accepted_spec_version_id`: {refined_with_spec} ({pct:.1f}%)")
-    print(f"- Refined stories without spec version: {total_refined - refined_with_spec}")
+    print(
+        f"- Refined stories with valid `accepted_spec_version_id`: {refined_with_spec} ({pct:.1f}%)"
+    )
+    print(
+        f"- Refined stories without spec version: {total_refined - refined_with_spec}"
+    )
     print()
 
     # Flow Efficiency & Execution Metrics (Added for Proposal alignment)
     print("## Flow Efficiency & Execution Metrics")
     print()
-    print("| Product | Avg Story Cycle Time (h) | Stories w/ Evidence | Tasks (Done/Total) |")
-    print("|---------|--------------------------|---------------------|--------------------|")
+    print(
+        "| Product | Avg Story Cycle Time (h) | Stories w/ Evidence | Tasks (Done/Total) |"
+    )
+    print(
+        "|---------|--------------------------|---------------------|--------------------|"
+    )
     for p in result.products:
-        name_short = p.product_name[:20] 
+        name_short = p.product_name[:20]
         task_info = f"{p.completed_tasks}/{p.total_tasks}"
-        print(f"| {name_short} | {p.avg_story_cycle_time_hours} | {p.stories_with_evidence_links} | {task_info} |")
+        print(
+            f"| {name_short} | {p.avg_story_cycle_time_hours} | {p.stories_with_evidence_links} | {task_info} |"
+        )
     print()
-    
+
     # Smoke runs (if available)
     if result.smoke_runs:
         sr = result.smoke_runs
@@ -724,7 +824,7 @@ def print_markdown_summary(result: ExtractionResult):
         print(f"- Pipeline: {sr.avg_pipeline_ms}")
         print(f"- Validation: {sr.avg_validation_ms}")
         print()
-    
+
     # Task mapping
     print("## Task-to-Event Mapping (T1-T5)")
     print()
@@ -732,23 +832,37 @@ def print_markdown_summary(result: ExtractionResult):
     print("|------|----------------|------------------|")
     print("| T1 - Vision | WorkflowEvent.VISION_SAVED | Yes (duration_seconds) |")
     print("| T2 - Tech Spec | WorkflowEvent.SPEC_COMPILED | Yes (duration_seconds) |")
-    print("| T3 - Compile Authority | WorkflowEvent.SPEC_COMPILED | Yes (duration_seconds) |")
-    print("| T4 - Backlog Gen/Refine | WorkflowEvent.BACKLOG_SAVED + STORIES_SAVED + ROADMAP_SAVED | Yes (duration_seconds) |")
-    print("| T5 - Sprint Plan | WorkflowEvent.SPRINT_PLAN_SAVED | Yes (duration_seconds) |")
+    print(
+        "| T3 - Compile Authority | WorkflowEvent.SPEC_COMPILED | Yes (duration_seconds) |"
+    )
+    print(
+        "| T4 - Backlog Gen/Refine | WorkflowEvent.BACKLOG_SAVED + STORIES_SAVED + ROADMAP_SAVED | Yes (duration_seconds) |"
+    )
+    print(
+        "| T5 - Sprint Plan | WorkflowEvent.SPRINT_PLAN_SAVED | Yes (duration_seconds) |"
+    )
     print()
-    print("**Note:** Baseline manual times and NASA-TLX scores are NOT in the database.")
+    print(
+        "**Note:** Baseline manual times and NASA-TLX scores are NOT in the database."
+    )
     print("[PLACEHOLDER: Baseline timing data collected externally via stopwatch]")
     print("[PLACEHOLDER: NASA-TLX scores collected via self-assessment questionnaire]")
     print()
-    
+
     # Artifact timing (T1-T5 proxies)
     print("## Artifact Timing (T1-T5)")
     print()
-    print("| Product ID | T1 Vision (avg s) | T2 Spec/Compile (avg s) | T4 Backlog (avg s) | T4 Roadmap (avg s) | T4 Stories (avg s) | T5 Sprint (avg s) |")
-    print("|------------|-------------------|--------------------------|--------------------|--------------------|--------------------|-------------------|")
+    print(
+        "| Product ID | T1 Vision (avg s) | T2 Spec/Compile (avg s) | T4 Backlog (avg s) | T4 Roadmap (avg s) | T4 Stories (avg s) | T5 Sprint (avg s) |"
+    )
+    print(
+        "|------------|-------------------|--------------------------|--------------------|--------------------|--------------------|-------------------|"
+    )
     for p in result.products:
+
         def _fmt(v: float) -> str:
             return str(v) if v and v > 0 else "N/A"
+
         print(
             f"| {p.product_id} | {_fmt(p.avg_vision_duration_sec)} | "
             f"{_fmt(p.avg_spec_compile_duration_sec)} | {_fmt(p.avg_backlog_duration_sec)} | "
@@ -762,6 +876,7 @@ def print_markdown_summary(result: ExtractionResult):
 # Main Entry Point
 # ============================================================================
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Extract TCC evaluation metrics from SQLite database"
@@ -774,13 +889,16 @@ def main():
     parser.add_argument(
         "--output-dir",
         default="artifacts",
-        help="Output directory for extracted files (default: artifacts)"
+        help="Output directory for extracted files (default: artifacts)",
     )
     args = parser.parse_args()
-    
+
     db_target = resolve_database_target(args.db_path, env_name="PROJECT_TCC_DB_URL")
     if db_target.sqlite_path is None:
-        print("ERROR: Metrics extraction requires a file-backed SQLite database.", file=sys.stderr)
+        print(
+            "ERROR: Metrics extraction requires a file-backed SQLite database.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     db_path = db_target.sqlite_path
@@ -790,54 +908,54 @@ def main():
             file=sys.stderr,
         )
         sys.exit(1)
-    
+
     output_dir = Path(args.output_dir)
     if not output_dir.is_absolute():
         output_dir = Path(__file__).parent.parent / output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Initialize result
     result = ExtractionResult(
-        extraction_timestamp=datetime.now(timezone.utc).isoformat(),
+        extraction_timestamp=datetime.now(UTC).isoformat(),
         db_path=str(db_path),
         db_filename=db_path.name,
         commit_hash=get_git_commit_hash(),
-        task_mapping_notes=TASK_MAPPING_NOTES
+        task_mapping_notes=TASK_MAPPING_NOTES,
     )
-    
+
     # Connect to database
     print(f"Connecting to database: {db_path}", file=sys.stderr)
     conn = sqlite3.connect(str(db_path))
     cursor = conn.cursor()
-    
+
     # Extract data
     print("Extracting schema summary...", file=sys.stderr)
     result.tables = get_schema_summary(cursor)
-    
+
     print("Extracting product metrics...", file=sys.stderr)
     result.products = extract_product_metrics(cursor)
-    
+
     print("Extracting workflow events...", file=sys.stderr)
     result.workflow_events_by_type = extract_workflow_events_summary(cursor)
     result.state_dwell_by_state = extract_state_dwell_summary(cursor)
-    
+
     conn.close()
-    
+
     # Extract smoke run metrics (from artifacts dir)
     artifacts_path = Path(__file__).parent.parent / "artifacts"
     print("Checking for smoke_runs.jsonl...", file=sys.stderr)
     result.smoke_runs = extract_smoke_run_metrics(artifacts_path)
-    
+
     # Write outputs
     print(f"Writing outputs to {output_dir}/...", file=sys.stderr)
     write_summary_csv(output_dir / "metrics_summary.csv", result)
     write_summary_json(output_dir / "metrics_summary.json", result)
     write_csv_results(output_dir, result)
-    
+
     # Print markdown summary to stdout
     print_markdown_summary(result)
-    
-    print(f"\nOutputs written to:", file=sys.stderr)
+
+    print("\nOutputs written to:", file=sys.stderr)
     print(f"  - {output_dir}/metrics_summary.csv", file=sys.stderr)
     print(f"  - {output_dir}/metrics_summary.json", file=sys.stderr)
     print(f"  - {output_dir}/query_results/*.csv", file=sys.stderr)

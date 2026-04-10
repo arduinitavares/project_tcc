@@ -1,17 +1,17 @@
-
-import time
-import sys
 import random
+import sys
+import time
 from pathlib import Path
-from typing import Dict, Any
-from sqlmodel import Session, create_engine, SQLModel
+from typing import Any
+
 from sqlalchemy import Engine, event
+from sqlmodel import Session, SQLModel, create_engine
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from agile_sqlmodel import Product, StoryStatus, UserStory
 from tools.orchestrator_tools import _refresh_projects_cache
-from agile_sqlmodel import Product, UserStory, StoryStatus
 
 # Setup in-memory DB for benchmarking
 engine = create_engine("sqlite:///:memory:")
@@ -19,15 +19,19 @@ SQLModel.metadata.create_all(engine)
 
 # Patch the engine in orchestrator_tools
 import tools.orchestrator_tools
+
 tools.orchestrator_tools.engine = engine
+
 
 def seed_database(product_count=50, min_stories=10, max_stories=20):
     print(f"Seeding database with {product_count} products...")
     with Session(engine) as session:
         for p in range(product_count):
-            product = Product(name=f"Product {p}", vision="Vision", description="Description")
+            product = Product(
+                name=f"Product {p}", vision="Vision", description="Description"
+            )
             session.add(product)
-            session.flush() # flush to get ID
+            session.flush()  # flush to get ID
 
             num_stories = random.randint(min_stories, max_stories)
             for s in range(num_stories):
@@ -35,7 +39,7 @@ def seed_database(product_count=50, min_stories=10, max_stories=20):
                     title=f"Story {s} for Product {p}",
                     story_description="Desc",
                     status=StoryStatus.TO_DO,
-                    product_id=product.product_id
+                    product_id=product.product_id,
                 )
                 session.add(story)
         session.commit()
@@ -46,17 +50,21 @@ def seed_database(product_count=50, min_stories=10, max_stories=20):
         s_count = len(session.exec(select(UserStory)).all())
         print(f"Seeded: {p_count} products, {s_count} total stories.")
 
+
 from sqlmodel import select
+
 
 def benchmark():
     # Mock state
-    state: Dict[str, Any] = {}
+    state: dict[str, Any] = {}
 
     # Reset query count
     query_count = 0
 
     @event.listens_for(Engine, "before_cursor_execute")
-    def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+    def before_cursor_execute(
+        conn, cursor, statement, parameters, context, executemany
+    ):
         nonlocal query_count
         query_count += 1
 
@@ -78,6 +86,7 @@ def benchmark():
     if count == 0:
         print("Error: No projects returned!")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     seed_database()

@@ -13,28 +13,30 @@ import statistics
 import sys
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from collections.abc import Iterable, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
-from tools.spec_tools import validate_story_with_spec_authority  # pylint: disable=wrong-import-position
-
+from tools.spec_tools import (
+    validate_story_with_spec_authority,  # pylint: disable=wrong-import-position
+)
 
 ValidationMode = str
-VALID_MODES: Tuple[ValidationMode, ...] = ("deterministic", "llm", "hybrid")
+VALID_MODES: tuple[ValidationMode, ...] = ("deterministic", "llm", "hybrid")
 LOGGER = logging.getLogger(__name__)
 DEFAULT_CONCURRENCY = 20
 RETRY_ATTEMPTS = 2
 RETRY_BASE_DELAY_SECONDS = 1.0
 RETRY_JITTER_SECONDS = 0.25
 BRANCH_LOG_LIMIT = 20
-_BRANCH_LOG_COUNTS: Dict[str, int] = {}
+_BRANCH_LOG_COUNTS: dict[str, int] = {}
 _BRANCH_LOG_SUPPRESSED: set[str] = set()
-_PROVIDER_ERROR_PATTERNS: Tuple[str, ...] = (
+_PROVIDER_ERROR_PATTERNS: tuple[str, ...] = (
     "requires more credits",
     "eof while parsing",
     "returned no text response",
@@ -42,7 +44,7 @@ _PROVIDER_ERROR_PATTERNS: Tuple[str, ...] = (
     "litellm.apierror",
     "openrouterexception",
 )
-_RETRYABLE_ERROR_PATTERNS: Tuple[str, ...] = (
+_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     "429",
     "rate limit",
     "timeout",
@@ -73,13 +75,12 @@ def _branch(name: str, condition: bool, when_true: str, when_false: str) -> bool
         )
     if condition:
         return True
-    else:
-        return False
+    return False
 
 
-def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     LOGGER.info("Reading JSONL: %s", path)
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as handle:
         for idx, line in enumerate(handle, start=1):
             line = line.strip()
@@ -99,7 +100,7 @@ def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
     return rows
 
 
-def _write_jsonl(path: Path, rows: Iterable[Dict[str, Any]]) -> None:
+def _write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
     LOGGER.info("Writing JSONL: %s", path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
@@ -108,10 +109,14 @@ def _write_jsonl(path: Path, rows: Iterable[Dict[str, Any]]) -> None:
     LOGGER.info("Finished writing JSONL: %s", path)
 
 
-def _read_cases(path: Path, include_disabled: bool) -> List[Dict[str, Any]]:
-    LOGGER.info("Normalizing benchmark cases from %s (include_disabled=%s)", path, include_disabled)
+def _read_cases(path: Path, include_disabled: bool) -> list[dict[str, Any]]:
+    LOGGER.info(
+        "Normalizing benchmark cases from %s (include_disabled=%s)",
+        path,
+        include_disabled,
+    )
     cases = _read_jsonl(path)
-    normalized: List[Dict[str, Any]] = []
+    normalized: list[dict[str, Any]] = []
     for idx, case in enumerate(cases, start=1):
         case_id = case.get("case_id") or f"case-{idx}"
         enabled = case.get("enabled", True)
@@ -161,14 +166,14 @@ def _read_cases(path: Path, include_disabled: bool) -> List[Dict[str, Any]]:
                 "notes": case.get("notes"),
                 "tags": case.get("tags") if isinstance(case.get("tags"), list) else [],
                 "enabled": bool(enabled),
-                "label_source": case.get("label_source")
+                "label_source": case.get("label_source"),
             }
         )
     LOGGER.info("Prepared %d normalized case(s)", len(normalized))
     return normalized
 
 
-def _extract_reason_codes(result: Dict[str, Any]) -> List[str]:
+def _extract_reason_codes(result: dict[str, Any]) -> list[str]:
     codes = set()
     for failure in result.get("failures", []):
         if _branch(
@@ -188,15 +193,13 @@ def _extract_reason_codes(result: Dict[str, Any]) -> List[str]:
     return sorted(codes)
 
 
-def _classify_row_error(result: Dict[str, Any]) -> str:
+def _classify_row_error(result: dict[str, Any]) -> str:
     """Classify a validation result as provider_error or semantic."""
     failures = result.get("failures", [])
     for failure in failures:
         if not isinstance(failure, dict):
             continue
-        text = (
-            f"{failure.get('actual', '')} {failure.get('message', '')}"
-        ).lower()
+        text = (f"{failure.get('actual', '')} {failure.get('message', '')}").lower()
         if any(pattern in text for pattern in _PROVIDER_ERROR_PATTERNS):
             return "provider_error"
     return "semantic"
@@ -207,7 +210,7 @@ def _is_retryable_error_text(text: str) -> bool:
     return any(pattern in lowered for pattern in _RETRYABLE_ERROR_PATTERNS)
 
 
-def _safe_mean(values: Sequence[float]) -> Optional[float]:
+def _safe_mean(values: Sequence[float]) -> float | None:
     if _branch(
         "safe_mean.empty_values",
         not values,
@@ -218,7 +221,7 @@ def _safe_mean(values: Sequence[float]) -> Optional[float]:
     return float(sum(values) / len(values))
 
 
-def _safe_median(values: Sequence[float]) -> Optional[float]:
+def _safe_median(values: Sequence[float]) -> float | None:
     if _branch(
         "safe_median.empty_values",
         not values,
@@ -234,7 +237,7 @@ def _bootstrap_ci(
     *,
     n_resamples: int = 1000,
     seed: int = 42,
-) -> Optional[Tuple[float, float]]:
+) -> tuple[float, float] | None:
     """Compute bootstrap percentile CI for a list of scalar values."""
     if _branch(
         "bootstrap_ci.empty_values",
@@ -244,7 +247,7 @@ def _bootstrap_ci(
     ):
         return None
     rng = random.Random(seed)
-    samples: List[float] = []
+    samples: list[float] = []
     value_list = list(values)
     for _ in range(n_resamples):
         sample = [rng.choice(value_list) for _ in range(len(value_list))]
@@ -255,7 +258,7 @@ def _bootstrap_ci(
     return samples[low_idx], samples[high_idx]
 
 
-def _precision(tp: int, fp: int) -> Optional[float]:
+def _precision(tp: int, fp: int) -> float | None:
     denom = tp + fp
     if _branch(
         "precision.zero_denominator",
@@ -267,7 +270,7 @@ def _precision(tp: int, fp: int) -> Optional[float]:
     return tp / denom
 
 
-def _recall(tp: int, fn: int) -> Optional[float]:
+def _recall(tp: int, fn: int) -> float | None:
     denom = tp + fn
     if _branch(
         "recall.zero_denominator",
@@ -279,7 +282,7 @@ def _recall(tp: int, fn: int) -> Optional[float]:
     return tp / denom
 
 
-def _f1(precision: Optional[float], recall: Optional[float]) -> Optional[float]:
+def _f1(precision: float | None, recall: float | None) -> float | None:
     if _branch(
         "f1.missing_precision_or_recall",
         precision is None or recall is None,
@@ -298,7 +301,7 @@ def _f1(precision: Optional[float], recall: Optional[float]) -> Optional[float]:
     return 2 * precision * recall / denom
 
 
-def _fmt_ci(ci: Optional[Tuple[float, float]]) -> str:
+def _fmt_ci(ci: tuple[float, float] | None) -> str:
     if _branch(
         "fmt_ci.none_ci",
         ci is None,
@@ -306,10 +309,10 @@ def _fmt_ci(ci: Optional[Tuple[float, float]]) -> str:
         "CI present -> format range",
     ):
         return "-"
-    return f"[{ci[0]*100:.1f}%, {ci[1]*100:.1f}%]"
+    return f"[{ci[0] * 100:.1f}%, {ci[1] * 100:.1f}%]"
 
 
-def _confusion_from_rows(rows: Sequence[Dict[str, Any]]) -> Dict[str, int]:
+def _confusion_from_rows(rows: Sequence[dict[str, Any]]) -> dict[str, int]:
     tp = fp = tn = fn = 0
     for row in rows:
         expected_pass = bool(row["expected_pass"])
@@ -347,12 +350,12 @@ def _confusion_from_rows(rows: Sequence[Dict[str, Any]]) -> Dict[str, int]:
 
 
 def _bootstrap_metric_ci(
-    rows: Sequence[Dict[str, Any]],
+    rows: Sequence[dict[str, Any]],
     metric_name: str,
     *,
     n_resamples: int = 1000,
     seed: int = 42,
-) -> Optional[Tuple[float, float]]:
+) -> tuple[float, float] | None:
     """Bootstrap CI for confusion-derived metrics."""
     if _branch(
         "bootstrap_metric_ci.empty_rows",
@@ -362,7 +365,7 @@ def _bootstrap_metric_ci(
     ):
         return None
     rng = random.Random(seed)
-    values: List[float] = []
+    values: list[float] = []
     for _ in range(n_resamples):
         sample = [rng.choice(rows) for _ in range(len(rows))]
         cm = _confusion_from_rows(sample)
@@ -408,7 +411,9 @@ def _bootstrap_metric_ci(
     return _bootstrap_ci(values, n_resamples=n_resamples, seed=seed)
 
 
-def _run_case_mode(case: Dict[str, Any], mode: ValidationMode, consensus_runs: int) -> Dict[str, Any]:
+def _run_case_mode(
+    case: dict[str, Any], mode: ValidationMode, consensus_runs: int
+) -> dict[str, Any]:
     LOGGER.debug(
         "Running validation case_id=%s mode=%s story_id=%s spec_version_id=%s consensus=%d",
         case.get("case_id"),
@@ -452,14 +457,13 @@ def _run_case_mode(case: Dict[str, Any], mode: ValidationMode, consensus_runs: i
                 elapsed_ms = (time.perf_counter() - started) * 1000
                 total_latency += elapsed_ms
                 error_text = str(e)
-                should_retry = (
-                    attempt < max_attempts and _is_retryable_error_text(error_text)
+                should_retry = attempt < max_attempts and _is_retryable_error_text(
+                    error_text
                 )
                 if should_retry:
-                    backoff = (
-                        RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
-                        + random.uniform(0, RETRY_JITTER_SECONDS)
-                    )
+                    backoff = RETRY_BASE_DELAY_SECONDS * (
+                        2 ** (attempt - 1)
+                    ) + random.uniform(0, RETRY_JITTER_SECONDS)
                     LOGGER.warning(
                         (
                             "Retryable error in validation run %d attempt %d/%d "
@@ -485,13 +489,15 @@ def _run_case_mode(case: Dict[str, Any], mode: ValidationMode, consensus_runs: i
                 error_class = "execution_error"
                 break
 
-        runs.append({
-            "success": success,
-            "passed": passed,
-            "reason_codes": reason_codes,
-            "error_class": error_class,
-            "result": result
-        })
+        runs.append(
+            {
+                "success": success,
+                "passed": passed,
+                "reason_codes": reason_codes,
+                "error_class": error_class,
+                "result": result,
+            }
+        )
 
     # Consensus Logic
     pass_votes = sum(1 for r in runs if r["passed"])
@@ -538,7 +544,7 @@ def _run_case_mode(case: Dict[str, Any], mode: ValidationMode, consensus_runs: i
         predicted_pass,
         sorted(merged_reasons),
         total_latency / actual_runs,
-        stability_score
+        stability_score,
     )
 
     return {
@@ -556,11 +562,11 @@ def _run_case_mode(case: Dict[str, Any], mode: ValidationMode, consensus_runs: i
         "latency_ms": total_latency / actual_runs,
         "stability_score": stability_score,
         "vote_split": f"{pass_votes}/{fail_votes}",
-        "result": representative_run["result"], # Representative result
+        "result": representative_run["result"],  # Representative result
     }
 
 
-def _compute_mode_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _compute_mode_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
     LOGGER.info("Computing mode metrics for %d record(s)", len(records))
     labeled = [r for r in records if isinstance(r.get("expected_pass"), bool)]
     clean_rows = [r for r in labeled if r.get("error_class") != "provider_error"]
@@ -578,8 +584,8 @@ def _compute_mode_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     latency = [float(r["latency_ms"]) for r in records]
     stability = [float(r.get("stability_score", 1.0)) for r in records]
 
-    reason_recall_values: List[float] = []
-    reason_precision_values: List[float] = []
+    reason_recall_values: list[float] = []
+    reason_precision_values: list[float] = []
     over_flagging_count = 0
     for row in labeled:
         expected_reasons = set(row.get("expected_fail_reasons", []))
@@ -666,30 +672,30 @@ def _compute_mode_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         "reason_recall_macro": reason_recall_macro,
         "reason_precision_macro": reason_precision_macro,
         "reason_f1_macro": reason_f1_macro,
-        "over_flagging_rate": (
-            over_flagging_count / len(labeled) if labeled else None
-        ),
+        "over_flagging_rate": (over_flagging_count / len(labeled) if labeled else None),
         "latency_ms_avg": _safe_mean(latency),
         "latency_ms_median": _safe_median(latency),
         "stability_avg": _safe_mean(stability),
     }
 
 
-def _compute_disagreements(raw: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+def _compute_disagreements(raw: list[dict[str, Any]]) -> dict[str, list[str]]:
     LOGGER.info("Computing disagreements across %d raw record(s)", len(raw))
-    by_case: Dict[str, Dict[str, bool]] = defaultdict(dict)
+    by_case: dict[str, dict[str, bool]] = defaultdict(dict)
     for row in raw:
         by_case[row["case_id"]][row["mode"]] = bool(row["predicted_pass"])
 
     pairs = [("deterministic", "llm"), ("deterministic", "hybrid"), ("llm", "hybrid")]
-    disagreements: Dict[str, List[str]] = {}
+    disagreements: dict[str, list[str]] = {}
     for left, right in pairs:
         key = f"{left}_vs_{right}"
         disagreements[key] = []
         for case_id, decisions in by_case.items():
             if _branch(
                 "compute_disagreements.pair_disagree",
-                left in decisions and right in decisions and decisions[left] != decisions[right],
+                left in decisions
+                and right in decisions
+                and decisions[left] != decisions[right],
                 f"case_id={case_id} disagreement for {left} vs {right}",
                 f"case_id={case_id} no disagreement for {left} vs {right}",
             ):
@@ -697,14 +703,24 @@ def _compute_disagreements(raw: List[Dict[str, Any]]) -> Dict[str, List[str]]:
     return disagreements
 
 
-def _fmt_pct(value: Optional[float]) -> str:
-    if _branch("fmt_pct.none_value", value is None, "Formatting None as '-'", "Formatting percent"):
+def _fmt_pct(value: float | None) -> str:
+    if _branch(
+        "fmt_pct.none_value",
+        value is None,
+        "Formatting None as '-'",
+        "Formatting percent",
+    ):
         return "-"
     return f"{value * 100:.1f}%"
 
 
-def _fmt_float(value: Optional[float]) -> str:
-    if _branch("fmt_float.none_value", value is None, "Formatting None as '-'", "Formatting float"):
+def _fmt_float(value: float | None) -> str:
+    if _branch(
+        "fmt_float.none_value",
+        value is None,
+        "Formatting None as '-'",
+        "Formatting float",
+    ):
         return "-"
     return f"{value:.2f}"
 
@@ -714,11 +730,11 @@ def _build_summary_markdown(
     run_timestamp: str,
     cases_path: Path,
     modes: Sequence[str],
-    metrics: Dict[str, Dict[str, Any]],
-    disagreements: Dict[str, List[str]],
+    metrics: dict[str, dict[str, Any]],
+    disagreements: dict[str, list[str]],
 ) -> str:
     LOGGER.info("Building summary markdown for modes=%s", ",".join(modes))
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("# Spec Validation Evaluation Summary")
     lines.append("")
     lines.append(f"- Run timestamp (UTC): `{run_timestamp}`")
@@ -794,17 +810,24 @@ def _build_summary_markdown(
 
 
 def evaluate_cases(
-    cases: List[Dict[str, Any]],
+    cases: list[dict[str, Any]],
     modes: Sequence[str],
     consensus_runs: int = 1,  # Backward compatibility: default to 1
     max_concurrency: int = 1,
-) -> Dict[str, Any]:
-    LOGGER.info("Evaluating %d case(s) across mode(s): %s", len(cases), ", ".join(modes))
-    raw_rows: List[Dict[str, Any]] = []
-    by_mode: Dict[str, List[Dict[str, Any]]] = {mode: [] for mode in modes}
-    tasks: List[Tuple[int, int, Dict[str, Any], str]] = []
+) -> dict[str, Any]:
+    LOGGER.info(
+        "Evaluating %d case(s) across mode(s): %s", len(cases), ", ".join(modes)
+    )
+    raw_rows: list[dict[str, Any]] = []
+    by_mode: dict[str, list[dict[str, Any]]] = {mode: [] for mode in modes}
+    tasks: list[tuple[int, int, dict[str, Any], str]] = []
     for case_idx, case in enumerate(cases, start=1):
-        LOGGER.info("Evaluating case %d/%d case_id=%s", case_idx, len(cases), case.get("case_id"))
+        LOGGER.info(
+            "Evaluating case %d/%d case_id=%s",
+            case_idx,
+            len(cases),
+            case.get("case_id"),
+        )
         for mode_idx, mode in enumerate(modes):
             tasks.append((case_idx - 1, mode_idx, case, mode))
 
@@ -817,20 +840,22 @@ def evaluate_cases(
         LOGGER.info("Running with async concurrency=%d", max_concurrency)
         total_tasks = len(tasks)
         progress_every = max(1, total_tasks // 10)
-        ordered_rows: Dict[Tuple[int, int], Dict[str, Any]] = {}
+        ordered_rows: dict[tuple[int, int], dict[str, Any]] = {}
 
-        async def _evaluate_cases_async() -> Dict[Tuple[int, int], Dict[str, Any]]:
+        async def _evaluate_cases_async() -> dict[tuple[int, int], dict[str, Any]]:
             semaphore = asyncio.Semaphore(max_concurrency)
             completed_count = 0
 
             async def _run_task(
                 case_order: int,
                 mode_order: int,
-                case: Dict[str, Any],
+                case: dict[str, Any],
                 mode: str,
-            ) -> Tuple[int, int, Dict[str, Any]]:
+            ) -> tuple[int, int, dict[str, Any]]:
                 async with semaphore:
-                    row = await asyncio.to_thread(_run_case_mode, case, mode, consensus_runs)
+                    row = await asyncio.to_thread(
+                        _run_case_mode, case, mode, consensus_runs
+                    )
                     return case_order, mode_order, row
 
             async_tasks = [
@@ -838,12 +863,15 @@ def evaluate_cases(
                 for case_order, mode_order, case, mode in tasks
             ]
 
-            ordered: Dict[Tuple[int, int], Dict[str, Any]] = {}
+            ordered: dict[tuple[int, int], dict[str, Any]] = {}
             for finished in asyncio.as_completed(async_tasks):
                 case_order, mode_order, row = await finished
                 ordered[(case_order, mode_order)] = row
                 completed_count += 1
-                if completed_count == total_tasks or completed_count % progress_every == 0:
+                if (
+                    completed_count == total_tasks
+                    or completed_count % progress_every == 0
+                ):
                     LOGGER.info("Completed %d/%d tasks", completed_count, total_tasks)
 
             return ordered
@@ -866,12 +894,12 @@ def evaluate_cases(
 
 
 def _limit_cases(
-    cases: List[Dict[str, Any]],
+    cases: list[dict[str, Any]],
     *,
     limit: int,
     stratify: bool,
     seed: int = 42,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Limit cases with optional stratified sampling by expected_pass label."""
     LOGGER.info(
         "Applying case limit: total=%d limit=%d stratify=%s seed=%d",
@@ -914,7 +942,7 @@ def _limit_cases(
     target_pos = min(target_pos, len(positives))
     target_neg = min(target_neg, len(negatives))
 
-    selected: List[Dict[str, Any]] = []
+    selected: list[dict[str, Any]] = []
     selected.extend(rng.sample(positives, target_pos) if target_pos > 0 else [])
     selected.extend(rng.sample(negatives, target_neg) if target_neg > 0 else [])
 
@@ -941,7 +969,7 @@ def _limit_cases(
 
 
 def _validate_min_positive_cases(
-    cases: Sequence[Dict[str, Any]],
+    cases: Sequence[dict[str, Any]],
     *,
     min_positive_cases: int,
 ) -> None:
@@ -965,7 +993,7 @@ def _validate_min_positive_cases(
         )
 
 
-def parse_modes(raw_modes: str) -> List[str]:
+def parse_modes(raw_modes: str) -> list[str]:
     LOGGER.info("Parsing modes from input: %s", raw_modes)
     if _branch(
         "parse_modes.all",
@@ -982,7 +1010,9 @@ def parse_modes(raw_modes: str) -> List[str]:
         f"Invalid modes found: {invalid}",
         "No invalid modes found",
     ):
-        raise ValueError(f"Invalid mode(s): {invalid}. Valid: {list(VALID_MODES)} or all")
+        raise ValueError(
+            f"Invalid mode(s): {invalid}. Valid: {list(VALID_MODES)} or all"
+        )
     if _branch(
         "parse_modes.empty_modes",
         not modes,
@@ -1093,7 +1123,7 @@ def main() -> None:
     ):
         raise SystemExit("No benchmark cases found. Build or provide cases first.")
 
-    run_timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    run_timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     evaluated = evaluate_cases(
         cases,
         modes,
@@ -1132,7 +1162,12 @@ def main() -> None:
         ),
         encoding="utf-8",
     )
-    LOGGER.info("Artifacts written: raw=%s results=%s summary=%s", raw_path, results_path, summary_path)
+    LOGGER.info(
+        "Artifacts written: raw=%s results=%s summary=%s",
+        raw_path,
+        results_path,
+        summary_path,
+    )
 
     for mode in modes:
         cm = evaluated["mode_metrics"][mode]["confusion_matrix_fail_class"]

@@ -37,25 +37,26 @@ from orchestrator_agent.agent_tools.user_story_writer_tool.agent import (
 from orchestrator_agent.agent_tools.user_story_writer_tool.tools import (
     save_stories_tool,
 )
-# Story query tools (extracted from legacy product_user_story_tool)
-from tools.story_query_tools import query_features_for_stories
+from orchestrator_agent.agent_tools.utils.resilience import SelfHealingAgent
+from tools.db_tools import (
+    get_story_details,
+)
 from tools.orchestrator_tools import (
     count_projects,
     get_project_by_name,
     get_project_details,
     list_projects,
-    select_project,
     load_specification_from_file,
+    select_project,
 )
 from tools.spec_tools import (
-    read_project_specification,
     compile_spec_authority_for_version,
+    read_project_specification,
     update_spec_and_compile_authority,
 )
-from tools.db_tools import (
-    get_story_details,
-)
-from orchestrator_agent.agent_tools.utils.resilience import SelfHealingAgent
+
+# Story query tools (extracted from legacy product_user_story_tool)
+from tools.story_query_tools import query_features_for_stories
 from utils.helper import load_instruction
 from utils.model_config import (
     get_model_id,
@@ -121,9 +122,9 @@ orchestrator_agent = Agent(
 
 root_agent = SelfHealingAgent(
     agent=orchestrator_agent,
-    max_retries=3,          # standard for validation
-    max_zdr_retries=10,     # higher for orchestrator
+    max_retries=3,  # standard for validation
+    max_zdr_retries=10,  # higher for orchestrator
     max_rate_limit_retries=10,  # withstand temporary bursts
-    max_provider_error_retries=5, # tolerate some instability
-    name="orchestrator_agent" # Preserve the original name
+    max_provider_error_retries=5,  # tolerate some instability
+    name="orchestrator_agent",  # Preserve the original name
 )

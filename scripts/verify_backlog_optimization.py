@@ -1,31 +1,36 @@
-
 import logging
-import time
-import sys
-from sqlalchemy import event
-from sqlmodel import Session, create_engine, SQLModel, select
-from datetime import datetime, timezone
 
 # Adjust path to import from project root
 import os
+import sys
+import time
+
+from sqlalchemy import event
+from sqlmodel import Session, SQLModel, create_engine
+
 sys.path.append(os.getcwd())
 
-import agile_sqlmodel
-from agile_sqlmodel import Product, UserStory, StoryStatus, Sprint, SprintStatus
-from models.core import Epic, Feature, Team, Theme
 import orchestrator_agent.agent_tools.sprint_planning.tools as tools_module
-from orchestrator_agent.agent_tools.sprint_planning.tools import get_backlog_for_planning, BacklogQueryInput
+from orchestrator_agent.agent_tools.sprint_planning.tools import (
+    BacklogQueryInput,
+    get_backlog_for_planning,
+)
+
+from agile_sqlmodel import Product, StoryStatus, UserStory
+from models.core import Epic, Feature, Theme
 
 # Setup logging
 logging.basicConfig()
 logger = logging.getLogger("sqlalchemy.engine")
 logger.setLevel(logging.WARNING)
 
+
 def setup_db():
     # Use in-memory DB for speed and isolation
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
     return engine
+
 
 def populate_data(session, product_id):
     # Create hierarchy
@@ -49,11 +54,12 @@ def populate_data(session, product_id):
             product_id=product_id,
             feature_id=feature.feature_id,
             status=StoryStatus.TO_DO,
-            story_points=3
+            story_points=3,
         )
         session.add(story)
 
     session.commit()
+
 
 class QueryCounter:
     def __init__(self):
@@ -62,6 +68,7 @@ class QueryCounter:
     def __call__(self, conn, cursor, statement, parameters, context, executemany):
         self.count += 1
         # print(f"QUERY: {statement}")
+
 
 def run_benchmark():
     engine = setup_db()
@@ -94,7 +101,7 @@ def run_benchmark():
         end_time = time.time()
         duration = end_time - start_time
 
-        print(f"\n--- Results ---")
+        print("\n--- Results ---")
         print(f"Total Queries: {query_counter.count}")
         print(f"Time Taken: {duration:.4f} seconds")
         print(f"Success: {result.get('success')}")
@@ -110,6 +117,7 @@ def run_benchmark():
     finally:
         # Restore original engine
         tools_module.engine = original_tool_engine
+
 
 if __name__ == "__main__":
     run_benchmark()

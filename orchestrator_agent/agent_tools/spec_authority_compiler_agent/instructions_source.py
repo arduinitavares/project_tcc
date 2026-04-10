@@ -13,10 +13,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from utils.helper import load_instruction
 from orchestrator_agent.agent_tools.spec_authority_compiler_agent.compiler_contract import (
     compute_prompt_hash,
 )
+from utils.helper import load_instruction
 
 SPEC_AUTHORITY_COMPILER_VERSION = "1.0.0"
 

@@ -1,30 +1,104 @@
+"""Runtime helpers for failure-aware interview state projections."""
+
 from __future__ import annotations
 
-from copy import deepcopy
 import re
-from typing import Any, Dict, Optional, Sequence
-
+from copy import deepcopy
+from typing import Any, Self, TypedDict, Unpack, cast
 
 INTERVIEW_RUNTIME_KEY = "interview_runtime"
 STORY_PHASE = "story"
 
 
-def _runtime_root(state: Dict[str, Any]) -> Dict[str, Any]:
+class InterviewRuntimeTypeError(TypeError):
+    """Raised when interview runtime state has an invalid container shape."""
+
+    @classmethod
+    def runtime_root_must_be_dict(cls, key: str) -> Self:
+        """Build the error raised when the runtime root is not a dict."""
+        return cls(f"{key} must be a dict")
+
+    @classmethod
+    def phase_bucket_must_be_dict(cls, phase: str) -> Self:
+        """Build the error raised when a phase bucket is not a dict."""
+        return cls(f"{phase} runtime bucket must be a dict")
+
+    @classmethod
+    def subject_projection_must_be_dict(cls) -> Self:
+        """Build the error raised when the subject projection is not a dict."""
+        return cls("interview subject projection must be a dict")
+
+    @classmethod
+    def feedback_projection_must_be_dict(cls) -> Self:
+        """Build the error raised when feedback projection is not a dict."""
+        return cls("feedback_projection must be a dict")
+
+    @classmethod
+    def feedback_items_must_be_list(cls) -> Self:
+        """Build the error raised when feedback items are not a list."""
+        return cls("feedback_projection.items must be a list")
+
+    @classmethod
+    def attempt_history_must_be_list(cls) -> Self:
+        """Build the error raised when attempt history is not a list."""
+        return cls("attempt_history must be a list")
+
+    @classmethod
+    def draft_projection_must_be_dict(cls) -> Self:
+        """Build the error raised when draft projection is not a dict."""
+        return cls("draft_projection must be a dict")
+
+
+class _RequestProjectionOptions(TypedDict):
+    request_snapshot_id: str
+    payload: dict[str, Any]
+    request_hash: str
+    created_at: object
+    draft_basis_attempt_id: str | None
+    included_feedback_ids: list[str]
+    context_version: str
+
+
+def _require_dict(
+    value: object,
+    *,
+    error: InterviewRuntimeTypeError,
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise error
+    return cast("dict[str, Any]", value)
+
+
+def _require_list(
+    value: object,
+    *,
+    error: InterviewRuntimeTypeError,
+) -> list[Any]:
+    if not isinstance(value, list):
+        raise error
+    return cast("list[Any]", value)
+
+
+def _runtime_root(state: dict[str, Any]) -> dict[str, Any]:
     runtime = state.setdefault(INTERVIEW_RUNTIME_KEY, {})
-    if not isinstance(runtime, dict):
-        raise TypeError(f"{INTERVIEW_RUNTIME_KEY} must be a dict")
-    return runtime
+    return _require_dict(
+        runtime,
+        error=InterviewRuntimeTypeError.runtime_root_must_be_dict(
+            INTERVIEW_RUNTIME_KEY
+        ),
+    )
 
 
-def _phase_bucket(state: Dict[str, Any], phase: str) -> Dict[str, Any]:
+def _phase_bucket(state: dict[str, Any], phase: str) -> dict[str, Any]:
     runtime = _runtime_root(state)
     bucket = runtime.setdefault(phase, {})
-    if not isinstance(bucket, dict):
-        raise TypeError(f"{phase} runtime bucket must be a dict")
-    return bucket
+    return _require_dict(
+        bucket,
+        error=InterviewRuntimeTypeError.phase_bucket_must_be_dict(phase),
+    )
 
 
-def _empty_projection(phase: str, subject_key: str) -> Dict[str, Any]:
+def _empty_projection(phase: str, subject_key: str) -> dict[str, Any]:
     return {
         "phase": phase,
         "subject_key": subject_key,
@@ -36,7 +110,7 @@ def _empty_projection(phase: str, subject_key: str) -> Dict[str, Any]:
     }
 
 
-def _normalize_feedback_projection(projection: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_feedback_projection(projection: dict[str, Any]) -> dict[str, Any]:
     feedback_projection = projection.setdefault("feedback_projection", {})
     if not isinstance(feedback_projection, dict):
         feedback_projection = {}
@@ -67,15 +141,21 @@ def _derive_feedback_sequence_floor(items: list[Any]) -> int:
 
 
 def ensure_interview_subject(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     *,
     phase: str,
     subject_key: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
+    """Ensure a subject runtime exists and normalize its nested containers."""
     phase_bucket = _phase_bucket(state, phase)
-    projection = phase_bucket.setdefault(subject_key, _empty_projection(phase, subject_key))
-    if not isinstance(projection, dict):
-        raise TypeError("interview subject projection must be a dict")
+    projection = phase_bucket.setdefault(
+        subject_key,
+        _empty_projection(phase, subject_key),
+    )
+    projection = _require_dict(
+        projection,
+        error=InterviewRuntimeTypeError.subject_projection_must_be_dict(),
+    )
 
     projection["phase"] = phase
     projection["subject_key"] = subject_key
@@ -96,37 +176,35 @@ def ensure_interview_subject(
 
 
 def set_request_projection(
-    runtime: Dict[str, Any],
-    *,
-    request_snapshot_id: str,
-    payload: Dict[str, Any],
-    request_hash: str,
-    created_at: Any,
-    draft_basis_attempt_id: Optional[str],
-    included_feedback_ids: Sequence[str],
-    context_version: str,
-) -> Dict[str, Any]:
+    runtime: dict[str, Any],
+    **options: Unpack[_RequestProjectionOptions],
+) -> dict[str, Any]:
+    """Store the latest request snapshot for the subject runtime."""
     request_projection = {
-        "request_snapshot_id": request_snapshot_id,
-        "payload": deepcopy(payload),
-        "request_hash": request_hash,
-        "created_at": created_at,
-        "draft_basis_attempt_id": draft_basis_attempt_id,
-        "included_feedback_ids": list(included_feedback_ids),
-        "context_version": context_version,
+        "request_snapshot_id": options["request_snapshot_id"],
+        "payload": deepcopy(options["payload"]),
+        "request_hash": options["request_hash"],
+        "created_at": options["created_at"],
+        "draft_basis_attempt_id": options["draft_basis_attempt_id"],
+        "included_feedback_ids": list(options["included_feedback_ids"]),
+        "context_version": options["context_version"],
     }
     runtime["request_projection"] = request_projection
     return request_projection
 
 
 def append_feedback_entry(
-    runtime: Dict[str, Any],
+    runtime: dict[str, Any],
     text: str,
-    created_at: Any,
-    feedback_id: Optional[str] = None,
-) -> Dict[str, Any]:
+    created_at: object,
+    feedback_id: str | None = None,
+) -> dict[str, Any]:
+    """Append a feedback entry and allocate a stable feedback identifier."""
     feedback_projection = _normalize_feedback_projection(runtime)
-    items = feedback_projection["items"]
+    items = _require_list(
+        feedback_projection["items"],
+        error=InterviewRuntimeTypeError.feedback_items_must_be_list(),
+    )
     sequence = int(feedback_projection["next_feedback_sequence"]) + 1
     feedback_projection["next_feedback_sequence"] = sequence
     generated_id = feedback_id or f"feedback-{sequence}"
@@ -142,19 +220,22 @@ def append_feedback_entry(
 
 
 def mark_feedback_absorbed(
-    runtime: Dict[str, Any],
+    runtime: dict[str, Any],
     *,
-    feedback_ids: Sequence[str],
+    feedback_ids: list[str],
     attempt_id: str,
-) -> list[Dict[str, Any]]:
-    feedback_projection = runtime.get("feedback_projection") or {}
-    if not isinstance(feedback_projection, dict):
-        raise TypeError("feedback_projection must be a dict")
-    items = feedback_projection.get("items") or []
-    if not isinstance(items, list):
-        raise TypeError("feedback_projection.items must be a list")
+) -> list[dict[str, Any]]:
+    """Mark matching feedback items as absorbed by the given attempt."""
+    feedback_projection = _require_dict(
+        runtime.get("feedback_projection") or {},
+        error=InterviewRuntimeTypeError.feedback_projection_must_be_dict(),
+    )
+    items = _require_list(
+        feedback_projection.get("items") or [],
+        error=InterviewRuntimeTypeError.feedback_items_must_be_list(),
+    )
 
-    absorbed_items: list[Dict[str, Any]] = []
+    absorbed_items: list[dict[str, Any]] = []
     for entry in items:
         if not isinstance(entry, dict):
             continue
@@ -166,28 +247,32 @@ def mark_feedback_absorbed(
 
 
 def append_attempt(
-    runtime: Dict[str, Any],
-    attempt: Dict[str, Any],
-) -> Dict[str, Any]:
+    runtime: dict[str, Any],
+    attempt: dict[str, Any],
+) -> dict[str, Any]:
+    """Append a deep-copied attempt record to the runtime history."""
     stored_attempt = deepcopy(attempt)
-    attempts = runtime.setdefault("attempt_history", [])
-    if not isinstance(attempts, list):
-        raise TypeError("attempt_history must be a list")
+    attempts = _require_list(
+        runtime.setdefault("attempt_history", []),
+        error=InterviewRuntimeTypeError.attempt_history_must_be_list(),
+    )
     attempts.append(stored_attempt)
     return stored_attempt
 
 
 def promote_reusable_draft(
-    runtime: Dict[str, Any],
+    runtime: dict[str, Any],
     *,
     attempt_id: str,
     kind: str,
     is_complete: bool,
-    updated_at: Any,
-) -> Dict[str, Any]:
-    draft_projection = runtime.setdefault("draft_projection", {})
-    if not isinstance(draft_projection, dict):
-        raise TypeError("draft_projection must be a dict")
+    updated_at: object,
+) -> dict[str, Any]:
+    """Promote an attempt to the latest reusable draft projection."""
+    draft_projection = _require_dict(
+        runtime.setdefault("draft_projection", {}),
+        error=InterviewRuntimeTypeError.draft_projection_must_be_dict(),
+    )
     draft_projection["latest_reusable_attempt_id"] = attempt_id
     draft_projection["kind"] = kind
     draft_projection["is_complete"] = is_complete
@@ -196,20 +281,22 @@ def promote_reusable_draft(
 
 
 def reset_subject_working_set(
-    runtime: Dict[str, Any],
+    runtime: dict[str, Any],
     *,
-    created_at: Any,
+    created_at: object,
     summary: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
+    """Clear mutable projections and append a reset marker to history."""
     runtime["request_projection"] = {}
     feedback_projection = _normalize_feedback_projection(runtime)
     feedback_projection["items"] = []
     runtime["draft_projection"] = {}
     runtime["resolution_projection"] = {}
 
-    attempts = runtime.setdefault("attempt_history", [])
-    if not isinstance(attempts, list):
-        raise TypeError("attempt_history must be a list")
+    attempts = _require_list(
+        runtime.setdefault("attempt_history", []),
+        error=InterviewRuntimeTypeError.attempt_history_must_be_list(),
+    )
     reset_attempt = {
         "attempt_id": f"reset-marker-{len(attempts) + 1}",
         "created_at": created_at,
@@ -224,7 +311,7 @@ def reset_subject_working_set(
     return runtime
 
 
-def _classify_story_attempt(attempt: Dict[str, Any]) -> str:
+def _classify_story_attempt(attempt: dict[str, Any]) -> str:
     output_artifact = attempt.get("output_artifact")
     if (
         isinstance(output_artifact, dict)
@@ -238,13 +325,13 @@ def _classify_story_attempt(attempt: Dict[str, Any]) -> str:
 
 
 def _normalized_legacy_attempt(
-    attempt: Dict[str, Any],
+    attempt: dict[str, Any],
     *,
     attempt_id: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     classification = _classify_story_attempt(attempt)
     is_reusable = classification == "reusable_content_result"
-    legacy_attempt: Dict[str, Any] = {
+    legacy_attempt: dict[str, Any] = {
         "attempt_id": attempt_id,
         "created_at": attempt.get("created_at"),
         "trigger": "legacy",
@@ -271,10 +358,11 @@ def _normalized_legacy_attempt(
 
 
 def hydrate_story_runtime_from_legacy(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     *,
     parent_requirement: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
+    """Hydrate story interview runtime from legacy ``story_attempts`` state."""
     runtime = ensure_interview_subject(
         state,
         phase=STORY_PHASE,
@@ -291,6 +379,10 @@ def hydrate_story_runtime_from_legacy(
     if not isinstance(attempts, list):
         return runtime
 
+    attempt_history = _require_list(
+        runtime.setdefault("attempt_history", []),
+        error=InterviewRuntimeTypeError.attempt_history_must_be_list(),
+    )
     for index, attempt in enumerate(attempts, start=1):
         if not isinstance(attempt, dict):
             continue
@@ -298,7 +390,7 @@ def hydrate_story_runtime_from_legacy(
             attempt,
             attempt_id=f"legacy-{index}",
         )
-        runtime["attempt_history"].append(normalized_attempt)
+        attempt_history.append(normalized_attempt)
         if normalized_attempt["classification"] == "reusable_content_result":
             runtime["draft_projection"] = {
                 "latest_reusable_attempt_id": normalized_attempt["attempt_id"],

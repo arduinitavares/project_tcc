@@ -1,23 +1,31 @@
-import unittest
 import sys
+import unittest
 from unittest.mock import patch
+
 from orchestrator_agent.fsm.controller import FSMController
-from orchestrator_agent.fsm.states import OrchestratorState
 from orchestrator_agent.fsm.definitions import STATE_REGISTRY
+from orchestrator_agent.fsm.states import OrchestratorState
+
 
 class TestFSMController(unittest.TestCase):
     def setUp(self):
         self.controller = FSMController()
 
     def test_initial_state(self):
-        self.assertEqual(self.controller.get_initial_state(), OrchestratorState.SETUP_REQUIRED)
+        self.assertEqual(
+            self.controller.get_initial_state(), OrchestratorState.SETUP_REQUIRED
+        )
 
     def test_registry_integrity(self):
         """Verify that all allowed transitions target valid states."""
         all_states = set(OrchestratorState)
         for state, definition in STATE_REGISTRY.items():
             for target in definition.allowed_transitions:
-                self.assertIn(target, all_states, f"State {state} has invalid transition target: {target}")
+                self.assertIn(
+                    target,
+                    all_states,
+                    f"State {state} has invalid transition target: {target}",
+                )
 
     def test_routing_mode_transitions(self):
         # Vision Interview
@@ -25,7 +33,7 @@ class TestFSMController(unittest.TestCase):
             OrchestratorState.SETUP_REQUIRED,
             "product_vision_tool",
             {"is_complete": False},
-            "start project"
+            "start project",
         )
         self.assertEqual(next_state, OrchestratorState.VISION_INTERVIEW)
 
@@ -34,7 +42,7 @@ class TestFSMController(unittest.TestCase):
             OrchestratorState.SETUP_REQUIRED,
             "product_vision_tool",
             {"is_complete": True},
-            "start project"
+            "start project",
         )
         self.assertEqual(next_state, OrchestratorState.VISION_REVIEW)
 
@@ -44,16 +52,13 @@ class TestFSMController(unittest.TestCase):
             OrchestratorState.VISION_INTERVIEW,
             "product_vision_tool",
             {"is_complete": True},
-            ""
+            "",
         )
         self.assertEqual(next_state, OrchestratorState.VISION_REVIEW)
 
         # Review -> Persistence
         next_state = self.controller.determine_next_state(
-            OrchestratorState.VISION_REVIEW,
-            "save_vision_tool",
-            {},
-            "Save"
+            OrchestratorState.VISION_REVIEW, "save_vision_tool", {}, "Save"
         )
         self.assertEqual(next_state, OrchestratorState.VISION_PERSISTENCE)
 
@@ -62,7 +67,7 @@ class TestFSMController(unittest.TestCase):
             OrchestratorState.VISION_REVIEW,
             "product_vision_tool",
             {"is_complete": False},
-            "Change vision"
+            "Change vision",
         )
         self.assertEqual(next_state, OrchestratorState.VISION_INTERVIEW)
 
@@ -71,7 +76,7 @@ class TestFSMController(unittest.TestCase):
             OrchestratorState.VISION_REVIEW,
             "backlog_primer_tool",
             {"is_complete": True},
-            "create backlog"
+            "create backlog",
         )
         self.assertEqual(next_state, OrchestratorState.VISION_REVIEW)
 
@@ -81,7 +86,7 @@ class TestFSMController(unittest.TestCase):
             OrchestratorState.SETUP_REQUIRED,
             "roadmap_builder_tool",
             {"is_complete": False},
-            "create roadmap"
+            "create roadmap",
         )
         self.assertEqual(next_state, OrchestratorState.ROADMAP_INTERVIEW)
 
@@ -90,7 +95,7 @@ class TestFSMController(unittest.TestCase):
             OrchestratorState.SETUP_REQUIRED,
             "roadmap_builder_tool",
             {"is_complete": True},
-            "create roadmap"
+            "create roadmap",
         )
         self.assertEqual(next_state, OrchestratorState.ROADMAP_REVIEW)
 
@@ -99,7 +104,7 @@ class TestFSMController(unittest.TestCase):
             OrchestratorState.ROADMAP_INTERVIEW,
             "roadmap_builder_tool",
             {"is_complete": True},
-            "continue"
+            "continue",
         )
         self.assertEqual(next_state, OrchestratorState.ROADMAP_REVIEW)
 
@@ -108,7 +113,7 @@ class TestFSMController(unittest.TestCase):
             OrchestratorState.ROADMAP_REVIEW,
             "roadmap_builder_tool",
             {"is_complete": False},
-            "adjust roadmap"
+            "adjust roadmap",
         )
         self.assertEqual(next_state, OrchestratorState.ROADMAP_INTERVIEW)
 
@@ -117,7 +122,7 @@ class TestFSMController(unittest.TestCase):
             OrchestratorState.ROADMAP_REVIEW,
             "save_roadmap_tool",
             {"success": True},
-            "save"
+            "save",
         )
         self.assertEqual(next_state, OrchestratorState.ROADMAP_PERSISTENCE)
 
@@ -128,7 +133,7 @@ class TestFSMController(unittest.TestCase):
             OrchestratorState.BACKLOG_PERSISTENCE,
             "roadmap_builder_tool",
             {},
-            "create roadmap"
+            "create roadmap",
         )
         self.assertEqual(next_state, OrchestratorState.ROADMAP_INTERVIEW)
 
@@ -137,7 +142,7 @@ class TestFSMController(unittest.TestCase):
             OrchestratorState.BACKLOG_PERSISTENCE,
             "backlog_primer_tool",
             {},
-            "refine backlog"
+            "refine backlog",
         )
         self.assertEqual(next_state, OrchestratorState.BACKLOG_INTERVIEW)
 
@@ -147,7 +152,7 @@ class TestFSMController(unittest.TestCase):
             OrchestratorState.BACKLOG_PERSISTENCE,
             "sprint_planner_tool",
             {},
-            "plan sprint"
+            "plan sprint",
         )
         self.assertEqual(next_state, OrchestratorState.BACKLOG_PERSISTENCE)
 
@@ -170,10 +175,7 @@ class TestFSMController(unittest.TestCase):
 
     def test_unknown_tool_stays_in_state(self):
         next_state = self.controller.determine_next_state(
-            OrchestratorState.SPRINT_VIEW,
-            "unknown_tool",
-            {},
-            "blah"
+            OrchestratorState.SPRINT_VIEW, "unknown_tool", {}, "blah"
         )
         self.assertEqual(next_state, OrchestratorState.SPRINT_VIEW)
 
@@ -182,16 +184,20 @@ class TestFSMController(unittest.TestCase):
         Verify that a transition calculated by the controller is BLOCKED if it is not
         in the current state's allowed_transitions set.
         """
-        fake_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED].model_copy(deep=True)
+        fake_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED].model_copy(
+            deep=True
+        )
         fake_def.allowed_transitions.remove(OrchestratorState.VISION_INTERVIEW)
 
         # Patch the class method instead of instance
-        with patch.object(FSMController, 'get_state_definition', return_value=fake_def) as mock_method:
+        with patch.object(
+            FSMController, "get_state_definition", return_value=fake_def
+        ) as mock_method:
             next_state = self.controller.determine_next_state(
                 OrchestratorState.SETUP_REQUIRED,
                 "product_vision_tool",
                 {"is_complete": False},
-                "draft vision"
+                "draft vision",
             )
 
             # Check call
@@ -199,6 +205,6 @@ class TestFSMController(unittest.TestCase):
 
             self.assertEqual(next_state, OrchestratorState.SETUP_REQUIRED)
 
+
 if __name__ == "__main__":
     unittest.main()
-

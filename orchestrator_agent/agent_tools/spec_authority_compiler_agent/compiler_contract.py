@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Optional
 
 from utils.spec_schemas import (
+    ForbiddenCapabilityParams,
     Invariant,
     InvariantType,
-    ForbiddenCapabilityParams,
-    RequiredFieldParams,
     MaxValueParams,
+    RequiredFieldParams,
 )
 
 
@@ -45,7 +44,7 @@ def compute_invariant_id(excerpt: str, invariant_type: InvariantType) -> str:
     return f"INV-{digest[:16]}"
 
 
-def classify_invariant_from_text(text: str) -> Optional[Invariant]:
+def classify_invariant_from_text(text: str) -> Invariant | None:
     """Classify a single invariant from a spec sentence using deterministic rules."""
     if not text or not text.strip():
         return None
@@ -59,7 +58,9 @@ def classify_invariant_from_text(text: str) -> Optional[Invariant]:
     )
     if forbidden_match:
         capability = _normalize_token(forbidden_match.group(1))
-        invariant_id = compute_invariant_id(original_excerpt, InvariantType.FORBIDDEN_CAPABILITY)
+        invariant_id = compute_invariant_id(
+            original_excerpt, InvariantType.FORBIDDEN_CAPABILITY
+        )
         return Invariant(
             id=invariant_id,
             type=InvariantType.FORBIDDEN_CAPABILITY,
@@ -73,7 +74,9 @@ def classify_invariant_from_text(text: str) -> Optional[Invariant]:
     )
     if required_match:
         field_name = _normalize_token(required_match.group(1))
-        invariant_id = compute_invariant_id(original_excerpt, InvariantType.REQUIRED_FIELD)
+        invariant_id = compute_invariant_id(
+            original_excerpt, InvariantType.REQUIRED_FIELD
+        )
         return Invariant(
             id=invariant_id,
             type=InvariantType.REQUIRED_FIELD,

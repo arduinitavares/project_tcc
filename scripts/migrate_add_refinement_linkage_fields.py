@@ -7,8 +7,11 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-from db.migrations import migrate_performance_indexes, migrate_user_story_refinement_linkage
 from agile_sqlmodel import get_engine
+from db.migrations import (
+    migrate_performance_indexes,
+    migrate_user_story_refinement_linkage,
+)
 
 
 def main() -> None:

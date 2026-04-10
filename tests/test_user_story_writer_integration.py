@@ -29,7 +29,6 @@ from orchestrator_agent.agent_tools.user_story_writer_tool.schemes import (
 from utils.adk_runner import extract_final_response_text, parse_json_payload
 from utils.runtime_config import STORY_RUNNER_IDENTITY
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INPUT_FIXTURE_PATH = REPO_ROOT / "input_for_test.txt"
 
@@ -108,7 +107,9 @@ def _write_diagnostic_artifact(
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.skipif(not os.getenv("OPEN_ROUTER_API_KEY"), reason="No API Key")
-async def test_story_agent_replay_captures_raw_output_from_input_fixture(tmp_path: Path) -> None:
+async def test_story_agent_replay_captures_raw_output_from_input_fixture(
+    tmp_path: Path,
+) -> None:
     payload, payload_text = _load_story_payload()
 
     agent = create_user_story_writer_agent()
@@ -118,7 +119,6 @@ async def test_story_agent_replay_captures_raw_output_from_input_fixture(tmp_pat
     async def _preserve_request_schema(*, callback_context, llm_request):
         del callback_context
         llm_request.set_output_schema(original_output_schema)
-        return None
 
     agent.output_schema = None
     agent.output_key = None
@@ -161,7 +161,9 @@ async def test_story_agent_replay_captures_raw_output_from_input_fixture(tmp_pat
             parse_error="No final text response extracted from runner events.",
             validation_errors=None,
         )
-        pytest.fail(f"Story replay produced no final text. Diagnostic saved to {artifact_path}")
+        pytest.fail(
+            f"Story replay produced no final text. Diagnostic saved to {artifact_path}"
+        )
 
     if parsed_json is None:
         _write_diagnostic_artifact(

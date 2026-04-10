@@ -1,7 +1,6 @@
 """API tests for backlog generation, history, and save flow."""
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
 
 from fastapi.testclient import TestClient
 
@@ -12,10 +11,10 @@ import api as api_module
 class DummyProduct:
     product_id: int
     name: str
-    description: Optional[str] = None
-    vision: Optional[str] = None
-    spec_file_path: Optional[str] = None
-    compiled_authority_json: Optional[str] = None
+    description: str | None = None
+    vision: str | None = None
+    spec_file_path: str | None = None
+    compiled_authority_json: str | None = None
 
 
 class DummyProductRepository:
@@ -31,7 +30,7 @@ class DummyProductRepository:
                 return product
         return None
 
-    def create(self, name: str, description: Optional[str] = None):
+    def create(self, name: str, description: str | None = None):
         product = DummyProduct(
             product_id=len(self.products) + 1,
             name=name,
@@ -43,9 +42,9 @@ class DummyProductRepository:
 
 class DummyWorkflowService:
     def __init__(self) -> None:
-        self.states: Dict[str, Dict[str, object]] = {}
+        self.states: dict[str, dict[str, object]] = {}
 
-    async def initialize_session(self, session_id: Optional[str] = None) -> str:
+    async def initialize_session(self, session_id: str | None = None) -> str:
         sid = str(session_id or "generated")
         self.states[sid] = {"fsm_state": "SETUP_REQUIRED"}
         return sid
@@ -156,7 +155,9 @@ def _build_client(monkeypatch):
     return TestClient(api_module.app), repo, workflow
 
 
-def _seed_vision_persisted_project(repo: DummyProductRepository, workflow: DummyWorkflowService) -> int:
+def _seed_vision_persisted_project(
+    repo: DummyProductRepository, workflow: DummyWorkflowService
+) -> int:
     product = repo.create("Backlog Project")
     product.spec_file_path = __file__
     product.compiled_authority_json = '{"ok": true}'
@@ -183,7 +184,10 @@ def test_backlog_generate_allows_empty_input_on_first_attempt(monkeypatch):
     assert payload["status"] == "success"
     assert payload["data"]["trigger"] == "auto_transition"
     assert payload["data"]["fsm_state"] == "BACKLOG_INTERVIEW"
-    assert workflow.states[str(project_id)]["backlog_attempts"][0]["trigger"] == "auto_transition"
+    assert (
+        workflow.states[str(project_id)]["backlog_attempts"][0]["trigger"]
+        == "auto_transition"
+    )
 
 
 def test_backlog_generate_requires_feedback_after_first_attempt(monkeypatch):
@@ -244,7 +248,10 @@ def test_backlog_history_endpoint_returns_attempts(monkeypatch):
     payload = response.json()
     assert payload["status"] == "success"
     assert payload["data"]["count"] == 2
-    assert all(item.get("trigger") == "auto_transition" for item in payload["data"]["items"][:1])
+    assert all(
+        item.get("trigger") == "auto_transition"
+        for item in payload["data"]["items"][:1]
+    )
 
 
 def test_backlog_save_succeeds_when_complete(monkeypatch):
@@ -276,4 +283,3 @@ def test_backlog_save_rejects_incomplete_assessment(monkeypatch):
 
     response = client.post(f"/api/projects/{project_id}/backlog/save")
     assert response.status_code == 409
-

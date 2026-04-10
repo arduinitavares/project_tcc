@@ -11,15 +11,12 @@ product.technical_spec, it simply:
 Run with: pytest tests/test_link_spec_to_product.py -v
 """
 
-import pytest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
 
-from sqlmodel import Session
+import pytest
 
 from agile_sqlmodel import Product
-
 
 # Red-phase: These imports will fail until tool is created
 try:
@@ -31,6 +28,7 @@ except ImportError:
 # ============================================================================
 # Fixtures
 # ============================================================================
+
 
 @pytest.fixture
 def sample_product(session):
@@ -52,7 +50,7 @@ def sample_product_with_spec(session):
         name="Already Linked Product",
         vision="Already has a spec",
         spec_file_path="specs/existing_spec.md",
-        spec_loaded_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        spec_loaded_at=datetime(2025, 1, 1, tzinfo=UTC),
     )
     session.add(product)
     session.commit()
@@ -60,7 +58,7 @@ def sample_product_with_spec(session):
     return product
 
 
-@pytest.fixture()
+@pytest.fixture
 def compile_stub(monkeypatch):
     """Stub authority compilation to avoid LLM calls."""
     calls = {}
@@ -90,6 +88,7 @@ class MockToolContext:
 # ============================================================================
 # Test Class: link_spec_to_product
 # ============================================================================
+
 
 class TestLinkSpecToProduct:
     """Test suite for the link_spec_to_product tool."""
@@ -209,9 +208,7 @@ class TestLinkSpecToProduct:
         assert product.spec_file_path == new_path
         assert product.spec_loaded_at > old_loaded_at
 
-    def test_sets_spec_persisted_in_state(
-        self, session, sample_product, compile_stub
-    ):
+    def test_sets_spec_persisted_in_state(self, session, sample_product, compile_stub):
         """
         GIVEN: A valid tool_context with mutable state
         WHEN: link_spec_to_product succeeds
@@ -266,9 +263,7 @@ class TestLinkSpecToProduct:
         assert compile_params.product_id == sample_product.product_id
         assert compile_params.content_ref == spec_path
 
-    def test_no_backup_file_created(
-        self, session, sample_product, compile_stub
-    ):
+    def test_no_backup_file_created(self, session, sample_product, compile_stub):
         """
         GIVEN: A valid spec file
         WHEN: link_spec_to_product is called

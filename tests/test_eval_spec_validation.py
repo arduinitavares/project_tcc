@@ -1,42 +1,50 @@
+import time
 
 import pytest
-import time
+
 from scripts import eval_spec_validation as eval_script
+
 
 def test_parse_modes_all():
     assert eval_script.parse_modes("all") == list(eval_script.VALID_MODES)
 
+
 def test_parse_modes_csv():
     assert eval_script.parse_modes("deterministic,llm") == ["deterministic", "llm"]
+
 
 def test_parse_modes_invalid():
     with pytest.raises(ValueError):
         eval_script.parse_modes("deterministic,foo")
 
+
 def test_extract_reason_codes():
-    result = {
-        "failures": [
-            {"rule": "RULE_A"},
-            {"rule": "RULE_B"},
-            {"other": "ignore"}
-        ]
-    }
+    result = {"failures": [{"rule": "RULE_A"}, {"rule": "RULE_B"}, {"other": "ignore"}]}
     assert eval_script._extract_reason_codes(result) == ["RULE_A", "RULE_B"]
+
 
 def test_classify_row_error():
     assert eval_script._classify_row_error({}) == "semantic"
-    assert eval_script._classify_row_error({"failures": [{"message": "execution failed"}]}) == "provider_error"
-    assert eval_script._classify_row_error({"failures": [{"message": "litellm.APIError"}]}) == "provider_error"
+    assert (
+        eval_script._classify_row_error({"failures": [{"message": "execution failed"}]})
+        == "provider_error"
+    )
+    assert (
+        eval_script._classify_row_error({"failures": [{"message": "litellm.APIError"}]})
+        == "provider_error"
+    )
+
 
 def test_confusion_from_rows():
     rows = [
-        {"expected_pass": True, "predicted_fail": False}, # TN
-        {"expected_pass": False, "predicted_fail": True}, # TP
+        {"expected_pass": True, "predicted_fail": False},  # TN
+        {"expected_pass": False, "predicted_fail": True},  # TP
         {"expected_pass": True, "predicted_fail": True},  # FP
-        {"expected_pass": False, "predicted_fail": False}, # FN
+        {"expected_pass": False, "predicted_fail": False},  # FN
     ]
     cm = eval_script._confusion_from_rows(rows)
     assert cm == {"tp": 1, "fp": 1, "tn": 1, "fn": 1}
+
 
 def test_compute_mode_metrics_basic():
     # 2 cases
@@ -48,7 +56,7 @@ def test_compute_mode_metrics_basic():
             "latency_ms": 10,
             "expected_fail_reasons": [],
             "predicted_reason_codes": [],
-            "error_class": "semantic"
+            "error_class": "semantic",
         },
         {
             "case_id": "c2",
@@ -57,8 +65,8 @@ def test_compute_mode_metrics_basic():
             "latency_ms": 20,
             "expected_fail_reasons": ["R1"],
             "predicted_reason_codes": ["R1"],
-            "error_class": "semantic"
-        }
+            "error_class": "semantic",
+        },
     ]
     metrics = eval_script._compute_mode_metrics(rows)
     assert metrics["num_cases"] == 2
@@ -66,6 +74,7 @@ def test_compute_mode_metrics_basic():
     assert metrics["confusion_matrix_fail_class"]["tn"] == 1
     assert metrics["accuracy"] == 1.0
     assert metrics["reason_recall_macro"] == 1.0
+
 
 def test_compute_mode_metrics_over_flagging():
     rows = [
@@ -75,13 +84,18 @@ def test_compute_mode_metrics_over_flagging():
             "predicted_fail": True,
             "latency_ms": 10,
             "expected_fail_reasons": ["R1"],
-            "predicted_reason_codes": ["R1", "R2", "R3"], # 3 > 2*1, should trigger over-flagging
-            "error_class": "semantic"
+            "predicted_reason_codes": [
+                "R1",
+                "R2",
+                "R3",
+            ],  # 3 > 2*1, should trigger over-flagging
+            "error_class": "semantic",
         }
     ]
     metrics = eval_script._compute_mode_metrics(rows)
     assert metrics["over_flagging_rate"] == 1.0
-    assert metrics["reason_precision_macro"] == 1/3
+    assert metrics["reason_precision_macro"] == 1 / 3
+
 
 def test_bootstrap_ci_shape():
     # Valid input
@@ -93,6 +107,7 @@ def test_bootstrap_ci_shape():
 
     # Empty input
     assert eval_script._bootstrap_ci([], n_resamples=10) is None
+
 
 def test_stratified_sampling():
     cases = [
@@ -109,6 +124,7 @@ def test_stratified_sampling():
     assert pass_count == 1
     assert fail_count == 1
 
+
 def test_validate_min_positive_cases_errors():
     cases = [
         {"case_id": "f1", "expected_pass": False},
@@ -121,12 +137,12 @@ def test_validate_min_positive_cases_errors():
     # Require 0 -> OK
     eval_script._validate_min_positive_cases(cases, min_positive_cases=0)
 
+
 def test_disagreement_computation():
     rows = [
         {"case_id": "c1", "mode": "deterministic", "predicted_pass": True},
         {"case_id": "c1", "mode": "llm", "predicted_pass": False},
         {"case_id": "c1", "mode": "hybrid", "predicted_pass": True},
-
         {"case_id": "c2", "mode": "deterministic", "predicted_pass": True},
         {"case_id": "c2", "mode": "llm", "predicted_pass": True},
         {"case_id": "c2", "mode": "hybrid", "predicted_pass": True},
@@ -137,6 +153,7 @@ def test_disagreement_computation():
     assert "c1" in disagreements["llm_vs_hybrid"]
     assert "c1" not in disagreements["deterministic_vs_hybrid"]
     assert "c2" not in disagreements["deterministic_vs_llm"]
+
 
 def test_evaluate_cases_uses_stubbed_runner(monkeypatch: pytest.MonkeyPatch) -> None:
     cases = [
@@ -152,7 +169,7 @@ def test_evaluate_cases_uses_stubbed_runner(monkeypatch: pytest.MonkeyPatch) -> 
         }
     ]
 
-    def _fake_run(case, mode, consensus_runs): # Added consensus_runs
+    def _fake_run(case, mode, consensus_runs):  # Added consensus_runs
         return {
             "case_id": case["case_id"],
             "mode": mode,
@@ -163,7 +180,9 @@ def test_evaluate_cases_uses_stubbed_runner(monkeypatch: pytest.MonkeyPatch) -> 
             "success": True,
             "predicted_pass": mode != "llm",
             "predicted_fail": mode == "llm",
-            "predicted_reason_codes": ["RULE_LLM_SPEC_VALIDATION"] if mode == "llm" else [],
+            "predicted_reason_codes": ["RULE_LLM_SPEC_VALIDATION"]
+            if mode == "llm"
+            else [],
             "latency_ms": 5.0,
             "result": {"success": True, "passed": mode != "llm"},
         }
@@ -176,7 +195,9 @@ def test_evaluate_cases_uses_stubbed_runner(monkeypatch: pytest.MonkeyPatch) -> 
     assert "llm" in evaluated["mode_metrics"]
 
     # Verify consensus arg passing
-    evaluated_consensus = eval_script.evaluate_cases(cases, ["deterministic"], consensus_runs=3)
+    evaluated_consensus = eval_script.evaluate_cases(
+        cases, ["deterministic"], consensus_runs=3
+    )
     assert "deterministic" in evaluated_consensus["mode_metrics"]
 
     # Verify async concurrency path
@@ -190,7 +211,9 @@ def test_evaluate_cases_uses_stubbed_runner(monkeypatch: pytest.MonkeyPatch) -> 
     assert "llm" in evaluated_parallel["mode_metrics"]
 
 
-def test_evaluate_cases_async_path_preserves_order(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_evaluate_cases_async_path_preserves_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     cases = [
         {
             "case_id": "c1",
@@ -252,7 +275,9 @@ def test_evaluate_cases_async_path_preserves_order(monkeypatch: pytest.MonkeyPat
     ]
 
 
-def test_run_case_mode_retries_retryable_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_case_mode_retries_retryable_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls = {"count": 0}
     sleep_calls = []
 
@@ -262,9 +287,13 @@ def test_run_case_mode_retries_retryable_errors(monkeypatch: pytest.MonkeyPatch)
             raise RuntimeError("429 too many requests")
         return {"success": True, "passed": True, "failures": []}
 
-    monkeypatch.setattr(eval_script, "validate_story_with_spec_authority", _fake_validate)
+    monkeypatch.setattr(
+        eval_script, "validate_story_with_spec_authority", _fake_validate
+    )
     monkeypatch.setattr(eval_script.random, "uniform", lambda _a, _b: 0.0)
-    monkeypatch.setattr(eval_script.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+    monkeypatch.setattr(
+        eval_script.time, "sleep", lambda seconds: sleep_calls.append(seconds)
+    )
 
     case = {
         "case_id": "c1",
@@ -281,7 +310,9 @@ def test_run_case_mode_retries_retryable_errors(monkeypatch: pytest.MonkeyPatch)
     assert row["predicted_pass"] is True
 
 
-def test_run_case_mode_does_not_retry_non_retryable_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_case_mode_does_not_retry_non_retryable_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls = {"count": 0}
     sleep_calls = []
 
@@ -289,8 +320,12 @@ def test_run_case_mode_does_not_retry_non_retryable_errors(monkeypatch: pytest.M
         calls["count"] += 1
         raise RuntimeError("schema mismatch")
 
-    monkeypatch.setattr(eval_script, "validate_story_with_spec_authority", _fake_validate)
-    monkeypatch.setattr(eval_script.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+    monkeypatch.setattr(
+        eval_script, "validate_story_with_spec_authority", _fake_validate
+    )
+    monkeypatch.setattr(
+        eval_script.time, "sleep", lambda seconds: sleep_calls.append(seconds)
+    )
 
     case = {
         "case_id": "c1",

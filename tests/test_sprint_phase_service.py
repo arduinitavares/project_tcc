@@ -1,13 +1,14 @@
-import pytest
 from types import SimpleNamespace
 
+import pytest
+
 from services.phases.sprint_service import (
+    SprintPhaseError,
     close_sprint,
     ensure_sprint_attempts,
-    get_sprint_close_readiness,
-    SprintPhaseError,
     generate_sprint_plan,
     get_saved_sprint_detail,
+    get_sprint_close_readiness,
     get_sprint_history,
     list_saved_sprints,
     normalize_sprint_output_artifact,
@@ -112,9 +113,7 @@ def test_normalize_sprint_output_artifact_deduplicates_validation_hints():
     )
 
     assert len(payload["validation_errors"]) == 1
-    assert payload["validation_errors"][0].startswith(
-        "Unsupported task_kind 'other'."
-    )
+    assert payload["validation_errors"][0].startswith("Unsupported task_kind 'other'.")
 
 
 def _failure_meta_builder(
@@ -376,7 +375,7 @@ def test_get_saved_sprint_detail_rejects_missing_sprint():
     with pytest.raises(SprintPhaseError) as exc_info:
         get_saved_sprint_detail(
             load_sprint=lambda: None,
-            load_sprints=lambda: [],
+            load_sprints=list,
             build_runtime_summary=lambda _sprints: {},
             serialize_sprint_detail=lambda _sprint, _summary: {},
         )
@@ -643,7 +642,7 @@ def test_start_saved_sprint_rejects_other_active_sprint():
             load_sprint=lambda: sprint,
             load_other_active=lambda: object(),
             persist_started_sprint=lambda: sprint,
-            build_runtime_summary=lambda: {},
+            build_runtime_summary=dict,
             serialize_sprint=lambda _sprint, _summary: {"id": 3},
         )
 
@@ -680,7 +679,7 @@ def test_start_saved_sprint_rejects_completed_status_variants():
             load_sprint=lambda: sprint,
             load_other_active=lambda: None,
             persist_started_sprint=lambda: sprint,
-            build_runtime_summary=lambda: {},
+            build_runtime_summary=dict,
             serialize_sprint=lambda _sprint, _summary: {"id": 3},
         )
 

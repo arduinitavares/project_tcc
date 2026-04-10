@@ -22,7 +22,9 @@ def _story_artifact(parent_requirement: str, title: str, *, is_complete: bool = 
             {
                 "story_title": title,
                 "statement": "As a developer, I want projection-aware drafts, so that retries and saves stay stable.",
-                "acceptance_criteria": ["Verify the service reads the reusable projection."],
+                "acceptance_criteria": [
+                    "Verify the service reads the reusable projection."
+                ],
                 "invest_score": "High",
                 "estimated_effort": "S",
                 "produced_artifacts": [],
@@ -166,7 +168,9 @@ async def test_get_story_history_returns_attempts_and_projection_summary():
                             "is_reusable": True,
                             "retryable": False,
                             "draft_kind": "complete_draft",
-                            "output_artifact": _story_artifact("Requirement A", "Saved draft"),
+                            "output_artifact": _story_artifact(
+                                "Requirement A", "Saved draft"
+                            ),
                         },
                         {
                             "attempt_id": "attempt-2",
@@ -290,7 +294,9 @@ async def test_generate_story_draft_normalizes_requirement_and_persists_reusable
         assert project_id == 7
         assert parent_requirement == "Requirement A"
         assert user_input is None
-        captured["feedback"] = state_arg["interview_runtime"]["story"]["Requirement A"]["feedback_projection"]["items"]
+        captured["feedback"] = state_arg["interview_runtime"]["story"]["Requirement A"][
+            "feedback_projection"
+        ]["items"]
         return {
             "success": True,
             "input_context": {"requirement_context": "assembled"},
@@ -316,7 +322,9 @@ async def test_generate_story_draft_normalizes_requirement_and_persists_reusable
         save_state=lambda updated: saved_states.append(dict(updated)),
         now_iso=lambda: "2026-04-04T12:00:00Z",
         run_story_agent_from_state=fake_run_story_agent_from_state,
-        append_feedback_entry=lambda runtime, text, created_at: runtime["feedback_projection"]["items"].append(
+        append_feedback_entry=lambda runtime, text, created_at: runtime[
+            "feedback_projection"
+        ]["items"].append(
             {
                 "feedback_id": f"feedback-{len(runtime['feedback_projection']['items']) + 1}",
                 "text": text,
@@ -325,9 +333,16 @@ async def test_generate_story_draft_normalizes_requirement_and_persists_reusable
                 "absorbed_by_attempt_id": None,
             }
         ),
-        set_request_projection=lambda runtime, **kwargs: runtime.setdefault("request_projection", {}).update(kwargs) or runtime["request_projection"],
-        append_attempt=lambda runtime, attempt: runtime.setdefault("attempt_history", []).append(attempt),
-        promote_reusable_draft=lambda runtime, **kwargs: runtime.setdefault("draft_projection", {}).update(
+        set_request_projection=lambda runtime, **kwargs: (
+            runtime.setdefault("request_projection", {}).update(kwargs)
+            or runtime["request_projection"]
+        ),
+        append_attempt=lambda runtime, attempt: runtime.setdefault(
+            "attempt_history", []
+        ).append(attempt),
+        promote_reusable_draft=lambda runtime, **kwargs: runtime.setdefault(
+            "draft_projection", {}
+        ).update(
             {
                 "latest_reusable_attempt_id": kwargs["attempt_id"],
                 "kind": kwargs["kind"],
@@ -344,15 +359,23 @@ async def test_generate_story_draft_normalizes_requirement_and_persists_reusable
     )
 
     assert payload["parent_requirement"] == "Requirement A"
-    assert payload["data"]["output_artifact"]["user_stories"][0]["story_title"] == "Story A"
+    assert (
+        payload["data"]["output_artifact"]["user_stories"][0]["story_title"]
+        == "Story A"
+    )
     assert payload["data"]["current_draft"] == {
         "attempt_id": "attempt-1",
         "kind": "complete_draft",
         "is_complete": True,
     }
     assert captured["feedback"][0]["status"] == "absorbed"
-    assert state["interview_runtime"]["story"]["Requirement A"]["request_projection"]["payload"] == {"parent_requirement": "Requirement A"}
-    assert state["story_outputs"]["Requirement A"]["user_stories"][0]["story_title"] == "Story A"
+    assert state["interview_runtime"]["story"]["Requirement A"]["request_projection"][
+        "payload"
+    ] == {"parent_requirement": "Requirement A"}
+    assert (
+        state["story_outputs"]["Requirement A"]["user_stories"][0]["story_title"]
+        == "Story A"
+    )
     assert len(saved_states) == 1
 
 
@@ -369,7 +392,9 @@ async def test_retry_story_draft_replays_request_projection_and_promotes_reusabl
                             "attempt_id": "attempt-1",
                             "trigger": "manual_refine",
                             "input_context": {},
-                            "output_artifact": _story_artifact("Requirement A", "Saved draft"),
+                            "output_artifact": _story_artifact(
+                                "Requirement A", "Saved draft"
+                            ),
                             "classification": "reusable_content_result",
                             "is_reusable": True,
                             "retryable": False,
@@ -387,7 +412,7 @@ async def test_retry_story_draft_replays_request_projection_and_promotes_reusabl
                             "is_reusable": False,
                             "retryable": True,
                             "draft_kind": None,
-                        }
+                        },
                     ],
                     "draft_projection": {
                         "latest_reusable_attempt_id": "attempt-1",
@@ -407,7 +432,9 @@ async def test_retry_story_draft_replays_request_projection_and_promotes_reusabl
     }
     saved_states: list[dict[str, object]] = []
 
-    async def fake_run_story_agent_request(request_payload, *, project_id, parent_requirement):
+    async def fake_run_story_agent_request(
+        request_payload, *, project_id, parent_requirement
+    ):
         assert project_id == 7
         assert parent_requirement == "Requirement A"
         assert request_payload == {"parent_requirement": "Requirement A"}
@@ -435,8 +462,12 @@ async def test_retry_story_draft_replays_request_projection_and_promotes_reusabl
         save_state=lambda updated: saved_states.append(dict(updated)),
         now_iso=lambda: "2026-04-04T12:00:00Z",
         run_story_agent_request=fake_run_story_agent_request,
-        append_attempt=lambda runtime, attempt: runtime.setdefault("attempt_history", []).append(attempt),
-        promote_reusable_draft=lambda runtime, **kwargs: runtime.setdefault("draft_projection", {}).update(
+        append_attempt=lambda runtime, attempt: runtime.setdefault(
+            "attempt_history", []
+        ).append(attempt),
+        promote_reusable_draft=lambda runtime, **kwargs: runtime.setdefault(
+            "draft_projection", {}
+        ).update(
             {
                 "latest_reusable_attempt_id": kwargs["attempt_id"],
                 "kind": kwargs["kind"],
@@ -449,12 +480,18 @@ async def test_retry_story_draft_replays_request_projection_and_promotes_reusabl
     )
 
     assert payload["parent_requirement"] == "Requirement A"
-    assert payload["data"]["output_artifact"]["user_stories"][0]["story_title"] == "Retried story"
+    assert (
+        payload["data"]["output_artifact"]["user_stories"][0]["story_title"]
+        == "Retried story"
+    )
     assert payload["data"]["retry"] == {
         "available": False,
         "target_attempt_id": None,
     }
-    assert state["story_outputs"]["Requirement A"]["user_stories"][0]["story_title"] == "Retried story"
+    assert (
+        state["story_outputs"]["Requirement A"]["user_stories"][0]["story_title"]
+        == "Retried story"
+    )
     assert len(saved_states) == 1
 
 
@@ -517,7 +554,10 @@ async def test_save_story_draft_marks_requirement_saved_and_persists_state():
     assert payload["parent_requirement"] == "Requirement A"
     assert payload["data"]["save_result"]["saved_count"] == 1
     assert state["story_saved"]["Requirement A"] is True
-    assert state["story_outputs"]["Requirement A"]["user_stories"][0]["story_title"] == "Saved draft"
+    assert (
+        state["story_outputs"]["Requirement A"]["user_stories"][0]["story_title"]
+        == "Saved draft"
+    )
     assert captured["stories"] == artifact["user_stories"]
     assert len(saved_states) == 1
 
@@ -564,8 +604,14 @@ async def test_merge_story_resolution_normalizes_requirement_name():
 
     assert payload["parent_requirement"] == "Requirement A"
     resolution = payload["data"]["resolution"]["current"]
-    assert resolution["owner_requirement"] == "Updated Source Code Package (refactored prototype for submission)"
-    assert state["interview_runtime"]["story"]["Requirement A"]["resolution_projection"] == resolution
+    assert (
+        resolution["owner_requirement"]
+        == "Updated Source Code Package (refactored prototype for submission)"
+    )
+    assert (
+        state["interview_runtime"]["story"]["Requirement A"]["resolution_projection"]
+        == resolution
+    )
     assert len(saved_states) == 1
 
 
@@ -717,9 +763,15 @@ async def test_merge_story_resolution_persists_merged_projection():
     assert payload["parent_requirement"] == "Requirement A"
     resolution = payload["data"]["resolution"]["current"]
     assert resolution["status"] == "merged"
-    assert resolution["owner_requirement"] == "Updated Source Code Package (refactored prototype for submission)"
+    assert (
+        resolution["owner_requirement"]
+        == "Updated Source Code Package (refactored prototype for submission)"
+    )
     assert resolution["resolved_at"] == "2026-04-04T12:00:00Z"
-    assert state["interview_runtime"]["story"]["Requirement A"]["resolution_projection"] == resolution
+    assert (
+        state["interview_runtime"]["story"]["Requirement A"]["resolution_projection"]
+        == resolution
+    )
     assert len(saved_states) == 1
 
 

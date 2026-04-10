@@ -40,12 +40,16 @@ def test_migrate_task_metadata_adds_column_and_backfills_rows() -> None:
     actions = migrate_task_metadata(engine)
 
     assert "added column: tasks.metadata_json" in actions
-    assert any(action.startswith("backfilled tasks.metadata_json rows:") for action in actions)
+    assert any(
+        action.startswith("backfilled tasks.metadata_json rows:") for action in actions
+    )
     column_names = {col["name"] for col in inspect(engine).get_columns("tasks")}
     assert "metadata_json" in column_names
 
     with engine.begin() as conn:
-        rows = conn.execute(text("SELECT metadata_json FROM tasks ORDER BY task_id")).all()
+        rows = conn.execute(
+            text("SELECT metadata_json FROM tasks ORDER BY task_id")
+        ).all()
     assert rows == [
         (canonical_task_metadata_json(),),
         (canonical_task_metadata_json(),),

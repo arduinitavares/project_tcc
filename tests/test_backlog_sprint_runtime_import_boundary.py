@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -86,13 +85,13 @@ def test_backlog_primer_tool_import_boundary() -> None:
     agile_attr_refs = {
         f"{access_path}.{attr}"
         for access_path in {"agile_sqlmodel", *agile_aliases}
-        for attr in {
+        for attr in (
             "UserStory",
             "get_engine",
             "StoryStatus",
             "WorkflowEvent",
             "WorkflowEventType",
-        }
+        )
     }
 
     assert "UserStory" in core_imports
@@ -120,10 +119,8 @@ def test_sprint_planner_tool_import_boundary() -> None:
     dotted_refs = _dotted_attribute_references(module_path)
     agile_runtime_attr_refs = {
         f"{access_path}.{attr}"
-        for access_path in _module_import_access_paths(
-            module_path, "agile_sqlmodel"
-        )
-        for attr in {
+        for access_path in _module_import_access_paths(module_path, "agile_sqlmodel")
+        for attr in (
             "Product",
             "SprintStatus",
             "Sprint",
@@ -134,10 +131,17 @@ def test_sprint_planner_tool_import_boundary() -> None:
             "get_engine",
             "WorkflowEvent",
             "WorkflowEventType",
-        }
+        )
     }
 
-    assert {"Product", "Sprint", "SprintStory", "Task", "Team", "UserStory"} <= core_imports
+    assert {
+        "Product",
+        "Sprint",
+        "SprintStory",
+        "Task",
+        "Team",
+        "UserStory",
+    } <= core_imports
     assert "get_engine" in db_imports
     assert "WorkflowEvent" in event_imports
     assert {"SprintStatus", "WorkflowEventType"} <= enum_imports

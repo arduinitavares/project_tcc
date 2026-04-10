@@ -3,16 +3,16 @@ Quick test to verify query_features_for_stories returns validated Pydantic schem
 """
 
 from tools.story_query_tools import (
-    query_features_for_stories,
     QueryFeaturesInput,
+    query_features_for_stories,
 )
+
 
 def main() -> None:
     """Run a manual query test.
 
     Note: this script performs database access and must not execute during pytest collection.
     """
-
     # Test with product ID 3 (from the logs)
     result = query_features_for_stories(QueryFeaturesInput(product_id=3))
 
@@ -24,9 +24,9 @@ def main() -> None:
         print(f"Product: {result['product_name']} (ID: {result['product_id']})")
         print(f"Total Features: {result['total_features']}")
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("SCHEMA VALIDATION TEST - Features with Theme/Epic:")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         for i, feat in enumerate(result["features_flat"][:5], 1):  # Show first 5
             print(f"\n{i}. {feat['feature_title'][:60]}")
@@ -35,14 +35,20 @@ def main() -> None:
             print(f"   Feature ID: {feat['feature_id']}")
 
             # Verify required fields are NOT None or "Unknown"
-            assert feat["theme"], f"FAIL: Theme is empty for feature {feat['feature_id']}"
+            assert feat["theme"], (
+                f"FAIL: Theme is empty for feature {feat['feature_id']}"
+            )
             assert feat["epic"], f"FAIL: Epic is empty for feature {feat['feature_id']}"
-            assert feat["theme"] != "Unknown", f"FAIL: Theme is 'Unknown' for feature {feat['feature_id']}"
-            assert feat["epic"] != "Unknown", f"FAIL: Epic is 'Unknown' for feature {feat['feature_id']}"
+            assert feat["theme"] != "Unknown", (
+                f"FAIL: Theme is 'Unknown' for feature {feat['feature_id']}"
+            )
+            assert feat["epic"] != "Unknown", (
+                f"FAIL: Epic is 'Unknown' for feature {feat['feature_id']}"
+            )
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("✅ ALL SCHEMA VALIDATIONS PASSED!")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print("\nPydantic enforces (internally):")
         print("  - theme: str (min_length=1, REQUIRED)")
         print("  - epic: str (min_length=1, REQUIRED)")
@@ -53,4 +59,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

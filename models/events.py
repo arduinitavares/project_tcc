@@ -76,11 +76,7 @@ class WorkflowEvent(SQLModel, table=True):
     )
     duration_seconds: float | None = Field(default=None)
     turn_count: int | None = Field(default=None)
-    product_id: int | None = Field(
-        default=None, foreign_key="products.product_id"
-    )
-    sprint_id: int | None = Field(
-        default=None, foreign_key="sprints.sprint_id"
-    )
+    product_id: int | None = Field(default=None, foreign_key="products.product_id")
+    sprint_id: int | None = Field(default=None, foreign_key="sprints.sprint_id")
     session_id: str | None = Field(default=None, index=True)
     event_metadata: str | None = Field(default=None, sa_type=Text)

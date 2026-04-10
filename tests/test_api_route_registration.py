@@ -1,9 +1,8 @@
-import api as api_module
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 
-from routers.sprint import register_manual_sprint_routes
-from routers.sprint import register_sprint_routes
+import api as api_module
+from routers.sprint import register_manual_sprint_routes, register_sprint_routes
 
 
 def test_manual_sprint_execution_and_packet_routes_are_registered():

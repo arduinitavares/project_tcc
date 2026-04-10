@@ -1,10 +1,9 @@
 """Tests for sprint planner persistence tool."""
 
 import json
-from datetime import date
-from datetime import datetime, timezone
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
-from typing import Any, Dict, List, cast
+from typing import Any, cast
 
 from google.adk.tools import ToolContext
 from sqlmodel import Session, select
@@ -29,7 +28,7 @@ from utils.spec_schemas import ValidationEvidence
 from utils.task_metadata import TaskMetadata, serialize_task_metadata
 
 
-def _seed_product_team_stories(session: Session) -> tuple[int, int, List[int]]:
+def _seed_product_team_stories(session: Session) -> tuple[int, int, list[int]]:
     product = Product(name="Test Product", vision="Vision", description="Desc")
     team = Team(name="Team Alpha")
     session.add(product)
@@ -41,7 +40,7 @@ def _seed_product_team_stories(session: Session) -> tuple[int, int, List[int]]:
     assert product.product_id is not None
     assert team.team_id is not None
 
-    stories: List[int] = []
+    stories: list[int] = []
     for idx in range(2):
         story = UserStory(
             product_id=product.product_id,
@@ -50,7 +49,7 @@ def _seed_product_team_stories(session: Session) -> tuple[int, int, List[int]]:
             acceptance_criteria="- AC",
             validation_evidence=ValidationEvidence(
                 spec_version_id=1,
-                validated_at=datetime.now(timezone.utc),
+                validated_at=datetime.now(UTC),
                 passed=True,
                 rules_checked=["SPEC_VERSION_EXISTS"],
                 invariants_checked=[],
@@ -73,7 +72,7 @@ def _seed_product_team_stories(session: Session) -> tuple[int, int, List[int]]:
     return product.product_id, team.team_id, stories
 
 
-def _build_sprint_plan(story_ids: List[int]) -> Dict[str, Any]:
+def _build_sprint_plan(story_ids: list[int]) -> dict[str, Any]:
     return {
         "sprint_goal": "Deliver authentication essentials",
         "sprint_number": 1,
@@ -129,7 +128,7 @@ def test_save_sprint_plan_creates_records(session: Session):
     product_id, team_id, story_ids = _seed_product_team_stories(session)
 
     tool_context = cast(
-        ToolContext,
+        "ToolContext",
         SimpleNamespace(state={"sprint_plan": _build_sprint_plan(story_ids)}),
     )
     input_data = SaveSprintPlanInput(
@@ -157,7 +156,9 @@ def test_save_sprint_plan_creates_records(session: Session):
         for task in tasks
     }
     assert metadata_by_description["Create auth table"].task_kind == "implementation"
-    assert metadata_by_description["Create auth table"].artifact_targets == ["auth schema"]
+    assert metadata_by_description["Create auth table"].artifact_targets == [
+        "auth schema"
+    ]
     assert metadata_by_description["Create auth table"].checklist_items == [
         "Define the auth table columns",
         "Add persistence coverage for auth records",
@@ -169,7 +170,7 @@ def test_save_sprint_plan_uses_orchestrator_duration_when_valid(session: Session
     product_id, team_id, story_ids = _seed_product_team_stories(session)
 
     tool_context = cast(
-        ToolContext,
+        "ToolContext",
         SimpleNamespace(
             state={
                 "sprint_plan": _build_sprint_plan(story_ids),
@@ -201,7 +202,7 @@ def test_save_sprint_plan_falls_back_to_elapsed_duration(session: Session):
     product_id, team_id, story_ids = _seed_product_team_stories(session)
 
     tool_context = cast(
-        ToolContext,
+        "ToolContext",
         SimpleNamespace(state={"sprint_plan": _build_sprint_plan(story_ids)}),
     )
     input_data = SaveSprintPlanInput(
@@ -230,7 +231,7 @@ def test_save_sprint_plan_falls_back_when_state_duration_invalid(session: Sessio
     product_id, team_id, story_ids = _seed_product_team_stories(session)
 
     tool_context = cast(
-        ToolContext,
+        "ToolContext",
         SimpleNamespace(
             state={
                 "sprint_plan": _build_sprint_plan(story_ids),
@@ -274,13 +275,11 @@ def test_save_sprint_plan_rejects_story_conflict(session: Session):
     session.add(existing_sprint)
     session.flush()
     assert existing_sprint.sprint_id is not None
-    session.add(
-        SprintStory(sprint_id=existing_sprint.sprint_id, story_id=story_ids[0])
-    )
+    session.add(SprintStory(sprint_id=existing_sprint.sprint_id, story_id=story_ids[0]))
     session.commit()
 
     tool_context = cast(
-        ToolContext,
+        "ToolContext",
         SimpleNamespace(state={"sprint_plan": _build_sprint_plan(story_ids)}),
     )
     input_data = SaveSprintPlanInput(
@@ -311,9 +310,7 @@ def test_save_sprint_plan_updates_existing_planned_sprint_in_place(session: Sess
     session.flush()
     assert existing_sprint.sprint_id is not None
 
-    session.add(
-        SprintStory(sprint_id=existing_sprint.sprint_id, story_id=story_ids[0])
-    )
+    session.add(SprintStory(sprint_id=existing_sprint.sprint_id, story_id=story_ids[0]))
     session.add(
         Task(
             story_id=story_ids[0],
@@ -361,7 +358,7 @@ def test_save_sprint_plan_updates_existing_planned_sprint_in_place(session: Sess
     sprint_plan["capacity_analysis"]["story_points_used"] = 5
 
     tool_context = cast(
-        ToolContext,
+        "ToolContext",
         SimpleNamespace(state={"sprint_plan": sprint_plan}),
     )
     input_data = SaveSprintPlanInput(
@@ -414,9 +411,7 @@ def test_save_sprint_plan_handles_large_task_deletion_volume(session: Session):
     session.flush()
     assert existing_sprint.sprint_id is not None
 
-    session.add(
-        SprintStory(sprint_id=existing_sprint.sprint_id, story_id=story_ids[0])
-    )
+    session.add(SprintStory(sprint_id=existing_sprint.sprint_id, story_id=story_ids[0]))
 
     # Add 501 tasks to trigger chunking logic safely past the 500 limit
     bulk_tasks = []
@@ -425,7 +420,7 @@ def test_save_sprint_plan_handles_large_task_deletion_volume(session: Session):
             Task(
                 story_id=story_ids[0],
                 description="Obsolete task description",
-                metadata_json=serialize_task_metadata(TaskMetadata())
+                metadata_json=serialize_task_metadata(TaskMetadata()),
             )
         )
     session.add_all(bulk_tasks)
@@ -444,7 +439,7 @@ def test_save_sprint_plan_handles_large_task_deletion_volume(session: Session):
     ]
 
     tool_context = cast(
-        ToolContext,
+        "ToolContext",
         SimpleNamespace(state={"sprint_plan": sprint_plan}),
     )
     input_data = SaveSprintPlanInput(
@@ -457,9 +452,7 @@ def test_save_sprint_plan_handles_large_task_deletion_volume(session: Session):
     result = save_sprint_plan_tool(input_data, tool_context)
     assert result["success"] is True
 
-    story_tasks = session.exec(
-        select(Task).where(Task.story_id == story_ids[0])
-    ).all()
+    story_tasks = session.exec(select(Task).where(Task.story_id == story_ids[0])).all()
     assert len(story_tasks) == 1
     assert story_tasks[0].description == "Retained task description"
 
@@ -482,9 +475,7 @@ def test_save_sprint_plan_reconciles_selected_story_tasks_on_planned_update(
     session.flush()
     assert existing_sprint.sprint_id is not None
 
-    session.add(
-        SprintStory(sprint_id=existing_sprint.sprint_id, story_id=story_ids[0])
-    )
+    session.add(SprintStory(sprint_id=existing_sprint.sprint_id, story_id=story_ids[0]))
     session.add_all(
         [
             Task(
@@ -546,7 +537,7 @@ def test_save_sprint_plan_reconciles_selected_story_tasks_on_planned_update(
     ]
 
     tool_context = cast(
-        ToolContext,
+        "ToolContext",
         SimpleNamespace(state={"sprint_plan": sprint_plan}),
     )
     input_data = SaveSprintPlanInput(
@@ -561,9 +552,7 @@ def test_save_sprint_plan_reconciles_selected_story_tasks_on_planned_update(
     assert result["success"] is True
 
     story_tasks = session.exec(
-        select(Task)
-        .where(Task.story_id == story_ids[0])
-        .order_by(Task.task_id)
+        select(Task).where(Task.story_id == story_ids[0]).order_by(Task.task_id)
     ).all()
     assert len(story_tasks) == 1
     assert story_tasks[0].description == "Create auth table"
@@ -707,10 +696,12 @@ def test_fetch_sprint_candidates_excludes_stories_in_open_sprints(session: Sessi
 def test_save_sprint_plan_rejects_out_of_scope_task_invariants(session: Session):
     product_id, team_id, story_ids = _seed_product_team_stories(session)
     sprint_plan = _build_sprint_plan(story_ids)
-    sprint_plan["selected_stories"][0]["tasks"][0]["relevant_invariant_ids"] = ["INV-UNKNOWN"]
+    sprint_plan["selected_stories"][0]["tasks"][0]["relevant_invariant_ids"] = [
+        "INV-UNKNOWN"
+    ]
 
     tool_context = cast(
-        ToolContext,
+        "ToolContext",
         SimpleNamespace(state={"sprint_plan": sprint_plan}),
     )
     input_data = SaveSprintPlanInput(
@@ -747,7 +738,7 @@ def test_save_sprint_plan_rejects_checklist_items_copied_from_story_acceptance_c
         acceptance_criteria="1. Persist the event\n2. Surface a success response",
         validation_evidence=ValidationEvidence(
             spec_version_id=1,
-            validated_at=datetime.now(timezone.utc),
+            validated_at=datetime.now(UTC),
             passed=True,
             rules_checked=["SPEC_VERSION_EXISTS"],
             invariants_checked=[],
@@ -804,7 +795,7 @@ def test_save_sprint_plan_rejects_checklist_items_copied_from_story_acceptance_c
     }
 
     tool_context = cast(
-        ToolContext,
+        "ToolContext",
         SimpleNamespace(state={"sprint_plan": sprint_plan}),
     )
     input_data = SaveSprintPlanInput(

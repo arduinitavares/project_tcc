@@ -55,4 +55,3 @@ def test_extract_state_dwell_summary_groups_by_from_state() -> None:
     assert summary["SPRINT_SETUP"]["total_duration_sec"] == 5.0
 
     conn.close()
-

@@ -38,14 +38,18 @@ def test_session_db_url_is_required(monkeypatch: pytest.MonkeyPatch) -> None:
         get_session_db_target()
 
 
-def test_legacy_business_db_filename_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_legacy_business_db_filename_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("PROJECT_TCC_DB_URL", "sqlite:///./agile_simple.db")
 
     with pytest.raises(RuntimeConfigError, match="agile_simple.db"):
         get_business_db_target()
 
 
-def test_legacy_session_db_filename_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_legacy_session_db_filename_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("PROJECT_TCC_DB_URL", "sqlite:///./db/spec_authority_dev.db")
     monkeypatch.setenv("PROJECT_TCC_SESSION_DB_URL", "sqlite:///./agile_sqlmodel.db")
 

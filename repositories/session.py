@@ -1,7 +1,7 @@
-import sqlite3
 import json
 import logging
-from typing import Dict, Any, Optional
+import sqlite3
+from typing import Any
 
 from utils.runtime_config import DatabaseTarget, get_session_db_target
 
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class WorkflowSessionRepository:
     """Repository handling volatile session state using sqlite3."""
 
-    def __init__(self, db_target: Optional[DatabaseTarget] = None):
+    def __init__(self, db_target: DatabaseTarget | None = None):
         self.db_target = db_target or get_session_db_target()
         self.db_path = self.db_target.sqlite_connect_target
         self.db_url = self.db_target.sqlite_url
@@ -25,7 +25,9 @@ class WorkflowSessionRepository:
             )
             return cursor.fetchone() is not None
 
-    def get_session_state(self, app_name: str, user_id: str, session_id: str) -> Dict[str, Any]:
+    def get_session_state(
+        self, app_name: str, user_id: str, session_id: str
+    ) -> dict[str, Any]:
         """Fetch raw state dict from SQLite (Acts as Volatile RAM)."""
         if not self.has_sessions_table():
             logger.debug("Session store is not initialized yet; returning empty state.")
@@ -39,7 +41,7 @@ class WorkflowSessionRepository:
             )
             row = cursor.fetchone()
 
-        state: Dict[str, Any] = json.loads(row[0]) if row else {}
+        state: dict[str, Any] = json.loads(row[0]) if row else {}
         logger.debug("Retrieved session state (redacted).")
         return state
 
@@ -48,17 +50,21 @@ class WorkflowSessionRepository:
         app_name: str,
         user_id: str,
         session_ids: list[str],
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> dict[str, dict[str, Any]]:
         """Fetch multiple raw state payloads in one or more batched SQLite queries."""
-        normalized_ids = list(dict.fromkeys(str(session_id) for session_id in session_ids))
+        normalized_ids = list(
+            dict.fromkeys(str(session_id) for session_id in session_ids)
+        )
         if not normalized_ids:
             return {}
 
         if not self.has_sessions_table():
-            logger.debug("Session store is not initialized yet; returning empty state map.")
+            logger.debug(
+                "Session store is not initialized yet; returning empty state map."
+            )
             return {}
 
-        state_map: Dict[str, Dict[str, Any]] = {}
+        state_map: dict[str, dict[str, Any]] = {}
         chunk_size = 500
 
         with sqlite3.connect(self.db_path) as conn:
@@ -84,7 +90,13 @@ class WorkflowSessionRepository:
         logger.debug("Retrieved %s session states in batch (redacted).", len(state_map))
         return state_map
 
-    def update_session_state(self, app_name: str, user_id: str, session_id: str, partial_update: Dict[str, Any]) -> None:
+    def update_session_state(
+        self,
+        app_name: str,
+        user_id: str,
+        session_id: str,
+        partial_update: dict[str, Any],
+    ) -> None:
         """Updates the Volatile State with a partial update dict."""
         if not self.has_sessions_table():
             raise RuntimeError(
@@ -116,7 +128,7 @@ class WorkflowSessionRepository:
             )
             deleted = cursor.rowcount > 0
             conn.commit()
-            
+
         if deleted:
             logger.info("Session %s deleted successfully from DB", session_id)
         return deleted

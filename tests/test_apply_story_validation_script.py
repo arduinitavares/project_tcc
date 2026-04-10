@@ -129,7 +129,9 @@ def test_default_cli_output_is_concise(
             "message": "Validation failed with 2 issue(s)",
         }
 
-    monkeypatch.setattr(validation_script, "validate_story_with_spec_authority", fake_validate)
+    monkeypatch.setattr(
+        validation_script, "validate_story_with_spec_authority", fake_validate
+    )
 
     stream = io.StringIO()
     with redirect_stderr(stream):
@@ -137,7 +139,9 @@ def test_default_cli_output_is_concise(
 
     output = stream.getvalue()
     assert exit_code == 0
-    assert f"Applying validation to Product {product_id} 'Validation Product'." in output
+    assert (
+        f"Applying validation to Product {product_id} 'Validation Product'." in output
+    )
     assert "Validation mode: deterministic" in output
     assert "Found 2 eligible refined stories." in output
     assert "Validated 2 stories: 1 passed, 1 failed" in output
@@ -182,7 +186,9 @@ def test_verbose_cli_output_includes_story_details(
             "message": "Validation failed with 2 issue(s)",
         }
 
-    monkeypatch.setattr(validation_script, "validate_story_with_spec_authority", fake_validate)
+    monkeypatch.setattr(
+        validation_script, "validate_story_with_spec_authority", fake_validate
+    )
 
     stream = io.StringIO()
     with redirect_stderr(stream):
@@ -192,8 +198,14 @@ def test_verbose_cli_output_includes_story_details(
     assert exit_code == 0
     assert f"Story {story_ids[0]}: PASS" in output
     assert f"Story {story_ids[1]}: FAIL" in output
-    assert "RULE_ACCEPTANCE_CRITERIA_REQUIRED: Acceptance criteria reference missing field" in output
-    assert "FORBIDDEN_CAPABILITY (INV-1234567890abcdef): Story references forbidden capability" in output
+    assert (
+        "RULE_ACCEPTANCE_CRITERIA_REQUIRED: Acceptance criteria reference missing field"
+        in output
+    )
+    assert (
+        "FORBIDDEN_CAPABILITY (INV-1234567890abcdef): Story references forbidden capability"
+        in output
+    )
 
 
 def test_quiet_cli_output_suppresses_routine_progress(
@@ -238,7 +250,10 @@ def test_no_refined_stories_is_a_clear_noop(session: Session) -> None:
         exit_code = validation_script.main([str(product_id)])
 
     assert exit_code == 0
-    assert f"No refined stories found for product {product_id}. Nothing to validate." in stream.getvalue()
+    assert (
+        f"No refined stories found for product {product_id}. Nothing to validate."
+        in stream.getvalue()
+    )
 
 
 def test_missing_approved_spec_returns_non_zero(session: Session) -> None:

@@ -7,7 +7,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from sqlmodel import Session, select
 
@@ -20,11 +20,13 @@ from agile_sqlmodel import (  # pylint: disable=wrong-import-position
     UserStory,
     get_engine,
 )
-from tools.spec_tools import _load_compiled_artifact  # pylint: disable=wrong-import-position
+from tools.spec_tools import (
+    _load_compiled_artifact,  # pylint: disable=wrong-import-position
+)
 
 
-def _read_cases(path: Path, include_disabled: bool = False) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
+def _read_cases(path: Path, include_disabled: bool = False) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as handle:
         for idx, line in enumerate(handle, start=1):
             line = line.strip()
@@ -44,7 +46,7 @@ def _read_cases(path: Path, include_disabled: bool = False) -> List[Dict[str, An
     return rows
 
 
-def _summarize_authority(compiled: Optional[CompiledSpecAuthority]) -> str:
+def _summarize_authority(compiled: CompiledSpecAuthority | None) -> str:
     """Render compact summary of compiled authority for reviewer context."""
     if not compiled:
         return "NO_COMPILED_AUTHORITY"
@@ -62,9 +64,9 @@ def _summarize_authority(compiled: Optional[CompiledSpecAuthority]) -> str:
     return json.dumps(payload, ensure_ascii=True)
 
 
-def build_labeling_rows(cases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def build_labeling_rows(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Build reviewer rows by joining story/spec authority context."""
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     with Session(get_engine()) as session:
         for case in cases:
             story = session.get(UserStory, case["story_id"])
@@ -97,7 +99,7 @@ def build_labeling_rows(cases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return rows
 
 
-def _fieldnames() -> List[str]:
+def _fieldnames() -> list[str]:
     return [
         "case_id",
         "story_id",
@@ -114,7 +116,7 @@ def _fieldnames() -> List[str]:
     ]
 
 
-def write_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
+def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     """Write rows to JSONL for manual labeling and diff-friendly review."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:

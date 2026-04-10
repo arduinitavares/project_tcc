@@ -1,4 +1,3 @@
-# pylint: disable=not-callable, no-member
 # agile_sqlmodel.py
 
 """
@@ -11,8 +10,9 @@ This version fixes the 'utcnow' deprecation warning and the
 'func.now' runtime error.
 """
 
-from importlib import import_module
 import sys
+from importlib import import_module
+from types import ModuleType
 
 # When this compatibility shim is executed as a script, models.core may import
 # it again by module name while exports are still being populated. Register the
@@ -21,6 +21,8 @@ import sys
 if __name__ == "__main__":
     sys.modules.setdefault("agile_sqlmodel", sys.modules[__name__])
 
+# Re-export model symbols from their new package locations and ensure SQLModel
+# metadata is populated when this compatibility shim is imported or executed.
 from models.core import (
     Epic,
     Feature,
@@ -36,11 +38,6 @@ from models.core import (
     Theme,
     UserStory,
 )
-from models.events import (
-    StoryCompletionLog,
-    TaskExecutionLog,
-    WorkflowEvent,
-)
 from models.enums import (
     SpecAuthorityStatus,
     SprintStatus,
@@ -52,21 +49,58 @@ from models.enums import (
     TimeFrame,
     WorkflowEventType,
 )
+from models.events import (
+    StoryCompletionLog,
+    TaskExecutionLog,
+    WorkflowEvent,
+)
 from models.specs import (
     CompiledSpecAuthority,
     SpecAuthorityAcceptance,
     SpecRegistry,
 )
 
+__all__ = [
+    "CompiledSpecAuthority",
+    "Epic",
+    "Feature",
+    "Product",
+    "ProductPersona",
+    "ProductTeam",
+    "SpecAuthorityAcceptance",
+    "SpecAuthorityStatus",
+    "SpecRegistry",
+    "Sprint",
+    "SprintStatus",
+    "SprintStory",
+    "StoryCompletionLog",
+    "StoryResolution",
+    "StoryStatus",
+    "Task",
+    "TaskAcceptanceResult",
+    "TaskExecutionLog",
+    "TaskStatus",
+    "Team",
+    "TeamMember",
+    "TeamMembership",
+    "TeamRole",
+    "Theme",
+    "TimeFrame",
+    "UserStory",
+    "WorkflowEvent",
+    "WorkflowEventType",
+]
+
+
 # --- 1. Enums for Status Fields ---
 
 
-def _db_module():
+def _db_module() -> ModuleType:
     """Load models.db lazily so model imports stay DB-config agnostic."""
     return import_module("models.db")
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> object:
     """Lazily expose DB globals so importing this shim does not require DB env."""
     if name in {
         "DB_URL",
@@ -79,7 +113,8 @@ def __getattr__(name: str):
         value = getattr(_db_module(), name)
         globals()[name] = value
         return value
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    message = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(message)
 
 
 if __name__ == "__main__":

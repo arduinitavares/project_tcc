@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
-from typing import Annotated, Any, Dict, List, Literal, Optional, Union
+from enum import StrEnum
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
+
+_DATETIME_TYPE = datetime
+MIN_STORY_POINTS = 1
+MAX_STORY_POINTS = 8
 
 
 class ValidationFailure(BaseModel):
@@ -14,11 +18,11 @@ class ValidationFailure(BaseModel):
 
     rule: Annotated[str, Field(description="Rule ID or name that failed")]
     expected: Annotated[
-        Optional[str],
+        str | None,
         Field(default=None, description="Expected value/condition"),
     ]
     actual: Annotated[
-        Optional[str],
+        str | None,
         Field(default=None, description="Actual value found"),
     ]
     message: Annotated[str, Field(description="Human-readable failure message")]
@@ -29,14 +33,14 @@ class AlignmentFinding(BaseModel):
 
     code: Annotated[str, Field(description="Stable identifier for the finding")]
     invariant: Annotated[
-        Optional[str],
+        str | None,
         Field(default=None, description="Invariant text or ID used"),
     ]
-    source_requirement: Optional[str] = Field(
+    source_requirement: str | None = Field(
         default=None, description="Source requirement ID from backlog."
     )
     capability: Annotated[
-        Optional[str],
+        str | None,
         Field(default=None, description="Capability token (if applicable)"),
     ]
     message: Annotated[str, Field(description="Human-readable message")]
@@ -68,41 +72,43 @@ class ValidationEvidence(BaseModel):
     ]
     passed: Annotated[bool, Field(description="Overall validation result")]
     rules_checked: Annotated[
-        List[str],
+        list[str],
         Field(description="List of rule IDs/names checked"),
     ]
     invariants_checked: Annotated[
-        List[str],
+        list[str],
         Field(description="List of invariant IDs/strings checked"),
     ]
     evaluated_invariant_ids: Annotated[
-        List[str],
+        list[str],
         Field(
             default_factory=list,
             description="IDs of invariants whose validation logic actually ran",
         ),
     ]
     finding_invariant_ids: Annotated[
-        List[str],
+        list[str],
         Field(
             default_factory=list,
-            description="IDs of invariants referenced in alignment warnings or failures",
+            description=(
+                "IDs of invariants referenced in alignment warnings or failures"
+            ),
         ),
     ]
     failures: Annotated[
-        List[ValidationFailure],
+        list[ValidationFailure],
         Field(default_factory=list, description="List of failures"),
     ]
     warnings: Annotated[
-        List[str],
+        list[str],
         Field(default_factory=list, description="Non-blocking warnings"),
     ]
     alignment_warnings: Annotated[
-        List[AlignmentFinding],
+        list[AlignmentFinding],
         Field(default_factory=list, description="Alignment warnings"),
     ]
     alignment_failures: Annotated[
-        List[AlignmentFinding],
+        list[AlignmentFinding],
         Field(default_factory=list, description="Alignment failures"),
     ]
     validator_version: Annotated[
@@ -115,46 +121,97 @@ class ValidationEvidence(BaseModel):
     ]
 
 
+class _SpecAuthoritySourceSelectionError(ValueError):
+    """Raised when compiler input provides both or neither source fields."""
+
+    def __init__(self) -> None:
+        super().__init__("Provide exactly one of spec_source or spec_content_ref.")
+
+
+class _InvariantParameterTypeError(ValueError):
+    """Raised when an invariant payload uses parameters for the wrong type."""
+
+    def __init__(self, invariant_type: InvariantType) -> None:
+        super().__init__(f"Invariant parameters do not match type {invariant_type}.")
+
+
+class _StoryPointRangeError(ValueError):
+    """Raised when story points fall outside the accepted range."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Story points must be between 1 and 8 (INVEST principle: Small)."
+        )
+
+
+class _StoryDescriptionPrefixError(ValueError):
+    """Raised when a story description is missing the persona clause."""
+
+    def __init__(self) -> None:
+        super().__init__("Story description must start with 'As a ...'")
+
+
+class _StoryDescriptionWantError(ValueError):
+    """Raised when a story description is missing the desire clause."""
+
+    def __init__(self) -> None:
+        super().__init__("Story description must contain '... I want ...'")
+
+
+class _StoryDescriptionBenefitError(ValueError):
+    """Raised when a story description is missing the benefit clause."""
+
+    def __init__(self) -> None:
+        super().__init__("Story description must contain '... so that ...'")
+
+
 class SpecAuthorityCompilerInput(BaseModel):
     """Input schema for spec_authority_compiler_agent."""
 
     spec_source: Annotated[
-        Optional[str],
+        str | None,
         Field(
             default=None,
-            description="Raw specification text. Provide exactly one of spec_source or spec_content_ref.",
+            description=(
+                "Raw specification text. Provide exactly one of "
+                "spec_source or spec_content_ref."
+            ),
         ),
     ]
     spec_content_ref: Annotated[
-        Optional[str],
+        str | None,
         Field(
             default=None,
-            description="Path or identifier for spec content. Provide exactly one of spec_source or spec_content_ref.",
+            description=(
+                "Path or identifier for spec content. Provide exactly "
+                "one of spec_source or spec_content_ref."
+            ),
         ),
     ]
     domain_hint: Annotated[
-        Optional[str],
+        str | None,
         Field(default=None, description="Optional domain hint for extraction."),
     ]
     product_id: Annotated[
-        Optional[int],
+        int | None,
         Field(default=None, description="Optional product identifier."),
     ]
     spec_version_id: Annotated[
-        Optional[int],
+        int | None,
         Field(default=None, description="Optional spec version identifier."),
     ]
 
     @model_validator(mode="after")
-    def validate_exactly_one_source(self) -> "SpecAuthorityCompilerInput":
+    def validate_exactly_one_source(self) -> SpecAuthorityCompilerInput:
+        """Require exactly one of inline spec content or a content reference."""
         has_source = bool(self.spec_source and self.spec_source.strip())
         has_ref = bool(self.spec_content_ref and self.spec_content_ref.strip())
         if has_source == has_ref:
-            raise ValueError("Provide exactly one of spec_source or spec_content_ref.")
+            raise _SpecAuthoritySourceSelectionError
         return self
 
 
-class InvariantType(str, Enum):
+class InvariantType(StrEnum):
     """Allowed invariant types for compiled spec authority."""
 
     FORBIDDEN_CAPABILITY = "FORBIDDEN_CAPABILITY"
@@ -194,16 +251,12 @@ class MaxValueParams(BaseModel):
         Field(min_length=1, description="Field constrained by a maximum value."),
     ]
     max_value: Annotated[
-        Union[int, float],
+        int | float,
         Field(description="Maximum allowed numeric value."),
     ]
 
 
-InvariantParameters = Union[
-    ForbiddenCapabilityParams,
-    RequiredFieldParams,
-    MaxValueParams,
-]
+InvariantParameters = ForbiddenCapabilityParams | RequiredFieldParams | MaxValueParams
 
 
 class Invariant(BaseModel):
@@ -225,7 +278,8 @@ class Invariant(BaseModel):
     ]
 
     @model_validator(mode="after")
-    def validate_parameters_match_type(self) -> "Invariant":
+    def validate_parameters_match_type(self) -> Invariant:
+        """Ensure the invariant parameter model matches the declared type."""
         type_map = {
             InvariantType.FORBIDDEN_CAPABILITY: ForbiddenCapabilityParams,
             InvariantType.REQUIRED_FIELD: RequiredFieldParams,
@@ -233,7 +287,7 @@ class Invariant(BaseModel):
         }
         expected_type = type_map.get(self.type)
         if expected_type and not isinstance(self.parameters, expected_type):
-            raise ValueError(f"Invariant parameters do not match type {self.type}.")
+            raise _InvariantParameterTypeError(self.type)
         return self
 
 
@@ -251,7 +305,7 @@ class SourceMapEntry(BaseModel):
         Field(description="Exact excerpt from spec supporting the invariant."),
     ]
     location: Annotated[
-        Optional[str],
+        str | None,
         Field(
             default=None,
             description="Optional location reference (e.g., line or section).",
@@ -278,34 +332,34 @@ class SpecAuthorityCompilationSuccess(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scope_themes: Annotated[
-        List[str],
+        list[str],
         Field(description="Top-level scope themes extracted from the spec."),
     ]
     domain: Annotated[
-        Optional[str],
+        str | None,
         Field(
             default=None,
             description="Optional primary domain for spec (e.g., training, review).",
         ),
     ]
     invariants: Annotated[
-        List[Invariant],
+        list[Invariant],
         Field(description="Structured invariants extracted from the spec."),
     ]
     eligible_feature_rules: Annotated[
-        List[EligibleFeatureRule],
+        list[EligibleFeatureRule],
         Field(description="Optional feature eligibility rules (may be empty)."),
     ]
     gaps: Annotated[
-        List[str],
+        list[str],
         Field(description="Missing or ambiguous spec items."),
     ]
     assumptions: Annotated[
-        List[str],
+        list[str],
         Field(description="Explicit assumptions made during compilation."),
     ]
     source_map: Annotated[
-        List[SourceMapEntry],
+        list[SourceMapEntry],
         Field(description="Mapping of invariants to source excerpts."),
     ]
     compiler_version: Annotated[
@@ -335,13 +389,13 @@ class SpecAuthorityCompilationFailure(BaseModel):
         Field(description="Short reason for failure."),
     ]
     blocking_gaps: Annotated[
-        List[str],
+        list[str],
         Field(description="Blocking gaps that prevented compilation."),
     ]
 
 
 class SpecAuthorityCompilerOutput(
-    RootModel[Union[SpecAuthorityCompilationSuccess, SpecAuthorityCompilationFailure]]
+    RootModel[SpecAuthorityCompilationSuccess | SpecAuthorityCompilationFailure]
 ):
     """Root output schema for spec authority compilation."""
 
@@ -352,7 +406,7 @@ class SpecAuthorityCompilerEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     result: Annotated[
-        Union[SpecAuthorityCompilationSuccess, SpecAuthorityCompilationFailure],
+        SpecAuthorityCompilationSuccess | SpecAuthorityCompilationFailure,
         Field(description="Compiler output payload."),
     ]
 
@@ -371,6 +425,7 @@ class StoryDraftMetadata(BaseModel):
 class StoryDraft(BaseModel):
     """
     Schema for a User Story draft.
+
     NOTE: feature_id and feature_title are NOT part of this schema.
     They are preserved from input state to prevent LLM override causing data corruption.
     """
@@ -385,21 +440,25 @@ class StoryDraft(BaseModel):
         str,
         Field(
             description=(
-                "The story narrative in the format: 'As a <persona>, I want <action> so that <benefit>.'"
+                "The story narrative in the format: "
+                "'As a <persona>, I want <action> so that <benefit>.'"
             )
         ),
     ]
     acceptance_criteria: Annotated[
         str,
         Field(
-            description="A list of 3-5 specific, testable criteria, each starting with '- '."
+            description=(
+                "A list of 3-5 specific, testable criteria, each starting with '- '."
+            )
         ),
     ]
     story_points: Annotated[
-        Optional[int],
+        int | None,
         Field(
             description=(
-                "Estimated effort (1-8 points). Null if not estimable or if story points are disabled."
+                "Estimated effort (1-8 points). Null if not estimable "
+                "or if story points are disabled."
             )
         ),
     ]
@@ -409,21 +468,23 @@ class StoryDraft(BaseModel):
     ]
 
     @model_validator(mode="after")
-    def _validate_story_points(self):
-        if self.story_points is not None and (self.story_points < 1 or self.story_points > 8):
-            raise ValueError("Story points must be between 1 and 8 (INVEST principle: Small).")
+    def _validate_story_points(self) -> Self:
+        if self.story_points is not None and (
+            self.story_points < MIN_STORY_POINTS or self.story_points > MAX_STORY_POINTS
+        ):
+            raise _StoryPointRangeError
         return self
 
     @model_validator(mode="after")
-    def _validate_description_format(self):
+    def _validate_description_format(self) -> Self:
         desc = self.description or ""
         desc_lower = desc.lower()
         if not desc_lower.startswith("as a"):
-            raise ValueError("Story description must start with 'As a ...'")
+            raise _StoryDescriptionPrefixError
         if " i want " not in desc_lower:
-            raise ValueError("Story description must contain '... I want ...'")
+            raise _StoryDescriptionWantError
         if " so that " not in desc_lower:
-            raise ValueError("Story description must contain '... so that ...'")
+            raise _StoryDescriptionBenefitError
         return self
 
 
@@ -433,15 +494,16 @@ class StoryDraftInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     current_feature: Annotated[
-        Dict[str, Any],
+        dict[str, Any],
         Field(
             description=(
-                "Feature context (id, title, theme, epic, time_frame, justification, siblings)."
+                "Feature context (id, title, theme, epic, time_frame, "
+                "justification, siblings)."
             )
         ),
     ]
     product_context: Annotated[
-        Dict[str, Any],
+        dict[str, Any],
         Field(description="Product context (id, name, vision, time_frame)."),
     ]
     spec_version_id: Annotated[
@@ -449,19 +511,20 @@ class StoryDraftInput(BaseModel):
         Field(description="Pinned compiled spec version ID."),
     ]
     authority_context: Annotated[
-        Dict[str, Any],
+        dict[str, Any],
         Field(
             description=(
-                "Compiled authority context (scope themes, invariants, gaps, assumptions, hashes)."
+                "Compiled authority context (scope themes, invariants, "
+                "gaps, assumptions, hashes)."
             )
         ),
     ]
     user_persona: Annotated[
-        Optional[str],
+        str | None,
         Field(description="Optional persona hint. Use if provided; otherwise infer."),
     ] = None
     story_preferences: Annotated[
-        Dict[str, Any],
+        dict[str, Any],
         Field(description="Story preferences (e.g., include_story_points)."),
     ]
     refinement_feedback: Annotated[
@@ -469,7 +532,7 @@ class StoryDraftInput(BaseModel):
         Field(description="Validator feedback from previous attempt, or empty string."),
     ]
     raw_spec_text: Annotated[
-        Optional[str],
+        str | None,
         Field(description="Optional raw spec text for phrasing only."),
     ] = None
 
@@ -502,7 +565,8 @@ class NegationCheckOutput(BaseModel):
         bool,
         Field(
             description=(
-                "True if the forbidden term is only mentioned as a prohibition or negation."
+                "True if the forbidden term is only mentioned as a "
+                "prohibition or negation."
             )
         ),
     ]
@@ -522,17 +586,20 @@ class StoryRefinerInput(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     story_draft: Annotated[
-        Optional[Any],
+        Any | None,
         Field(description="Original story draft payload from state."),
     ]
     spec_validation_result: Annotated[
-        Optional[Any],
+        Any | None,
         Field(description="Spec validation feedback from state."),
     ]
     authority_context: Annotated[
-        Dict[str, Any],
+        dict[str, Any],
         Field(
-            description="Compiled authority context (scope themes, invariants, gaps, assumptions)."
+            description=(
+                "Compiled authority context (scope themes, invariants, "
+                "gaps, assumptions)."
+            )
         ),
     ]
     spec_version_id: Annotated[
@@ -540,16 +607,19 @@ class StoryRefinerInput(BaseModel):
         Field(description="Pinned compiled spec version ID."),
     ]
     current_feature: Annotated[
-        Dict[str, Any],
+        dict[str, Any],
         Field(
-            description="Feature context (id, title, theme, epic, time_frame, justification, siblings)."
+            description=(
+                "Feature context (id, title, theme, epic, time_frame, "
+                "justification, siblings)."
+            )
         ),
     ]
     story_preferences: Annotated[
-        Dict[str, Any],
+        dict[str, Any],
         Field(description="Story preferences (e.g., include_story_points)."),
     ]
     raw_spec_text: Annotated[
-        Optional[str],
+        str | None,
         Field(description="Optional raw spec text for phrasing only."),
     ] = None

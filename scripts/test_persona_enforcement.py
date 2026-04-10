@@ -2,26 +2,36 @@
 Manual test script for persona enforcement.
 Seeds a dummy Review-First product and generates test stories (with mocked LLM response).
 """
+
 import asyncio
 import json
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from orchestrator_agent.agent_tools.story_pipeline.tools import (
+    ProcessStoryInput,
+    process_single_story,
+)
 from sqlmodel import Session, select
-from agile_sqlmodel import Product, engine, create_db_and_tables
+
+from agile_sqlmodel import Product, create_db_and_tables, engine
 from models.core import ProductPersona
-from orchestrator_agent.agent_tools.story_pipeline.tools import ProcessStoryInput, process_single_story
+
 
 # Mock Iterator for Runner
 class AsyncIterator:
     def __init__(self, items):
         self.items = items
+
     def __aiter__(self):
         self._iter = iter(self.items)
         return self
+
     async def __anext__(self):
         try:
             return next(self._iter)
         except StopIteration as exc:
             raise StopAsyncIteration from exc
+
 
 async def main():
     print("Initializing Database...")
@@ -30,11 +40,13 @@ async def main():
     # Create test product
     with Session(engine) as session:
         # Check if exists
-        product = session.exec(select(Product).where(Product.name == "Review-First P&ID Extraction (TEST)")).first()
+        product = session.exec(
+            select(Product).where(Product.name == "Review-First P&ID Extraction (TEST)")
+        ).first()
         if not product:
             product = Product(
                 name="Review-First P&ID Extraction (TEST)",
-                vision="AI-powered P&ID review tool for automation and control engineers"
+                vision="AI-powered P&ID review tool for automation and control engineers",
             )
             session.add(product)
             session.commit()
@@ -53,13 +65,15 @@ async def main():
                     product_id=product.product_id,
                     persona_name=name,
                     is_default=is_default,
-                    category=category
+                    category=category,
                 )
                 session.add(persona)
             session.commit()
             print(f"✅ Created test product: {product.name} (ID: {product.product_id})")
         else:
-            print(f"ℹ️  Using existing product: {product.name} (ID: {product.product_id})")
+            print(
+                f"ℹ️  Using existing product: {product.name} (ID: {product.product_id})"
+            )
 
         product_id = product.product_id
 
@@ -69,39 +83,48 @@ async def main():
             "title": "Interactive P&ID annotation UI",
             "theme": "Review Workflow",
             "epic": "Annotation",
-            "expected_drift": "frontend developer"
+            "expected_drift": "frontend developer",
         },
         {
             "title": "Configure extraction rule templates",
             "theme": "Configuration",
             "epic": "Rules",
-            "expected_drift": "software engineer"
-        }
+            "expected_drift": "software engineer",
+        },
     ]
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("PERSONA ENFORCEMENT TEST (Mocked LLM)")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # We patch the Runner and SessionService to simulate drift
-    with patch("orchestrator_agent.agent_tools.story_pipeline.tools.Runner") as MockRunner, \
-         patch("orchestrator_agent.agent_tools.story_pipeline.tools.InMemorySessionService") as MockService, \
-         patch("orchestrator_agent.agent_tools.story_pipeline.tools.validate_feature_alignment") as mock_align:
-
+    with (
+        patch(
+            "orchestrator_agent.agent_tools.story_pipeline.tools.Runner"
+        ) as MockRunner,
+        patch(
+            "orchestrator_agent.agent_tools.story_pipeline.tools.InMemorySessionService"
+        ) as MockService,
+        patch(
+            "orchestrator_agent.agent_tools.story_pipeline.tools.validate_feature_alignment"
+        ) as mock_align,
+    ):
         mock_align.return_value.is_aligned = True
 
         for i, feature in enumerate(test_features, 1):
             print(f"Test {i}/{len(test_features)}: {feature['title']}")
             print(f"  Expected drift risk: '{feature['expected_drift']}'")
-            print(f"  Required Persona: 'automation engineer'")
+            print("  Required Persona: 'automation engineer'")
 
             # Setup mock to return DRIFTED story
-            drifted_desc = f"As a {feature['expected_drift']}, I want to use the feature..."
+            drifted_desc = (
+                f"As a {feature['expected_drift']}, I want to use the feature..."
+            )
             drifted_story = {
-                "title": feature['title'],
+                "title": feature["title"],
                 "description": drifted_desc,
                 "acceptance_criteria": "- Works",
-                "story_points": 5
+                "story_points": 5,
             }
 
             # Mock Runner
@@ -116,12 +139,14 @@ async def main():
 
             mock_final_session = MagicMock()
             mock_final_session.state = {
-                "refinement_result": json.dumps({
-                    "is_valid": True,
-                    "refined_story": drifted_story,
-                    "refinement_notes": "Validation passed (simulated drift)"
-                }),
-                "validation_result": json.dumps({"validation_score": 90})
+                "refinement_result": json.dumps(
+                    {
+                        "is_valid": True,
+                        "refined_story": drifted_story,
+                        "refinement_notes": "Validation passed (simulated drift)",
+                    }
+                ),
+                "validation_result": json.dumps({"validation_score": 90}),
             }
             service_instance.get_session = AsyncMock(return_value=mock_final_session)
 
@@ -130,30 +155,34 @@ async def main():
                 product_name="Review-First P&ID Extraction (TEST)",
                 product_vision="Vision...",
                 feature_id=i,
-                feature_title=feature['title'],
-                theme=feature['theme'],
-                epic=feature['epic'],
+                feature_title=feature["title"],
+                theme=feature["theme"],
+                epic=feature["epic"],
                 user_persona="automation engineer",  # Always require this
                 time_frame="Now",
-                    spec_version_id=1,  # TODO: set to a real compiled spec_version_id
+                spec_version_id=1,  # TODO: set to a real compiled spec_version_id
             )
 
             try:
                 result = await process_single_story(story_input)
 
                 # Check result
-                final_desc = result['story']['description']
+                final_desc = result["story"]["description"]
                 print(f"  Result Description: {final_desc}")
 
-                if "automation engineer" in final_desc and feature['expected_drift'] not in final_desc:
-                     print(f"  ✅ PASS - Persona enforced correctly (Auto-corrected)")
+                if (
+                    "automation engineer" in final_desc
+                    and feature["expected_drift"] not in final_desc
+                ):
+                    print("  ✅ PASS - Persona enforced correctly (Auto-corrected)")
                 else:
-                     print(f"  ❌ FAIL - Persona drift persisted!")
+                    print("  ❌ FAIL - Persona drift persisted!")
 
             except Exception as e:
                 print(f"  ❌ ERROR: {e}")
 
             print()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

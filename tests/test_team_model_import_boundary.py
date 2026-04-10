@@ -18,7 +18,9 @@ def _imported_names_from(module_path: Path, import_source: str) -> set[str]:
     return imported_names
 
 
-def _module_level_imported_names_from(module_path: Path, import_source: str) -> set[str]:
+def _module_level_imported_names_from(
+    module_path: Path, import_source: str
+) -> set[str]:
     source_text = module_path.read_text(encoding="utf-8")
     tree = ast.parse(source_text, filename=str(module_path))
     imported_names: set[str] = set()
@@ -58,6 +60,8 @@ def test_selected_test_and_script_modules_import_team_from_models_core() -> None
         if "TeamMember" in core_imports or "TeamMember" in agile_imports:
             assert "TeamMember" in core_imports, module_path
             assert "TeamMember" not in agile_imports, module_path
+
+
 def test_conftest_imports_team_models_from_models_core() -> None:
     root = Path(__file__).resolve().parents[1]
     core_imports = _imported_names_from(root / "tests/conftest.py", "models.core")

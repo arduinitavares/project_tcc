@@ -6,7 +6,6 @@ import ast
 import importlib
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -79,12 +78,14 @@ def test_task3_user_story_consumers_import_user_story_from_models_core_only() ->
         import_sources = _import_sources_for_name(module_path, "UserStory")
 
         assert import_sources == {"models.core"}, module_name
-        assert _imported_names_from_source(
-            module_path, "models.core"
-        ) == expected_sources["models.core"], module_name
-        assert _imported_names_from_source(
-            module_path, "agile_sqlmodel"
-        ) == expected_sources["agile_sqlmodel"], module_name
+        assert (
+            _imported_names_from_source(module_path, "models.core")
+            == expected_sources["models.core"]
+        ), module_name
+        assert (
+            _imported_names_from_source(module_path, "agile_sqlmodel")
+            == expected_sources["agile_sqlmodel"]
+        ), module_name
 
         module = importlib.import_module(module_name)
         assert module.UserStory is core.UserStory, module_name

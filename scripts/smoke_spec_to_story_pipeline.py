@@ -8,60 +8,63 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
+import sys
 import tempfile
 import time
 import uuid
-import contextlib
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-import sys
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
-from sqlmodel import SQLModel, Session, create_engine, select
+from sqlmodel import Session, SQLModel, create_engine, select
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
-import agile_sqlmodel
-from agile_sqlmodel import (
-    Product,
-    SpecRegistry,
-    CompiledSpecAuthority,
-)
-from models.core import ProductPersona, Theme, Epic, Feature
-
-import tools.spec_tools as spec_tools
-from tools.spec_tools import (
-    update_spec_and_compile_authority,
-    compile_spec_authority_for_version,
-)
-
-import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
-from orchestrator_agent.agent_tools.story_pipeline.tools import (
-    ProcessStoryInput,
-    process_single_story,
-)
-from google.adk.sessions import InMemorySessionService
 import orchestrator_agent.agent_tools.story_pipeline.single_story as single_story_module
-from orchestrator_agent.agent_tools.story_pipeline.util.story_generation_context import (
-    build_generation_context,
-)
+import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
+from google.adk.sessions import InMemorySessionService
 from orchestrator_agent.agent_tools.story_pipeline.steps.alignment_checker import (
     check_alignment_violation,
     derive_forbidden_capabilities_from_authority,
 )
-from utils.spec_schemas import SpecAuthorityCompilerOutput, SpecAuthorityCompilationFailure
-from utils.smoke_schema import parse_smoke_run_record
+from orchestrator_agent.agent_tools.story_pipeline.tools import (
+    ProcessStoryInput,
+    process_single_story,
+)
+from orchestrator_agent.agent_tools.story_pipeline.util.story_generation_context import (
+    build_generation_context,
+)
 from pydantic import ValidationError
+
+import agile_sqlmodel
+from agile_sqlmodel import (
+    CompiledSpecAuthority,
+    Product,
+    SpecRegistry,
+)
+from models.core import Epic, Feature, ProductPersona, Theme
+from tools import spec_tools
+from tools.spec_tools import (
+    compile_spec_authority_for_version,
+    update_spec_and_compile_authority,
+)
+from utils.smoke_schema import parse_smoke_run_record
+from utils.spec_schemas import (
+    SpecAuthorityCompilationFailure,
+    SpecAuthorityCompilerOutput,
+)
 
 
 @dataclass
 class DeterministicValidationResult:
     passed: bool
-    missing_fields: List[str]
-    checked_fields: List[str]
+    missing_fields: list[str]
+    checked_fields: list[str]
 
 
 def _make_engine() -> Any:
@@ -79,7 +82,7 @@ def _make_engine() -> Any:
 def _patch_engines(engine: Any) -> None:
     # Patch main module engine
     agile_sqlmodel.engine = engine
-    
+
     # Patch production engine to ensure get_engine() returns our test engine
     # even if get_engine() is imported directly by other modules.
     if hasattr(agile_sqlmodel, "_production_engine"):
@@ -87,13 +90,13 @@ def _patch_engines(engine: Any) -> None:
 
     # Patch get_engine globally
     agile_sqlmodel.get_engine = lambda: engine
-    
+
     spec_tools.engine = engine
     if hasattr(spec_tools, "get_engine"):
         spec_tools.get_engine = lambda: engine
 
     story_tools.engine = engine
-    
+
     # Patch single_story_module get_engine as it imports it from agile_sqlmodel
     if hasattr(single_story_module, "get_engine"):
         single_story_module.get_engine = lambda: engine
@@ -104,7 +107,7 @@ def _seed_product_graph(
     *,
     name: str,
     persona: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     with Session(engine) as session:
         product = Product(name=name, vision="Tiny spec smoke harness")
         session.add(product)
@@ -160,7 +163,7 @@ def _compile_and_accept(
     *,
     product_id: int,
     spec_text: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     update_result = update_spec_and_compile_authority(
         {
             "product_id": product_id,
@@ -177,7 +180,7 @@ def _compile_without_acceptance(
     *,
     product_id: int,
     spec_text: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     register = spec_tools.register_spec_version(
         {"product_id": product_id, "content": spec_text},
         tool_context=None,
@@ -206,8 +209,8 @@ def _compile_without_acceptance(
     }
 
 
-def _summarize_compiled_artifact(authority: CompiledSpecAuthority) -> Dict[str, Any]:
-    summary: Dict[str, Any] = {
+def _summarize_compiled_artifact(authority: CompiledSpecAuthority) -> dict[str, Any]:
+    summary: dict[str, Any] = {
         "compiler_version": authority.compiler_version,
         "prompt_hash": authority.prompt_hash,
         "compiled_at": authority.compiled_at.isoformat(),
@@ -233,9 +236,9 @@ def _deterministic_required_field_check(
     *,
     authority: CompiledSpecAuthority,
     story_text: str,
-    story_metadata: Dict[str, Any],
+    story_metadata: dict[str, Any],
 ) -> DeterministicValidationResult:
-    required_fields: List[str] = []
+    required_fields: list[str] = []
     if authority.compiled_artifact_json:
         parsed = SpecAuthorityCompilerOutput.model_validate_json(
             authority.compiled_artifact_json
@@ -247,7 +250,7 @@ def _deterministic_required_field_check(
                     if field_name:
                         required_fields.append(str(field_name))
 
-    missing: List[str] = []
+    missing: list[str] = []
     for field in required_fields:
         if field == "spec_version_id":
             if story_metadata.get("spec_version_id") is None:
@@ -271,8 +274,8 @@ def _build_evidence_record(
     *,
     spec_version_id: int,
     validation: DeterministicValidationResult,
-) -> Dict[str, Any]:
-    failures: List[Dict[str, Any]] = [
+) -> dict[str, Any]:
+    failures: list[dict[str, Any]] = [
         {
             "rule": "REQUIRED_FIELD",
             "expected": field,
@@ -289,7 +292,7 @@ def _build_evidence_record(
     }
 
 
-def _build_trace_base() -> Dict[str, Any]:
+def _build_trace_base() -> dict[str, Any]:
     return {
         "RUN_ID": None,
         "SCENARIO_ID": None,
@@ -318,7 +321,7 @@ def _build_trace_base() -> Dict[str, Any]:
     }
 
 
-def _append_jsonl(path: Path, record: Dict[str, Any]) -> None:
+def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, default=str) + "\n")
@@ -340,7 +343,7 @@ class _TeeIO:
 
 
 @contextlib.contextmanager
-def _tee_output(log_path: Optional[Path]) -> Any:
+def _tee_output(log_path: Path | None) -> Any:
     if not log_path:
         yield
         return
@@ -360,7 +363,7 @@ def _tee_output(log_path: Optional[Path]) -> Any:
             sys.stderr = original_stderr
 
 
-def _count_acceptance_criteria(story_payload: Any) -> Optional[int]:
+def _count_acceptance_criteria(story_payload: Any) -> int | None:
     if not isinstance(story_payload, dict):
         return None
     criteria = story_payload.get("acceptance_criteria")
@@ -373,7 +376,7 @@ def _count_acceptance_criteria(story_payload: Any) -> Optional[int]:
 
 def _handle_unaccepted_spec(
     *,
-    trace: Dict[str, Any],
+    trace: dict[str, Any],
     spec_version_id: int,
     spec_accepted: bool,
     run_story_pipeline: Callable[[], Any],
@@ -396,7 +399,7 @@ def _handle_unaccepted_spec(
     return True
 
 
-def _empty_metrics() -> Dict[str, Any]:
+def _empty_metrics() -> dict[str, Any]:
     return {
         "acceptance_blocked": False,
         "alignment_rejected": False,
@@ -413,7 +416,7 @@ def _empty_metrics() -> Dict[str, Any]:
     }
 
 
-def _finalize_stage(metrics: Dict[str, Any], pipeline_called: bool) -> str:
+def _finalize_stage(metrics: dict[str, Any], pipeline_called: bool) -> str:
     if pipeline_called:
         if metrics.get("alignment_rejected"):
             return "alignment_rejected"
@@ -437,7 +440,7 @@ def _refiner_ran(*, enable_refiner: bool, refiner_output: Any) -> bool:
     return True
 
 
-def _validate_trace(trace: Dict[str, Any]) -> None:
+def _validate_trace(trace: dict[str, Any]) -> None:
     try:
         parse_smoke_run_record(trace)
     except ValidationError as exc:
@@ -459,14 +462,14 @@ async def _run_scenario(
     pass_raw_spec_text: bool,
     debug_state: bool,
     spec_text: str,
-    out_jsonl: Optional[Path],
+    out_jsonl: Path | None,
 ) -> None:
     trace = _build_trace_base()
     pipeline_result: Any = None
     total_start = time.perf_counter()
-    compile_ms: Optional[float] = None
-    pipeline_ms: Optional[float] = None
-    validation_ms: Optional[float] = None
+    compile_ms: float | None = None
+    pipeline_ms: float | None = None
+    validation_ms: float | None = None
     pipeline_called = False
     metrics = _empty_metrics()
 
@@ -646,7 +649,7 @@ async def _run_scenario(
                 _append_jsonl(out_jsonl, trace)
             return
 
-        debug_state_holder: Dict[str, Any] = {}
+        debug_state_holder: dict[str, Any] = {}
 
         class DebugSessionService(InMemorySessionService):
             async def create_session(self, *args: Any, **kwargs: Any):
@@ -715,13 +718,11 @@ async def _run_scenario(
         if trace["PINNED_SPEC_VERSION_ID"] is not None:
             if trace["REFINER_SPEC_VERSION_ID"] is not None:
                 trace["SPEC_VERSION_ID_MATCH"] = (
-                    trace["PINNED_SPEC_VERSION_ID"]
-                    == trace["REFINER_SPEC_VERSION_ID"]
+                    trace["PINNED_SPEC_VERSION_ID"] == trace["REFINER_SPEC_VERSION_ID"]
                 )
             elif trace["DRAFT_SPEC_VERSION_ID"] is not None:
                 trace["SPEC_VERSION_ID_MATCH"] = (
-                    trace["PINNED_SPEC_VERSION_ID"]
-                    == trace["DRAFT_SPEC_VERSION_ID"]
+                    trace["PINNED_SPEC_VERSION_ID"] == trace["DRAFT_SPEC_VERSION_ID"]
                 )
 
         if debug_state:
@@ -780,7 +781,7 @@ async def _run_scenario(
         raise
 
     total_ms = (time.perf_counter() - total_start) * 1000
-    
+
     # Ensure pipeline_ms is None if alignment rejected (schema requirement)
     if trace.get("ALIGNMENT_REJECTED"):
         pipeline_ms = None
@@ -792,7 +793,7 @@ async def _run_scenario(
         "validation_ms": validation_ms,
     }
     validation_result = trace.get("VALIDATION_RESULT")
-    missing_fields: Optional[int] = None
+    missing_fields: int | None = None
     if isinstance(validation_result, dict):
         missing = validation_result.get("missing_fields")
         if isinstance(missing, list):
@@ -805,12 +806,14 @@ async def _run_scenario(
     if isinstance(alignment_issues, list):
         alignment_issue_count = len(alignment_issues)
 
-    final_story_payload: Optional[Dict[str, Any]] = None
+    final_story_payload: dict[str, Any] | None = None
     if isinstance(trace.get("REFINER_OUTPUT"), dict):
         refined_story = trace["REFINER_OUTPUT"].get("refined_story")
         if isinstance(refined_story, dict):
             final_story_payload = refined_story
-    if final_story_payload is None and isinstance(trace.get("DRAFT_AGENT_OUTPUT"), dict):
+    if final_story_payload is None and isinstance(
+        trace.get("DRAFT_AGENT_OUTPUT"), dict
+    ):
         final_story_payload = trace["DRAFT_AGENT_OUTPUT"]
 
     final_story_present = final_story_payload is not None
@@ -831,7 +834,9 @@ async def _run_scenario(
     )
     metrics["ac_count"] = ac_count
     metrics["spec_version_id_match"] = trace.get("SPEC_VERSION_ID_MATCH")
-    metrics["required_fields_missing_count"] = missing_fields if missing_fields is not None else 0
+    metrics["required_fields_missing_count"] = (
+        missing_fields if missing_fields is not None else 0
+    )
     metrics["alignment_issues_count"] = alignment_issue_count or 0
 
     if pipeline_called:
@@ -962,7 +967,9 @@ async def _run_all(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Smoke Spec Authority -> Story Pipeline")
+    parser = argparse.ArgumentParser(
+        description="Smoke Spec Authority -> Story Pipeline"
+    )
     parser.add_argument(
         "--no-refiner",
         action="store_true",
@@ -1034,5 +1041,7 @@ def main() -> None:
     log_path = Path(args.out_log).resolve() if args.out_log else None
     with _tee_output(log_path):
         asyncio.run(_run_all(args))
+
+
 if __name__ == "__main__":
     main()

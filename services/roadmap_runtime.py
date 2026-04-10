@@ -1,8 +1,12 @@
+"""Runtime helpers for invoking the roadmap agent from workflow state."""
+
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -13,14 +17,36 @@ from orchestrator_agent.agent_tools.roadmap_builder.schemes import (
     RoadmapBuilderInput,
     RoadmapBuilderOutput,
 )
-from utils.adk_runner import get_agent_model_info, invoke_agent_to_text, parse_json_payload
-from utils.failure_artifacts import AgentInvocationError, write_failure_artifact
+from utils.adk_runner import (
+    get_agent_model_info,
+    invoke_agent_to_text,
+    parse_json_payload,
+)
+from utils.failure_artifacts import (
+    AgentInvocationError,
+    FailureArtifactResult,
+    FailureMetadataDict,
+    write_failure_artifact,
+)
 from utils.runtime_config import ROADMAP_RUNNER_IDENTITY
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(name=__name__)
+
+type RoadmapInputContext = dict[str, object]
+type ValidationErrors = list[dict[str, object]]
 
 
-def _as_text(value: Any) -> str:
+@dataclass(frozen=True)
+class _FailureDetails:
+    """Structured details describing a roadmap-runtime failure."""
+
+    message: str
+    raw_text: str | None = None
+    validation_errors: ValidationErrors | None = None
+    exception: BaseException | None = None
+
+
+def _as_text(value: object) -> str:
     if value is None:
         return ""
     if isinstance(value, str):
@@ -31,7 +57,7 @@ def _as_text(value: Any) -> str:
         return str(value)
 
 
-def _normalize_prior_roadmap_state(value: Any) -> str:
+def _normalize_prior_roadmap_state(value: object) -> str:
     if value is None:
         return "NO_HISTORY"
     if isinstance(value, str):
@@ -42,14 +68,27 @@ def _normalize_prior_roadmap_state(value: Any) -> str:
     return "NO_HISTORY"
 
 
+def _normalize_validation_errors(errors: object) -> ValidationErrors:
+    normalized: ValidationErrors = []
+    if not isinstance(errors, list):
+        return normalized
+
+    for error in errors:
+        if not isinstance(error, Mapping):
+            continue
+        normalized.append({str(key): value for key, value in error.items()})
+    return normalized
+
+
 def build_roadmap_input_context(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     *,
-    user_input: Optional[str],
-) -> Dict[str, Any]:
+    user_input: str | None,
+) -> RoadmapInputContext:
+    """Build the serialized roadmap-agent input payload from workflow state."""
     vision_assessment = state.get("product_vision_assessment") or {}
     vision_stmt = vision_assessment.get("product_vision_statement") or ""
-    
+
     # backlog_items comes from session state (populated after Backlog phase completed)
     backlog_items = state.get("backlog_items") or []
 
@@ -59,9 +98,12 @@ def build_roadmap_input_context(
         "technical_spec": _as_text(state.get("pending_spec_content")),
         "compiled_authority": _as_text(state.get("compiled_authority_cached")),
         "time_increment": "Milestone-based",
-        "prior_roadmap_state": _normalize_prior_roadmap_state(state.get("roadmap_releases")),
+        "prior_roadmap_state": _normalize_prior_roadmap_state(
+            state.get("roadmap_releases")
+        ),
         "user_input": user_input or "",
     }
+
 
 async def _invoke_roadmap_agent(payload: RoadmapBuilderInput) -> str:
     return await invoke_agent_to_text(
@@ -75,30 +117,28 @@ async def _invoke_roadmap_agent(payload: RoadmapBuilderInput) -> str:
 def _failure(
     *,
     project_id: int,
-    input_context: Dict[str, Any],
+    input_context: RoadmapInputContext,
     failure_stage: str,
-    message: str,
-    raw_text: Optional[str] = None,
-    validation_errors: Optional[List[Dict[str, Any]]] = None,
-    exception: Optional[BaseException] = None,
-) -> Dict[str, Any]:
-    artifact_result = write_failure_artifact(
+    details: _FailureDetails,
+) -> dict[str, Any]:
+    message: str = details.message
+    artifact_result: FailureArtifactResult = write_failure_artifact(
         phase="roadmap",
         project_id=project_id,
         failure_stage=failure_stage,
         failure_summary=message,
-        raw_output=raw_text,
+        raw_output=details.raw_text,
         context={"input_context": input_context},
         model_info={
             **get_agent_model_info(roadmap_agent),
             "app_name": ROADMAP_RUNNER_IDENTITY.app_name,
             "user_id": ROADMAP_RUNNER_IDENTITY.user_id,
         },
-        validation_errors=validation_errors,
-        exception=exception,
+        validation_errors=details.validation_errors,
+        exception=details.exception,
     )
-    metadata = artifact_result["metadata"]
-    if exception is not None:
+    metadata: FailureMetadataDict = artifact_result["metadata"]
+    if details.exception is not None:
         logger.exception(
             "Roadmap generation failed [artifact_id=%s stage=%s]: %s",
             metadata["failure_artifact_id"],
@@ -113,13 +153,17 @@ def _failure(
             message,
         )
 
-    artifact: Dict[str, Any] = {
+    artifact: dict[str, Any] = {
         "error": "ROADMAP_GENERATION_FAILED",
         "message": message,
         "is_complete": False,
         "clarifying_questions": [],
+        "failure_artifact_id": metadata["failure_artifact_id"],
+        "failure_stage": metadata["failure_stage"],
+        "failure_summary": metadata["failure_summary"],
+        "raw_output_preview": metadata["raw_output_preview"],
+        "has_full_artifact": metadata["has_full_artifact"],
     }
-    artifact.update(metadata)
 
     return {
         "success": False,
@@ -132,69 +176,83 @@ def _failure(
 
 
 async def run_roadmap_agent_from_state(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     *,
     project_id: int,
-    user_input: Optional[str],
-) -> Dict[str, Any]:
-    input_context = build_roadmap_input_context(state, user_input=user_input)
+    user_input: str | None,
+) -> dict[str, Any]:
+    """Run the roadmap agent from stored workflow state and normalize failures."""
+    input_context: RoadmapInputContext = build_roadmap_input_context(
+        state,
+        user_input=user_input,
+    )
 
     try:
-        payload = RoadmapBuilderInput.model_validate(input_context)
+        payload: RoadmapBuilderInput = RoadmapBuilderInput.model_validate(input_context)
     except ValidationError as exc:
         return _failure(
             project_id=project_id,
             input_context=input_context,
             failure_stage="input_validation",
-            message=f"Roadmap input validation failed: {exc}",
-            validation_errors=exc.errors(),
-            exception=exc,
+            details=_FailureDetails(
+                message=f"Roadmap input validation failed: {exc}",
+                validation_errors=_normalize_validation_errors(exc.errors()),
+                exception=exc,
+            ),
         )
 
     try:
-        raw_text = await _invoke_roadmap_agent(payload)
+        raw_text: str = await _invoke_roadmap_agent(payload)
     except AgentInvocationError as exc:
         return _failure(
             project_id=project_id,
             input_context=input_context,
             failure_stage="invocation_exception",
-            message=f"Roadmap runtime failed: {exc}",
-            raw_text=exc.partial_output,
-            exception=exc,
+            details=_FailureDetails(
+                message=f"Roadmap runtime failed: {exc}",
+                raw_text=exc.partial_output,
+                exception=exc,
+            ),
         )
-    except Exception as exc:  # pylint: disable=broad-except
+    except ValueError as exc:
         return _failure(
             project_id=project_id,
             input_context=input_context,
             failure_stage="invocation_exception",
-            message=f"Roadmap runtime failed: {exc}",
-            exception=exc,
+            details=_FailureDetails(
+                message=f"Roadmap runtime failed: {exc}",
+                exception=exc,
+            ),
         )
 
-    parsed = parse_json_payload(raw_text)
+    parsed: dict[str, Any] | None = parse_json_payload(raw_text)
     if parsed is None:
         return _failure(
             project_id=project_id,
             input_context=input_context,
             failure_stage="invalid_json",
-            message="Roadmap response is not valid JSON",
-            raw_text=raw_text,
+            details=_FailureDetails(
+                message="Roadmap response is not valid JSON",
+                raw_text=raw_text,
+            ),
         )
 
     try:
-        output_model = RoadmapBuilderOutput.model_validate(parsed)
+        output_model: RoadmapBuilderOutput = RoadmapBuilderOutput.model_validate(parsed)
     except ValidationError as exc:
         return _failure(
             project_id=project_id,
             input_context=input_context,
             failure_stage="output_validation",
-            message=f"Roadmap output validation failed: {exc}",
-            raw_text=raw_text,
-            validation_errors=exc.errors(),
-            exception=exc,
+            details=_FailureDetails(
+                message=f"Roadmap output validation failed: {exc}",
+                raw_text=raw_text,
+                validation_errors=_normalize_validation_errors(exc.errors()),
+                exception=exc,
+            ),
         )
 
-    output_artifact = output_model.model_dump(exclude_none=True)
+    output_artifact: dict[str, Any] = output_model.model_dump(exclude_none=True)
     return {
         "success": True,
         "input_context": input_context,

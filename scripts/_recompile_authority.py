@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """One-shot: recompile spec authority for a given spec_version_id."""
+
 import sys
 from pathlib import Path
 
@@ -16,4 +17,5 @@ result = compile_spec_authority_for_version(
 )
 
 import json
+
 print(json.dumps(result, indent=2, default=str))

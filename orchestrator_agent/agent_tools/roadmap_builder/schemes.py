@@ -1,6 +1,6 @@
 """Input and output schemas for the Roadmap Builder agent."""
 
-from typing import Annotated, List, Literal, Optional
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -40,7 +40,7 @@ class BacklogItem(BaseModel):
         Field(description="Relative effort using T-shirt size: S, M, L, XL."),
     ]
     technical_note: Annotated[
-        Optional[str],
+        str | None,
         Field(
             default=None,
             description="Optional technical rationale for sizing.",
@@ -55,7 +55,7 @@ class RoadmapBuilderInput(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     backlog_items: Annotated[
-        List[BacklogItem],
+        list[BacklogItem],
         Field(description="List of prioritized backlog items from Stage 1."),
     ]
     product_vision: Annotated[
@@ -111,7 +111,7 @@ class RoadmapRelease(BaseModel):
         Field(description="Primary focus area of this release."),
     ]
     items: Annotated[
-        List[str],
+        list[str],
         Field(description="List of Requirement Names included in this release."),
     ]
     reasoning: Annotated[
@@ -126,7 +126,7 @@ class RoadmapBuilderOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     roadmap_releases: Annotated[
-        List[RoadmapRelease],
+        list[RoadmapRelease],
         Field(description="Ordered list of roadmap releases/milestones."),
     ]
     roadmap_summary: Annotated[
@@ -140,7 +140,7 @@ class RoadmapBuilderOutput(BaseModel):
         ),
     ]
     clarifying_questions: Annotated[
-        List[str],
+        list[str],
         Field(
             default_factory=list,
             description="Questions to ask user if is_complete=False.",

@@ -3,7 +3,7 @@
 """This module contains utility functions for parsing agent responses."""
 
 import json
-from typing import Annotated, Optional, Tuple
+from typing import Annotated
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -17,8 +17,8 @@ class OutputSchema(BaseModel):
 
 
 def parse_agent_output(
-    final_response_text: Optional[str],
-) -> Tuple[Optional[object], Optional[str]]:
+    final_response_text: str | None,
+) -> tuple[object | None, str | None]:
     """
     Attempt to parse the agent's final JSON response into a Pydantic model.
 
@@ -38,12 +38,12 @@ def parse_agent_output(
     except ValidationError as e:
         return None, (
             "Agent response didn't match OutputSchema:\n"
-            f"{str(e)}\n"
+            f"{e!s}\n"
             f"Raw response was: {final_response_text}"
         )
     except json.JSONDecodeError:
         return None, (
-            "Agent final response was not valid JSON:\n" f"{final_response_text}"
+            f"Agent final response was not valid JSON:\n{final_response_text}"
         )
 
     return structured, None

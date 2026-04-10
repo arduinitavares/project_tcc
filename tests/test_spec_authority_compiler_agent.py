@@ -6,34 +6,34 @@ These tests lock schema shape, invariant typing, and deterministic ID rules.
 
 import json
 import re
-from typing import Dict, Any
+from typing import Any
 
 import pytest
 from google.genai import types
 from pydantic import ValidationError
 
-from utils.spec_schemas import (
-    SpecAuthorityCompilerInput,
-    SpecAuthorityCompilerOutput,
-    SpecAuthorityCompilerEnvelope,
-    SpecAuthorityCompilationFailure,
-    SpecAuthorityCompilationSuccess,
-    InvariantType,
-    ForbiddenCapabilityParams,
-    RequiredFieldParams,
-    MaxValueParams,
-)
-from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
-    normalize_compiler_output,
-)
-from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (
-    SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
-)
 from orchestrator_agent.agent_tools.spec_authority_compiler_agent.compiler_contract import (
     classify_invariant_from_text,
     compute_invariant_id,
     compute_prompt_hash,
     compute_spec_hash,
+)
+from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (
+    SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
+)
+from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+    normalize_compiler_output,
+)
+from utils.spec_schemas import (
+    ForbiddenCapabilityParams,
+    InvariantType,
+    MaxValueParams,
+    RequiredFieldParams,
+    SpecAuthorityCompilationFailure,
+    SpecAuthorityCompilationSuccess,
+    SpecAuthorityCompilerEnvelope,
+    SpecAuthorityCompilerInput,
+    SpecAuthorityCompilerOutput,
 )
 
 
@@ -98,7 +98,7 @@ class TestCompilerOutputSchema:
         assert "rule" in items["properties"]
 
     def test_success_payload_valid_json(self) -> None:
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "scope_themes": ["API"],
             "invariants": [
                 {
@@ -121,27 +121,23 @@ class TestCompilerOutputSchema:
             "prompt_hash": "a" * 64,
         }
 
-        parsed = SpecAuthorityCompilerOutput.model_validate_json(
-            json.dumps(payload)
-        )
+        parsed = SpecAuthorityCompilerOutput.model_validate_json(json.dumps(payload))
         assert isinstance(parsed.root, SpecAuthorityCompilationSuccess)
         assert parsed.root.compiler_version == "1.0.0"
 
     def test_failure_payload_valid_json(self) -> None:
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "error": "SPEC_COMPILATION_FAILED",
             "reason": "Missing required sections",
             "blocking_gaps": ["No invariants section"],
         }
 
-        parsed = SpecAuthorityCompilerOutput.model_validate_json(
-            json.dumps(payload)
-        )
+        parsed = SpecAuthorityCompilerOutput.model_validate_json(json.dumps(payload))
         assert isinstance(parsed.root, SpecAuthorityCompilationFailure)
         assert parsed.root.error == "SPEC_COMPILATION_FAILED"
 
     def test_envelope_accepts_success_payload(self) -> None:
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "scope_themes": ["API"],
             "invariants": [
                 {
@@ -170,7 +166,7 @@ class TestCompilerOutputSchema:
         assert isinstance(parsed.result, SpecAuthorityCompilationSuccess)
 
     def test_envelope_accepts_failure_payload(self) -> None:
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "error": "SPEC_COMPILATION_FAILED",
             "reason": "Missing required sections",
             "blocking_gaps": ["No invariants section"],
@@ -182,7 +178,7 @@ class TestCompilerOutputSchema:
         assert isinstance(parsed.result, SpecAuthorityCompilationFailure)
 
     def test_extra_keys_are_forbidden(self) -> None:
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "error": "SPEC_COMPILATION_FAILED",
             "reason": "Bad output",
             "blocking_gaps": [],
@@ -193,7 +189,7 @@ class TestCompilerOutputSchema:
             SpecAuthorityCompilerOutput.model_validate_json(json.dumps(payload))
 
     def test_invariant_type_must_be_allowed_enum(self) -> None:
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "scope_themes": [],
             "invariants": [
                 {
@@ -221,7 +217,7 @@ class TestCompilerOutputSchema:
         assert re.match(r"^INV-[0-9a-f]{16}$", invariant_id)
 
     def test_normalizer_overwrites_placeholder_hash_and_ids(self) -> None:
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "scope_themes": ["payload"],
             "invariants": [
                 {
@@ -311,29 +307,27 @@ class TestReproducibilityGuards:
 class TestCorrectedExpectedOutput:
     """
     Corrected TEST CASE 1: expected output matching the enforced schema.
-    
+
     Input: "The payload must include user_id."
     """
 
     def test_case_1_expected_output_matches_schema(self) -> None:
         """Validate that the corrected expected output passes schema validation."""
         input_sentence = "The payload must include user_id."
-        
+
         # Compute deterministic values from contract helpers
         expected_invariant = classify_invariant_from_text(input_sentence)
         assert expected_invariant is not None
         expected_id = expected_invariant.id
-        
+
         # Build expected output using actual computed values
-        expected_output: Dict[str, Any] = {
+        expected_output: dict[str, Any] = {
             "scope_themes": [],
             "invariants": [
                 {
                     "id": expected_id,
                     "type": "REQUIRED_FIELD",
-                    "parameters": {
-                        "field_name": "user_id"
-                    }
+                    "parameters": {"field_name": "user_id"},
                 }
             ],
             "eligible_feature_rules": [],
@@ -343,13 +337,14 @@ class TestCorrectedExpectedOutput:
                 {
                     "invariant_id": expected_id,
                     "excerpt": input_sentence,
-                    "location": "spec:line:1"
+                    "location": "spec:line:1",
                 }
             ],
             "compiler_version": "1.0.0",
-            "prompt_hash": "a" * 64,  # Schema requires 64 hex chars; actual value from agent
+            "prompt_hash": "a"
+            * 64,  # Schema requires 64 hex chars; actual value from agent
         }
-        
+
         # Validate against schema
         parsed = SpecAuthorityCompilerOutput.model_validate_json(
             json.dumps(expected_output)
@@ -364,10 +359,10 @@ class TestCorrectedExpectedOutput:
     def test_case_1_invariant_id_is_deterministic(self) -> None:
         """Verify invariant ID is stable across multiple computations."""
         input_sentence = "The payload must include user_id."
-        
+
         inv_1 = classify_invariant_from_text(input_sentence)
         inv_2 = classify_invariant_from_text(input_sentence)
-        
+
         assert inv_1 is not None
         assert inv_2 is not None
         assert inv_1.id == inv_2.id
@@ -378,7 +373,7 @@ class TestCorrectedExpectedOutput:
 class TestSpecAuthorityCompilerAgentIntegration:
     """
     Integration tests that call the actual LLM agent.
-    
+
     Run with: pytest -m integration tests/test_spec_authority_compiler_agent.py -v
     Skip with: pytest -m "not integration" tests/test_spec_authority_compiler_agent.py -v
     """
@@ -387,7 +382,7 @@ class TestSpecAuthorityCompilerAgentIntegration:
     async def test_agent_output_is_normalized_and_deterministic_ids(self) -> None:
         """
         Integration test: agent output is normalized to deterministic IDs/prompt_hash.
-        
+
         Assertions limited to deterministic contracts (after normalization):
         - prompt_hash == compute_prompt_hash(SPEC_AUTHORITY_COMPILER_INSTRUCTIONS)
         - invariant.id == compute_invariant_id(source_map.excerpt, invariant.type)
@@ -395,6 +390,7 @@ class TestSpecAuthorityCompilerAgentIntegration:
         """
         from google.adk.runners import Runner
         from google.adk.sessions import InMemorySessionService
+
         from orchestrator_agent.agent_tools.spec_authority_compiler_agent.agent import (
             root_agent,
         )
@@ -443,7 +439,7 @@ class TestSpecAuthorityCompilerAgentIntegration:
         # Extract final response text
         final_event = events[-1] if events else None
         assert final_event is not None, "Agent returned no events"
-        
+
         response_text = None
         if hasattr(final_event, "content") and final_event.content:
             for part in final_event.content.parts:
@@ -473,7 +469,9 @@ class TestSpecAuthorityCompilerAgentIntegration:
 
         assert len(normalized.root.source_map) >= 1
         # Find the source_map entry that corresponds to this invariant
-        sm_entry = next((e for e in normalized.root.source_map if e.invariant_id == inv.id), None)
+        sm_entry = next(
+            (e for e in normalized.root.source_map if e.invariant_id == inv.id), None
+        )
         assert sm_entry is not None, "No source_map entry found for invariant"
         assert sm_entry.excerpt
 
