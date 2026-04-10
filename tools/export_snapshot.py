@@ -3,19 +3,11 @@
 from __future__ import annotations
 
 import html
-from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from markdown import markdown as _md
-
-
-def _markdown(text: str, extensions: list[str] | None = None) -> str:
-    return _md(text, extensions=extensions or [])
-
-
-from sqlalchemy.engine import Engine
 from sqlmodel import Session, select
 
 from models.core import Epic, Feature, Product, Sprint, SprintStory, Theme, UserStory
@@ -29,6 +21,38 @@ from utils.spec_schemas import (
     SpecAuthorityCompilationSuccess,
     SpecAuthorityCompilerOutput,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+    from pathlib import Path
+
+    from sqlalchemy.engine import Engine
+
+
+class _ExportSnapshotError(ValueError):
+    @classmethod
+    def product_not_found(cls, product_id: int) -> _ExportSnapshotError:
+        message = f"Product {product_id} not found"
+        return cls(message)
+
+
+@dataclass(frozen=True)
+class _SnapshotRenderContext:
+    product: Product
+    themes: list[Theme]
+    epics: list[Epic]
+    features: list[Feature]
+    stories: list[UserStory]
+    all_stories: list[UserStory]
+    sprints: list[Sprint]
+    sprint_story_map: dict[int, list[int]]
+    spec_content: str
+    spec_meta: dict[str, Any]
+    authority: SpecAuthorityCompilationSuccess | None
+
+
+def _markdown(text: str, extensions: list[str] | None = None) -> str:
+    return _md(text, extensions=extensions or [])
 
 
 def export_project_snapshot_html(
@@ -53,7 +77,7 @@ def export_project_snapshot_html(
     with Session(engine_to_use) as session:
         product = session.get(Product, product_id)
         if not product:
-            raise ValueError(f"Product {product_id} not found")
+            raise _ExportSnapshotError.product_not_found(product_id)
 
         themes = list(
             session.exec(select(Theme).where(Theme.product_id == product_id)).all()
@@ -86,7 +110,7 @@ def export_project_snapshot_html(
         spec_content, spec_meta = _resolve_spec_content(product, approved_spec)
         authority = _load_compiled_authority(session, approved_spec)
 
-    html_output = _render_snapshot_html(
+    render_context = _SnapshotRenderContext(
         product=product,
         themes=themes,
         epics=epics,
@@ -99,6 +123,7 @@ def export_project_snapshot_html(
         spec_meta=spec_meta,
         authority=authority,
     )
+    html_output = _render_snapshot_html(render_context)
 
     filename = f"snapshot_product_{product.product_id}.html"
     output_path = output_dir / filename
@@ -177,28 +202,38 @@ def _load_compiled_authority(
     return parsed.root
 
 
-def _render_snapshot_html(
-    *,
-    product: Product,
-    themes: list[Theme],
-    epics: list[Epic],
-    features: list[Feature],
-    stories: list[UserStory],
-    all_stories: list[UserStory],
-    sprints: list[Sprint],
-    sprint_story_map: dict[int, list[int]],
-    spec_content: str,
-    spec_meta: dict[str, Any],
-    authority: SpecAuthorityCompilationSuccess | None,
-) -> str:
+def _render_snapshot_html(context: _SnapshotRenderContext) -> str:
     generated_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-    roadmap_html = _render_roadmap(themes, epics, features, all_stories)
-    stories_html = _render_stories_table(stories, epics, features, themes)
-    full_backlog_html = _render_all_stories_table(all_stories, epics, features, themes)
-    sprint_html = _render_sprint_summary(sprints, stories, sprint_story_map)
-    spec_html = _markdown(spec_content or "", extensions=["fenced_code", "tables"])
-    spec_toc = _extract_markdown_headings(spec_content or "")
-    compiled_html = _render_compiled_authority(authority)
+    roadmap_html = _render_roadmap(
+        context.themes,
+        context.epics,
+        context.features,
+        context.all_stories,
+    )
+    stories_html = _render_stories_table(
+        context.stories,
+        context.epics,
+        context.features,
+        context.themes,
+    )
+    full_backlog_html = _render_all_stories_table(
+        context.all_stories,
+        context.epics,
+        context.features,
+        context.themes,
+    )
+    sprint_html = _render_sprint_summary(
+        context.sprints,
+        context.stories,
+        context.sprint_story_map,
+    )
+    spec_html = _markdown(
+        context.spec_content or "",
+        extensions=["fenced_code", "tables"],
+    )
+    spec_toc = _extract_markdown_headings(context.spec_content or "")
+    compiled_html = _render_compiled_authority(context.authority)
+    styles = _render_snapshot_styles()
 
     return """
 <!doctype html>
@@ -208,24 +243,7 @@ def _render_snapshot_html(
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Project Snapshot</title>
   <style>
-        body {{ font-family: "Segoe UI", Arial, sans-serif; margin: 32px; color: #1a1a1a; }}
-        h1, h2, h3 {{ color: #0f172a; }}
-        .muted {{ color: #64748b; }}
-        .section {{ margin-top: 28px; }}
-        .card {{ border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-top: 12px; }}
-        table {{ width: 100%; border-collapse: collapse; margin-top: 12px; }}
-        th, td {{ border: 1px solid #e2e8f0; padding: 8px; text-align: left; vertical-align: top; }}
-        th {{ background: #f8fafc; }}
-        pre {{ background: #f8fafc; padding: 12px; border-radius: 6px; overflow-x: auto; }}
-        .badge {{ display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; }}
-        .badge-ok {{ background: #dcfce7; color: #166534; }}
-        .badge-warn {{ background: #fef9c3; color: #854d0e; }}
-        .toc li {{ margin-bottom: 4px; }}
-        .toc-level-2 {{ margin-left: 16px; }}
-        .toc-level-3 {{ margin-left: 32px; }}
-        .toc-level-4 {{ margin-left: 48px; }}
-        .toc-level-5 {{ margin-left: 64px; }}
-        .toc-level-6 {{ margin-left: 80px; }}
+{styles}
   </style>
 </head>
 <body>
@@ -289,21 +307,69 @@ def _render_snapshot_html(
 </html>
 """.format(
         generated_at=generated_at,
-        product_name=html.escape(product.name or "(Unnamed Product)"),
-        product_description=html.escape(product.description or ""),
-        story_summary=_format_story_summary(stories),
-        all_story_summary=_format_all_story_summary(all_stories),
-        sprint_summary=_format_sprint_summary_line(sprints, stories, sprint_story_map),
-        vision_html=_markdown(product.vision or "(No vision set)"),
+        styles=styles,
+        product_name=html.escape(context.product.name or "(Unnamed Product)"),
+        product_description=html.escape(context.product.description or ""),
+        story_summary=_format_story_summary(context.stories),
+        all_story_summary=_format_all_story_summary(context.all_stories),
+        sprint_summary=_format_sprint_summary_line(
+            context.sprints,
+            context.stories,
+            context.sprint_story_map,
+        ),
+        vision_html=_markdown(context.product.vision or "(No vision set)"),
         roadmap_html=roadmap_html,
-        spec_status_badge=_render_spec_status_badge(spec_meta),
-        spec_meta_html=_render_spec_metadata(spec_meta),
+        spec_status_badge=_render_spec_status_badge(context.spec_meta),
+        spec_meta_html=_render_spec_metadata(context.spec_meta),
         spec_toc_html=_render_spec_toc(spec_toc),
         spec_html=spec_html,
         compiled_html=compiled_html,
         stories_html=stories_html,
         full_backlog_html=full_backlog_html,
         sprint_html=sprint_html,
+    )
+
+
+def _render_snapshot_styles() -> str:
+    return "\n".join(
+        [
+            (
+                '        body { font-family: "Segoe UI", Arial, sans-serif; '
+                "margin: 32px; color: #1a1a1a; }"
+            ),
+            "        h1, h2, h3 { color: #0f172a; }",
+            "        .muted { color: #64748b; }",
+            "        .section { margin-top: 28px; }",
+            (
+                "        .card { border: 1px solid #e2e8f0; "
+                "border-radius: 8px; padding: 16px; margin-top: 12px; }"
+            ),
+            (
+                "        table { width: 100%; border-collapse: collapse; "
+                "margin-top: 12px; }"
+            ),
+            (
+                "        th, td { border: 1px solid #e2e8f0; padding: 8px; "
+                "text-align: left; vertical-align: top; }"
+            ),
+            "        th { background: #f8fafc; }",
+            (
+                "        pre { background: #f8fafc; padding: 12px; "
+                "border-radius: 6px; overflow-x: auto; }"
+            ),
+            (
+                "        .badge { display: inline-block; padding: 2px 8px; "
+                "border-radius: 999px; font-size: 12px; }"
+            ),
+            "        .badge-ok { background: #dcfce7; color: #166534; }",
+            "        .badge-warn { background: #fef9c3; color: #854d0e; }",
+            "        .toc li { margin-bottom: 4px; }",
+            "        .toc-level-2 { margin-left: 16px; }",
+            "        .toc-level-3 { margin-left: 32px; }",
+            "        .toc-level-4 { margin-left: 48px; }",
+            "        .toc-level-5 { margin-left: 64px; }",
+            "        .toc-level-6 { margin-left: 80px; }",
+        ]
     )
 
 
@@ -350,14 +416,16 @@ def _format_sprint_summary_line(
 
     sprint_story_ids = set(sprint_story_map.get(sprint.sprint_id or 0, []))
     if not sprint_story_ids:
-        return f"<p><strong>Current sprint:</strong> {html.escape(sprint.goal or 'Unnamed sprint')}</p>"
+        sprint_name = html.escape(sprint.goal or "Unnamed sprint")
+        return f"<p><strong>Current sprint:</strong> {sprint_name}</p>"
 
     sprint_stories = [story for story in stories if story.story_id in sprint_story_ids]
     done_count = sum(1 for story in sprint_stories if story.status == StoryStatus.DONE)
     total = len(sprint_stories)
     completion = (done_count / total) * 100 if total else 0
+    sprint_name = html.escape(sprint.goal or "Unnamed sprint")
     return (
-        f"<p><strong>Current sprint:</strong> {html.escape(sprint.goal or 'Unnamed sprint')} "
+        f"<p><strong>Current sprint:</strong> {sprint_name} "
         f"({completion:.1f}% complete)</p>"
     )
 
@@ -399,12 +467,19 @@ def _render_roadmap(
                 for story in stories_by_feature.get(feature.feature_id, [])
             ]
             sections.append(
-                '<div class="card">'
-                f"<strong>{html.escape(theme.title)}</strong>"
-                f'<p class="muted">{html.escape(theme.description or "")}</p>'
-                f'<p class="muted">Epics: {len(epics_for_theme)} | '
-                f"Features: {len(features_for_theme)} | Stories: {len(stories_for_theme)}</p>"
-                "</div>"
+                "".join(
+                    [
+                        '<div class="card">',
+                        f"<strong>{html.escape(theme.title)}</strong>",
+                        f'<p class="muted">{html.escape(theme.description or "")}</p>',
+                        (
+                            f'<p class="muted">Epics: {len(epics_for_theme)} | '
+                            f"Features: {len(features_for_theme)} | "
+                            f"Stories: {len(stories_for_theme)}</p>"
+                        ),
+                        "</div>",
+                    ]
+                )
             )
     return "".join(sections)
 

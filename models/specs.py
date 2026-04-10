@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 class SpecRegistry(SQLModel, table=True):
     """Versioned technical specification registry with approval workflow."""
 
-    __tablename__ = "spec_registry"  # type: ignore
+    __tablename__ = "spec_registry"  # type: ignore[assignment]
     spec_version_id: int | None = Field(default=None, primary_key=True)
     product_id: int = Field(foreign_key="products.product_id", index=True)
     spec_hash: str = Field(
@@ -60,7 +60,7 @@ class SpecRegistry(SQLModel, table=True):
 class CompiledSpecAuthority(SQLModel, table=True):
     """Cached compilation output for an approved spec version."""
 
-    __tablename__ = "compiled_spec_authority"  # type: ignore
+    __tablename__ = "compiled_spec_authority"  # type: ignore[assignment]
     authority_id: int | None = Field(default=None, primary_key=True)
     spec_version_id: int = Field(
         foreign_key="spec_registry.spec_version_id",
@@ -111,7 +111,7 @@ class CompiledSpecAuthority(SQLModel, table=True):
 class SpecAuthorityAcceptance(SQLModel, table=True):
     """Append-only acceptance decisions for compiled spec authority."""
 
-    __tablename__ = "spec_authority_acceptance"  # type: ignore
+    __tablename__ = "spec_authority_acceptance"  # type: ignore[assignment]
     id: int | None = Field(default=None, primary_key=True)
     product_id: int = Field(
         foreign_key="products.product_id",

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 class TeamMembership(SQLModel, table=True):
     """Link table for Team <-> TeamMember."""
 
-    __tablename__ = "team_memberships"  # type: ignore
+    __tablename__ = "team_memberships"  # type: ignore[assignment]
     team_id: int = Field(foreign_key="teams.team_id", primary_key=True)
     member_id: int = Field(foreign_key="team_members.member_id", primary_key=True)
     role: TeamRole = Field(default=TeamRole.DEVELOPER, nullable=False)
@@ -34,7 +34,7 @@ class TeamMembership(SQLModel, table=True):
 class ProductTeam(SQLModel, table=True):
     """Link table for Product <-> Team."""
 
-    __tablename__ = "product_teams"  # type: ignore
+    __tablename__ = "product_teams"  # type: ignore[assignment]
     product_id: int = Field(foreign_key="products.product_id", primary_key=True)
     team_id: int = Field(foreign_key="teams.team_id", primary_key=True)
 
@@ -42,7 +42,7 @@ class ProductTeam(SQLModel, table=True):
 class Product(SQLModel, table=True):
     """A top-level product container."""
 
-    __tablename__ = "products"  # type: ignore
+    __tablename__ = "products"  # type: ignore[assignment]
     product_id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True, unique=True)
     description: str | None = Field(default=None, sa_type=Text)
@@ -94,7 +94,7 @@ class Product(SQLModel, table=True):
 class Team(SQLModel, table=True):
     """A stable group of members."""
 
-    __tablename__ = "teams"  # type: ignore
+    __tablename__ = "teams"  # type: ignore[assignment]
     team_id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True, unique=True)
     created_at: datetime = Field(
@@ -123,7 +123,7 @@ class Team(SQLModel, table=True):
 class TeamMember(SQLModel, table=True):
     """An individual member of a team."""
 
-    __tablename__ = "team_members"  # type: ignore
+    __tablename__ = "team_members"  # type: ignore[assignment]
     member_id: int | None = Field(default=None, primary_key=True)
     name: str
     email: str = Field(unique=True, index=True)
@@ -150,7 +150,7 @@ class TeamMember(SQLModel, table=True):
 class SprintStory(SQLModel, table=True):
     """Link table for Sprint <-> UserStory."""
 
-    __tablename__ = "sprint_stories"  # type: ignore
+    __tablename__ = "sprint_stories"  # type: ignore[assignment]
     sprint_id: int = Field(foreign_key="sprints.sprint_id", primary_key=True)
     story_id: int = Field(foreign_key="user_stories.story_id", primary_key=True)
     added_at: datetime = Field(
@@ -163,7 +163,7 @@ class SprintStory(SQLModel, table=True):
 class Sprint(SQLModel, table=True):
     """A time-boxed iteration of work for a team."""
 
-    __tablename__ = "sprints"  # type: ignore
+    __tablename__ = "sprints"  # type: ignore[assignment]
     sprint_id: int | None = Field(default=None, primary_key=True)
     goal: str | None = Field(default=None, sa_type=Text)
     start_date: date = Field(sa_type=Date)
@@ -199,7 +199,7 @@ class Sprint(SQLModel, table=True):
 class Theme(SQLModel, table=True):
     """A high-level strategic goal."""
 
-    __tablename__ = "themes"  # type: ignore
+    __tablename__ = "themes"  # type: ignore[assignment]
     __table_args__ = (UniqueConstraint("product_id", "title"),)
 
     theme_id: int | None = Field(default=None, primary_key=True)
@@ -229,7 +229,7 @@ class Theme(SQLModel, table=True):
 class Epic(SQLModel, table=True):
     """A large body of work contributing to a theme."""
 
-    __tablename__ = "epics"  # type: ignore
+    __tablename__ = "epics"  # type: ignore[assignment]
     epic_id: int | None = Field(default=None, primary_key=True)
     title: str
     summary: str | None = Field(default=None, sa_type=Text)
@@ -256,7 +256,7 @@ class Epic(SQLModel, table=True):
 class Feature(SQLModel, table=True):
     """A component or part of an epic."""
 
-    __tablename__ = "features"  # type: ignore
+    __tablename__ = "features"  # type: ignore[assignment]
     feature_id: int | None = Field(default=None, primary_key=True)
     title: str
     description: str | None = Field(default=None, sa_type=Text)
@@ -283,7 +283,7 @@ class Feature(SQLModel, table=True):
 class UserStory(SQLModel, table=True):
     """A single item in the product backlog."""
 
-    __tablename__ = "user_stories"  # type: ignore
+    __tablename__ = "user_stories"  # type: ignore[assignment]
     story_id: int | None = Field(default=None, primary_key=True)
     title: str
     story_description: str | None = Field(default=None, sa_type=Text)
@@ -378,7 +378,7 @@ class UserStory(SQLModel, table=True):
 class Task(SQLModel, table=True):
     """A granular sub-task for a user story."""
 
-    __tablename__ = "tasks"  # type: ignore
+    __tablename__ = "tasks"  # type: ignore[assignment]
     task_id: int | None = Field(default=None, primary_key=True)
     description: str = Field(sa_type=Text)
     metadata_json: str | None = Field(
@@ -412,7 +412,7 @@ class Task(SQLModel, table=True):
 class ProductPersona(SQLModel, table=True):
     """Approved personas for a product."""
 
-    __tablename__ = "product_personas"  # type: ignore
+    __tablename__ = "product_personas"  # type: ignore[assignment]
 
     persona_id: int | None = Field(default=None, primary_key=True)
     product_id: int = Field(foreign_key="products.product_id")

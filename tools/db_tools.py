@@ -3,6 +3,7 @@
 
 """
 Database persistence tools for agents to call.
+
 These functions are designed to be invoked by Claude as tool calls.
 """
 
@@ -28,9 +29,27 @@ class _DefaultPersona(TypedDict):
     description: str
 
 
+class _PersistRoadmapError(RuntimeError):
+    @classmethod
+    def missing_theme_id(cls, title: str) -> "_PersistRoadmapError":
+        message = f"Failed to create Theme '{title}', ID is None after flush."
+        return cls(message)
+
+    @classmethod
+    def missing_epic_id(cls, title: str) -> "_PersistRoadmapError":
+        message = f"Failed to create Epic '{title}', ID is None after flush."
+        return cls(message)
+
+    @classmethod
+    def missing_feature_id(cls) -> "_PersistRoadmapError":
+        message = "Failed to create Feature, ID is None after flush."
+        return cls(message)
+
+
 def seed_product_personas(params: SeedProductPersonasInput) -> dict[str, Any]:
     """
     Agent tool: Seed default personas for the Review-First product.
+
     Call this after product creation.
     """
     with Session(get_engine()) as session:
@@ -57,19 +76,28 @@ def seed_product_personas(params: SeedProductPersonasInput) -> dict[str, Any]:
                 "name": "automation engineer",
                 "is_default": True,
                 "category": "primary_user",
-                "description": "Automation and control engineers performing P&ID review and extraction configuration",
+                "description": (
+                    "Automation and control engineers performing P&ID review "
+                    "and extraction configuration"
+                ),
             },
             {
                 "name": "engineering qa reviewer",
                 "is_default": False,
                 "category": "primary_user",
-                "description": "Engineering QA reviewers performing mandatory validation and sign-off",
+                "description": (
+                    "Engineering QA reviewers performing mandatory validation "
+                    "and sign-off"
+                ),
             },
             {
                 "name": "it administrator",
                 "is_default": False,
                 "category": "admin",
-                "description": "IT administrators managing deployment, security, and user permissions",
+                "description": (
+                    "IT administrators managing deployment, security, and "
+                    "user permissions"
+                ),
             },
             {
                 "name": "ml engineer",
@@ -92,10 +120,14 @@ def seed_product_personas(params: SeedProductPersonasInput) -> dict[str, Any]:
             created_count += 1
 
         session.commit()
+        message = (
+            f"Seeded {created_count} default personas for product "
+            f"'{product.name}'"
+        )
         return {
             "success": True,
             "product_id": params.product_id,
-            "message": f"Seeded {created_count} default personas for product '{product.name}'",
+            "message": message,
             "count": created_count,
         }
 
@@ -200,9 +232,7 @@ def persist_roadmap(
             session.flush()
 
             if theme.theme_id is None:
-                raise RuntimeError(
-                    f"Failed to create Theme '{theme.title}', ID is None after flush."
-                )
+                raise _PersistRoadmapError.missing_theme_id(theme.title)
             created["themes"].append({"id": theme.theme_id, "title": theme.title})
 
             # Create Epics under this Theme
@@ -216,9 +246,7 @@ def persist_roadmap(
                 session.flush()
 
                 if epic.epic_id is None:
-                    raise RuntimeError(
-                        f"Failed to create Epic '{epic.title}', ID is None after flush."
-                    )
+                    raise _PersistRoadmapError.missing_epic_id(epic.title)
                 created["epics"].append({"id": epic.epic_id, "title": epic.title})
 
                 # Create Features under this Epic
@@ -232,9 +260,7 @@ def persist_roadmap(
                     session.flush()
 
                     if feature.feature_id is None:
-                        raise RuntimeError(
-                            "Failed to create Feature, ID is None after flush."
-                        )
+                        raise _PersistRoadmapError.missing_feature_id()
                     # Fix for Pylance (reportUnknownVariableType)
                     feature_dict: dict[str, Any] = {
                         "id": feature.feature_id,
@@ -368,132 +394,197 @@ def query_product_structure(product_id: int) -> dict[str, Any]:
                 "success": False,
                 "error": f"Product {product_id} not found",
             }
-
-        # 1. Fetch all themes
-        themes = session.exec(select(Theme).where(Theme.product_id == product_id)).all()
-        theme_ids = [t.theme_id for t in themes if t.theme_id is not None]
-
-        # 2. Fetch all epics
-        epics: list[Epic] = []
-        if theme_ids:
-            epics = list(
-                session.exec(
-                    select(Epic).where(cast("Any", Epic.theme_id).in_(theme_ids))
-                ).all()
-            )
-        epic_ids = [e.epic_id for e in epics if e.epic_id is not None]
-
-        # 3. Fetch all features
-        features: list[Feature] = []
-        if epic_ids:
-            features = list(
-                session.exec(
-                    select(Feature).where(cast("Any", Feature.epic_id).in_(epic_ids))
-                ).all()
-            )
-        feature_ids = [f.feature_id for f in features if f.feature_id is not None]
-
-        # 4. Fetch all stories
-        stories: list[UserStory] = []
-        if feature_ids:
-            stories = list(
-                session.exec(
-                    select(UserStory).where(
-                        cast("Any", UserStory.feature_id).in_(feature_ids)
-                    )
-                ).all()
-            )
-
-        # 5. Build lookup maps
-        # Map: theme_id -> [epics]
-        epics_by_theme: dict[int, list[Epic]] = {tid: [] for tid in theme_ids}
-        for epic in epics:
-            theme_id = epic.theme_id
-            if theme_id is not None and theme_id in epics_by_theme:
-                epics_by_theme[theme_id].append(epic)
-
-        # Map: epic_id -> [features]
-        features_by_epic: dict[int, list[Feature]] = {eid: [] for eid in epic_ids}
-        for feature in features:
-            epic_id = feature.epic_id
-            if epic_id is not None and epic_id in features_by_epic:
-                features_by_epic[epic_id].append(feature)
-
-        # Map: feature_id -> [stories]
-        stories_by_feature: dict[int, list[UserStory]] = {
-            fid: [] for fid in feature_ids
-        }
-        for story in stories:
-            if story.feature_id is not None and story.feature_id in stories_by_feature:
-                stories_by_feature[story.feature_id].append(story)
-
-        # 6. Assemble structure
-        # Fix for Pylance (reportUnknownVariableType)
-        structure: dict[str, Any] = {
-            "product": {
-                "id": product.product_id,
-                "name": product.name,
-                "vision": product.vision,
-            },
-            "themes": [],
-        }
-
-        for theme in themes:
-            theme_id = theme.theme_id
-            if theme_id is None:
-                continue
-            # Fix for Pylance (reportUnknownVariableType)
-            theme_data: dict[str, Any] = {
-                "id": theme_id,
-                "title": theme.title,
-                "epics": [],
-            }
-
-            theme_epics = epics_by_theme.get(theme_id, [])
-
-            for epic in theme_epics:
-                epic_id = epic.epic_id
-                if epic_id is None:
-                    continue
-                # Fix for Pylance (reportUnknownVariableType)
-                epic_data: dict[str, Any] = {
-                    "id": epic_id,
-                    "title": epic.title,
-                    "features": [],
-                }
-
-                epic_features = features_by_epic.get(epic_id, [])
-
-                for feature in epic_features:
-                    feature_id = feature.feature_id
-                    if feature_id is None:
-                        continue
-                    # Fix for Pylance (reportUnknownVariableType)
-                    feature_data: dict[str, Any] = {
-                        "id": feature_id,
-                        "title": feature.title,
-                        "stories": [],
-                    }
-
-                    feature_stories = stories_by_feature.get(feature_id, [])
-
-                    for story in feature_stories:
-                        feature_data["stories"].append(
-                            {
-                                "id": story.story_id,
-                                "title": story.title,
-                                "description": story.story_description,
-                                "points": story.story_points,
-                            }
-                        )
-
-                    epic_data["features"].append(feature_data)
-
-                theme_data["epics"].append(epic_data)
-
-            structure["themes"].append(theme_data)
+        themes = _load_product_themes(session, product_id)
+        theme_ids = [theme.theme_id for theme in themes if theme.theme_id is not None]
+        epics = _load_epics_for_theme_ids(session, theme_ids)
+        epic_ids = [epic.epic_id for epic in epics if epic.epic_id is not None]
+        features = _load_features_for_epic_ids(session, epic_ids)
+        feature_ids = [
+            feature.feature_id for feature in features if feature.feature_id is not None
+        ]
+        stories = _load_stories_for_feature_ids(session, feature_ids)
+        structure = _build_product_structure(
+            product=product,
+            themes=themes,
+            epics=epics,
+            features=features,
+            stories=stories,
+        )
 
         return {"success": True, "structure": structure}
+
+
+def _load_product_themes(session: Session, product_id: int) -> list[Theme]:
+    return list(session.exec(select(Theme).where(Theme.product_id == product_id)).all())
+
+
+def _load_epics_for_theme_ids(session: Session, theme_ids: list[int]) -> list[Epic]:
+    if not theme_ids:
+        return []
+    return list(
+        session.exec(
+            select(Epic).where(cast("Any", Epic.theme_id).in_(theme_ids))
+        ).all()
+    )
+
+
+def _load_features_for_epic_ids(session: Session, epic_ids: list[int]) -> list[Feature]:
+    if not epic_ids:
+        return []
+    return list(
+        session.exec(
+            select(Feature).where(cast("Any", Feature.epic_id).in_(epic_ids))
+        ).all()
+    )
+
+
+def _load_stories_for_feature_ids(
+    session: Session,
+    feature_ids: list[int],
+) -> list[UserStory]:
+    if not feature_ids:
+        return []
+    return list(
+        session.exec(
+            select(UserStory).where(cast("Any", UserStory.feature_id).in_(feature_ids))
+        ).all()
+    )
+
+
+def _group_epics_by_theme(
+    epics: list[Epic],
+    theme_ids: list[int],
+) -> dict[int, list[Epic]]:
+    grouped: dict[int, list[Epic]] = {theme_id: [] for theme_id in theme_ids}
+    for epic in epics:
+        theme_id = epic.theme_id
+        if theme_id is not None and theme_id in grouped:
+            grouped[theme_id].append(epic)
+    return grouped
+
+
+def _group_features_by_epic(
+    features: list[Feature],
+    epic_ids: list[int],
+) -> dict[int, list[Feature]]:
+    grouped: dict[int, list[Feature]] = {epic_id: [] for epic_id in epic_ids}
+    for feature in features:
+        epic_id = feature.epic_id
+        if epic_id is not None and epic_id in grouped:
+            grouped[epic_id].append(feature)
+    return grouped
+
+
+def _group_stories_by_feature(
+    stories: list[UserStory],
+    feature_ids: list[int],
+) -> dict[int, list[UserStory]]:
+    grouped: dict[int, list[UserStory]] = {feature_id: [] for feature_id in feature_ids}
+    for story in stories:
+        feature_id = story.feature_id
+        if feature_id is not None and feature_id in grouped:
+            grouped[feature_id].append(story)
+    return grouped
+
+
+def _build_product_structure(
+    *,
+    product: Product,
+    themes: list[Theme],
+    epics: list[Epic],
+    features: list[Feature],
+    stories: list[UserStory],
+) -> dict[str, Any]:
+    theme_ids = [theme.theme_id for theme in themes if theme.theme_id is not None]
+    epic_ids = [epic.epic_id for epic in epics if epic.epic_id is not None]
+    feature_ids = [
+        feature.feature_id for feature in features if feature.feature_id is not None
+    ]
+
+    epics_by_theme = _group_epics_by_theme(epics, theme_ids)
+    features_by_epic = _group_features_by_epic(features, epic_ids)
+    stories_by_feature = _group_stories_by_feature(stories, feature_ids)
+
+    structure: dict[str, Any] = {
+        "product": {
+            "id": product.product_id,
+            "name": product.name,
+            "vision": product.vision,
+        },
+        "themes": [],
+    }
+
+    for theme in themes:
+        theme_id = theme.theme_id
+        if theme_id is None:
+            continue
+        theme_data = _build_theme_data(
+            theme=theme,
+            epics=epics_by_theme.get(theme_id, []),
+            features_by_epic=features_by_epic,
+            stories_by_feature=stories_by_feature,
+        )
+        structure["themes"].append(theme_data)
+
+    return structure
+
+
+def _build_theme_data(
+    *,
+    theme: Theme,
+    epics: list[Epic],
+    features_by_epic: dict[int, list[Feature]],
+    stories_by_feature: dict[int, list[UserStory]],
+) -> dict[str, Any]:
+    theme_id = cast("int", theme.theme_id)
+    theme_data: dict[str, Any] = {
+        "id": theme_id,
+        "title": theme.title,
+        "epics": [],
+    }
+    for epic in epics:
+        epic_data = _build_epic_data(
+            epic=epic,
+            features=features_by_epic.get(cast("int", epic.epic_id), []),
+            stories_by_feature=stories_by_feature,
+        )
+        theme_data["epics"].append(epic_data)
+    return theme_data
+
+
+def _build_epic_data(
+    *,
+    epic: Epic,
+    features: list[Feature],
+    stories_by_feature: dict[int, list[UserStory]],
+) -> dict[str, Any]:
+    epic_id = cast("int", epic.epic_id)
+    epic_data: dict[str, Any] = {
+        "id": epic_id,
+        "title": epic.title,
+        "features": [],
+    }
+    for feature in features:
+        feature_id = cast("int", feature.feature_id)
+        feature_data: dict[str, Any] = {
+            "id": feature_id,
+            "title": feature.title,
+            "stories": _build_story_entries(stories_by_feature.get(feature_id, [])),
+        }
+        epic_data["features"].append(feature_data)
+    return epic_data
+
+
+def _build_story_entries(stories: list[UserStory]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": story.story_id,
+            "title": story.title,
+            "description": story.story_description,
+            "points": story.story_points,
+        }
+        for story in stories
+    ]
 
 
 def get_story_details(story_id: int) -> dict[str, Any]:

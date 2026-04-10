@@ -1,6 +1,7 @@
 # tools/orchestrator_tools.py
 """
 Read-only tools for the orchestrator agent to make decisions.
+
 These tools fetch project data from SQLite and transparently cache
 small summaries in ADK's persistent session state to reduce latency.
 """
@@ -8,10 +9,10 @@ small summaries in ADK's persistent session state to reduce latency.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
@@ -43,37 +44,79 @@ from services.orchestrator_query_service import (
     utc_now_iso as _utc_now_iso_service,
 )
 
+if TYPE_CHECKING:
+    from google.adk.tools import ToolContext
+
+logger: logging.Logger = logging.getLogger(name=__name__)
+_MAX_SPEC_FILE_SIZE_KB = 100
+
+
+class _SupportsState(Protocol):
+    state: dict[str, Any]
+
+
+class SpecificationFileNotFoundError(FileNotFoundError):
+    """Raised when a requested specification file cannot be found."""
+
+    @classmethod
+    def for_path(cls, file_path: str) -> SpecificationFileNotFoundError:
+        """Build the canonical missing-file error."""
+        return cls(
+            f"Specification file not found: {file_path}\n"
+            "Please check the path and try again."
+        )
+
+
+class SpecificationFileLoadError(ValueError):
+    """Raised when a specification file cannot be safely loaded."""
+
+    @classmethod
+    def too_large(
+        cls, *, file_size_kb: float, max_size_kb: int
+    ) -> SpecificationFileLoadError:
+        """Build the canonical file-size validation error."""
+        return cls(
+            f"File too large ({file_size_kb:.1f}KB). "
+            f"Maximum allowed: {max_size_kb}KB.\n"
+            "Please use a smaller specification file."
+        )
+
+    @classmethod
+    def encoding_error(cls, file_path: str) -> SpecificationFileLoadError:
+        """Build the canonical UTF-8 validation error."""
+        return cls(f"File encoding error. Please ensure {file_path} is UTF-8 text.")
+
 
 def _utc_now_iso() -> str:
     """Compatibility shim over the orchestrator query service helper."""
     return _utc_now_iso_service()
 
 
-def _normalize_params(params: Any) -> dict[str, Any]:
+def _json_mapping_or_empty(raw: str) -> dict[str, Any]:
+    """Parse a JSON object string into a dict, otherwise return an empty dict."""
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return cast("dict[str, Any]", parsed) if isinstance(parsed, dict) else {}
+
+
+def _normalize_params(params: object) -> dict[str, Any]:
     """Normalize tool params to a dict, handling wrapped JSON strings."""
     if params is None:
         return {}
-    if isinstance(params, dict):
-        params_dict: dict[str, Any] = cast("dict[str, Any]", params)
-        wrapped = params_dict.get("params")
-        if isinstance(wrapped, dict):
-            return cast("dict[str, Any]", wrapped)
-        if isinstance(wrapped, str):
-            try:
-                parsed = json.loads(wrapped)
-                return (
-                    cast("dict[str, Any]", parsed) if isinstance(parsed, dict) else {}
-                )
-            except json.JSONDecodeError:
-                return {}
-        return params_dict
     if isinstance(params, str):
-        try:
-            parsed = json.loads(params)
-            return cast("dict[str, Any]", parsed) if isinstance(parsed, dict) else {}
-        except json.JSONDecodeError:
-            return {}
-    return {}
+        return _json_mapping_or_empty(params)
+    if not isinstance(params, dict):
+        return {}
+
+    params_dict: dict[str, Any] = cast("dict[str, Any]", params)
+    wrapped = params_dict.get("params")
+    if isinstance(wrapped, dict):
+        return cast("dict[str, Any]", wrapped)
+    if isinstance(wrapped, str):
+        return _json_mapping_or_empty(wrapped)
+    return params_dict
 
 
 def _is_fresh(state: dict[str, Any], ttl_minutes: int = CACHE_TTL_MINUTES) -> bool:
@@ -112,18 +155,17 @@ class ListProjectsInput(BaseModel):
     )
 
 
-def count_projects(params: Any, tool_context: ToolContext) -> dict[str, Any]:
+def count_projects(params: object, tool_context: ToolContext) -> dict[str, Any]:
     """Agent tool: Count total projects. Uses a transparent persistent cache."""
     parsed = CountProjectsInput.model_validate(_normalize_params(params))
     should_refresh = bool(parsed.force_refresh)
-
-    print(f"\n[Tool: count_projects] Refresh: {should_refresh}")
+    logger.debug("count_projects called with force_refresh=%s", should_refresh)
 
     state: dict[str, Any] = cast("dict[str, Any]", tool_context.state)
 
     if not should_refresh and _is_fresh(state) and "projects_summary" in state:
         count = int(state.get("projects_summary", 0))
-        print(f"   [Cache] Hit! {count} projects.")
+        logger.debug("count_projects cache hit with count=%s", count)
         return {
             "success": True,
             "count": count,
@@ -132,7 +174,7 @@ def count_projects(params: Any, tool_context: ToolContext) -> dict[str, Any]:
         }
 
     count, _ = _refresh_projects_cache(state)
-    print(f"   [DB] Read. {count} projects.")
+    logger.debug("count_projects refreshed cache with count=%s", count)
     return {
         "success": True,
         "count": count,
@@ -141,18 +183,17 @@ def count_projects(params: Any, tool_context: ToolContext) -> dict[str, Any]:
     }
 
 
-def list_projects(params: Any, tool_context: ToolContext) -> dict[str, Any]:
+def list_projects(params: object, tool_context: ToolContext) -> dict[str, Any]:
     """Agent tool: List all projects with summary info. Uses a transparent cache."""
     parsed = ListProjectsInput.model_validate(_normalize_params(params))
     should_refresh = bool(parsed.force_refresh)
-
-    print(f"\n[Tool: list_projects] Request received. Force Refresh: {should_refresh}")
+    logger.debug("list_projects called with force_refresh=%s", should_refresh)
 
     state: dict[str, Any] = cast("dict[str, Any]", tool_context.state)
 
     if not should_refresh and _is_fresh(state) and "projects_list" in state:
         projects: list[dict[str, Any]] = list(state.get("projects_list", []))
-        print(f"   [Cache] Hit! Returning {len(projects)} items.")
+        logger.debug("list_projects cache hit with %s items", len(projects))
         return {
             "success": True,
             "count": len(projects),
@@ -162,7 +203,7 @@ def list_projects(params: Any, tool_context: ToolContext) -> dict[str, Any]:
         }
 
     count, projects = _refresh_projects_cache(state)
-    print(f"   [DB] Read complete. Returning {len(projects)} items.")
+    logger.debug("list_projects refreshed cache with %s items", len(projects))
     return {
         "success": True,
         "count": count,
@@ -179,19 +220,19 @@ def get_project_details(product_id: int) -> dict[str, Any]:
 
 def get_project_by_name(project_name: str) -> dict[str, Any]:
     """Agent tool: Find a project by name."""
-    print(f"\n[Tool: get_project_by_name] Searching for: '{project_name}'")
+    logger.debug("Searching for project by name '%s'.", project_name)
     with Session(get_engine()) as session:
         product = session.exec(
             select(Product).where(Product.name == project_name)
         ).first()
         if not product:
-            print("   [DB] Not found.")
+            logger.debug("Project '%s' not found.", project_name)
             return {
                 "success": False,
                 "error": f"Project '{project_name}' not found",
             }
 
-        print(f"   [DB] Found ID: {product.product_id}")
+        logger.debug("Project '%s' found with ID=%s.", project_name, product.product_id)
         return {
             "success": True,
             "product_id": product.product_id,
@@ -225,11 +266,10 @@ def _story_order_key(story: UserStory) -> tuple[int, int]:
 def fetch_product_backlog(product_id: int) -> dict[str, Any]:
     """
     Fetch all 'To Do' user stories for a product.
+
     Returns a list of stories with basic details for inspection/diagnostics.
     """
-    print(
-        f"\n[Tool: fetch_product_backlog] Fetching backlog for product ID: {product_id}"
-    )
+    logger.debug("Fetching backlog for product_id=%s.", product_id)
     with Session(get_engine()) as session:
         stories = list(
             session.exec(
@@ -245,7 +285,7 @@ def fetch_product_backlog(product_id: int) -> dict[str, Any]:
         stories.sort(key=_story_order_key)
 
         if not stories:
-            print("   [DB] No stories found.")
+            logger.debug("No backlog stories found for product_id=%s.", product_id)
             return {
                 "success": True,
                 "count": 0,
@@ -270,7 +310,11 @@ def fetch_product_backlog(product_id: int) -> dict[str, Any]:
                 }
             )
 
-        print(f"   [DB] Found {len(stories)} stories.")
+        logger.debug(
+            "Fetched %s backlog stories for product_id=%s.",
+            len(stories),
+            product_id,
+        )
         return {
             "success": True,
             "count": len(stories),
@@ -310,28 +354,21 @@ def load_specification_from_file(
 
     # Validate existence
     if not path.exists():
-        raise FileNotFoundError(
-            f"Specification file not found: {file_path}\n"
-            f"Please check the path and try again."
-        )
+        raise SpecificationFileNotFoundError.for_path(file_path)
 
     # Validate file size (prevent loading huge files)
-    MAX_SIZE_KB = 100
     file_size_kb = path.stat().st_size / 1024
-    if file_size_kb > MAX_SIZE_KB:
-        raise ValueError(
-            f"File too large ({file_size_kb:.1f}KB). "
-            f"Maximum allowed: {MAX_SIZE_KB}KB.\n"
-            f"Please use a smaller specification file."
+    if file_size_kb > _MAX_SPEC_FILE_SIZE_KB:
+        raise SpecificationFileLoadError.too_large(
+            file_size_kb=file_size_kb,
+            max_size_kb=_MAX_SPEC_FILE_SIZE_KB,
         )
 
     # Read content
     try:
         content = path.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
-        raise ValueError(
-            f"File encoding error. Please ensure {file_path} is UTF-8 text."
-        ) from exc
+        raise SpecificationFileLoadError.encoding_error(file_path) from exc
 
     # Log to state for transparency
     if tool_context and tool_context.state:
@@ -340,8 +377,10 @@ def load_specification_from_file(
         state["pending_spec_path"] = str(path.absolute())
         state["pending_spec_content"] = content
 
-    print(
-        f"[Tool: load_specification_from_file] Loaded {file_size_kb:.1f}KB from {path.name}"
+    logger.debug(
+        "Loaded specification file '%s' (%0.1fKB).",
+        path.name,
+        file_size_kb,
     )
 
     return content
@@ -354,4 +393,4 @@ def get_real_business_state() -> dict[str, Any]:
 
 def select_project(product_id: int, tool_context: ToolContext) -> dict[str, Any]:
     """Compatibility adapter over the orchestrator context service boundary."""
-    return _select_project_service(product_id, tool_context)
+    return _select_project_service(product_id, cast("_SupportsState", tool_context))

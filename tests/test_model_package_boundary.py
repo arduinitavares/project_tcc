@@ -91,7 +91,7 @@ def test_models_package_exports_enum_and_db_boundaries() -> None:
 
     assert "from models.db import (" not in agile_sqlmodel_text
     assert "def __getattr__(name: str):" in agile_sqlmodel_text
-    assert "def get_engine():" in models_db_text
+    assert "def get_engine(" in models_db_text
     assert "def ensure_business_db_ready(" in models_db_text
 
 

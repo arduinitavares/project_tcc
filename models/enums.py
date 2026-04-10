@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import enum
+from enum import StrEnum
 
 
-class TeamRole(str, enum.Enum):
+class TeamRole(StrEnum):
     """Roles for a member within a team."""
 
     DEVELOPER = "Developer"
@@ -15,7 +15,7 @@ class TeamRole(str, enum.Enum):
     LEAD = "Lead"
 
 
-class SprintStatus(str, enum.Enum):
+class SprintStatus(StrEnum):
     """Status of a sprint."""
 
     PLANNED = "Planned"
@@ -23,7 +23,7 @@ class SprintStatus(str, enum.Enum):
     COMPLETED = "Completed"
 
 
-class StoryStatus(str, enum.Enum):
+class StoryStatus(StrEnum):
     """Status of a user story."""
 
     TO_DO = "To Do"
@@ -32,7 +32,7 @@ class StoryStatus(str, enum.Enum):
     ACCEPTED = "Accepted"
 
 
-class TaskStatus(str, enum.Enum):
+class TaskStatus(StrEnum):
     """Status of a task."""
 
     TO_DO = "To Do"
@@ -41,7 +41,7 @@ class TaskStatus(str, enum.Enum):
     CANCELLED = "Cancelled"
 
 
-class TaskAcceptanceResult(str, enum.Enum):
+class TaskAcceptanceResult(StrEnum):
     """Result of acceptance criteria check on a task."""
 
     NOT_CHECKED = "not_checked"
@@ -49,7 +49,7 @@ class TaskAcceptanceResult(str, enum.Enum):
     FULLY_MET = "fully_met"
 
 
-class StoryResolution(str, enum.Enum):
+class StoryResolution(StrEnum):
     """Resolution reason when story is marked DONE."""
 
     COMPLETED = "Completed"
@@ -58,7 +58,7 @@ class StoryResolution(str, enum.Enum):
     WONT_DO = "Won't Do"
 
 
-class WorkflowEventType(str, enum.Enum):
+class WorkflowEventType(StrEnum):
     """Types of workflow events for metrics tracking."""
 
     VISION_SAVED = "vision_saved"
@@ -75,7 +75,7 @@ class WorkflowEventType(str, enum.Enum):
     TLX_PROMPT_TRIGGERED = "tlx_prompt_triggered"
 
 
-class TimeFrame(str, enum.Enum):
+class TimeFrame(StrEnum):
     """Roadmap time frames for prioritization."""
 
     NOW = "Now"
@@ -83,7 +83,7 @@ class TimeFrame(str, enum.Enum):
     LATER = "Later"
 
 
-class SpecAuthorityStatus(str, enum.Enum):
+class SpecAuthorityStatus(StrEnum):
     """Status of compiled spec authority for a product."""
 
     CURRENT = "current"
