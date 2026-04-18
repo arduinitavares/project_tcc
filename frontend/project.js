@@ -499,6 +499,7 @@ function updateNextButton() {
     button.innerHTML = `${model.label} <span class="material-symbols-outlined text-sm">arrow_forward</span>`;
     button.disabled = !model.enabled;
     hint.innerText = model.hint;
+    button.title = !model.enabled ? model.hint : '';
 
     button.className = model.enabled
         ? 'inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-white font-bold transition-all shadow-sm'
@@ -934,6 +935,7 @@ function updateVisionSaveButton() {
     hint.innerText = canSave
         ? 'Vision is complete. Proceed to save and advance to Backlog.'
         : 'Save is disabled until latest Vision output has is_complete=true.';
+    button.title = !canSave ? hint.innerText : '';
 }
 
 async function loadVisionHistory() {
@@ -1243,6 +1245,7 @@ function updateBacklogSaveButton() {
     hint.innerText = canSave
         ? 'Backlog is complete. Proceed to save and advance to Roadmap.'
         : 'Save is disabled until latest Backlog output has is_complete=true.';
+    button.title = !canSave ? hint.innerText : '';
 }
 
 async function loadBacklogHistory() {
@@ -1569,6 +1572,7 @@ function updateRoadmapSaveButton() {
     hint.innerText = canSave
         ? 'Roadmap is complete. Proceed to save and advance to Stories.'
         : 'Save is disabled until latest Roadmap output has is_complete=true.';
+    button.title = !canSave ? hint.innerText : '';
 }
 
 async function loadRoadmapHistory() {
@@ -2227,6 +2231,10 @@ function updateStorySaveButton() {
             hint.innerText = 'Save disabled until a complete reusable draft exists.';
         }
     }
+    button.title = !canSave ? hint.innerText : '';
+    if (mergeButton) {
+        mergeButton.title = !canMerge ? hint.innerText : '';
+    }
 }
 
 function updateCompleteStoryPhaseButton() {
@@ -2240,6 +2248,7 @@ function updateCompleteStoryPhaseButton() {
     btn.className = anySaved
         ? 'inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all shadow-md animate-pulse-once ring-2 ring-emerald-300'
         : 'inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-200 text-slate-400 dark:bg-slate-800 dark:text-slate-600 font-bold cursor-not-allowed transition-all';
+    btn.title = !anySaved ? 'Complete Story Phase is disabled until at least one requirement has stories saved.' : '';
 }
 
 async function generateStoryDraft() {
@@ -3723,25 +3732,30 @@ function updateSprintSaveButton() {
 
     if (activeFsmState === 'SPRINT_PERSISTENCE') {
         hint.innerText = 'Sprint already saved for this draft.';
+        button.title = !canSave ? hint.innerText : '';
         return;
     }
 
     if (!latestSprintIsComplete) {
         hint.innerText = 'Save is disabled until the latest Sprint output is complete.';
+        button.title = !canSave ? hint.innerText : '';
         return;
     }
 
     if (!teamNameInput.value.trim()) {
         hint.innerText = 'Provide a team name to confirm this sprint.';
+        button.title = !canSave ? hint.innerText : '';
         return;
     }
 
     if (!startDateInput.value) {
         hint.innerText = 'Choose a sprint start date to confirm this sprint.';
+        button.title = !canSave ? hint.innerText : '';
         return;
     }
 
     hint.innerText = 'Sprint plan is complete. Proceed to save.';
+    button.title = !canSave ? hint.innerText : '';
 }
 
 async function deleteCurrentProject() {
