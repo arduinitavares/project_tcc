@@ -10,9 +10,11 @@ Validates:
 
 import os
 import sys
+from collections.abc import Iterable
+from typing import cast
 
 # Ensure project root is on the path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # noqa: PTH100, PTH120
 
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.function_tool import FunctionTool
@@ -21,9 +23,9 @@ from orchestrator_agent.fsm.definitions import STATE_REGISTRY
 from orchestrator_agent.fsm.states import OrchestratorState
 
 
-def _build_tools_dict(tools: list) -> dict:
+def _build_tools_dict(tools: Iterable[object]) -> dict[str, object]:
     """Simulate what ADK's LlmRequest.append_tools does."""
-    tools_dict: dict = {}
+    tools_dict: dict[str, object] = {}
     for tool in tools:
         if isinstance(tool, BaseTool):
             decl = tool._get_declaration()
@@ -37,10 +39,10 @@ def _build_tools_dict(tools: list) -> dict:
     return tools_dict
 
 
-def _dedupe_tools(tools):
+def _dedupe_tools(tools: Iterable[object]) -> list[object]:
     """Deduplicate tools by ADK-visible name."""
-    seen: set = set()
-    deduped: list = []
+    seen: set[object] = set()
+    deduped: list[object] = []
     for tool in tools:
         name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
         name = name or repr(tool)
@@ -54,7 +56,7 @@ def _dedupe_tools(tools):
 class TestSprintPlannerToolRegistration:
     """Verify that sprint_planner_tool is accessible in all FSM states that list it."""
 
-    STATES_WITH_SPRINT_PLANNER = [
+    STATES_WITH_SPRINT_PLANNER = [  # noqa: RUF012
         OrchestratorState.SETUP_REQUIRED,
         OrchestratorState.STORY_PERSISTENCE,
         OrchestratorState.SPRINT_SETUP,
@@ -62,7 +64,8 @@ class TestSprintPlannerToolRegistration:
         OrchestratorState.SPRINT_PERSISTENCE,
     ]
 
-    def test_sprint_planner_in_routing_mode_tools(self):
+    def test_sprint_planner_in_routing_mode_tools(self) -> None:
+        """Verify sprint planner in routing mode tools."""
         state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         names = [
             getattr(t, "name", None) or getattr(t, "__name__", None)
@@ -72,9 +75,10 @@ class TestSprintPlannerToolRegistration:
             f"sprint_planner_tool not in SETUP_REQUIRED tools: {names}"
         )
 
-    def test_sprint_planner_survives_dedupe(self):
+    def test_sprint_planner_survives_dedupe(self) -> None:
+        """Verify sprint planner survives dedupe."""
         state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
-        deduped = _dedupe_tools(state_def.tools)
+        deduped = _dedupe_tools(cast("Iterable[object]", state_def.tools))
         names = [
             getattr(t, "name", None) or getattr(t, "__name__", None) for t in deduped
         ]
@@ -82,7 +86,8 @@ class TestSprintPlannerToolRegistration:
             f"sprint_planner_tool lost after _dedupe_tools: {names}"
         )
 
-    def test_sprint_planner_declaration_valid(self):
+    def test_sprint_planner_declaration_valid(self) -> None:
+        """Verify sprint planner declaration valid."""
         state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         for tool in state_def.tools:
             name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
@@ -91,7 +96,7 @@ class TestSprintPlannerToolRegistration:
                     decl = tool._get_declaration()
                 else:
                     assert callable(tool), (
-                        f"sprint_planner_tool should be callable or BaseTool, got {type(tool)}"
+                        f"sprint_planner_tool should be callable or BaseTool, got {type(tool)}"  # noqa: E501
                     )
                     decl = FunctionTool(func=tool)._get_declaration()
                 assert decl is not None, "sprint_planner_tool declaration is None"
@@ -99,30 +104,30 @@ class TestSprintPlannerToolRegistration:
                     f"Declaration name mismatch: {decl.name}"
                 )
                 return
-        assert False, "sprint_planner_tool not found in SETUP_REQUIRED tools"
+        assert False, "sprint_planner_tool not found in SETUP_REQUIRED tools"  # noqa: B011, PT015
 
-    def test_sprint_planner_in_simulated_tools_dict(self):
+    def test_sprint_planner_in_simulated_tools_dict(self) -> None:
         """Key test: Simulates the full ADK tools_dict build pipeline."""
         state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
-        deduped = _dedupe_tools(state_def.tools)
+        deduped = _dedupe_tools(cast("Iterable[object]", state_def.tools))
         tools_dict = _build_tools_dict(deduped)
         assert "sprint_planner_tool" in tools_dict, (
             f"sprint_planner_tool not in tools_dict! Keys: {list(tools_dict.keys())}"
         )
 
-    def test_all_states_with_sprint_planner(self):
-        """Verify sprint_planner_tool is in tools_dict for ALL states that should have it."""
+    def test_all_states_with_sprint_planner(self) -> None:
+        """Verify sprint_planner_tool is in tools_dict for ALL states that should have it."""  # noqa: E501
         for state in self.STATES_WITH_SPRINT_PLANNER:
             state_def = STATE_REGISTRY.get(state)
             assert state_def is not None, f"State {state} not in registry"
-            deduped = _dedupe_tools(state_def.tools)
+            deduped = _dedupe_tools(cast("Iterable[object]", state_def.tools))
             tools_dict = _build_tools_dict(deduped)
             assert "sprint_planner_tool" in tools_dict, (
                 f"sprint_planner_tool not in tools_dict for {state.value}! "
                 f"Keys: {list(tools_dict.keys())}"
             )
 
-    def test_no_duplicate_tool_names(self):
+    def test_no_duplicate_tool_names(self) -> None:
         """Verify no two tools share the same name in SETUP_REQUIRED."""
         state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
         names = []

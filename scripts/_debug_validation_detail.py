@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+from utils.cli_output import emit
+
 sys.path.append(str(Path(__file__).parent.parent))
 
 from tools.spec_tools import validate_story_with_spec_authority
@@ -16,5 +18,5 @@ for sid in STORY_IDS:
     res = validate_story_with_spec_authority(
         {"story_id": sid, "spec_version_id": SPEC_VERSION_ID}
     )
-    print(f"\n=== Story {sid}: {'PASS' if res.get('passed') else 'FAIL'} ===")
-    print(json.dumps(res, indent=2, default=str)[:1000])
+    emit(f"\n=== Story {sid}: {'PASS' if res.get('passed') else 'FAIL'} ===")
+    emit(json.dumps(res, indent=2, default=str)[:1000])

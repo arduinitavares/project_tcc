@@ -1,9 +1,15 @@
+"""Script for analyze benchmark."""
+
 import collections
 import json
+from pathlib import Path
+
+from utils.cli_output import emit
 
 
-def analyze_benchmark(cases_path):
-    with open(cases_path) as f:
+def analyze_benchmark(cases_path: str | Path) -> None:  # noqa: C901
+    """Return analyze benchmark."""
+    with open(cases_path) as f:  # noqa: PTH123
         cases = [json.loads(line) for line in f if line.strip()]
 
     total_cases = len(cases)
@@ -31,27 +37,27 @@ def analyze_benchmark(cases_path):
 
     duplicates = {h: ids for h, ids in content_hashes.items() if len(ids) > 1}
 
-    print(f"Total Cases: {total_cases}")
-    print(f"Pass: {pass_count} ({pass_count / total_cases:.1%})")
-    print(f"Fail: {fail_count} ({fail_count / total_cases:.1%})")
-    print(f"Unlabeled: {unlabeled_count} ({unlabeled_count / total_cases:.1%})")
+    emit(f"Total Cases: {total_cases}")
+    emit(f"Pass: {pass_count} ({pass_count / total_cases:.1%})")
+    emit(f"Fail: {fail_count} ({fail_count / total_cases:.1%})")
+    emit(f"Unlabeled: {unlabeled_count} ({unlabeled_count / total_cases:.1%})")
 
-    print("\nFailure Reasons:")
+    emit("\nFailure Reasons:")
     for r, count in sorted(fail_reasons.items(), key=lambda x: x[1], reverse=True):
-        print(f"  {r}: {count}")
+        emit(f"  {r}: {count}")
 
-    print("\nProduct/Spec Distribution:")
+    emit("\nProduct/Spec Distribution:")
     for key, count in sorted(
         product_spec_counts.items(), key=lambda x: x[1], reverse=True
     ):
-        print(f"  {key}: {count}")
+        emit(f"  {key}: {count}")
 
-    print("\nDuplicates:")
+    emit("\nDuplicates:")
     if duplicates:
         for h, ids in duplicates.items():
-            print(f"  Hash {h[:8]}: {ids}")
+            emit(f"  Hash {h[:8]}: {ids}")
     else:
-        print("  None")
+        emit("  None")
 
 
 if __name__ == "__main__":

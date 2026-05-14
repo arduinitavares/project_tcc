@@ -1,15 +1,21 @@
 """API tests for vision interview endpoints."""
 
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Never, Protocol, cast
 
+import pytest
 from fastapi.testclient import TestClient
 
 import api as api_module
+from orchestrator_agent.agent_tools.product_vision_tool.tools import SaveVisionInput
 from utils import failure_artifacts
 
 
 @dataclass
 class DummyProduct:
+    """Test helper for dummy product."""
+
     product_id: int
     name: str
     description: str | None = None
@@ -18,20 +24,32 @@ class DummyProduct:
     compiled_authority_json: str | None = None
 
 
-class DummyProductRepository:
-    def __init__(self) -> None:
-        self.products = []
+class StateContext(Protocol):
+    """Minimal context protocol with mutable ADK state."""
 
-    def get_all(self):
+    state: dict[str, object]
+
+
+class DummyProductRepository:
+    """Test helper for dummy product repository."""
+
+    def __init__(self) -> None:
+        """Initialize the test helper."""
+        self.products: list[DummyProduct] = []
+
+    def get_all(self) -> list[DummyProduct]:
+        """Return get all."""
         return list(self.products)
 
-    def get_by_id(self, product_id: int):
+    def get_by_id(self, product_id: int) -> DummyProduct | None:
+        """Return get by id."""
         for product in self.products:
             if product.product_id == product_id:
                 return product
         return None
 
-    def create(self, name: str, description: str | None = None):
+    def create(self, name: str, description: str | None = None) -> DummyProduct:
+        """Return create."""
         product = DummyProduct(
             product_id=len(self.products) + 1,
             name=name,
@@ -42,35 +60,48 @@ class DummyProductRepository:
 
 
 class DummyWorkflowService:
+    """Test helper for dummy workflow service."""
+
     def __init__(self) -> None:
+        """Initialize the test helper."""
         self.states: dict[str, dict[str, object]] = {}
 
     async def initialize_session(self, session_id: str | None = None) -> str:
+        """Return initialize session."""
         sid = str(session_id or "generated")
         self.states[sid] = {"fsm_state": "SETUP_REQUIRED"}
         return sid
 
-    def get_session_status(self, session_id: str):
+    def get_session_status(self, session_id: str) -> dict[str, object]:
+        """Return get session status."""
         return dict(self.states.get(str(session_id), {}))
 
-    def update_session_status(self, session_id: str, partial_update):
+    def update_session_status(
+        self, session_id: str, partial_update: dict[str, object]
+    ) -> None:
+        """Return update session status."""
         sid = str(session_id)
         current = dict(self.states.get(sid, {}))
         current.update(partial_update)
         self.states[sid] = current
 
     def migrate_legacy_setup_state(self) -> int:
+        """Return migrate legacy setup state."""
         return 0
 
 
-def _build_client(monkeypatch):
+def _build_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[TestClient, DummyProductRepository, DummyWorkflowService]:
     repo = DummyProductRepository()
     workflow = DummyWorkflowService()
 
     monkeypatch.setattr(api_module, "product_repo", repo)
     monkeypatch.setattr(api_module, "workflow_service", workflow)
 
-    def fake_select_project(product_id: int, context):
+    def fake_select_project(
+        product_id: int, context: StateContext
+    ) -> dict[str, object]:
         product = repo.get_by_id(product_id)
         if not product:
             return {"success": False, "error": "missing"}
@@ -86,7 +117,10 @@ def _build_client(monkeypatch):
 
     monkeypatch.setattr(api_module, "select_project", fake_select_project)
 
-    async def fake_run_vision_agent_from_state(state, *, project_id, user_input):
+    async def fake_run_vision_agent_from_state(
+        state: dict[str, object], *, project_id: int, user_input: str | None
+    ) -> dict[str, object]:
+        del project_id
         normalized = (user_input or "").lower().strip()
         if normalized == "force-runtime-error":
             return {
@@ -152,7 +186,10 @@ def _build_client(monkeypatch):
         api_module, "run_vision_agent_from_state", fake_run_vision_agent_from_state
     )
 
-    def fake_save_vision_tool(vision_input, tool_context):
+    def fake_save_vision_tool(
+        vision_input: SaveVisionInput, tool_context: object
+    ) -> dict[str, object]:
+        del tool_context
         return {
             "success": True,
             "product_id": vision_input.product_id,
@@ -180,7 +217,10 @@ def _seed_setup_passed_project(
     return product.product_id
 
 
-def test_generate_first_attempt_allows_empty_input(monkeypatch):
+def test_generate_first_attempt_allows_empty_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify generate first attempt allows empty input."""
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_setup_passed_project(repo, workflow)
 
@@ -188,7 +228,7 @@ def test_generate_first_attempt_allows_empty_input(monkeypatch):
         f"/api/projects/{project_id}/vision/generate",
         json={},
     )
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
 
     payload = response.json()
     assert payload["status"] == "success"
@@ -199,10 +239,14 @@ def test_generate_first_attempt_allows_empty_input(monkeypatch):
     history = workflow.states[str(project_id)]["vision_attempts"]
     assert isinstance(history, list)
     assert len(history) == 1
-    assert history[0]["trigger"] == "manual_refine"
+    first_attempt = cast("dict[str, object]", history[0])
+    assert first_attempt["trigger"] == "manual_refine"
 
 
-def test_generate_refine_requires_feedback_after_first_attempt(monkeypatch):
+def test_generate_refine_requires_feedback_after_first_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify generate refine requires feedback after first attempt."""
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_setup_passed_project(repo, workflow)
 
@@ -210,17 +254,20 @@ def test_generate_refine_requires_feedback_after_first_attempt(monkeypatch):
         f"/api/projects/{project_id}/vision/generate",
         json={},
     )
-    assert first_response.status_code == 200
+    assert first_response.status_code == 200  # noqa: PLR2004
 
     second_response = client.post(
         f"/api/projects/{project_id}/vision/generate",
         json={},
     )
-    assert second_response.status_code == 409
+    assert second_response.status_code == 409  # noqa: PLR2004
     assert "Feedback is required" in second_response.json()["detail"]
 
 
-def test_generate_incomplete_stays_in_interview_and_records_history(monkeypatch):
+def test_generate_incomplete_stays_in_interview_and_records_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify generate incomplete stays in interview and records history."""
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_setup_passed_project(repo, workflow)
 
@@ -228,7 +275,7 @@ def test_generate_incomplete_stays_in_interview_and_records_history(monkeypatch)
         f"/api/projects/{project_id}/vision/generate",
         json={"user_input": "needs refinement"},
     )
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
 
     payload = response.json()
     assert payload["data"]["is_complete"] is False
@@ -237,10 +284,12 @@ def test_generate_incomplete_stays_in_interview_and_records_history(monkeypatch)
     history = workflow.states[str(project_id)]["vision_attempts"]
     assert isinstance(history, list)
     assert len(history) == 1
-    assert history[0]["trigger"] == "manual_refine"
+    first_attempt = cast("dict[str, object]", history[0])
+    assert first_attempt["trigger"] == "manual_refine"
 
 
-def test_generate_complete_moves_to_review(monkeypatch):
+def test_generate_complete_moves_to_review(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify generate complete moves to review."""
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_setup_passed_project(repo, workflow)
 
@@ -248,14 +297,17 @@ def test_generate_complete_moves_to_review(monkeypatch):
         f"/api/projects/{project_id}/vision/generate",
         json={"user_input": "complete this vision"},
     )
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
 
     payload = response.json()
     assert payload["data"]["is_complete"] is True
     assert payload["data"]["fsm_state"] == "VISION_REVIEW"
 
 
-def test_generate_error_records_attempt_and_stays_interview(monkeypatch):
+def test_generate_error_records_attempt_and_stays_interview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify generate error records attempt and stays interview."""
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_setup_passed_project(repo, workflow)
 
@@ -263,7 +315,7 @@ def test_generate_error_records_attempt_and_stays_interview(monkeypatch):
         f"/api/projects/{project_id}/vision/generate",
         json={"user_input": "force-runtime-error"},
     )
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
 
     payload = response.json()
     assert payload["data"]["vision_run_success"] is False
@@ -271,13 +323,16 @@ def test_generate_error_records_attempt_and_stays_interview(monkeypatch):
     assert payload["data"]["fsm_state"] == "VISION_INTERVIEW"
 
     history = workflow.states[str(project_id)]["vision_attempts"]
+    assert isinstance(history, list)
     assert len(history) == 1
-    assert history[0]["is_complete"] is False
-    assert history[0]["failure_artifact_id"] == "vision-failure-1"
-    assert history[0]["raw_output_preview"] == '{"partial": true}'
+    first_attempt = cast("dict[str, object]", history[0])
+    assert first_attempt["is_complete"] is False
+    assert first_attempt["failure_artifact_id"] == "vision-failure-1"
+    assert first_attempt["raw_output_preview"] == '{"partial": true}'
 
 
-def test_generate_error_history_stays_compact(monkeypatch):
+def test_generate_error_history_stays_compact(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify generate error history stays compact."""
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_setup_passed_project(repo, workflow)
 
@@ -285,10 +340,10 @@ def test_generate_error_history_stays_compact(monkeypatch):
         f"/api/projects/{project_id}/vision/generate",
         json={"user_input": "force-runtime-error"},
     )
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
 
     history_response = client.get(f"/api/projects/{project_id}/vision/history")
-    assert history_response.status_code == 200
+    assert history_response.status_code == 200  # noqa: PLR2004
 
     item = history_response.json()["data"]["items"][0]
     assert item["failure_artifact_id"] == "vision-failure-1"
@@ -299,12 +354,16 @@ def test_generate_error_history_stays_compact(monkeypatch):
     assert "raw_output" not in item["output_artifact"]
 
 
-def test_generate_route_translates_vision_phase_error(monkeypatch):
+def test_generate_route_translates_vision_phase_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify generate route translates vision phase error."""
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_setup_passed_project(repo, workflow)
 
-    async def failing_service(**_kwargs):
-        raise api_module.VisionPhaseError("service boom", status_code=418)
+    async def failing_service(**_kwargs: object) -> Never:
+        msg = "service boom"
+        raise api_module.VisionPhaseError(msg, status_code=418)
 
     monkeypatch.setattr(
         api_module,
@@ -316,11 +375,14 @@ def test_generate_route_translates_vision_phase_error(monkeypatch):
         f"/api/projects/{project_id}/vision/generate",
         json={"user_input": "complete this"},
     )
-    assert response.status_code == 418
+    assert response.status_code == 418  # noqa: PLR2004
     assert response.json()["detail"] == "service boom"
 
 
-def test_vision_history_endpoint_returns_attempts(monkeypatch):
+def test_vision_history_endpoint_returns_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify vision history endpoint returns attempts."""
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_setup_passed_project(repo, workflow)
 
@@ -334,16 +396,19 @@ def test_vision_history_endpoint_returns_attempts(monkeypatch):
     )
 
     response = client.get(f"/api/projects/{project_id}/vision/history")
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
 
     payload = response.json()
     assert payload["status"] == "success"
-    assert payload["data"]["count"] == 2
+    assert payload["data"]["count"] == 2  # noqa: PLR2004
     items = payload["data"]["items"]
     assert all(item.get("trigger") == "manual_refine" for item in items)
 
 
-def test_save_vision_rejects_when_latest_is_incomplete(monkeypatch):
+def test_save_vision_rejects_when_latest_is_incomplete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify save vision rejects when latest is incomplete."""
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_setup_passed_project(repo, workflow)
 
@@ -353,10 +418,11 @@ def test_save_vision_rejects_when_latest_is_incomplete(monkeypatch):
     )
 
     response = client.post(f"/api/projects/{project_id}/vision/save")
-    assert response.status_code == 409
+    assert response.status_code == 409  # noqa: PLR2004
 
 
-def test_save_vision_succeeds_when_complete(monkeypatch):
+def test_save_vision_succeeds_when_complete(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify save vision succeeds when complete."""
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_setup_passed_project(repo, workflow)
 
@@ -366,7 +432,7 @@ def test_save_vision_succeeds_when_complete(monkeypatch):
     )
 
     response = client.post(f"/api/projects/{project_id}/vision/save")
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
 
     payload = response.json()
     assert payload["status"] == "success"
@@ -374,7 +440,10 @@ def test_save_vision_succeeds_when_complete(monkeypatch):
     assert workflow.states[str(project_id)]["fsm_state"] == "VISION_PERSISTENCE"
 
 
-def test_debug_failure_endpoint_returns_full_artifact(monkeypatch, tmp_path):
+def test_debug_failure_endpoint_returns_full_artifact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify debug failure endpoint returns full artifact."""
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_setup_passed_project(repo, workflow)
     monkeypatch.setattr(failure_artifacts, "LOGS_DIR", tmp_path / "logs")
@@ -394,13 +463,16 @@ def test_debug_failure_endpoint_returns_full_artifact(monkeypatch, tmp_path):
 
     artifact_id = persisted["metadata"]["failure_artifact_id"]
     response = client.get(f"/api/projects/{project_id}/debug/failures/{artifact_id}")
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()["data"]
     assert payload["artifact_id"] == artifact_id
     assert payload["raw_output"] == '{"broken": '
 
 
-def test_debug_failure_endpoint_rejects_other_project_artifact(monkeypatch, tmp_path):
+def test_debug_failure_endpoint_rejects_other_project_artifact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify debug failure endpoint rejects other project artifact."""
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_setup_passed_project(repo, workflow)
     other_project = repo.create("Other")
@@ -423,4 +495,4 @@ def test_debug_failure_endpoint_rejects_other_project_artifact(monkeypatch, tmp_
 
     artifact_id = persisted["metadata"]["failure_artifact_id"]
     response = client.get(f"/api/projects/{project_id}/debug/failures/{artifact_id}")
-    assert response.status_code == 404
+    assert response.status_code == 404  # noqa: PLR2004

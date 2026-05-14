@@ -1,3 +1,5 @@
+"""Tests for story refiner input schema."""
+
 from __future__ import annotations
 
 import json
@@ -7,6 +9,7 @@ from utils.spec_schemas import StoryRefinerInput
 
 
 def test_story_refiner_input_schema_round_trip() -> None:
+    """Verify story refiner input schema round trip."""
     payload: dict[str, Any] = {
         "story_draft": {
             "title": "Capture user_id",

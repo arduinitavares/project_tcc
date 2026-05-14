@@ -1,40 +1,91 @@
+# ruff: noqa: E501
 """
 Manual test script for persona enforcement.
+
 Seeds a dummy Review-First product and generates test stories (with mocked LLM response).
 """
 
 import asyncio
+import importlib
 import json
+from collections.abc import Iterable, Iterator
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from orchestrator_agent.agent_tools.story_pipeline.tools import (
-    ProcessStoryInput,
-    process_single_story,
-)
 from sqlmodel import Session, select
 
 from agile_sqlmodel import Product, create_db_and_tables, engine
 from models.core import ProductPersona
+from utils.cli_output import emit
+
+
+def _load_story_pipeline_tools() -> Any:  # noqa: ANN401
+    module_name = "orchestrator_agent.agent_tools.story_pipeline.tools"
+    try:
+        return importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        msg = (
+            "The persona enforcement script targets legacy module "
+            f"{module_name!r}, which is not present in this checkout."
+        )
+        raise RuntimeError(msg) from exc
+
+
+_story_pipeline_tools = _load_story_pipeline_tools()
+ProcessStoryInput = _story_pipeline_tools.ProcessStoryInput
+process_single_story = _story_pipeline_tools.process_single_story
+
+
+def _require_id(value: int | None, name: str) -> int:
+    if value is None:
+        msg = f"{name} was not generated"
+        raise RuntimeError(msg)
+    return value
 
 
 # Mock Iterator for Runner
 class AsyncIterator:
-    def __init__(self, items):
-        self.items = items
+    """Test helper for async iterator."""
 
-    def __aiter__(self):
+    def __init__(self, items: Iterable[object]) -> None:
+        """Initialize the test helper."""
+        self.items = items
+        self._iter: Iterator[object] = iter(())
+
+    def __aiter__(self) -> "AsyncIterator":
+        """Implement __aiter__ for the test helper."""
         self._iter = iter(self.items)
         return self
 
-    async def __anext__(self):
+    async def __anext__(self) -> object:
+        """Implement __anext__ for the test helper."""
         try:
             return next(self._iter)
         except StopIteration as exc:
             raise StopAsyncIteration from exc
 
 
-async def main():
-    print("Initializing Database...")
+def _seed_default_personas(session: Session, product_id: int) -> None:
+    personas_data = [
+        ("automation engineer", True, "primary_user"),
+        ("engineering qa reviewer", False, "primary_user"),
+        ("it administrator", False, "admin"),
+        ("ml engineer", False, "platform"),
+    ]
+
+    for name, is_default, category in personas_data:
+        persona = ProductPersona(
+            product_id=product_id,
+            persona_name=name,
+            is_default=is_default,
+            category=category,
+        )
+        session.add(persona)
+
+
+async def main() -> None:
+    """Return main."""
+    emit("Initializing Database...")
     create_db_and_tables()
 
     # Create test product
@@ -51,31 +102,17 @@ async def main():
             session.add(product)
             session.commit()
             session.refresh(product)
+            product_id = _require_id(product.product_id, "Product ID")
 
-            # Seed personas
-            personas_data = [
-                ("automation engineer", True, "primary_user"),
-                ("engineering qa reviewer", False, "primary_user"),
-                ("it administrator", False, "admin"),
-                ("ml engineer", False, "platform"),
-            ]
-
-            for name, is_default, category in personas_data:
-                persona = ProductPersona(
-                    product_id=product.product_id,
-                    persona_name=name,
-                    is_default=is_default,
-                    category=category,
-                )
-                session.add(persona)
+            _seed_default_personas(session, product_id)
             session.commit()
-            print(f"✅ Created test product: {product.name} (ID: {product.product_id})")
+            emit(f"✅ Created test product: {product.name} (ID: {product.product_id})")
         else:
-            print(
-                f"ℹ️  Using existing product: {product.name} (ID: {product.product_id})"
+            emit(
+                f"ℹ️  Using existing product: {product.name} (ID: {product.product_id})"  # noqa: RUF001
             )
 
-        product_id = product.product_id
+        product_id = _require_id(product.product_id, "Product ID")
 
     # Test features that commonly cause drift
     test_features = [
@@ -93,18 +130,18 @@ async def main():
         },
     ]
 
-    print(f"\n{'=' * 60}")
-    print("PERSONA ENFORCEMENT TEST (Mocked LLM)")
-    print(f"{'=' * 60}\n")
+    emit(f"\n{'=' * 60}")
+    emit("PERSONA ENFORCEMENT TEST (Mocked LLM)")
+    emit(f"{'=' * 60}\n")
 
     # We patch the Runner and SessionService to simulate drift
     with (
         patch(
             "orchestrator_agent.agent_tools.story_pipeline.tools.Runner"
-        ) as MockRunner,
+        ) as MockRunner,  # noqa: N806
         patch(
             "orchestrator_agent.agent_tools.story_pipeline.tools.InMemorySessionService"
-        ) as MockService,
+        ) as MockService,  # noqa: N806
         patch(
             "orchestrator_agent.agent_tools.story_pipeline.tools.validate_feature_alignment"
         ) as mock_align,
@@ -112,9 +149,9 @@ async def main():
         mock_align.return_value.is_aligned = True
 
         for i, feature in enumerate(test_features, 1):
-            print(f"Test {i}/{len(test_features)}: {feature['title']}")
-            print(f"  Expected drift risk: '{feature['expected_drift']}'")
-            print("  Required Persona: 'automation engineer'")
+            emit(f"Test {i}/{len(test_features)}: {feature['title']}")
+            emit(f"  Expected drift risk: '{feature['expected_drift']}'")
+            emit("  Required Persona: 'automation engineer'")
 
             # Setup mock to return DRIFTED story
             drifted_desc = (
@@ -160,7 +197,7 @@ async def main():
                 epic=feature["epic"],
                 user_persona="automation engineer",  # Always require this
                 time_frame="Now",
-                spec_version_id=1,  # TODO: set to a real compiled spec_version_id
+                spec_version_id=1,  # TODO: set to a real compiled spec_version_id  # noqa: FIX002
             )
 
             try:
@@ -168,20 +205,20 @@ async def main():
 
                 # Check result
                 final_desc = result["story"]["description"]
-                print(f"  Result Description: {final_desc}")
+                emit(f"  Result Description: {final_desc}")
 
                 if (
                     "automation engineer" in final_desc
                     and feature["expected_drift"] not in final_desc
                 ):
-                    print("  ✅ PASS - Persona enforced correctly (Auto-corrected)")
+                    emit("  ✅ PASS - Persona enforced correctly (Auto-corrected)")
                 else:
-                    print("  ❌ FAIL - Persona drift persisted!")
+                    emit("  ❌ FAIL - Persona drift persisted!")
 
-            except Exception as e:
-                print(f"  ❌ ERROR: {e}")
+            except Exception as e:  # noqa: BLE001
+                emit(f"  ❌ ERROR: {e}")
 
-            print()
+            emit()
 
 
 if __name__ == "__main__":

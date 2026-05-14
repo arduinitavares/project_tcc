@@ -20,7 +20,8 @@ def _python_files_importing_compat_schemes() -> list[str]:
 
 
 def test_spec_schema_module_exports_validation_and_compiler_models() -> None:
-    from utils import schemes, spec_schemas
+    """Verify spec schema module exports validation and compiler models."""
+    from utils import schemes, spec_schemas  # noqa: PLC0415
 
     assert spec_schemas.ValidationFailure.__module__ == "utils.spec_schemas"
     assert spec_schemas.AlignmentFinding.__module__ == "utils.spec_schemas"
@@ -57,9 +58,15 @@ def test_spec_schema_module_exports_validation_and_compiler_models() -> None:
 
 
 def test_services_and_agents_import_spec_schema_module_boundary() -> None:
-    from orchestrator_agent.agent_tools.spec_authority_compiler_agent import agent
-    from services import orchestrator_query_service
-    from services.specs import compiler_service, story_validation_service
+    """Verify services and agents import spec schema module boundary."""
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent import (  # noqa: PLC0415
+        agent,
+    )
+    from services import orchestrator_query_service  # noqa: PLC0415
+    from services.specs import (  # noqa: PLC0415
+        compiler_service,
+        story_validation_service,
+    )
 
     assert (
         orchestrator_query_service.ValidationEvidence.__module__ == "utils.spec_schemas"
@@ -72,4 +79,5 @@ def test_services_and_agents_import_spec_schema_module_boundary() -> None:
 
 
 def test_python_modules_do_not_import_compat_schemes_directly() -> None:
+    """Verify python modules do not import compat schemes directly."""
     assert _python_files_importing_compat_schemes() == []

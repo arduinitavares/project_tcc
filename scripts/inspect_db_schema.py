@@ -4,6 +4,7 @@ import argparse
 import sqlite3
 from pathlib import Path
 
+from utils.cli_output import emit
 from utils.runtime_config import resolve_database_target
 
 
@@ -18,17 +19,18 @@ def resolve_db_path(explicit_db: str | None = None) -> str:
 def inspect_schema(db_path: str) -> None:
     """Print basic schema details for the target database."""
     if db_path != ":memory:" and not Path(db_path).exists():
-        raise FileNotFoundError(f"Database file not found: {db_path}")
+        msg = f"Database file not found: {db_path}"
+        raise FileNotFoundError(msg)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     tables = cursor.fetchall()
-    print("Tables in database:")
+    emit("Tables in database:")
     for (table_name,) in tables:
-        print(f"  - {table_name}")
+        emit(f"  - {table_name}")
 
-    print()
+    emit()
 
     for table_name in [
         "compiled_spec_authority",
@@ -37,22 +39,23 @@ def inspect_schema(db_path: str) -> None:
     ]:
         cursor.execute(f"PRAGMA table_info({table_name})")
         cols = cursor.fetchall()
-        print(f"{table_name} has {len(cols)} columns:")
+        emit(f"{table_name} has {len(cols)} columns:")
         for column in cols:
-            print(f"  {column[0]}: {column[1]} ({column[2]}) nullable={column[3]}")
-        print()
+            emit(f"  {column[0]}: {column[1]} ({column[2]}) nullable={column[3]}")
+        emit()
 
     conn.close()
 
 
 def main() -> None:
+    """Return main."""
     parser = argparse.ArgumentParser(
         description="Inspect the configured runtime database schema."
     )
     parser.add_argument(
         "db",
         nargs="?",
-        help="Optional SQLite database path or sqlite:/// URL. Defaults to PROJECT_TCC_DB_URL.",
+        help="Optional SQLite database path or sqlite:/// URL. Defaults to PROJECT_TCC_DB_URL.",  # noqa: E501
     )
     args = parser.parse_args()
     inspect_schema(resolve_db_path(args.db))

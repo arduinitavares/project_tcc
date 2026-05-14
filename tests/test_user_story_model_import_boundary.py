@@ -36,7 +36,8 @@ def _imported_names_from_source(module_path: Path, source: str) -> set[str]:
 
 
 def test_task3_user_story_consumers_import_user_story_from_models_core_only() -> None:
-    from models import core
+    """Verify task3 user story consumers import user story from models core only."""
+    from models import core  # noqa: PLC0415
 
     # Intentionally scoped to the Task 3 runtime consumers from
     # 2026-04-06-user-story-model-extraction.md. Later Phase 6 cleanup slices

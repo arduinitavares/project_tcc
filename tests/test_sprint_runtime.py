@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Never, cast
 
 import pytest
 
@@ -11,11 +12,15 @@ from orchestrator_agent.fsm import deterministic_tool_adapters as adapters
 from services import sprint_input, sprint_runtime
 from utils import adk_runner
 
+if TYPE_CHECKING:
+    from google.adk.tools import ToolContext
+
 
 class MockToolContext:
     """Minimal ToolContext stub for unit tests."""
 
-    def __init__(self, state):
+    def __init__(self, state: object) -> None:
+        """Initialize the test helper."""
         self.state = state
 
 
@@ -75,10 +80,12 @@ def _valid_sprint_output() -> str:
 
 
 def test_prepare_sprint_input_context_rejects_invalid_selected_story_ids(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_fetch_sprint_candidates(*, product_id):
-        assert product_id == 7
+    """Verify prepare sprint input context rejects invalid selected story ids."""
+
+    def fake_fetch_sprint_candidates(*, product_id: int) -> object:
+        assert product_id == 7  # noqa: PLR2004
         return {
             "success": True,
             "count": 1,
@@ -112,12 +119,15 @@ def test_prepare_sprint_input_context_rejects_invalid_selected_story_ids(
 
 
 @pytest.mark.asyncio
-async def test_runtime_and_adapter_build_matching_sprint_input(monkeypatch) -> None:
+async def test_runtime_and_adapter_build_matching_sprint_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify runtime and adapter build matching sprint input."""
     runtime_capture = {}
     adapter_capture = {}
 
-    def fake_fetch_sprint_candidates(*, product_id):
-        assert product_id == 7
+    def fake_fetch_sprint_candidates(*, product_id: int) -> object:
+        assert product_id == 7  # noqa: PLR2004
         return {
             "success": True,
             "count": 2,
@@ -140,11 +150,11 @@ async def test_runtime_and_adapter_build_matching_sprint_input(monkeypatch) -> N
             ],
         }
 
-    async def fake_invoke(payload):
+    async def fake_invoke(payload: sprint_runtime.SprintPlannerInput) -> object:
         runtime_capture["payload"] = payload.model_dump()
         return _valid_sprint_output()
 
-    async def fake_run_async(*, args, tool_context):
+    async def fake_run_async(*, args: object, tool_context: object) -> object:
         adapter_capture["args"] = args
         adapter_capture["tool_context"] = tool_context
         return {"sprint_goal": "goal", "selected_stories": [], "capacity_analysis": {}}
@@ -176,7 +186,7 @@ async def test_runtime_and_adapter_build_matching_sprint_input(monkeypatch) -> N
         max_story_points=13,
         include_task_decomposition=False,
         selected_story_ids=[12],
-        tool_context=context,
+        tool_context=cast("ToolContext", context),
     )
 
     assert runtime_result["success"] is True
@@ -207,10 +217,12 @@ async def test_runtime_and_adapter_build_matching_sprint_input(monkeypatch) -> N
 
 @pytest.mark.asyncio
 async def test_runtime_rejects_out_of_scope_task_invariant_bindings(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_fetch_sprint_candidates(*, product_id):
-        assert product_id == 7
+    """Verify runtime rejects out of scope task invariant bindings."""
+
+    def fake_fetch_sprint_candidates(*, product_id: int) -> object:
+        assert product_id == 7  # noqa: PLR2004
         return {
             "success": True,
             "count": 1,
@@ -225,7 +237,7 @@ async def test_runtime_rejects_out_of_scope_task_invariant_bindings(
             ],
         }
 
-    async def fake_invoke(_payload):
+    async def fake_invoke(_payload: object) -> object:
         return _valid_sprint_output()
 
     monkeypatch.setattr(
@@ -253,12 +265,13 @@ async def test_runtime_rejects_out_of_scope_task_invariant_bindings(
 
 @pytest.mark.asyncio
 async def test_runtime_passes_story_acceptance_criteria_into_decomposition_validator(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify runtime passes story acceptance criteria into decomposition validator."""
     captured = {}
 
-    def fake_fetch_sprint_candidates(*, product_id):
-        assert product_id == 7
+    def fake_fetch_sprint_candidates(*, product_id: int) -> object:
+        assert product_id == 7  # noqa: PLR2004
         return {
             "success": True,
             "count": 1,
@@ -269,21 +282,21 @@ async def test_runtime_passes_story_acceptance_criteria_into_decomposition_valid
                     "priority": 2,
                     "story_points": 3,
                     "evaluated_invariant_ids": ["INV-12"],
-                    "acceptance_criteria": "Persist the event\nSurface a success response",
+                    "acceptance_criteria": "Persist the event\nSurface a success response",  # noqa: E501
                 }
             ],
         }
 
-    async def fake_invoke(_payload):
+    async def fake_invoke(_payload: object) -> object:
         return _valid_sprint_output()
 
     def fake_validate_task_decomposition_quality(
-        _output,
+        _output: object,
         *,
-        include_task_decomposition,
-        has_acceptance_criteria_by_story,
-        acceptance_criteria_items_by_story=None,
-    ):
+        include_task_decomposition: object,
+        has_acceptance_criteria_by_story: bool,
+        acceptance_criteria_items_by_story: object = None,
+    ) -> object:
         captured["include_task_decomposition"] = include_task_decomposition
         captured["has_acceptance_criteria_by_story"] = has_acceptance_criteria_by_story
         captured["acceptance_criteria_items_by_story"] = (
@@ -321,9 +334,13 @@ async def test_runtime_passes_story_acceptance_criteria_into_decomposition_valid
 
 
 @pytest.mark.asyncio
-async def test_runtime_rejects_poor_task_decomposition_quality(monkeypatch) -> None:
-    def fake_fetch_sprint_candidates(*, product_id):
-        assert product_id == 7
+async def test_runtime_rejects_poor_task_decomposition_quality(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify runtime rejects poor task decomposition quality."""
+
+    def fake_fetch_sprint_candidates(*, product_id: int) -> object:
+        assert product_id == 7  # noqa: PLR2004
         return {
             "success": True,
             "count": 1,
@@ -334,12 +351,12 @@ async def test_runtime_rejects_poor_task_decomposition_quality(monkeypatch) -> N
                     "priority": 2,
                     "story_points": 3,
                     "evaluated_invariant_ids": [],
-                    "acceptance_criteria": "Persist the event\nSurface a success response",
+                    "acceptance_criteria": "Persist the event\nSurface a success response",  # noqa: E501
                 }
             ],
         }
 
-    async def fake_invoke(_payload):
+    async def fake_invoke(_payload: object) -> object:
         return json.dumps(
             {
                 "sprint_goal": "goal",
@@ -400,10 +417,12 @@ async def test_runtime_rejects_poor_task_decomposition_quality(monkeypatch) -> N
 
 @pytest.mark.asyncio
 async def test_runtime_exposes_compact_public_task_kind_retry_hints(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_fetch_sprint_candidates(*, product_id):
-        assert product_id == 7
+    """Verify runtime exposes compact public task kind retry hints."""
+
+    def fake_fetch_sprint_candidates(*, product_id: int) -> object:
+        assert product_id == 7  # noqa: PLR2004
         return {
             "success": True,
             "count": 1,
@@ -418,7 +437,7 @@ async def test_runtime_exposes_compact_public_task_kind_retry_hints(
             ],
         }
 
-    async def fake_invoke(_payload):
+    async def fake_invoke(_payload: object) -> object:
         return json.dumps(
             {
                 "sprint_goal": "goal",
@@ -473,16 +492,18 @@ async def test_runtime_exposes_compact_public_task_kind_retry_hints(
     assert result["success"] is False
     assert result["failure_stage"] == "output_validation"
     assert result["output_artifact"]["validation_errors"] == [
-        "Task 'Get approval' uses unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor."
+        "Task 'Get approval' uses unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor."  # noqa: E501
     ]
 
 
 @pytest.mark.asyncio
 async def test_runtime_uses_canonical_public_hint_for_non_string_task_kind(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_fetch_sprint_candidates(*, product_id):
-        assert product_id == 7
+    """Verify runtime uses canonical public hint for non string task kind."""
+
+    def fake_fetch_sprint_candidates(*, product_id: int) -> object:
+        assert product_id == 7  # noqa: PLR2004
         return {
             "success": True,
             "count": 1,
@@ -497,7 +518,7 @@ async def test_runtime_uses_canonical_public_hint_for_non_string_task_kind(
             ],
         }
 
-    async def fake_invoke(_payload):
+    async def fake_invoke(_payload: object) -> object:
         return json.dumps(
             {
                 "sprint_goal": "goal",
@@ -552,13 +573,16 @@ async def test_runtime_uses_canonical_public_hint_for_non_string_task_kind(
     assert result["success"] is False
     assert result["failure_stage"] == "output_validation"
     assert result["output_artifact"]["validation_errors"] == [
-        "Task 'Get approval' has invalid task_kind. Use one of: analysis, design, implementation, testing, documentation, refactor."
+        "Task 'Get approval' has invalid task_kind. Use one of: analysis, design, implementation, testing, documentation, refactor."  # noqa: E501
     ]
     assert "other" not in result["output_artifact"]["validation_errors"][0]
 
 
 @pytest.mark.asyncio
-async def test_adk_runner_preserves_structured_validation_details(monkeypatch) -> None:
+async def test_adk_runner_preserves_structured_validation_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify adk runner preserves structured validation details."""
     structured_errors = [
         {
             "type": "literal_error",
@@ -569,34 +593,40 @@ async def test_adk_runner_preserves_structured_validation_details(monkeypatch) -
     ]
 
     class FakeSessionService:
-        async def create_session(self, *, app_name, user_id):
+        async def create_session(self, *, app_name: object, user_id: int) -> object:
+            del app_name, user_id
             return SimpleNamespace(id="session-1")
 
     class FakeRunner:
-        def __init__(self, *, agent, app_name, session_service):
+        def __init__(
+            self, *, agent: object, app_name: object, session_service: object
+        ) -> None:
             self.agent = agent
             self.app_name = app_name
             self.session_service = session_service
 
-        async def run_async(self, *, user_id, session_id, new_message):
+        async def run_async(
+            self, *, user_id: int, session_id: int, new_message: object
+        ) -> object:
             _ = (user_id, session_id, new_message)
 
             class FakeStructuredValidationError(Exception):
-                def errors(self):
+                def errors(self) -> object:
                     return structured_errors
 
+            msg = "ADK validation failed"
             raise RuntimeError(
-                "ADK validation failed"
+                msg
             ) from FakeStructuredValidationError()
             yield None
 
     class FakePart:
         @staticmethod
-        def from_text(*, text):
+        def from_text(*, text: object) -> object:
             return SimpleNamespace(text=text)
 
     class FakeContent:
-        def __init__(self, *, role, parts):
+        def __init__(self, *, role: object, parts: object) -> None:
             self.role = role
             self.parts = parts
 
@@ -621,10 +651,12 @@ async def test_adk_runner_preserves_structured_validation_details(monkeypatch) -
 
 @pytest.mark.asyncio
 async def test_runtime_falls_back_to_public_hint_for_adk_task_kind_errors_without_input(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_fetch_sprint_candidates(*, product_id):
-        assert product_id == 7
+    """Verify runtime falls back to public hint for adk task kind errors without input."""  # noqa: E501
+
+    def fake_fetch_sprint_candidates(*, product_id: int) -> object:
+        assert product_id == 7  # noqa: PLR2004
         return {
             "success": True,
             "count": 1,
@@ -639,9 +671,10 @@ async def test_runtime_falls_back_to_public_hint_for_adk_task_kind_errors_withou
             ],
         }
 
-    async def fake_invoke(_payload):
+    async def fake_invoke(_payload: object) -> Never:
+        msg = "ADK validation failed"
         raise adk_runner.AgentInvocationError(
-            "ADK validation failed",
+            msg,
             validation_errors=[
                 {
                     "type": "missing",
@@ -670,5 +703,5 @@ async def test_runtime_falls_back_to_public_hint_for_adk_task_kind_errors_withou
     assert result["success"] is False
     assert result["failure_stage"] == "invocation_exception"
     assert result["output_artifact"]["validation_errors"] == [
-        "Task has invalid task_kind. Use one of: analysis, design, implementation, testing, documentation, refactor."
+        "Task has invalid task_kind. Use one of: analysis, design, implementation, testing, documentation, refactor."  # noqa: E501
     ]

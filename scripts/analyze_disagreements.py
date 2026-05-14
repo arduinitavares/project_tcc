@@ -1,9 +1,15 @@
+"""Script for analyze disagreements."""
+
 import collections
 import json
+from pathlib import Path
+
+from utils.cli_output import emit
 
 
-def analyze_disagreements(raw_path):
-    with open(raw_path) as f:
+def analyze_disagreements(raw_path: str | Path) -> None:
+    """Return analyze disagreements."""
+    with open(raw_path) as f:  # noqa: PTH123
         rows = [json.loads(line) for line in f if line.strip()]
 
     # Group by case_id
@@ -17,7 +23,7 @@ def analyze_disagreements(raw_path):
         llm = modes.get("llm", {}).get("predicted_pass")
         hyb = modes.get("hybrid", {}).get("predicted_pass")
 
-        if len(set([det, llm, hyb])) > 1:
+        if len({det, llm, hyb}) > 1:
             disagreements.append(
                 {
                     "case_id": case_id,
@@ -40,12 +46,12 @@ def analyze_disagreements(raw_path):
                 }
             )
 
-    print(f"Found {len(disagreements)} disagreements:")
+    emit(f"Found {len(disagreements)} disagreements:")
     for d in disagreements:
-        print(f"\nCase: {d['case_id']}")
-        print(f"  Det: {d['deterministic']} {d['det_reasons']}")
-        print(f"  LLM: {d['llm']} {d['llm_reasons']}")
-        print(f"  Hyb: {d['hybrid']} {d['hyb_reasons']}")
+        emit(f"\nCase: {d['case_id']}")
+        emit(f"  Det: {d['deterministic']} {d['det_reasons']}")
+        emit(f"  LLM: {d['llm']} {d['llm_reasons']}")
+        emit(f"  Hyb: {d['hybrid']} {d['hyb_reasons']}")
 
 
 if __name__ == "__main__":

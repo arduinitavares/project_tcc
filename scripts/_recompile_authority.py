@@ -4,18 +4,20 @@
 import sys
 from pathlib import Path
 
+from utils.cli_output import emit
+
 sys.path.append(str(Path(__file__).parent.parent))
 
 from tools.spec_tools import compile_spec_authority_for_version
 
 spec_version_id = int(sys.argv[1]) if len(sys.argv) > 1 else 9
 
-print(f"Recompiling authority for spec_version_id={spec_version_id} ...")
+emit(f"Recompiling authority for spec_version_id={spec_version_id} ...")
 result = compile_spec_authority_for_version(
     {"spec_version_id": spec_version_id, "force_recompile": True},
     tool_context=None,
 )
 
-import json
+import json  # noqa: E402
 
-print(json.dumps(result, indent=2, default=str))
+emit(json.dumps(result, indent=2, default=str))

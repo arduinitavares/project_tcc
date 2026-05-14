@@ -25,6 +25,8 @@ os.environ.setdefault(
     f"sqlite:///{_TEST_SESSION_DB_PATH.as_posix()}",
 )
 
+from models.core import Team, TeamMember  # noqa: E402
+
 model_config = importlib.import_module("utils.model_config")
 runtime_config = importlib.import_module("utils.runtime_config")
 core_models = importlib.import_module("models.core")
@@ -32,8 +34,6 @@ agile_sqlmodel = importlib.import_module("agile_sqlmodel")
 model_db = importlib.import_module("models.db")
 
 clear_runtime_config_cache = runtime_config.clear_runtime_config_cache
-Team = core_models.Team
-TeamMember = core_models.TeamMember
 
 _TEST_TEAM_MODELS = (Team, TeamMember)
 

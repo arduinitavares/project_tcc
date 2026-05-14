@@ -7,6 +7,7 @@ from scripts.extract_tcc_metrics import extract_state_dwell_summary
 
 
 def test_extract_state_dwell_summary_groups_by_from_state() -> None:
+    """Verify extract state dwell summary groups by from state."""
     conn = sqlite3.connect(":memory:")
     cur = conn.cursor()
     cur.execute(
@@ -48,10 +49,10 @@ def test_extract_state_dwell_summary_groups_by_from_state() -> None:
 
     summary = extract_state_dwell_summary(cur)
 
-    assert summary["SETUP_REQUIRED"]["count"] == 2
-    assert summary["SETUP_REQUIRED"]["avg_duration_sec"] == 15.0
-    assert summary["SETUP_REQUIRED"]["total_duration_sec"] == 30.0
+    assert summary["SETUP_REQUIRED"]["count"] == 2  # noqa: PLR2004
+    assert summary["SETUP_REQUIRED"]["avg_duration_sec"] == 15.0  # noqa: PLR2004
+    assert summary["SETUP_REQUIRED"]["total_duration_sec"] == 30.0  # noqa: PLR2004
     assert summary["SPRINT_SETUP"]["count"] == 1
-    assert summary["SPRINT_SETUP"]["total_duration_sec"] == 5.0
+    assert summary["SPRINT_SETUP"]["total_duration_sec"] == 5.0  # noqa: PLR2004
 
     conn.close()

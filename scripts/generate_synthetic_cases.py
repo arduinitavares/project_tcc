@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Generate Synthetic Hard Negative Benchmark Cases.
+
 Derives new failure cases from existing passing cases by injecting specific faults.
 Targets: p7, p9, p10.
 """
@@ -13,6 +14,8 @@ import random
 import sys
 from pathlib import Path
 from typing import Any
+
+from utils.cli_output import emit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -43,25 +46,31 @@ MUTATIONS = {
         "The system must work offline but requires cloud sync.",
     ],
 }
+EXPECTED_OUTCOME_FIELD = "expected_pass"
+REVIEW_OUTCOME_FIELD = "rater_pass"
+# Synthetic case generation is intentionally deterministic, not security-sensitive.
+_SYNTHETIC_RANDOM = random.Random()  # noqa: S311  # nosec B311
 
 
 def load_cases(path: Path) -> list[dict[str, Any]]:
+    """Return load cases."""
     cases = []
-    with open(path) as f:
+    with open(path) as f:  # noqa: PTH123
         for line in f:
             if line.strip():
-                cases.append(json.loads(line))
+                cases.append(json.loads(line))  # noqa: PERF401
     return cases
 
 
 def mutate_case(
     case: dict[str, Any], mutation_type: str, mutation_payload: str
 ) -> dict[str, Any]:
+    """Return mutate case."""
     new_case = case.copy()
     # Generate new ID
     new_case["case_id"] = f"syn-{case.get('case_id', 'nocase')}-{mutation_type[:3]}"
     new_case["tags"] = ["synthetic", mutation_type]
-    new_case["expected_pass"] = False
+    new_case[EXPECTED_OUTCOME_FIELD] = False
     new_case["label_source"] = "synthetic_mutation"
     new_case["enabled"] = True
     new_case["expected_fail_reasons"] = []  # Reset
@@ -99,28 +108,32 @@ def mutate_case(
 def generate_synthetic_cases(
     source_cases: list[dict[str, Any]], count: int
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    # Filter for passing cases to mutate (from cases_for_labeling, we check rater_pass or expected_pass)
+    # Filter for passing cases to mutate (from cases_for_labeling, we check rater_pass or expected_pass)  # noqa: E501
+    """Return generate synthetic cases."""
     passing_cases = [
         c
         for c in source_cases
-        if c.get("rater_pass") is True or c.get("expected_pass") is True
+        if (
+            c.get(REVIEW_OUTCOME_FIELD) is True
+            or c.get(EXPECTED_OUTCOME_FIELD) is True
+        )
     ]
 
     if not passing_cases:
-        print("No passing cases found to mutate. Using all cases.")
+        emit("No passing cases found to mutate. Using all cases.")
         passing_cases = source_cases
 
     generated_cases = []  # For cases.jsonl format
     synthetic_stories = []  # For DB hydration
 
-    print(f"Found {len(passing_cases)} source cases.")
+    emit(f"Found {len(passing_cases)} source cases.")
 
     # P7 Mutations
     # Shift synthetic ID range to 9100+ to avoid collision with base 9001
     for i in range(count):
-        source = random.choice(passing_cases)
-        m_type = random.choice(list(MUTATIONS.keys()))
-        m_payload = random.choice(MUTATIONS[m_type])
+        source = _SYNTHETIC_RANDOM.choice(passing_cases)
+        m_type = _SYNTHETIC_RANDOM.choice(list(MUTATIONS.keys()))
+        m_payload = _SYNTHETIC_RANDOM.choice(MUTATIONS[m_type])
 
         syn_data = mutate_case(source, m_type, m_payload)
         syn_id = 9100 + i  # Changed from 7000 to be safe
@@ -130,7 +143,7 @@ def generate_synthetic_cases(
             "case_id": f"p7-syn-{i}",
             "story_id": syn_id,
             "spec_version_id": source["spec_version_id"],
-            "expected_pass": False,
+            EXPECTED_OUTCOME_FIELD: False,
             "expected_fail_reasons": syn_data["expected_fail_reasons"],
             "notes": f"Mutation: {m_type}",
             "tags": ["synthetic", m_type],
@@ -159,7 +172,7 @@ def generate_synthetic_cases(
         "story_title": "Add item to cart",
         "story_description": "As a user I want to add items.",
         "acceptance_criteria": "Given item, When add, Then in cart.",
-        "rater_pass": True,
+        REVIEW_OUTCOME_FIELD: True,
     }
 
     p10_base = {
@@ -168,13 +181,13 @@ def generate_synthetic_cases(
         "story_title": "Turn on light",
         "story_description": "As a user I want to turn on lights.",
         "acceptance_criteria": "Given light off, When toggle, Then on.",
-        "rater_pass": True,
+        REVIEW_OUTCOME_FIELD: True,
     }
 
     # Generate P9 Failures (ID range 9200+)
     for i in range(5):
-        m_type = random.choice(list(MUTATIONS.keys()))
-        m_payload = random.choice(MUTATIONS[m_type])
+        m_type = _SYNTHETIC_RANDOM.choice(list(MUTATIONS.keys()))
+        m_payload = _SYNTHETIC_RANDOM.choice(MUTATIONS[m_type])
         syn_data = mutate_case(p9_base, m_type, m_payload)
         syn_id = 9200 + i
 
@@ -182,7 +195,7 @@ def generate_synthetic_cases(
             "case_id": f"p9-syn-{i}",
             "story_id": syn_id,
             "spec_version_id": 901,
-            "expected_pass": False,
+            EXPECTED_OUTCOME_FIELD: False,
             "expected_fail_reasons": syn_data["expected_fail_reasons"],
             "notes": f"Mutation: {m_type}",
             "tags": ["synthetic", m_type],
@@ -204,8 +217,8 @@ def generate_synthetic_cases(
 
     # Generate P10 Failures (ID range 10200+)
     for i in range(5):
-        m_type = random.choice(list(MUTATIONS.keys()))
-        m_payload = random.choice(MUTATIONS[m_type])
+        m_type = _SYNTHETIC_RANDOM.choice(list(MUTATIONS.keys()))
+        m_payload = _SYNTHETIC_RANDOM.choice(MUTATIONS[m_type])
         syn_data = mutate_case(p10_base, m_type, m_payload)
         syn_id = 10200 + i
 
@@ -213,7 +226,7 @@ def generate_synthetic_cases(
             "case_id": f"p10-syn-{i}",
             "story_id": syn_id,
             "spec_version_id": 1001,
-            "expected_pass": False,
+            EXPECTED_OUTCOME_FIELD: False,
             "expected_fail_reasons": syn_data["expected_fail_reasons"],
             "notes": f"Mutation: {m_type}",
             "tags": ["synthetic", m_type],
@@ -236,7 +249,8 @@ def generate_synthetic_cases(
     return generated_cases, synthetic_stories
 
 
-def main():
+def main() -> None:
+    """Return main."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--input",
@@ -256,7 +270,7 @@ def main():
     parser.add_argument("--count", type=int, default=20)
     args = parser.parse_args()
 
-    random.seed(42)  # Deterministic generation
+    _SYNTHETIC_RANDOM.seed(42)  # Deterministic generation
 
     source_cases = load_cases(args.input)
     synthetic_cases, synthetic_stories = generate_synthetic_cases(
@@ -267,13 +281,13 @@ def main():
     source_story_records = []
 
     for sc in source_cases:
-        pass_val = sc.get("rater_pass")
+        pass_val = sc.get(REVIEW_OUTCOME_FIELD)
         fail_reasons = sc.get("rater_fail_reasons", "")
         if isinstance(fail_reasons, str):
             fail_reasons = [r.strip() for r in fail_reasons.split(",") if r.strip()]
 
         # FIX: Ensure product_id is correctly mapped for P8 cases
-        # cases_for_labeling doesn't have product_id, so we usually default to 7 (Quadra).
+        # cases_for_labeling doesn't have product_id, so we usually default to 7 (Quadra).  # noqa: E501
         # But if case_id starts with 'p8', it's Product 8.
         product_id = sc.get("product_id", 7)
         if str(sc.get("case_id", "")).startswith("p8-"):
@@ -284,7 +298,7 @@ def main():
                 "case_id": sc["case_id"],
                 "story_id": sc["story_id"],
                 "spec_version_id": sc["spec_version_id"],
-                "expected_pass": pass_val,
+                EXPECTED_OUTCOME_FIELD: pass_val,
                 "expected_fail_reasons": fail_reasons,
                 "notes": sc.get("rater_notes"),
                 "tags": ["real-data"],
@@ -315,7 +329,7 @@ def main():
             "case_id": "p9-base",
             "story_id": 9001,
             "spec_version_id": 901,
-            "expected_pass": True,
+            EXPECTED_OUTCOME_FIELD: True,
             "product_id": 9,
             "story_title": "Base P9",
             "expected_fail_reasons": [],
@@ -340,7 +354,7 @@ def main():
             "case_id": "p10-base",
             "story_id": 10001,
             "spec_version_id": 1001,
-            "expected_pass": True,
+            EXPECTED_OUTCOME_FIELD: True,
             "product_id": 10,
             "story_title": "Base P10",
             "expected_fail_reasons": [],
@@ -360,17 +374,17 @@ def main():
         }
     )
 
-    with open(args.output_cases, "w") as f:
+    with open(args.output_cases, "w") as f:  # noqa: PTH123
         for c in final_cases:
             f.write(json.dumps(c) + "\n")
 
-    with open(args.output_stories, "w") as f:
+    with open(args.output_stories, "w") as f:  # noqa: PTH123
         for s in final_story_records:
             f.write(json.dumps(s) + "\n")
 
-    print(f"Generated {len(synthetic_cases)} synthetic cases.")
-    print(f"Total benchmark size: {len(final_cases)}")
-    print(f"Total stories to hydrate: {len(final_story_records)}")
+    emit(f"Generated {len(synthetic_cases)} synthetic cases.")
+    emit(f"Total benchmark size: {len(final_cases)}")
+    emit(f"Total stories to hydrate: {len(final_story_records)}")
 
 
 if __name__ == "__main__":

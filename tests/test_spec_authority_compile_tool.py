@@ -1,20 +1,19 @@
-"""
-Tests for Spec Authority compile tool used by the orchestrator.
-"""
+"""Tests for Spec Authority compile tool used by the orchestrator."""
 
 import asyncio
 import json
 from pathlib import Path
 
 import pytest
+from sqlalchemy.engine import Engine
 from sqlmodel import Session, select
 
 from agile_sqlmodel import CompiledSpecAuthority, Product
-from orchestrator_agent.agent_tools.spec_authority_compiler_agent.compiler_contract import (
+from orchestrator_agent.agent_tools.spec_authority_compiler_agent.compiler_contract import (  # noqa: E501
     compute_invariant_id,
     compute_prompt_hash,
 )
-from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (
+from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (  # noqa: E501
     SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
     SPEC_AUTHORITY_COMPILER_VERSION,
 )
@@ -61,7 +60,7 @@ from utils.spec_schemas import (
 
 
 @pytest.fixture
-def sample_product(session: Session, engine) -> Product:
+def sample_product(session: Session, engine: Engine) -> Product:
     """Create a product without spec."""
     spec_tools.engine = engine
 
@@ -93,7 +92,7 @@ def sample_spec_content() -> str:
 
 
 @pytest.fixture
-def compiler_stub(monkeypatch):
+def compiler_stub(monkeypatch: pytest.MonkeyPatch) -> object:
     """Stub compiler agent to avoid real LLM calls."""
     raw_json = _build_raw_compiler_output(
         excerpt="The payload must include user_id.",
@@ -111,6 +110,7 @@ def test_compile_tool_blocks_unapproved_spec(
     session: Session, sample_product: Product, sample_spec_content: str
 ) -> None:
     """Compilation should fail for unapproved spec versions."""
+    del session
     reg_result = register_spec_version(
         {"product_id": sample_product.product_id, "content": sample_spec_content},
         tool_context=None,
@@ -140,19 +140,21 @@ def test_tool_compile_input_models_alias_service_models() -> None:
     assert GetCompiledAuthorityInput is ServiceGetCompiledAuthorityInput
 
 
-def test_tool_runtime_helpers_delegate_to_compiler_service(monkeypatch) -> None:
+def test_tool_runtime_helpers_delegate_to_compiler_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Legacy tool helper names should forward directly to compiler_service."""
     captured: dict[str, object] = {}
 
-    def fake_run_async_task(coro):
+    def fake_run_async_task(coro: object) -> str:
         captured["run_async_task"] = coro
         return "ran"
 
-    def fake_extract_compiler_response_text(events):
+    def fake_extract_compiler_response_text(events: object) -> str:
         captured["extract_compiler_response_text"] = events
         return "text"
 
-    async def fake_invoke_async(input_payload):
+    async def fake_invoke_async(input_payload: object) -> str:
         captured["invoke_async"] = input_payload
         return "async-raw-json"
 
@@ -195,12 +197,18 @@ def test_tool_runtime_helpers_delegate_to_compiler_service(monkeypatch) -> None:
         raising=False,
     )
 
-    coro_token = object()
+    async def _coro_token() -> str:
+        return "token"
+
+    coro_token = _coro_token()
     payload_token = object()
     events_token = [object()]
 
-    assert spec_tools._run_async_task(coro_token) == "ran"
-    assert captured["run_async_task"] is coro_token
+    try:
+        assert spec_tools._run_async_task(coro_token) == "ran"
+        assert captured["run_async_task"] is coro_token
+    finally:
+        coro_token.close()
 
     assert spec_tools._extract_compiler_response_text(events_token) == "text"
     assert captured["extract_compiler_response_text"] == events_token
@@ -229,14 +237,14 @@ def test_tool_runtime_helpers_delegate_to_compiler_service(monkeypatch) -> None:
 
 
 def test_tool_compiler_failure_and_extractor_helpers_delegate_to_service(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Tool compatibility helpers should forward failure shaping and extraction."""
     captured: dict[str, object] = {}
     failure_result = {"success": False, "error": "boom"}
     extractor_result = object()
 
-    def fake_failure(**kwargs):
+    def fake_failure(**kwargs: object) -> object:
         captured["failure"] = kwargs
         return failure_result
 
@@ -246,7 +254,7 @@ def test_tool_compiler_failure_and_extractor_helpers_delegate_to_service(
         content_ref: str | None,
         product_id: int,
         spec_version_id: int,
-    ):
+    ) -> object:
         captured["extract"] = {
             "spec_content": spec_content,
             "content_ref": content_ref,
@@ -315,9 +323,10 @@ def test_compile_tool_compiles_and_returns_summary(
     session: Session,
     sample_product: Product,
     sample_spec_content: str,
-    compiler_stub,
+    compiler_stub: object,
 ) -> None:
     """Compilation should create authority and return summary payload."""
+    del compiler_stub
     reg_result = register_spec_version(
         {"product_id": sample_product.product_id, "content": sample_spec_content},
         tool_context=None,
@@ -338,7 +347,7 @@ def test_compile_tool_compiles_and_returns_summary(
     assert result["cached"] is False
     assert result["spec_version_id"] == spec_version_id
     assert result["compiler_version"] == SPEC_AUTHORITY_COMPILER_VERSION
-    assert len(result["prompt_hash"]) == 64
+    assert len(result["prompt_hash"]) == 64  # noqa: PLR2004
     assert result["scope_themes_count"] >= 1
     assert result["invariants_count"] >= 1
 
@@ -358,9 +367,10 @@ def test_compile_tool_returns_cached_when_already_compiled(
     session: Session,
     sample_product: Product,
     sample_spec_content: str,
-    compiler_stub,
+    compiler_stub: object,
 ) -> None:
     """Compilation tool should be idempotent for existing authority."""
+    del compiler_stub
     reg_result = register_spec_version(
         {"product_id": sample_product.product_id, "content": sample_spec_content},
         tool_context=None,
@@ -395,9 +405,10 @@ def test_compile_tool_uses_content_ref_when_content_empty(
     session: Session,
     sample_product: Product,
     tmp_path: Path,
-    compiler_stub,
+    compiler_stub: object,
 ) -> None:
     """Compilation should load spec content from content_ref when needed."""
+    del compiler_stub
     spec_path = tmp_path / "spec.md"
     spec_path.write_text(
         """
@@ -441,6 +452,7 @@ def test_compile_tool_uses_content_ref_when_content_empty(
         )
     ).first()
 
+    assert authority is not None
     scope_themes = json.loads(authority.scope_themes)
     assert len(scope_themes) >= 1
 
@@ -472,7 +484,10 @@ def _build_raw_compiler_output(excerpt: str, field_name: str) -> str:
 
 
 def test_compile_persists_compiled_artifact_and_normalized_ids(
-    session: Session, sample_product: Product, sample_spec_content: str, monkeypatch
+    session: Session,
+    sample_product: Product,
+    sample_spec_content: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Compilation should persist normalized artifact and deterministic IDs."""
     reg_result = register_spec_version(
@@ -532,7 +547,10 @@ def test_compile_persists_compiled_artifact_and_normalized_ids(
 
 
 def test_compile_cache_hit_does_not_change_compiled_artifact(
-    session: Session, sample_product: Product, sample_spec_content: str, monkeypatch
+    session: Session,
+    sample_product: Product,
+    sample_spec_content: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Cache hit should not change artifact unless force_recompile=True."""
     reg_result = register_spec_version(
@@ -557,7 +575,7 @@ def test_compile_cache_hit_does_not_change_compiled_artifact(
 
     call_count = {"count": 0}
 
-    def _fake_invoke(**_) -> str:
+    def _fake_invoke(**_: object) -> str:
         call_count["count"] += 1
         return raw_json_1 if call_count["count"] == 1 else raw_json_2
 
@@ -604,7 +622,7 @@ def test_compile_cache_hit_does_not_change_compiled_artifact(
         tool_context=None,
     )
     assert third["success"] is True
-    assert call_count["count"] == 2
+    assert call_count["count"] == 2  # noqa: PLR2004
 
     session.expire_all()
     authority = session.exec(
@@ -620,9 +638,11 @@ def test_compile_persists_invocation_failure_artifact(
     session: Session,
     sample_product: Product,
     sample_spec_content: str,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """Verify compile persists invocation failure artifact."""
+    del session
     reg_result = register_spec_version(
         {"product_id": sample_product.product_id, "content": sample_spec_content},
         tool_context=None,
@@ -663,9 +683,11 @@ def test_compile_persists_normalizer_failure_artifact(
     session: Session,
     sample_product: Product,
     sample_spec_content: str,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """Verify compile persists normalizer failure artifact."""
+    del session
     reg_result = register_spec_version(
         {"product_id": sample_product.product_id, "content": sample_spec_content},
         tool_context=None,

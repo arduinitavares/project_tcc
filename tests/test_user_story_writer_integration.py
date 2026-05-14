@@ -10,7 +10,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from google.adk.runners import Runner
@@ -28,6 +28,11 @@ from orchestrator_agent.agent_tools.user_story_writer_tool.schemes import (
 )
 from utils.adk_runner import extract_final_response_text, parse_json_payload
 from utils.runtime_config import STORY_RUNNER_IDENTITY
+
+if TYPE_CHECKING:
+    from google.adk.agents.callback_context import CallbackContext
+    from google.adk.models.llm_request import LlmRequest
+    from google.adk.models.llm_response import LlmResponse
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INPUT_FIXTURE_PATH = REPO_ROOT / "input_for_test.txt"
@@ -78,14 +83,14 @@ def _describe_parse_failure(raw_text: str) -> str:
             )
 
 
-def _write_diagnostic_artifact(
+def _write_diagnostic_artifact(  # noqa: PLR0913
     *,
     artifact_path: Path,
     payload_text: str,
     raw_output: str | None,
     parsed_json: dict[str, Any] | None,
     parse_error: str | None,
-    validation_errors: list[dict[str, Any]] | None,
+    validation_errors: object,
 ) -> None:
     artifact = {
         "source_payload_path": str(INPUT_FIXTURE_PATH),
@@ -110,15 +115,20 @@ def _write_diagnostic_artifact(
 async def test_story_agent_replay_captures_raw_output_from_input_fixture(
     tmp_path: Path,
 ) -> None:
+    """Verify story agent replay captures raw output from input fixture."""
     payload, payload_text = _load_story_payload()
 
     agent = create_user_story_writer_agent()
     original_output_schema = agent.output_schema
     assert original_output_schema is UserStoryWriterOutput
 
-    async def _preserve_request_schema(*, callback_context, llm_request):
+    async def _preserve_request_schema(
+        callback_context: CallbackContext,
+        llm_request: LlmRequest,
+    ) -> LlmResponse | None:
         del callback_context
         llm_request.set_output_schema(original_output_schema)
+        return None
 
     agent.output_schema = None
     agent.output_key = None
@@ -146,7 +156,7 @@ async def test_story_agent_replay_captures_raw_output_from_input_fixture(
         session_id=session.id,
         new_message=message,
     ):
-        events.append(event)
+        events.append(event)  # noqa: PERF401
 
     raw_output = extract_final_response_text(events) or None
     parsed_json = parse_json_payload(raw_output or "")
@@ -190,7 +200,7 @@ async def test_story_agent_replay_captures_raw_output_from_input_fixture(
             validation_errors=exc.errors(),
         )
         pytest.fail(
-            f"Story replay returned schema-invalid JSON. Diagnostic saved to {artifact_path}"
+            f"Story replay returned schema-invalid JSON. Diagnostic saved to {artifact_path}"  # noqa: E501
         )
 
     assert raw_output.strip(), "Expected a non-empty raw model response"

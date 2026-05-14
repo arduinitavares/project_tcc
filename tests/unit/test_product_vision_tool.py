@@ -1,6 +1,4 @@
-"""
-Unit tests for the product_vision_tool module.
-"""
+"""Unit tests for the product_vision_tool module."""
 
 from unittest.mock import MagicMock, patch
 
@@ -15,8 +13,8 @@ from orchestrator_agent.agent_tools.product_vision_tool.tools import (
 )
 
 
-def test_save_vision_tool_creates_project_and_returns_dict(engine: Engine):
-    """Test that save_vision_tool creates a project and returns the correct dictionary structure."""
+def test_save_vision_tool_creates_project_and_returns_dict(engine: Engine) -> None:
+    """Test that save_vision_tool creates a project and returns the correct dictionary structure."""  # noqa: E501
     # Mock ToolContext
     tool_context = MagicMock(spec=ToolContext)
     tool_context.state = {}
@@ -56,7 +54,7 @@ def test_save_vision_tool_creates_project_and_returns_dict(engine: Engine):
     assert tool_context.state["active_project"]["product_id"] == result["product_id"]
 
 
-def test_save_vision_tool_updates_existing_project(engine: Engine):
+def test_save_vision_tool_updates_existing_project(engine: Engine) -> None:
     """Test that save_vision_tool updates an existing project and returns the ID."""
     # Pre-populate DB
     with Session(engine) as session:
@@ -93,10 +91,11 @@ def test_save_vision_tool_updates_existing_project(engine: Engine):
         product = session.exec(
             select(Product).where(Product.name == "Existing Project")
         ).first()
+        assert product is not None
         assert product.vision == "New Updated Vision"
 
 
-def test_save_vision_tool_handles_missing_active_project(engine: Engine):
+def test_save_vision_tool_handles_missing_active_project(engine: Engine) -> None:
     """Test that save_vision_tool handles missing active_project state safely."""
     with Session(engine) as session:
         existing_project = Product(name="Hashbrown", vision="Old")
@@ -120,8 +119,10 @@ def test_save_vision_tool_handles_missing_active_project(engine: Engine):
         result = save_vision_tool(vision_input, tool_context)
 
     assert result["success"] is True
-    assert tool_context.state["active_project"]["name"] == "Hashbrown"
-    assert tool_context.state["active_project"]["structure"] == {
+    active_project = tool_context.state["active_project"]
+    assert isinstance(active_project, dict)
+    assert active_project["name"] == "Hashbrown"
+    assert active_project["structure"] == {
         "themes": 0,
         "epics": 0,
         "features": 0,
@@ -131,7 +132,7 @@ def test_save_vision_tool_handles_missing_active_project(engine: Engine):
 
 def test_save_vision_tool_updates_existing_project_by_name_when_id_is_none(
     engine: Engine,
-):
+) -> None:
     """Test that save_vision_tool falls back to update if name exists but ID is None."""
     # 1. Pre-seed the DB with a project
     with Session(engine) as session:
@@ -161,11 +162,12 @@ def test_save_vision_tool_updates_existing_project_by_name_when_id_is_none(
     # Verify Result
     assert result["success"] is True
     assert result["product_id"] == existing_id
-    # message might not contain "Updating" if I didn't verify that part, but let's check basic success.
+    # message might not contain "Updating" if I didn't verify that part, but let's check basic success.  # noqa: E501
 
     # Verify DB Update
     with Session(engine) as session:
         updated = session.get(Product, existing_id)
+        assert updated is not None
         assert updated.vision == "New Updated Vision"
         # Ensure no duplicate was created
         all_prods = session.exec(

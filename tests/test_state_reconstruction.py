@@ -10,41 +10,43 @@ import json
 import os
 import re
 import uuid
+from typing import Any
 
 import pytest
+from google.adk.agents import BaseAgent
 from google.adk.runners import Runner
-from google.adk.sessions import DatabaseSessionService
+from google.adk.sessions.database_session_service import DatabaseSessionService
 from google.genai import types
 
 from orchestrator_agent.agent_tools.product_vision_tool.agent import root_agent
 
+JsonDict = dict[str, Any]
+
 
 # pylint: disable=too-few-public-methods
 class StatefulVisionAgent:
-    """
-    Helper class to maintain state for the vision agent across test turns.
-    """
+    """Helper class to maintain state for the vision agent across test turns."""
 
-    def __init__(self, agent):
+    def __init__(self, agent: BaseAgent) -> None:
+        """Initialize the test helper."""
         self.agent = agent
-        self.vision_components = None  # dict
+        self.vision_components: JsonDict | None = None
 
-    def _parse_json_response(self, response_text):
-        """Parses the JSON response from the LLM, handling markdown blocks."""
+    def _parse_json_response(self, response_text: str) -> JsonDict:
+        """Parses the JSON response from the LLM, handling markdown blocks."""  # noqa: D401
         match = re.search(r"```json\n(.*?)\n```", response_text, re.DOTALL)
         if match:
             json_str = match.group(1)
         else:
             match = re.search(r"(\{.*\})$", response_text.strip(), re.DOTALL)
-            if match:
-                json_str = match.group(1)
-            else:
-                json_str = response_text
+            json_str = match.group(1) if match else response_text
 
-        return json.loads(json_str)
+        parsed = json.loads(json_str)
+        assert isinstance(parsed, dict)
+        return parsed
 
-    async def run(self, input_dict):
-        """Runs a single turn of the agent with the provided input."""
+    async def run(self, input_dict: dict[str, str]) -> JsonDict:  # noqa: C901
+        """Runs a single turn of the agent with the provided input."""  # noqa: D401
         user_text = input_dict.get("unstructured_requirements", "")
 
         prior_state_str = (
@@ -85,7 +87,7 @@ class StatefulVisionAgent:
             if "updated_components" in data:
                 self.vision_components = data["updated_components"]
 
-            result = {}
+            result: JsonDict = {}
             if "updated_components" in data:
                 result.update(data["updated_components"])
             if "product_vision_statement" in data:
@@ -95,14 +97,14 @@ class StatefulVisionAgent:
             if "is_complete" in data:
                 result["is_complete"] = data["is_complete"]
 
-            return result
+            return result  # noqa: TRY300
 
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except Exception as e:  # pylint: disable=broad-exception-caught  # noqa: BLE001
             return {"error": str(e), "raw": response_text}
 
 
 @pytest.fixture
-def agent_wrapper():
+def agent_wrapper() -> StatefulVisionAgent:
     """Fixture to create a StatefulVisionAgent instance."""
     return StatefulVisionAgent(root_agent)
 
@@ -113,12 +115,15 @@ class TestStateReconstruction:
     """Test cases for multi-turn state preservation."""
 
     @pytest.mark.asyncio
-    async def test_basic_accumulation(self, agent_wrapper):
+    async def test_basic_accumulation(
+        self, agent_wrapper: StatefulVisionAgent
+    ) -> None:
         """
-        Test Case 1: Basic Accumulation
+        Test Case 1: Basic Accumulation.
+
         Turn 1: Identify target user
         Turn 2: Add project name
-        Expected: Both values present in Turn 2 output
+        Expected: Both values present in Turn 2 output.
         """
         # Turn 1: User provides initial idea
         turn1_input = {"unstructured_requirements": "I want a Tinder for Tennis"}
@@ -142,12 +147,13 @@ class TestStateReconstruction:
         )
 
     @pytest.mark.asyncio
-    async def test_explicit_update(self, agent_wrapper):
+    async def test_explicit_update(self, agent_wrapper: StatefulVisionAgent) -> None:
         """
-        Test Case 2: Explicit Update
+        Test Case 2: Explicit Update.
+
         Turn 1: Set target user to "tennis players"
         Turn 2: Change target user to "pickleball players"
-        Expected: Turn 2 output reflects the UPDATE, not the original value
+        Expected: Turn 2 output reflects the UPDATE, not the original value.
         """
         # Turn 1: Initial target user
         turn1_input = {"unstructured_requirements": "Target users are tennis players"}
@@ -167,19 +173,22 @@ class TestStateReconstruction:
             "pickleball" in vision_statement.lower()
             or "pickleball" in str(target_user).lower()
         )
-        assert (
+        assert (  # noqa: PT018
             "tennis" not in vision_statement.lower()
             and "tennis" not in str(target_user).lower()
         ), "Old value persisted despite explicit update"
 
     @pytest.mark.asyncio
-    async def test_partial_information_across_turns(self, agent_wrapper):
+    async def test_partial_information_across_turns(
+        self, agent_wrapper: StatefulVisionAgent
+    ) -> None:
         """
-        Test Case 3: Partial Information Across Turns
+        Test Case 3: Partial Information Across Turns.
+
         Turn 1: Project name
         Turn 2: Target user
         Turn 3: Problem statement
-        Expected: Turn 3 output includes ALL THREE components
+        Expected: Turn 3 output includes ALL THREE components.
         """
         # Turn 1: Project name
         turn1_input = {"unstructured_requirements": "The project name is NetSet"}
@@ -196,7 +205,7 @@ class TestStateReconstruction:
 
         # Turn 3: Problem statement
         turn3_input = {
-            "unstructured_requirements": "The problem is that it's hard to find tennis partners"
+            "unstructured_requirements": "The problem is that it's hard to find tennis partners"  # noqa: E501
         }
         turn3_response = await agent_wrapper.run(turn3_input)
 
@@ -210,18 +219,21 @@ class TestStateReconstruction:
         )
 
     @pytest.mark.asyncio
-    async def test_clarifying_questions_loop(self, agent_wrapper):
+    async def test_clarifying_questions_loop(
+        self, agent_wrapper: StatefulVisionAgent
+    ) -> None:
         """
-        Test Case 4: Clarifying Questions Loop
+        Test Case 4: Clarifying Questions Loop.
+
         Turn 1: Vague input → Agent asks questions
         Turn 2: User answers ONE question
-        Expected: Turn 2 output includes answer + original context
+        Expected: Turn 2 output includes answer + original context.
         """
         # Turn 1: Vague input
         turn1_input = {"unstructured_requirements": "Tinder for Tennis"}
         turn1_response = await agent_wrapper.run(turn1_input)
 
-        # Verify agent asked clarifying questions (or fully completed if model inferred details)
+        # Verify agent asked clarifying questions (or fully completed if model inferred details)  # noqa: E501
         is_complete = turn1_response.get("is_complete")
         clarifying_questions = turn1_response.get("clarifying_questions", [])
         if is_complete is False:
@@ -247,9 +259,10 @@ class TestStateReconstruction:
         ), "Original context lost after answering clarifying question"
 
     @pytest.mark.asyncio
-    async def test_null_preservation(self, agent_wrapper):
+    async def test_null_preservation(self, agent_wrapper: StatefulVisionAgent) -> None:
         """
-        Test Case 5: Null Preservation
+        Test Case 5: Null Preservation.
+
         Verify that null/unknown fields remain null until explicitly provided,
         and don't overwrite known fields.
         """
@@ -272,9 +285,12 @@ class TestStateReconstruction:
         assert "tennis" in vision_statement.lower()
 
     @pytest.mark.asyncio
-    async def test_multiple_components_single_turn(self, agent_wrapper):
+    async def test_multiple_components_single_turn(
+        self, agent_wrapper: StatefulVisionAgent
+    ) -> None:
         """
-        Test Case 6: Multiple Components in Single Turn
+        Test Case 6: Multiple Components in Single Turn.
+
         Verify agent can extract multiple components from one input
         and preserve them in subsequent turns.
         """
@@ -282,7 +298,7 @@ class TestStateReconstruction:
         turn1_input = {
             "unstructured_requirements": (
                 "NetSet is a mobile app for tennis players who struggle to find "
-                "practice partners. Unlike Facebook groups, it uses skill-based matching."
+                "practice partners. Unlike Facebook groups, it uses skill-based matching."  # noqa: E501
             )
         }
         turn1_response = await agent_wrapper.run(turn1_input)
@@ -298,7 +314,7 @@ class TestStateReconstruction:
 
         # Turn 2: Add one more component (e.g., differentiator)
         turn2_input = {
-            "unstructured_requirements": "The key differentiator is real-time availability tracking"
+            "unstructured_requirements": "The key differentiator is real-time availability tracking"  # noqa: E501
         }
         turn2_response = await agent_wrapper.run(turn2_input)
 
@@ -318,10 +334,8 @@ class TestMergeLogic:
     """Test cases for specific merge logic scenarios."""
 
     @pytest.mark.asyncio
-    async def test_preserve_rule(self, agent_wrapper):
-        """
-        Merge Rule: Historical value + No mention in current input = PRESERVE
-        """
+    async def test_preserve_rule(self, agent_wrapper: StatefulVisionAgent) -> None:
+        """Merge Rule: Historical value + No mention in current input = PRESERVE."""
         # Establish historical value
         turn1_input = {"unstructured_requirements": "Target users are tennis players"}
         _ = await agent_wrapper.run(turn1_input)
@@ -335,10 +349,8 @@ class TestMergeLogic:
         assert "tennis" in vision_statement.lower()
 
     @pytest.mark.asyncio
-    async def test_update_rule(self, agent_wrapper):
-        """
-        Merge Rule: Historical value + New value in current input = UPDATE
-        """
+    async def test_update_rule(self, agent_wrapper: StatefulVisionAgent) -> None:
+        """Merge Rule: Historical value + New value in current input = UPDATE."""
         # Establish historical value
         turn1_input = {"unstructured_requirements": "Target users are tennis players"}
         _ = await agent_wrapper.run(turn1_input)
@@ -355,10 +367,8 @@ class TestMergeLogic:
         assert "tennis" not in vision_statement.lower()
 
     @pytest.mark.asyncio
-    async def test_add_rule(self, agent_wrapper):
-        """
-        Merge Rule: No historical value + New value in current input = ADD
-        """
+    async def test_add_rule(self, agent_wrapper: StatefulVisionAgent) -> None:
+        """Merge Rule: No historical value + New value in current input = ADD."""
         # Turn 1: No target user mentioned
         turn1_input = {"unstructured_requirements": "Project name is NetSet"}
         _ = await agent_wrapper.run(turn1_input)
@@ -372,10 +382,10 @@ class TestMergeLogic:
         assert "tennis" in vision_statement.lower()
 
     @pytest.mark.asyncio
-    async def test_remains_unknown_rule(self, agent_wrapper):
-        """
-        Merge Rule: No historical value + No mention in current input = REMAINS UNKNOWN
-        """
+    async def test_remains_unknown_rule(
+        self, agent_wrapper: StatefulVisionAgent
+    ) -> None:
+        """Merge Rule: No historical value + No mention in current input = REMAINS UNKNOWN."""  # noqa: E501
         # Turn 1: Provide only project name
         turn1_input = {"unstructured_requirements": "Project name is NetSet"}
         _ = await agent_wrapper.run(turn1_input)
@@ -400,10 +410,10 @@ class TestRealWorldScenarios:
     """Integration tests simulating real user conversations."""
 
     @pytest.mark.asyncio
-    async def test_incremental_refinement(self, agent_wrapper):
-        """
-        Simulate a user gradually refining their idea across 5 turns.
-        """
+    async def test_incremental_refinement(
+        self, agent_wrapper: StatefulVisionAgent
+    ) -> None:
+        """Simulate a user gradually refining their idea across 5 turns."""
         conversation = [
             "I want to build something for tennis players",
             "It's called NetSet",
@@ -412,14 +422,14 @@ class TestRealWorldScenarios:
             "Unlike Facebook groups, it has skill-based matching",
         ]
 
-        previous_response = None
+        previous_response: JsonDict | None = None
         for turn_num, user_input in enumerate(conversation, start=1):
             response = await agent_wrapper.run(
                 {"unstructured_requirements": user_input}
             )
 
             # Verify cumulative state growth
-            if turn_num >= 2:
+            if turn_num >= 2:  # noqa: PLR2004
                 # From Turn 2 onwards, verify previous information is preserved
                 vision_statement = response.get("product_vision_statement", "")
                 target_user = response.get("target_user", "")
@@ -428,7 +438,7 @@ class TestRealWorldScenarios:
                     or "tennis" in str(target_user).lower()
                 ), f"Turn {turn_num}: Lost 'tennis' from Turn 1"
 
-            if turn_num >= 3:
+            if turn_num >= 3:  # noqa: PLR2004
                 assert response.get("project_name") == "NetSet", (
                     f"Turn {turn_num}: Lost project name from Turn 2"
                 )
@@ -436,6 +446,7 @@ class TestRealWorldScenarios:
             previous_response = response
 
         # Final verification: All components present
+        assert previous_response is not None
         final_vision = previous_response.get("product_vision_statement", "")
         final_target_user = previous_response.get("target_user", "")
         assert (

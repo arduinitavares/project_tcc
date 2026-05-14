@@ -26,6 +26,7 @@ class TestBacklogPrimerSchemas:
     """Validate input/output schema rules."""
 
     def test_input_schema_json_roundtrip(self) -> None:
+        """Verify input schema json roundtrip."""
         payload: dict[str, Any] = {
             "product_vision_statement": "For teams who need clarity...",
             "technical_spec": "Spec: must support SSO and audit logging.",
@@ -37,6 +38,7 @@ class TestBacklogPrimerSchemas:
         assert parsed.product_vision_statement.startswith("For teams")
 
     def test_output_schema_valid_payload(self) -> None:
+        """Verify output schema valid payload."""
         payload: dict[str, Any] = {
             "backlog_items": [
                 {
@@ -61,20 +63,24 @@ class TestBacklogPrimerSchemas:
         }
 
         parsed = OutputSchema.model_validate_json(json.dumps(payload))
-        assert len(parsed.backlog_items) == 2
+        assert len(parsed.backlog_items) == 2  # noqa: PLR2004
 
     def test_backlog_item_rejects_invalid_effort(self) -> None:
+        """Verify backlog item rejects invalid effort."""
         with pytest.raises(ValidationError):
-            BacklogItem(
-                priority=1,
-                requirement="Notifications",
-                value_driver="Strategic",
-                justification="Boosts engagement",
-                estimated_effort="XXL",  # type: ignore[arg-type]
-                technical_note=None,
+            BacklogItem.model_validate(
+                {
+                    "priority": 1,
+                    "requirement": "Notifications",
+                    "value_driver": "Strategic",
+                    "justification": "Boosts engagement",
+                    "estimated_effort": "XXL",
+                    "technical_note": None,
+                }
             )
 
     def test_backlog_item_requires_positive_priority(self) -> None:
+        """Verify backlog item requires positive priority."""
         with pytest.raises(ValidationError):
             BacklogItem(
                 priority=0,
@@ -131,10 +137,10 @@ class TestSaveBacklogTool:
             result = await save_backlog_tool(save_input, tool_context=mock_context)
 
         assert result["success"] is True
-        assert result["saved_count"] == 2
+        assert result["saved_count"] == 2  # noqa: PLR2004
         assert "approved_backlog" in mock_context.state
         assert mock_context.state["approved_backlog"]["product_id"] == 1
-        assert len(mock_context.state["approved_backlog"]["items"]) == 2
+        assert len(mock_context.state["approved_backlog"]["items"]) == 2  # noqa: PLR2004
 
     @pytest.mark.asyncio
     async def test_save_backlog_rejects_invalid_items(self) -> None:
@@ -147,7 +153,7 @@ class TestSaveBacklogTool:
             backlog_items=[
                 {
                     "priority": 1,
-                    # Missing: requirement, value_driver, justification, estimated_effort
+                    # Missing: requirement, value_driver, justification, estimated_effort  # noqa: E501
                 },
             ],
         )
@@ -180,6 +186,7 @@ class TestSaveBacklogTool:
 
     @pytest.mark.asyncio
     async def test_backlog_save_sets_linkage_fields(self) -> None:
+        """Verify backlog save sets linkage fields."""
         mock_context = MagicMock()
         mock_context.state = {}
         test_engine = create_engine("sqlite://", echo=False)
@@ -225,6 +232,7 @@ class TestSaveBacklogTool:
     async def test_backlog_resave_after_refinement_does_not_insert_duplicates(
         self,
     ) -> None:
+        """Verify backlog resave after refinement does not insert duplicates."""
         mock_context = MagicMock()
         mock_context.state = {}
         test_engine = create_engine("sqlite://", echo=False)

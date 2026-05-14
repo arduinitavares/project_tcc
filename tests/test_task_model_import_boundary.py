@@ -90,6 +90,7 @@ def test_task_runtime_consumers_import_task_from_models_core_only() -> None:
     # Intentionally limited to the first Task runtime consumers from
     # 2026-04-06-task-sprint-model-extraction.md. Later slices keep Sprint on
     # the shim and are handled in separate tests.
+    """Verify task runtime consumers import task from models core only."""
     module_names = [
         "api",
         "tools.db_tools",

@@ -10,13 +10,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
+
+from utils.cli_output import emit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
-from agile_sqlmodel import (  # pylint: disable=wrong-import-position
+from agile_sqlmodel import (  # pylint: disable=wrong-import-position  # noqa: E402
     CompiledSpecAuthority,
     SpecRegistry,
     UserStory,
@@ -92,7 +94,7 @@ def _maybe_warn_evidence_only(cases: list[dict[str, Any]]) -> None:
         case for case in cases if case.get("label_source") == "validation_evidence"
     ]
     if len(evidence_labels) == len(cases):
-        print(
+        emit(
             (
                 "WARNING: All labels derive from validation_evidence. "
                 "This creates circular evaluation risk. Relabel with human_review "
@@ -127,12 +129,14 @@ def _resolve_spec_version_id(
             SpecRegistry.product_id == story.product_id,
             SpecRegistry.status == "approved",
         )
-        .order_by(SpecRegistry.spec_version_id.desc())
+        .order_by(col(SpecRegistry.spec_version_id).desc())
     ).first()
     if not spec:
         return None, "no_approved_spec"
 
-    spec_id = int(spec.spec_version_id)
+    spec_id = spec.spec_version_id
+    if spec_id is None:
+        return None, "latest_approved_spec_missing_id"
     if require_compiled:
         compiled = session.exec(
             select(CompiledSpecAuthority).where(
@@ -157,7 +161,7 @@ def build_cases(
     rows: list[dict[str, Any]] = []
 
     with Session(get_engine()) as session:
-        statement = select(UserStory).order_by(UserStory.story_id.asc())
+        statement = select(UserStory).order_by(col(UserStory.story_id).asc())
         if product_id is not None:
             statement = statement.where(UserStory.product_id == product_id)
 
@@ -183,11 +187,15 @@ def build_cases(
             if labeled_only and expected_pass is None:
                 continue
 
+            story_id = story.story_id
+            if story_id is None:
+                continue
+
             rows.append(
                 {
-                    "case_id": f"p{story.product_id}-s{story.story_id}-v{spec_id}",
-                    "story_id": int(story.story_id),
-                    "spec_version_id": int(spec_id),
+                    "case_id": f"p{story.product_id}-s{story_id}-v{spec_id}",
+                    "story_id": story_id,
+                    "spec_version_id": spec_id,
                     "expected_pass": expected_pass,
                     "expected_fail_reasons": expected_fail_reasons,
                     "notes": None,
@@ -215,6 +223,7 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def main() -> None:
+    """Return main."""
     parser = argparse.ArgumentParser(
         description="Build validation benchmark candidate cases from DB stories"
     )
@@ -265,7 +274,7 @@ def main() -> None:
     )
     _maybe_warn_evidence_only(cases)
     write_jsonl(args.output, cases)
-    print(f"Wrote {len(cases)} case(s) to: {args.output}")
+    emit(f"Wrote {len(cases)} case(s) to: {args.output}")
 
 
 if __name__ == "__main__":

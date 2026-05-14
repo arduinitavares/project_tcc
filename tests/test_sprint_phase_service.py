@@ -1,7 +1,12 @@
+"""Tests for sprint phase service."""
+
+from collections.abc import Callable
 from types import SimpleNamespace
+from typing import Any, Never
 
 import pytest
 
+from orchestrator_agent.agent_tools.sprint_planner_tool.tools import SaveSprintPlanInput
 from services.phases.sprint_service import (
     SprintPhaseError,
     close_sprint,
@@ -20,9 +25,12 @@ from services.phases.sprint_service import (
     start_saved_sprint,
 )
 
+JsonDict = dict[str, Any]
 
-def test_record_sprint_attempt_updates_working_state():
-    state = {}
+
+def test_record_sprint_attempt_updates_working_state() -> None:
+    """Verify record sprint attempt updates working state."""
+    state: JsonDict = {}
 
     count = record_sprint_attempt(
         state,
@@ -45,8 +53,9 @@ def test_record_sprint_attempt_updates_working_state():
     assert state["sprint_attempts"][0]["failure_stage"] == "planner"
 
 
-def test_reset_stale_saved_sprint_planner_working_set_clears_orphaned_owner():
-    state = {
+def test_reset_stale_saved_sprint_planner_working_set_clears_orphaned_owner() -> None:
+    """Verify reset stale saved sprint planner working set clears orphaned owner."""
+    state: JsonDict = {
         "sprint_attempts": [{"created_at": "old"}],
         "sprint_last_input_context": {"stories": [1]},
         "sprint_plan_assessment": {"draft": True},
@@ -64,8 +73,9 @@ def test_reset_stale_saved_sprint_planner_working_set_clears_orphaned_owner():
     assert state["sprint_plan_assessment"] is None
 
 
-def test_reset_stale_saved_sprint_planner_working_set_keeps_current_owner():
-    state = {"sprint_planner_owner_sprint_id": 11}
+def test_reset_stale_saved_sprint_planner_working_set_keeps_current_owner() -> None:
+    """Verify reset stale saved sprint planner working set keeps current owner."""
+    state: JsonDict = {"sprint_planner_owner_sprint_id": 11}
 
     changed = reset_stale_saved_sprint_planner_working_set(
         state,
@@ -75,15 +85,17 @@ def test_reset_stale_saved_sprint_planner_working_set_keeps_current_owner():
     assert changed is False
 
 
-def test_ensure_sprint_attempts_returns_existing_list():
+def test_ensure_sprint_attempts_returns_existing_list() -> None:
+    """Verify ensure sprint attempts returns existing list."""
     attempts = [{"created_at": "2026-04-04T00:00:00Z"}]
-    state = {"sprint_attempts": attempts}
+    state: JsonDict = {"sprint_attempts": attempts}
 
     assert ensure_sprint_attempts(state) is attempts
 
 
-def test_reset_sprint_planner_working_set_clears_transient_fields():
-    state = {
+def test_reset_sprint_planner_working_set_clears_transient_fields() -> None:
+    """Verify reset sprint planner working set clears transient fields."""
+    state: JsonDict = {
         "sprint_attempts": [{"created_at": "old"}],
         "sprint_last_input_context": {"stories": [1]},
         "sprint_plan_assessment": {"draft": True},
@@ -102,7 +114,8 @@ def test_reset_sprint_planner_working_set_clears_transient_fields():
     }
 
 
-def test_normalize_sprint_output_artifact_deduplicates_validation_hints():
+def test_normalize_sprint_output_artifact_deduplicates_validation_hints() -> None:
+    """Verify normalize sprint output artifact deduplicates validation hints."""
     payload = normalize_sprint_output_artifact(
         {
             "validation_errors": [
@@ -117,8 +130,8 @@ def test_normalize_sprint_output_artifact_deduplicates_validation_hints():
 
 
 def _failure_meta_builder(
-    source: dict[str, object] | None, fallback_summary: str | None = None
-) -> dict[str, object]:
+    source: JsonDict | None, fallback_summary: str | None = None
+) -> JsonDict:
     payload = source or {}
     return {
         "failure_artifact_id": payload.get("failure_artifact_id"),
@@ -130,18 +143,19 @@ def _failure_meta_builder(
 
 
 @pytest.mark.asyncio
-async def test_generate_sprint_plan_updates_state_and_returns_payload():
-    state = {"fsm_state": "SPRINT_SETUP"}
-    saved: dict[str, object] = {}
-    captured: dict[str, object] = {}
+async def test_generate_sprint_plan_updates_state_and_returns_payload() -> None:
+    """Verify generate sprint plan updates state and returns payload."""
+    state: JsonDict = {"fsm_state": "SPRINT_SETUP"}
+    saved: JsonDict = {}
+    captured: JsonDict = {}
 
-    async def load_state() -> dict[str, object]:
+    async def load_state() -> JsonDict:
         return state
 
-    def save_state(updated: dict[str, object]) -> None:
+    def save_state(updated: JsonDict) -> None:
         saved["state"] = dict(updated)
 
-    async def fake_run_sprint_agent(state, **kwargs):
+    async def fake_run_sprint_agent(state: object, **kwargs: object) -> JsonDict:
         captured["state"] = state
         captured.update(kwargs)
         return {
@@ -180,25 +194,29 @@ async def test_generate_sprint_plan_updates_state_and_returns_payload():
     assert state["fsm_state"] == "SPRINT_DRAFT"
     assert state["fsm_state_entered_at"] == "2026-04-04T00:00:00Z"
     assert state["sprint_attempts"][0]["trigger"] == "auto_transition"
-    assert captured["project_id"] == 7
+    assert captured["project_id"] == 7  # noqa: PLR2004
     assert captured["selected_story_ids"] == [12]
 
 
 @pytest.mark.asyncio
-async def test_generate_sprint_plan_uses_shared_fsm_transition_helper():
-    from services.phases import workflow_state
+async def test_generate_sprint_plan_uses_shared_fsm_transition_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify generate sprint plan uses shared fsm transition helper."""
+    from services.phases import workflow_state  # noqa: PLC0415
 
-    state = {"fsm_state": "SPRINT_SETUP"}
-    saved: dict[str, object] = {}
-    called: dict[str, object] = {}
+    state: JsonDict = {"fsm_state": "SPRINT_SETUP"}
+    saved: JsonDict = {}
+    called: JsonDict = {}
 
-    async def load_state() -> dict[str, object]:
+    async def load_state() -> JsonDict:
         return state
 
-    def save_state(updated: dict[str, object]) -> None:
+    def save_state(updated: JsonDict) -> None:
         saved["state"] = dict(updated)
 
-    async def fake_run_sprint_agent(state, **kwargs):
+    async def fake_run_sprint_agent(state: object, **kwargs: object) -> JsonDict:
+        del state
         called["agent_kwargs"] = kwargs
         return {
             "success": True,
@@ -208,7 +226,9 @@ async def test_generate_sprint_plan_uses_shared_fsm_transition_helper():
             "error": None,
         }
 
-    def fake_set_sprint_fsm_state(state, *, is_complete, now_iso):
+    def fake_set_sprint_fsm_state(
+        state: JsonDict, *, is_complete: bool, now_iso: Callable[[], str]
+    ) -> str:
         called["fsm_kwargs"] = {
             "is_complete": is_complete,
             "now_iso": now_iso(),
@@ -218,26 +238,26 @@ async def test_generate_sprint_plan_uses_shared_fsm_transition_helper():
         state["fsm_state_entered_at"] = called["fsm_kwargs"]["now_iso"]
         return next_state
 
-    original = workflow_state.set_sprint_fsm_state
-    workflow_state.set_sprint_fsm_state = fake_set_sprint_fsm_state
-    try:
-        payload = await generate_sprint_plan(
-            project_id=7,
-            load_state=load_state,
-            save_state=save_state,
-            current_planned_sprint_id=None,
-            now_iso=lambda: "2026-04-04T00:00:00Z",
-            run_sprint_agent=fake_run_sprint_agent,
-            failure_meta_builder=_failure_meta_builder,
-            team_velocity_assumption="Medium",
-            sprint_duration_days=14,
-            max_story_points=None,
-            include_task_decomposition=True,
-            selected_story_ids=None,
-            user_input=None,
-        )
-    finally:
-        workflow_state.set_sprint_fsm_state = original
+    monkeypatch.setattr(
+        workflow_state,
+        "set_sprint_fsm_state",
+        fake_set_sprint_fsm_state,
+    )
+    payload = await generate_sprint_plan(
+        project_id=7,
+        load_state=load_state,
+        save_state=save_state,
+        current_planned_sprint_id=None,
+        now_iso=lambda: "2026-04-04T00:00:00Z",
+        run_sprint_agent=fake_run_sprint_agent,
+        failure_meta_builder=_failure_meta_builder,
+        team_velocity_assumption="Medium",
+        sprint_duration_days=14,
+        max_story_points=None,
+        include_task_decomposition=True,
+        selected_story_ids=None,
+        user_input=None,
+    )
 
     assert payload["fsm_state"] == "SPRINT_SETUP"
     assert payload["attempt_count"] == 1
@@ -247,14 +267,16 @@ async def test_generate_sprint_plan_uses_shared_fsm_transition_helper():
 
 
 @pytest.mark.asyncio
-async def test_generate_sprint_plan_rejects_invalid_fsm_state():
-    state = {"fsm_state": "VISION_REVIEW"}
+async def test_generate_sprint_plan_rejects_invalid_fsm_state() -> None:
+    """Verify generate sprint plan rejects invalid fsm state."""
+    state: JsonDict = {"fsm_state": "VISION_REVIEW"}
 
-    async def load_state() -> dict[str, object]:
+    async def load_state() -> JsonDict:
         return state
 
-    async def fake_run_sprint_agent(**_kwargs):
-        raise AssertionError("runner should not be called")
+    async def fake_run_sprint_agent(**_kwargs: object) -> Never:
+        msg = "runner should not be called"
+        raise AssertionError(msg)
 
     with pytest.raises(SprintPhaseError) as exc_info:
         await generate_sprint_plan(
@@ -273,13 +295,14 @@ async def test_generate_sprint_plan_rejects_invalid_fsm_state():
             user_input=None,
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert "Invalid phase for sprint generation" in exc_info.value.detail
 
 
 @pytest.mark.asyncio
-async def test_get_sprint_history_normalizes_and_persists_legacy_attempts():
-    state = {
+async def test_get_sprint_history_normalizes_and_persists_legacy_attempts() -> None:
+    """Verify get sprint history normalizes and persists legacy attempts."""
+    state: JsonDict = {
         "sprint_attempts": [
             {
                 "created_at": "2026-03-29T12:00:00Z",
@@ -296,7 +319,7 @@ async def test_get_sprint_history_normalizes_and_persists_legacy_attempts():
                                 0,
                                 "task_kind",
                             ],
-                            "msg": "Input should be 'analysis', 'design', 'implementation', 'testing', 'documentation', 'refactor' or 'other'",
+                            "msg": "Input should be 'analysis', 'design', 'implementation', 'testing', 'documentation', 'refactor' or 'other'",  # noqa: E501
                             "input": "review",
                         }
                     ],
@@ -305,12 +328,12 @@ async def test_get_sprint_history_normalizes_and_persists_legacy_attempts():
             }
         ]
     }
-    saves: list[dict[str, object]] = []
+    saves: list[JsonDict] = []
 
-    async def load_state() -> dict[str, object]:
+    async def load_state() -> JsonDict:
         return state
 
-    def save_state(updated: dict[str, object]) -> None:
+    def save_state(updated: JsonDict) -> None:
         saves.append(dict(updated))
 
     payload = await get_sprint_history(
@@ -321,14 +344,16 @@ async def test_get_sprint_history_normalizes_and_persists_legacy_attempts():
 
     assert payload["count"] == 1
     assert payload["items"][0]["output_artifact"]["validation_errors"] == [
-        "Unsupported task_kind 'review'. Use one of: analysis, design, implementation, testing, documentation, refactor."
+        "Unsupported task_kind 'review'. Use one of: analysis, design, implementation, testing, documentation, refactor."  # noqa: E501
     ]
     assert len(saves) == 1
 
 
 @pytest.mark.asyncio
-async def test_reset_sprint_planner_rejects_existing_planned_sprint():
-    async def load_state() -> dict[str, object]:
+async def test_reset_sprint_planner_rejects_existing_planned_sprint() -> None:
+    """Verify reset sprint planner rejects existing planned sprint."""
+
+    async def load_state() -> JsonDict:
         return {"sprint_attempts": [{"created_at": "old"}]}
 
     with pytest.raises(SprintPhaseError) as exc_info:
@@ -338,11 +363,12 @@ async def test_reset_sprint_planner_rejects_existing_planned_sprint():
             current_planned_sprint_id=99,
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert "A planned sprint already exists." in exc_info.value.detail
 
 
-def test_list_saved_sprints_returns_serialized_items_and_runtime_summary():
+def test_list_saved_sprints_returns_serialized_items_and_runtime_summary() -> None:
+    """Verify list saved sprints returns serialized items and runtime summary."""
     sprint_a = SimpleNamespace(sprint_id=1)
     sprint_b = SimpleNamespace(sprint_id=2)
 
@@ -371,7 +397,8 @@ def test_list_saved_sprints_returns_serialized_items_and_runtime_summary():
     }
 
 
-def test_get_saved_sprint_detail_rejects_missing_sprint():
+def test_get_saved_sprint_detail_rejects_missing_sprint() -> None:
+    """Verify get saved sprint detail rejects missing sprint."""
     with pytest.raises(SprintPhaseError) as exc_info:
         get_saved_sprint_detail(
             load_sprint=lambda: None,
@@ -380,11 +407,12 @@ def test_get_saved_sprint_detail_rejects_missing_sprint():
             serialize_sprint_detail=lambda _sprint, _summary: {},
         )
 
-    assert exc_info.value.status_code == 404
+    assert exc_info.value.status_code == 404  # noqa: PLR2004
     assert exc_info.value.detail == "Sprint not found"
 
 
-def test_get_saved_sprint_detail_returns_serialized_detail_and_summary():
+def test_get_saved_sprint_detail_returns_serialized_detail_and_summary() -> None:
+    """Verify get saved sprint detail returns serialized detail and summary."""
     sprint = SimpleNamespace(sprint_id=7)
     all_sprints = [sprint, SimpleNamespace(sprint_id=8)]
 
@@ -416,7 +444,8 @@ def test_get_saved_sprint_detail_returns_serialized_detail_and_summary():
     }
 
 
-def test_get_sprint_close_readiness_returns_guidance_for_completed_sprint():
+def test_get_sprint_close_readiness_returns_guidance_for_completed_sprint() -> None:
+    """Verify get sprint close readiness returns guidance for completed sprint."""
     sprint = SimpleNamespace(
         status="Completed",
         completed_at="2026-04-04T12:00:00Z",
@@ -431,18 +460,19 @@ def test_get_sprint_close_readiness_returns_guidance_for_completed_sprint():
     payload = get_sprint_close_readiness(
         sprint_id=7,
         load_sprint=lambda: sprint,
-        build_readiness=lambda sprint_obj: readiness,
-        history_fidelity=lambda sprint_obj: "snapshotted",
-        load_close_snapshot=lambda sprint_obj: {"closed_at": "2026-04-04T12:00:00Z"},
+        build_readiness=lambda sprint_obj: readiness,  # noqa: ARG005
+        history_fidelity=lambda sprint_obj: "snapshotted",  # noqa: ARG005
+        load_close_snapshot=lambda sprint_obj: {"closed_at": "2026-04-04T12:00:00Z"},  # noqa: ARG005
     )
 
-    assert payload["sprint_id"] == 7
+    assert payload["sprint_id"] == 7  # noqa: PLR2004
     assert payload["close_eligible"] is False
     assert payload["ineligible_reason"] == "Sprint is already completed."
     assert payload["history_fidelity"] == "snapshotted"
 
 
-def test_close_sprint_rejects_non_active_sprint():
+def test_close_sprint_rejects_non_active_sprint() -> None:
+    """Verify close sprint rejects non active sprint."""
     sprint = SimpleNamespace(status="Planned", completed_at=None)
 
     with pytest.raises(SprintPhaseError) as exc_info:
@@ -451,23 +481,24 @@ def test_close_sprint_rejects_non_active_sprint():
             completion_notes="Ship it",
             follow_up_notes=None,
             load_sprint=lambda: sprint,
-            build_readiness=lambda sprint_obj: SimpleNamespace(
+            build_readiness=lambda sprint_obj: SimpleNamespace(  # noqa: ARG005
                 completed_story_count=0,
                 open_story_count=1,
                 unfinished_story_ids=[12],
                 stories=[],
             ),
             now_iso=lambda: "2026-04-04T12:00:00Z",
-            persist_closed_sprint=lambda snapshot: sprint,
+            persist_closed_sprint=lambda snapshot: sprint,  # noqa: ARG005
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert exc_info.value.detail == "Only active sprints can be closed."
 
 
-def test_close_sprint_returns_completed_snapshot_payload():
+def test_close_sprint_returns_completed_snapshot_payload() -> None:
+    """Verify close sprint returns completed snapshot payload."""
     story_summary = SimpleNamespace(
-        model_dump=lambda mode="json": {"story_id": 12, "story_title": "Done"}
+        model_dump=lambda mode="json": {"story_id": 12, "story_title": "Done"}  # noqa: ARG005
     )
     readiness = SimpleNamespace(
         completed_story_count=1,
@@ -483,9 +514,9 @@ def test_close_sprint_returns_completed_snapshot_payload():
         completion_notes="Closed after review.",
         follow_up_notes="Carry remaining backlog forward manually.",
         load_sprint=lambda: sprint,
-        build_readiness=lambda sprint_obj: readiness,
+        build_readiness=lambda sprint_obj: readiness,  # noqa: ARG005
         now_iso=lambda: "2026-04-04T12:00:00Z",
-        persist_closed_sprint=lambda snapshot: closed_sprint,
+        persist_closed_sprint=lambda snapshot: closed_sprint,  # noqa: ARG005
     )
 
     assert payload["current_status"] == "Completed"
@@ -505,8 +536,9 @@ def test_close_sprint_returns_completed_snapshot_payload():
 
 
 @pytest.mark.asyncio
-async def test_save_sprint_plan_sanitizes_assessment_and_updates_state():
-    state = {
+async def test_save_sprint_plan_sanitizes_assessment_and_updates_state() -> None:
+    """Verify save sprint plan sanitizes assessment and updates state."""
+    state: JsonDict = {
         "fsm_state": "SPRINT_DRAFT",
         "sprint_plan_assessment": {
             "sprint_goal": "Persist safely",
@@ -530,24 +562,27 @@ async def test_save_sprint_plan_sanitizes_assessment_and_updates_state():
         state={"preserved": True},
         session_id="7",
     )
-    saved_states: list[dict[str, object]] = []
-    captured: dict[str, object] = {}
+    saved_states: list[JsonDict] = []
+    captured: JsonDict = {}
 
-    async def load_state() -> dict[str, object]:
+    async def load_state() -> JsonDict:
         return state
 
-    def save_state(updated: dict[str, object]) -> None:
+    def save_state(updated: JsonDict) -> None:
         saved_states.append(dict(updated))
 
-    async def hydrate_context(session_id: str, project_id: int):
+    async def hydrate_context(session_id: str, project_id: int) -> object:
         assert session_id == "7"
-        assert project_id == 7
+        assert project_id == 7  # noqa: PLR2004
         return hydrated_context
 
-    def build_tool_context(context):
+    def build_tool_context(context: object) -> object:
         return context
 
-    def save_plan_tool(input_data, tool_context):
+    def save_plan_tool(
+        input_data: SaveSprintPlanInput,
+        tool_context: object,
+    ) -> JsonDict:
         captured["input_data"] = input_data
         captured["tool_context"] = tool_context
         return {"success": True, "sprint_id": 9}
@@ -566,19 +601,20 @@ async def test_save_sprint_plan_sanitizes_assessment_and_updates_state():
     )
 
     assert payload["fsm_state"] == "SPRINT_PERSISTENCE"
-    assert payload["save_result"]["sprint_id"] == 9
+    assert payload["save_result"]["sprint_id"] == 9  # noqa: PLR2004
     assert state["fsm_state"] == "SPRINT_PERSISTENCE"
     assert state["sprint_saved_at"] == "2026-04-04T00:00:00Z"
-    assert state["sprint_planner_owner_sprint_id"] == 9
+    assert state["sprint_planner_owner_sprint_id"] == 9  # noqa: PLR2004
     assert captured["input_data"].team_name == "Team Alpha"
     assert captured["input_data"].sprint_start_date == "2026-03-15"
-    assert captured["tool_context"].state["sprint_plan"]["duration_days"] == 14
+    assert captured["tool_context"].state["sprint_plan"]["duration_days"] == 14  # noqa: PLR2004
     assert "is_complete" not in captured["tool_context"].state["sprint_plan"]
 
 
 @pytest.mark.asyncio
-async def test_save_sprint_plan_maps_open_sprint_conflict_to_phase_error():
-    state = {
+async def test_save_sprint_plan_maps_open_sprint_conflict_to_phase_error() -> None:
+    """Verify save sprint plan maps open sprint conflict to phase error."""
+    state: JsonDict = {
         "fsm_state": "SPRINT_DRAFT",
         "sprint_plan_assessment": {
             "sprint_goal": "Persist safely",
@@ -599,13 +635,16 @@ async def test_save_sprint_plan_maps_open_sprint_conflict_to_phase_error():
         },
     }
 
-    async def load_state() -> dict[str, object]:
+    async def load_state() -> JsonDict:
         return state
 
-    async def hydrate_context(_session_id: str, _project_id: int):
+    async def hydrate_context(_session_id: str, _project_id: int) -> object:
         return SimpleNamespace(state={}, session_id="7")
 
-    def save_plan_tool(_input_data, _tool_context):
+    def save_plan_tool(
+        _input_data: SaveSprintPlanInput,
+        _tool_context: object,
+    ) -> JsonDict:
         return {
             "success": False,
             "error_code": "STORY_ALREADY_IN_OPEN_SPRINT",
@@ -626,13 +665,14 @@ async def test_save_sprint_plan_maps_open_sprint_conflict_to_phase_error():
             sprint_start_date="2026-03-15",
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert exc_info.value.detail == (
         "Stories already assigned to active or planned sprints: [12]"
     )
 
 
-def test_start_saved_sprint_rejects_other_active_sprint():
+def test_start_saved_sprint_rejects_other_active_sprint() -> None:
+    """Verify start saved sprint rejects other active sprint."""
     sprint = SimpleNamespace(status="PLANNED", started_at=None)
 
     with pytest.raises(SprintPhaseError) as exc_info:
@@ -640,17 +680,18 @@ def test_start_saved_sprint_rejects_other_active_sprint():
             project_id=7,
             sprint_id=3,
             load_sprint=lambda: sprint,
-            load_other_active=lambda: object(),
+            load_other_active=object,
             persist_started_sprint=lambda: sprint,
             build_runtime_summary=dict,
             serialize_sprint=lambda _sprint, _summary: {"id": 3},
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert exc_info.value.detail == "Another sprint is already active for this project."
 
 
-def test_start_saved_sprint_returns_existing_active_detail_without_persisting():
+def test_start_saved_sprint_returns_existing_active_detail_without_persisting() -> None:
+    """Verify start saved sprint returns existing active detail without persisting."""
     sprint = SimpleNamespace(status="ACTIVE", started_at="2026-04-01T09:00:00Z")
     called = {"persist": False}
 
@@ -664,12 +705,13 @@ def test_start_saved_sprint_returns_existing_active_detail_without_persisting():
         serialize_sprint=lambda _sprint, summary: {"id": 3, "summary": summary},
     )
 
-    assert payload["sprint"]["id"] == 3
+    assert payload["sprint"]["id"] == 3  # noqa: PLR2004
     assert payload["sprint"]["summary"] == {"active_sprint_id": 3}
     assert called["persist"] is False
 
 
-def test_start_saved_sprint_rejects_completed_status_variants():
+def test_start_saved_sprint_rejects_completed_status_variants() -> None:
+    """Verify start saved sprint rejects completed status variants."""
     sprint = SimpleNamespace(status="Completed", started_at="2026-04-01T09:00:00Z")
 
     with pytest.raises(SprintPhaseError) as exc_info:
@@ -683,11 +725,12 @@ def test_start_saved_sprint_rejects_completed_status_variants():
             serialize_sprint=lambda _sprint, _summary: {"id": 3},
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert exc_info.value.detail == "Completed sprints cannot be restarted."
 
 
-def test_start_saved_sprint_persists_planned_sprint_and_returns_detail():
+def test_start_saved_sprint_persists_planned_sprint_and_returns_detail() -> None:
+    """Verify start saved sprint persists planned sprint and returns detail."""
     sprint = SimpleNamespace(status="PLANNED", started_at=None)
     started = SimpleNamespace(status="ACTIVE", started_at="2026-04-01T09:00:00Z")
 

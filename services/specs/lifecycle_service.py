@@ -97,9 +97,12 @@ def _normalize_input_params(params: object) -> dict[str, Any]:
 
 def _resolve_engine() -> Engine | Connection | None:
     """Preserve the legacy spec_tools.engine monkeypatch seam for tests."""
-    return resolve_spec_engine(
-        service_get_engine=get_engine,
-        default_service_get_engine=_DEFAULT_GET_ENGINE,
+    return cast(
+        "Engine | Connection | None",
+        resolve_spec_engine(
+            service_get_engine=get_engine,
+            default_service_get_engine=_DEFAULT_GET_ENGINE,
+        ),
     )
 
 

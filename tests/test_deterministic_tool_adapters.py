@@ -10,20 +10,17 @@ import pytest
 from orchestrator_agent.fsm import deterministic_tool_adapters as adapters
 from orchestrator_agent.fsm.definitions import STATE_REGISTRY
 from orchestrator_agent.fsm.states import OrchestratorState
-
-
-class MockToolContext:
-    """Minimal ToolContext stub for unit tests."""
-
-    def __init__(self, state):
-        self.state = state
+from tests.typing_helpers import make_tool_context
 
 
 @pytest.mark.asyncio
-async def test_product_vision_adapter_injects_state_verbatim(monkeypatch) -> None:
+async def test_product_vision_adapter_injects_state_verbatim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify product vision adapter injects state verbatim."""
     captured = {}
 
-    async def fake_run_async(*, args, tool_context):
+    async def fake_run_async(*, args: object, tool_context: object) -> object:
         captured["args"] = args
         captured["tool_context"] = tool_context
         return {
@@ -35,12 +32,12 @@ async def test_product_vision_adapter_injects_state_verbatim(monkeypatch) -> Non
 
     monkeypatch.setattr(adapters._PRODUCT_VISION_TOOL, "run_async", fake_run_async)
 
-    state = {
+    state: dict[str, object] = {
         "pending_spec_content": "SPEC_RAW",
         "compiled_authority_cached": '{"invariants":["x"]}',
         "vision_components": {"project_name": "Demo"},
     }
-    context = MockToolContext(state)
+    context = make_tool_context(state)
 
     result = await adapters.product_vision_tool(
         user_raw_text="refine the vision",
@@ -60,14 +57,17 @@ async def test_product_vision_adapter_injects_state_verbatim(monkeypatch) -> Non
 
 @pytest.mark.asyncio
 async def test_backlog_adapter_fail_fast_on_missing_required_context(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fail_if_called(*, args, tool_context):
+    """Verify backlog adapter fail fast on missing required context."""
+
+    async def fail_if_called(*, args: object, tool_context: object) -> None:
+        del args, tool_context
         pytest.fail("Sub-agent should not run when context is missing")
 
     monkeypatch.setattr(adapters._BACKLOG_PRIMER_TOOL, "run_async", fail_if_called)
 
-    context = MockToolContext(
+    context = make_tool_context(
         {
             "active_project": {"vision": ""},
             "pending_spec_content": "",
@@ -89,11 +89,13 @@ async def test_backlog_adapter_fail_fast_on_missing_required_context(
 
 @pytest.mark.asyncio
 async def test_roadmap_adapter_passes_full_payload_without_summarization(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify roadmap adapter passes full payload without summarization."""
     captured = {}
 
-    async def fake_run_async(*, args, tool_context):
+    async def fake_run_async(*, args: object, tool_context: object) -> object:
+        del tool_context
         captured["args"] = args
         return {
             "roadmap_releases": [],
@@ -115,7 +117,7 @@ async def test_roadmap_adapter_passes_full_payload_without_summarization(
             "estimated_effort": "M",
         }
     ]
-    context = MockToolContext(
+    context = make_tool_context(
         {
             "active_project": {"vision": "Vision text"},
             "approved_backlog": {"items": backlog_items},
@@ -139,11 +141,15 @@ async def test_roadmap_adapter_passes_full_payload_without_summarization(
 
 @pytest.mark.asyncio
 async def test_story_adapter_derives_requirement_context_from_roadmap(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify story adapter derives requirement context from roadmap."""
     captured = {}
 
-    async def fake_run_async(*, args, tool_context):
+    async def fake_run_async(
+        *, args: dict[str, object], tool_context: object
+    ) -> object:
+        del tool_context
         captured["args"] = args
         return {
             "parent_requirement": args["parent_requirement"],
@@ -172,7 +178,7 @@ async def test_story_adapter_derives_requirement_context_from_roadmap(
             }
         ]
     }
-    context = MockToolContext(
+    context = make_tool_context(
         {
             "active_project": {"roadmap": roadmap},
             "pending_spec_content": "SPEC_TEXT",
@@ -194,14 +200,17 @@ async def test_story_adapter_derives_requirement_context_from_roadmap(
 
 @pytest.mark.asyncio
 async def test_story_adapter_fail_fast_without_derived_or_explicit_context(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fail_if_called(*, args, tool_context):
+    """Verify story adapter fail fast without derived or explicit context."""
+
+    async def fail_if_called(*, args: object, tool_context: object) -> None:
+        del args, tool_context
         pytest.fail("Sub-agent should not run when requirement context is unavailable")
 
     monkeypatch.setattr(adapters._USER_STORY_WRITER_TOOL, "run_async", fail_if_called)
 
-    context = MockToolContext(
+    context = make_tool_context(
         {
             "pending_spec_content": "SPEC_TEXT",
             "compiled_authority_cached": '{"invariants":[]}',
@@ -225,12 +234,13 @@ async def test_story_adapter_fail_fast_without_derived_or_explicit_context(
 
 @pytest.mark.asyncio
 async def test_sprint_adapter_injects_refined_candidates_from_state(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify sprint adapter injects refined candidates from state."""
     captured = {}
 
-    def fake_fetch_sprint_candidates(*, product_id):
-        assert product_id == 7
+    def fake_fetch_sprint_candidates(*, product_id: int) -> object:
+        assert product_id == 7  # noqa: PLR2004
         return {
             "success": True,
             "count": 2,
@@ -251,7 +261,7 @@ async def test_sprint_adapter_injects_refined_candidates_from_state(
             ],
         }
 
-    async def fake_run_async(*, args, tool_context):
+    async def fake_run_async(*, args: object, tool_context: object) -> object:
         captured["args"] = args
         captured["tool_context"] = tool_context
         return {"sprint_goal": "goal", "selected_stories": [], "capacity_analysis": {}}
@@ -261,7 +271,7 @@ async def test_sprint_adapter_injects_refined_candidates_from_state(
     )
     monkeypatch.setattr(adapters._SPRINT_PLANNER_TOOL, "run_async", fake_run_async)
 
-    context = MockToolContext({"active_project": {"product_id": 7}})
+    context = make_tool_context({"active_project": {"product_id": 7}})
     _ = await adapters.sprint_planner_tool(
         team_velocity_assumption="high",
         sprint_duration_days=40,
@@ -272,7 +282,7 @@ async def test_sprint_adapter_injects_refined_candidates_from_state(
 
     assert captured["tool_context"] is context
     assert captured["args"]["team_velocity_assumption"] == "High"
-    assert captured["args"]["sprint_duration_days"] == 31
+    assert captured["args"]["sprint_duration_days"] == 31  # noqa: PLR2004
     assert captured["args"]["include_task_decomposition"] is False
     assert captured["args"]["available_stories"] == [
         {
@@ -291,13 +301,18 @@ async def test_sprint_adapter_injects_refined_candidates_from_state(
 
 
 @pytest.mark.asyncio
-async def test_sprint_adapter_fail_fast_without_active_project(monkeypatch) -> None:
-    async def fail_if_called(*, args, tool_context):
+async def test_sprint_adapter_fail_fast_without_active_project(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify sprint adapter fail fast without active project."""
+
+    async def fail_if_called(*, args: object, tool_context: object) -> None:
+        del args, tool_context
         pytest.fail("Sub-agent should not run when active project is missing")
 
     monkeypatch.setattr(adapters._SPRINT_PLANNER_TOOL, "run_async", fail_if_called)
 
-    context = MockToolContext({})
+    context = make_tool_context({})
     result = await adapters.sprint_planner_tool(tool_context=context)
 
     assert result["is_complete"] is False
@@ -307,9 +322,12 @@ async def test_sprint_adapter_fail_fast_without_active_project(monkeypatch) -> N
 
 @pytest.mark.asyncio
 async def test_sprint_adapter_rejects_non_eligible_selected_story_ids(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_fetch_sprint_candidates(*, product_id):
+    """Verify sprint adapter rejects non eligible selected story ids."""
+
+    def fake_fetch_sprint_candidates(*, product_id: int) -> object:
+        del product_id
         return {
             "success": True,
             "count": 1,
@@ -323,7 +341,8 @@ async def test_sprint_adapter_rejects_non_eligible_selected_story_ids(
             ],
         }
 
-    async def fail_if_called(*, args, tool_context):
+    async def fail_if_called(*, args: object, tool_context: object) -> None:
+        del args, tool_context
         pytest.fail("Sub-agent should not run when selection is invalid")
 
     monkeypatch.setattr(
@@ -331,7 +350,7 @@ async def test_sprint_adapter_rejects_non_eligible_selected_story_ids(
     )
     monkeypatch.setattr(adapters._SPRINT_PLANNER_TOOL, "run_async", fail_if_called)
 
-    context = MockToolContext({"active_project": {"product_id": 1}})
+    context = make_tool_context({"active_project": {"product_id": 1}})
     result = await adapters.sprint_planner_tool(
         selected_story_ids=[999],
         tool_context=context,
@@ -342,6 +361,7 @@ async def test_sprint_adapter_rejects_non_eligible_selected_story_ids(
 
 
 def test_state_registry_keeps_public_generation_tool_names() -> None:
+    """Verify state registry keeps public generation tool names."""
     routing_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
     tool_names = [
         getattr(tool, "__name__", None) or getattr(tool, "name", None)
@@ -357,6 +377,7 @@ def test_state_registry_keeps_public_generation_tool_names() -> None:
 
 
 def test_minimal_adapter_signatures_remove_legacy_context_fields() -> None:
+    """Verify minimal adapter signatures remove legacy context fields."""
     vision_params = inspect.signature(adapters.product_vision_tool).parameters
     backlog_params = inspect.signature(adapters.backlog_primer_tool).parameters
     roadmap_params = inspect.signature(adapters.roadmap_builder_tool).parameters

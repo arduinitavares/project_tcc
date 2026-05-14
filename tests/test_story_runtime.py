@@ -1,11 +1,18 @@
+"""Tests for story runtime."""
+
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from services import story_runtime
+
+if TYPE_CHECKING:
+    from orchestrator_agent.agent_tools.user_story_writer_tool.schemes import (
+        UserStoryWriterInput,
+    )
 
 
 def _base_state() -> dict[str, Any]:
@@ -26,7 +33,7 @@ def _valid_story_output(
             "user_stories": [
                 {
                     "story_title": "Projection-backed story",
-                    "statement": "As a developer, I want projection-aware drafts, so that retries stay deterministic.",
+                    "statement": "As a developer, I want projection-aware drafts, so that retries stay deterministic.",  # noqa: E501
                     "acceptance_criteria": [
                         "Verify that reusable drafts come from projections."
                     ],
@@ -43,11 +50,12 @@ def _valid_story_output(
 
 @pytest.mark.asyncio
 async def test_run_story_agent_from_state_uses_latest_reusable_projection_draft(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify run story agent from state uses latest reusable projection draft."""
     captured: dict[str, Any] = {}
 
-    async def fake_invoke(payload):
+    async def fake_invoke(payload: UserStoryWriterInput) -> str:
         captured["payload"] = payload
         return _valid_story_output(payload.parent_requirement)
 
@@ -62,7 +70,7 @@ async def test_run_story_agent_from_state_uses_latest_reusable_projection_draft(
                     "user_stories": [
                         {
                             "story_title": "Wrong raw draft",
-                            "statement": "As a team, I want the wrong draft, so that this test catches raw attempt lookups.",
+                            "statement": "As a team, I want the wrong draft, so that this test catches raw attempt lookups.",  # noqa: E501
                             "acceptance_criteria": [
                                 "Verify that raw attempt lookup is not used."
                             ],
@@ -92,7 +100,7 @@ async def test_run_story_agent_from_state_uses_latest_reusable_projection_draft(
                             "user_stories": [
                                 {
                                     "story_title": "Projection draft",
-                                    "statement": "As a developer, I want the projection draft, so that the runtime reuses the right attempt.",
+                                    "statement": "As a developer, I want the projection draft, so that the runtime reuses the right attempt.",  # noqa: E501
                                     "acceptance_criteria": [
                                         "Verify that the projection draft is injected."
                                     ],
@@ -132,11 +140,12 @@ async def test_run_story_agent_from_state_uses_latest_reusable_projection_draft(
 
 @pytest.mark.asyncio
 async def test_run_story_agent_from_state_includes_only_unabsorbed_feedback(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify run story agent from state includes only unabsorbed feedback."""
     captured: dict[str, Any] = {}
 
-    async def fake_invoke(payload):
+    async def fake_invoke(payload: UserStoryWriterInput) -> str:
         captured["payload"] = payload
         return _valid_story_output(payload.parent_requirement)
 
@@ -187,12 +196,13 @@ async def test_run_story_agent_from_state_includes_only_unabsorbed_feedback(
 
 
 @pytest.mark.asyncio
-async def test_run_story_agent_from_state_includes_current_call_user_input_before_projection_persistence(
-    monkeypatch,
+async def test_run_story_agent_from_state_includes_current_call_user_input_before_projection_persistence(  # noqa: E501
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify run story agent from state includes current call user input before projection persistence."""  # noqa: E501
     captured: dict[str, Any] = {}
 
-    async def fake_invoke(payload):
+    async def fake_invoke(payload: UserStoryWriterInput) -> str:
         captured["payload"] = payload
         return _valid_story_output(payload.parent_requirement)
 
@@ -213,12 +223,13 @@ async def test_run_story_agent_from_state_includes_current_call_user_input_befor
 
 
 @pytest.mark.asyncio
-async def test_run_story_agent_from_state_does_not_crash_on_unserializable_reusable_artifact(
-    monkeypatch,
+async def test_run_story_agent_from_state_does_not_crash_on_unserializable_reusable_artifact(  # noqa: E501
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify run story agent from state does not crash on unserializable reusable artifact."""  # noqa: E501
     captured: dict[str, Any] = {}
 
-    async def fake_invoke(payload):
+    async def fake_invoke(payload: UserStoryWriterInput) -> str:
         captured["payload"] = payload
         return _valid_story_output(payload.parent_requirement)
 
@@ -272,9 +283,11 @@ async def test_run_story_agent_from_state_does_not_crash_on_unserializable_reusa
 
 @pytest.mark.asyncio
 async def test_story_runtime_invalid_json_is_nonreusable_schema_failure(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_invoke(_payload):
+    """Verify story runtime invalid json is nonreusable schema failure."""
+
+    async def fake_invoke(_payload: object) -> str:
         return '{"broken": '
 
     monkeypatch.setattr(story_runtime, "_invoke_story_agent", fake_invoke)
@@ -294,16 +307,19 @@ async def test_story_runtime_invalid_json_is_nonreusable_schema_failure(
 
 
 @pytest.mark.asyncio
-async def test_story_runtime_replay_uses_frozen_request_payload(monkeypatch) -> None:
+async def test_story_runtime_replay_uses_frozen_request_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify story runtime replay uses frozen request payload."""
     captured: dict[str, Any] = {}
 
-    async def fake_invoke(payload):
+    async def fake_invoke(payload: UserStoryWriterInput) -> str:
         captured["payload"] = payload.model_dump()
         return _valid_story_output(payload.parent_requirement)
 
     monkeypatch.setattr(story_runtime, "_invoke_story_agent", fake_invoke)
 
-    request_payload = {
+    request_payload: story_runtime.StoryInputContext = {
         "parent_requirement": "Requirement A",
         "requirement_context": "Frozen request payload",
         "technical_spec": "SPEC",

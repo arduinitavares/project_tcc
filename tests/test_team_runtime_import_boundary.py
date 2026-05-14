@@ -38,6 +38,7 @@ def _attribute_references_from_import(
 
 
 def test_sprint_planner_tool_imports_team_from_models_core() -> None:
+    """Verify sprint planner tool imports team from models core."""
     root = Path(__file__).resolve().parents[1]
     module_path = root / "orchestrator_agent/agent_tools/sprint_planner_tool/tools.py"
 

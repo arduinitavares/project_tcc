@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.engine import Engine
 from sqlmodel import Session
 
 from agile_sqlmodel import Product, SpecRegistry, UserStory
@@ -63,6 +64,33 @@ def _load_validation_evidence(story: UserStory | None) -> dict[str, Any]:
     return cast("dict[str, Any]", json.loads(evidence_json))
 
 
+def _fake_compilation_artifact() -> SpecAuthorityCompilationSuccess:
+    """Return a deterministic compiled authority artifact for tests."""
+    return SpecAuthorityCompilationSuccess(
+        scope_themes=["API", "Auth"],
+        domain=None,
+        invariants=[
+            Invariant(
+                id="INV-0000000000000001",
+                type=InvariantType.FORBIDDEN_CAPABILITY,
+                parameters=ForbiddenCapabilityParams(capability="redis"),
+            )
+        ],
+        eligible_feature_rules=[],
+        gaps=[],
+        assumptions=[],
+        source_map=[
+            SourceMapEntry(
+                invariant_id="INV-0000000000000001",
+                excerpt="Auth token required",
+                location="spec:line:1",
+            )
+        ],
+        compiler_version="1.0.0",
+        prompt_hash="a" * 64,
+    )
+
+
 def _create_feature_hierarchy(
     session: Session,
     *,
@@ -101,7 +129,7 @@ def _create_feature_hierarchy(
 
 
 @pytest.fixture
-def sample_product(session: Session, engine) -> Product:
+def sample_product(session: Session, engine: Engine) -> Product:
     """Create a product for testing."""
     spec_tools.engine = engine
 
@@ -142,33 +170,9 @@ def compiled_spec(session: Session, sample_product: Product) -> SpecRegistry:
         tool_context=None,
     )
 
-    # Mock LLM extraction to avoid real API calls
-    fake_artifact = SpecAuthorityCompilationSuccess(
-        scope_themes=["API", "Auth"],
-        domain=None,
-        invariants=[
-            Invariant(
-                id="INV-0000000000000001",
-                type=InvariantType.FORBIDDEN_CAPABILITY,
-                parameters=ForbiddenCapabilityParams(capability="redis"),
-            )
-        ],
-        eligible_feature_rules=[],
-        gaps=[],
-        assumptions=[],
-        source_map=[
-            SourceMapEntry(
-                invariant_id="INV-0000000000000001",
-                excerpt="Auth token required",
-                location="spec:line:1",
-            )
-        ],
-        compiler_version="1.0.0",
-        prompt_hash="a" * 64,
-    )
     with patch(
         "tools.spec_tools._extract_spec_authority_llm",
-        return_value=fake_artifact,
+        return_value=_fake_compilation_artifact(),
     ):
         compile_spec_authority(
             {"spec_version_id": spec_version_id},
@@ -197,7 +201,7 @@ def sample_story(session: Session, sample_product: Product) -> UserStory:
         feature_id=_require_id(feature.feature_id, "test feature_id"),
         title="As a user, I want to export data",
         story_description=(
-            "As a user, I want to export my data in JSON format so I can use it elsewhere."
+            "As a user, I want to export my data in JSON format so I can use it elsewhere."  # noqa: E501
         ),
         acceptance_criteria=(
             "Given I have data, When I click export, Then I receive a JSON file"
@@ -212,11 +216,14 @@ def sample_story(session: Session, sample_product: Product) -> UserStory:
 class TestFailFastWithoutSpecVersionId:
     """Tests that validation fails immediately without spec_version_id."""
 
-    def test_validation_tool_delegates_to_story_validation_service(self, monkeypatch):
+    def test_validation_tool_delegates_to_story_validation_service(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify validation tool delegates to story validation service."""
         expected = {"success": True, "passed": True, "message": "from service"}
         captured = {}
 
-        def fake_service_validate(params, **kwargs):
+        def fake_service_validate(params: object, **kwargs: object) -> object:
             captured["params"] = params
             captured["kwargs"] = kwargs
             return expected
@@ -258,11 +265,12 @@ class TestFailFastWithoutSpecVersionId:
         )
 
     def test_resolve_default_validation_mode_wrapper_delegates_to_service(
-        self, monkeypatch
-    ):
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify resolve default validation mode wrapper delegates to service."""
         called = {}
 
-        def fake_service_resolver():
+        def fake_service_resolver() -> str:
             called["value"] = True
             return "llm"
 
@@ -277,11 +285,17 @@ class TestFailFastWithoutSpecVersionId:
         assert called["value"] is True
 
     def test_persist_validation_evidence_wrapper_delegates_to_service(
-        self, monkeypatch, session, sample_story
-    ):
+        self, monkeypatch: pytest.MonkeyPatch, session: Session, sample_story: UserStory
+    ) -> None:
+        """Verify persist validation evidence wrapper delegates to service."""
         captured = {}
 
-        def fake_service_persist(session_arg, story_arg, evidence_arg, passed_arg):
+        def fake_service_persist(
+            session_arg: object,
+            story_arg: object,
+            evidence_arg: object,
+            passed_arg: object,
+        ) -> None:
             captured["session"] = session_arg
             captured["story"] = story_arg
             captured["evidence"] = evidence_arg
@@ -317,10 +331,13 @@ class TestFailFastWithoutSpecVersionId:
         assert captured["evidence"] is evidence
         assert captured["passed"] is True
 
-    def test_compute_story_input_hash_wrapper_delegates_to_service(self, monkeypatch):
+    def test_compute_story_input_hash_wrapper_delegates_to_service(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify compute story input hash wrapper delegates to service."""
         called = {}
 
-        def fake_service_hash(story_arg):
+        def fake_service_hash(story_arg: object) -> str:
             called["story"] = story_arg
             return "service-hash"
 
@@ -340,7 +357,7 @@ class TestFailFastWithoutSpecVersionId:
         assert spec_tools._compute_story_input_hash(story) == "service-hash"
         assert called["story"] is story
 
-    def test_validation_requires_spec_version_id_in_schema(self):
+    def test_validation_requires_spec_version_id_in_schema(self) -> None:
         """Input schema requires spec_version_id (no default)."""
         with pytest.raises(ValidationError) as exc_info:
             ValidateStoryInput.model_validate({"story_id": 1})
@@ -348,7 +365,7 @@ class TestFailFastWithoutSpecVersionId:
         errors = exc_info.value.errors()
         assert any("spec_version_id" in str(e) for e in errors)
 
-    def test_validation_rejects_none_spec_version_id(self):
+    def test_validation_rejects_none_spec_version_id(self) -> None:
         """spec_version_id=None is rejected."""
         with pytest.raises(ValidationError):
             ValidateStoryInput.model_validate({"story_id": 1, "spec_version_id": None})
@@ -358,8 +375,8 @@ class TestFailFastIfNotCompiled:
     """Tests that validation fails if spec is not compiled."""
 
     def test_validation_fails_for_nonexistent_spec_version(
-        self, sample_story: UserStory, engine
-    ):
+        self, sample_story: UserStory, engine: Engine
+    ) -> None:
         """Clear error when spec_version_id doesn't exist."""
         spec_tools.engine = engine
 
@@ -372,8 +389,8 @@ class TestFailFastIfNotCompiled:
         assert "not found" in result["error"].lower()
 
     def test_validation_fails_for_uncompiled_spec(
-        self, sample_product: Product, sample_story: UserStory, engine
-    ):
+        self, sample_product: Product, sample_story: UserStory, engine: Engine
+    ) -> None:
         """Clear error when spec exists but is not compiled."""
         spec_tools.engine = engine
 
@@ -392,8 +409,8 @@ class TestFailFastIfNotCompiled:
         assert "not compiled" in result["error"].lower()
 
     def test_validation_fails_for_approved_but_uncompiled_spec(
-        self, sample_product: Product, sample_story: UserStory, engine
-    ):
+        self, sample_product: Product, sample_story: UserStory, engine: Engine
+    ) -> None:
         """Approved but uncompiled spec fails with clear message."""
         spec_tools.engine = engine
 
@@ -428,8 +445,8 @@ class TestEvidencePersistence:
         session: Session,
         sample_story: UserStory,
         compiled_spec: SpecRegistry,
-        engine,
-    ):
+        engine: Engine,
+    ) -> None:
         """Evidence is stored when validation passes."""
         spec_tools.engine = engine
 
@@ -461,8 +478,8 @@ class TestEvidencePersistence:
         session: Session,
         sample_product: Product,
         compiled_spec: SpecRegistry,
-        engine,
-    ):
+        engine: Engine,
+    ) -> None:
         """Evidence is stored even when validation fails."""
         spec_tools.engine = engine
 
@@ -513,8 +530,8 @@ class TestEvidencePersistence:
         session: Session,
         sample_story: UserStory,
         compiled_spec: SpecRegistry,
-        engine,
-    ):
+        engine: Engine,
+    ) -> None:
         """Evidence contains all required fields per schema."""
         spec_tools.engine = engine
 
@@ -554,8 +571,8 @@ class TestDeterministicInputHashing:
         session: Session,
         sample_product: Product,
         compiled_spec: SpecRegistry,
-        engine,
-    ):
+        engine: Engine,
+    ) -> None:
         """Identical story content produces identical input_hash."""
         spec_tools.engine = engine
 
@@ -570,7 +587,7 @@ class TestDeterministicInputHashing:
 
         story_content = {
             "title": "As a tester, I want determinism",
-            "description": "As a tester, I want deterministic hashing for reproducibility.",
+            "description": "As a tester, I want deterministic hashing for reproducibility.",  # noqa: E501
             "acceptance_criteria": "Given input X, When hashed, Then hash is always Y",
         }
 
@@ -625,8 +642,8 @@ class TestDeterministicInputHashing:
         session: Session,
         sample_product: Product,
         compiled_spec: SpecRegistry,
-        engine,
-    ):
+        engine: Engine,
+    ) -> None:
         """Different story content produces different input_hash."""
         spec_tools.engine = engine
 
@@ -695,9 +712,10 @@ class TestWrongSpecVersionIdFails:
         sample_product: Product,
         sample_story: UserStory,
         compiled_spec: SpecRegistry,
-        engine,
-    ):
+        engine: Engine,
+    ) -> None:
         """Validation fails if spec belongs to different product."""
+        del sample_product, compiled_spec
         spec_tools.engine = engine
 
         other_product = Product(
@@ -719,10 +737,14 @@ class TestWrongSpecVersionIdFails:
             {"spec_version_id": other_spec_id, "approved_by": "reviewer"},
             tool_context=None,
         )
-        compile_spec_authority(
-            {"spec_version_id": other_spec_id},
-            tool_context=None,
-        )
+        with patch(
+            "tools.spec_tools._extract_spec_authority_llm",
+            return_value=_fake_compilation_artifact(),
+        ):
+            compile_spec_authority(
+                {"spec_version_id": other_spec_id},
+                tool_context=None,
+            )
 
         result = validate_story_with_spec_authority(
             {"story_id": sample_story.story_id, "spec_version_id": other_spec_id},
@@ -739,20 +761,20 @@ class TestWrongSpecVersionIdFails:
 class TestValidatorVersion:
     """Tests for validator versioning."""
 
-    def test_validator_version_constant_exists(self):
+    def test_validator_version_constant_exists(self) -> None:
         """VALIDATOR_VERSION constant exists."""
         assert VALIDATOR_VERSION is not None
         assert isinstance(VALIDATOR_VERSION, str)
         parts = VALIDATOR_VERSION.split(".")
-        assert len(parts) >= 2
+        assert len(parts) >= 2  # noqa: PLR2004
 
     def test_validator_version_in_evidence(
         self,
         session: Session,
         sample_story: UserStory,
         compiled_spec: SpecRegistry,
-        engine,
-    ):
+        engine: Engine,
+    ) -> None:
         """validator_version is stored in evidence."""
         spec_tools.engine = engine
 

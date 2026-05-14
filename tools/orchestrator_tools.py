@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Protocol, cast
+from types import ModuleType
+from typing import TYPE_CHECKING, Any, Optional, Protocol, TypeVar, cast
 
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
@@ -19,6 +21,8 @@ from sqlmodel import Session, select
 from models.core import Product, UserStory
 from models.db import get_engine
 from models.enums import StoryStatus
+from services import orchestrator_context_service as _context_service
+from services import orchestrator_query_service as _query_service
 from services.orchestrator_context_service import (
     get_project_details as _get_project_details_service,
 )
@@ -54,6 +58,7 @@ else:
 
 logger: logging.Logger = logging.getLogger(name=__name__)
 _MAX_SPEC_FILE_SIZE_KB = 100
+_T = TypeVar("_T")
 
 
 class _SupportsState(Protocol):
@@ -124,6 +129,24 @@ def _normalize_params(params: object) -> dict[str, Any]:
     return params_dict
 
 
+def _call_with_current_engine(
+    service_module: ModuleType,
+    function: Callable[..., _T],
+    *args: object,
+    **kwargs: object,
+) -> _T:
+    """Call a service while honoring this module's patchable get_engine shim."""
+    previous_get_engine = service_module.__dict__.get("get_engine")
+    service_module.__dict__["get_engine"] = get_engine
+    try:
+        return function(*args, **kwargs)
+    finally:
+        if previous_get_engine is None:
+            del service_module.__dict__["get_engine"]
+        else:
+            service_module.__dict__["get_engine"] = previous_get_engine
+
+
 def _is_fresh(state: dict[str, Any], ttl_minutes: int = CACHE_TTL_MINUTES) -> bool:
     """Compatibility shim over the orchestrator query service cache TTL helper."""
     return _is_projects_cache_fresh_service(state, ttl_minutes=ttl_minutes)
@@ -133,7 +156,11 @@ def _refresh_projects_cache(
     state: dict[str, Any],
 ) -> tuple[int, list[dict[str, Any]]]:
     """Compatibility shim over the orchestrator query service cache refresher."""
-    return _refresh_projects_cache_service(state)
+    return _call_with_current_engine(
+        _query_service,
+        _refresh_projects_cache_service,
+        state,
+    )
 
 
 class CountProjectsInput(BaseModel):
@@ -161,14 +188,15 @@ class ListProjectsInput(BaseModel):
 
 
 def count_projects(
-    params: Optional[CountProjectsInput] = None,  # noqa: UP045
+    params: Optional[dict[str, Any]] = None,  # noqa: UP045
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Agent tool: Count total projects. Uses a transparent persistent cache."""
+    raw_params = cast("object", params)
     parsed = (
-        params
-        if isinstance(params, CountProjectsInput)
-        else CountProjectsInput.model_validate(_normalize_params(params))
+        raw_params
+        if isinstance(raw_params, CountProjectsInput)
+        else CountProjectsInput.model_validate(_normalize_params(raw_params))
     )
     should_refresh = bool(parsed.force_refresh)
     logger.debug("count_projects called with force_refresh=%s", should_refresh)
@@ -197,14 +225,15 @@ def count_projects(
 
 
 def list_projects(
-    params: Optional[ListProjectsInput] = None,  # noqa: UP045
+    params: Optional[dict[str, Any]] = None,  # noqa: UP045
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Agent tool: List all projects with summary info. Uses a transparent cache."""
+    raw_params = cast("object", params)
     parsed = (
-        params
-        if isinstance(params, ListProjectsInput)
-        else ListProjectsInput.model_validate(_normalize_params(params))
+        raw_params
+        if isinstance(raw_params, ListProjectsInput)
+        else ListProjectsInput.model_validate(_normalize_params(raw_params))
     )
     should_refresh = bool(parsed.force_refresh)
     logger.debug("list_projects called with force_refresh=%s", should_refresh)
@@ -236,7 +265,11 @@ def list_projects(
 
 def get_project_details(product_id: int) -> dict[str, Any]:
     """Compatibility adapter over the orchestrator context service boundary."""
-    return _get_project_details_service(product_id)
+    return _call_with_current_engine(
+        _context_service,
+        _get_project_details_service,
+        product_id,
+    )
 
 
 def get_project_by_name(project_name: str) -> dict[str, Any]:
@@ -346,7 +379,11 @@ def fetch_product_backlog(product_id: int) -> dict[str, Any]:
 
 def fetch_sprint_candidates(product_id: int) -> dict[str, Any]:
     """Compatibility adapter over the orchestrator query service boundary."""
-    return _fetch_sprint_candidates_service(product_id)
+    return _call_with_current_engine(
+        _query_service,
+        _fetch_sprint_candidates_service,
+        product_id,
+    )
 
 
 def load_specification_from_file(
@@ -409,9 +446,17 @@ def load_specification_from_file(
 
 def get_real_business_state() -> dict[str, Any]:
     """Compatibility adapter over the orchestrator query service boundary."""
-    return _get_real_business_state_service()
+    return _call_with_current_engine(
+        _query_service,
+        _get_real_business_state_service,
+    )
 
 
 def select_project(product_id: int, tool_context: ToolContext) -> dict[str, Any]:
     """Compatibility adapter over the orchestrator context service boundary."""
-    return _select_project_service(product_id, cast("_SupportsState", tool_context))
+    return _call_with_current_engine(
+        _context_service,
+        _select_project_service,
+        product_id,
+        cast("_SupportsState", tool_context),
+    )

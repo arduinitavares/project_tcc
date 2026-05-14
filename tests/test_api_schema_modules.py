@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import api as api_module
+from services import story_close_service, task_execution_service
+from utils import api_schemas, schemes
+
 
 def test_api_schema_module_exports_task_and_close_models() -> None:
-    from utils import api_schemas, schemes
-
+    """Confirm the API schema module exports the task and close models."""
     assert api_schemas.TaskExecutionWriteRequest.__module__ == "utils.api_schemas"
     assert api_schemas.TaskExecutionLogEntry.__module__ == "utils.api_schemas"
     assert api_schemas.TaskExecutionReadResponse.__module__ == "utils.api_schemas"
@@ -30,9 +33,7 @@ def test_api_schema_module_exports_task_and_close_models() -> None:
 
 
 def test_services_import_api_schema_module_boundary() -> None:
-    import api as api_module
-    from services import story_close_service, task_execution_service
-
+    """Confirm API-facing services import models from the extracted schema module."""
     assert (
         story_close_service.StoryTaskProgressSummary.__module__ == "utils.api_schemas"
     )

@@ -11,6 +11,7 @@ from orchestrator_agent.agent_tools.spec_validator_agent.tools import (
 
 
 def test_instructions_txt_does_not_contain_force_refinement() -> None:
+    """Verify instructions txt does not contain force refinement."""
     instructions_path = (
         Path("orchestrator_agent")
         / "agent_tools"
@@ -22,6 +23,7 @@ def test_instructions_txt_does_not_contain_force_refinement() -> None:
 
 
 def test_spec_validation_result_schema_roundtrip() -> None:
+    """Verify spec validation result schema roundtrip."""
     payload = SpecValidationResult(
         is_compliant=True,
         issues=[],
@@ -41,4 +43,5 @@ def test_spec_validation_result_schema_roundtrip() -> None:
 
 
 def test_max_tokens_default_is_at_least_4096() -> None:
-    assert _DEFAULT_MAX_TOKENS >= 4096
+    """Verify max tokens default is at least 4096."""
+    assert _DEFAULT_MAX_TOKENS >= 4096  # noqa: PLR2004

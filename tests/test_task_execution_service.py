@@ -1,3 +1,5 @@
+"""Tests for task execution service."""
+
 from types import SimpleNamespace
 
 import pytest
@@ -10,7 +12,8 @@ from services.task_execution_service import (
 )
 
 
-def test_get_task_execution_history_skips_logs_without_primary_key():
+def test_get_task_execution_history_skips_logs_without_primary_key() -> None:
+    """Verify get task execution history skips logs without primary key."""
     task = SimpleNamespace(task_id=7, story_id=11, status=TaskStatus.TO_DO)
     sprint = SimpleNamespace(sprint_id=3, product_id=2)
     sprint_story = SimpleNamespace(sprint_id=3, story_id=11)
@@ -34,7 +37,7 @@ def test_get_task_execution_history_skips_logs_without_primary_key():
         task_id=7,
         load_task=lambda: task,
         load_sprint=lambda: sprint,
-        load_sprint_story=lambda current_task: sprint_story,
+        load_sprint_story=lambda current_task: sprint_story,  # noqa: ARG005
         load_logs=lambda: [malformed_log],
     )
 
@@ -43,7 +46,8 @@ def test_get_task_execution_history_skips_logs_without_primary_key():
     assert payload["latest_entry"] is None
 
 
-def test_get_task_execution_history_rejects_cross_project_sprint():
+def test_get_task_execution_history_rejects_cross_project_sprint() -> None:
+    """Verify get task execution history rejects cross project sprint."""
     task = SimpleNamespace(task_id=7, story_id=11, status=TaskStatus.TO_DO)
     sprint = SimpleNamespace(sprint_id=3, product_id=99)
 
@@ -54,15 +58,16 @@ def test_get_task_execution_history_rejects_cross_project_sprint():
             task_id=7,
             load_task=lambda: task,
             load_sprint=lambda: sprint,
-            load_sprint_story=lambda current_task: None,
+            load_sprint_story=lambda current_task: None,  # noqa: ARG005
             load_logs=list,
         )
 
-    assert exc_info.value.status_code == 404
+    assert exc_info.value.status_code == 404  # noqa: PLR2004
     assert exc_info.value.detail == "Sprint not found in this project"
 
 
-def test_record_task_execution_rejects_non_executable_tasks():
+def test_record_task_execution_rejects_non_executable_tasks() -> None:
+    """Verify record task execution rejects non executable tasks."""
     task = SimpleNamespace(
         task_id=7,
         story_id=11,
@@ -85,17 +90,18 @@ def test_record_task_execution_rejects_non_executable_tasks():
             changed_by=None,
             load_task=lambda: task,
             load_sprint=lambda: sprint,
-            load_sprint_story=lambda current_task: sprint_story,
+            load_sprint_story=lambda current_task: sprint_story,  # noqa: ARG005
             load_logs=list,
             parse_task_metadata=lambda _raw: SimpleNamespace(checklist_items=[]),
-            persist_execution_log=lambda *args, **kwargs: None,
+            persist_execution_log=lambda *args, **kwargs: None,  # noqa: ARG005
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert exc_info.value.detail == "Task has no executable checklist items."
 
 
-def test_record_task_execution_normalizes_artifact_refs_and_returns_history():
+def test_record_task_execution_normalizes_artifact_refs_and_returns_history() -> None:
+    """Verify record task execution normalizes artifact refs and returns history."""
     task = SimpleNamespace(
         task_id=7,
         story_id=11,
@@ -132,7 +138,7 @@ def test_record_task_execution_normalizes_artifact_refs_and_returns_history():
         changed_by=None,
         load_task=lambda: task,
         load_sprint=lambda: sprint,
-        load_sprint_story=lambda current_task: sprint_story,
+        load_sprint_story=lambda current_task: sprint_story,  # noqa: ARG005
         load_logs=lambda: [log_entry],
         parse_task_metadata=lambda _raw: SimpleNamespace(checklist_items=["step"]),
         persist_execution_log=lambda **kwargs: persisted.update(kwargs),

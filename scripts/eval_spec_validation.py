@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate story validation quality across deterministic/llm/hybrid modes with consensus logic."""
+"""Evaluate story validation quality across deterministic/llm/hybrid modes with consensus logic."""  # noqa: E501
 
 from __future__ import annotations
 
@@ -9,22 +9,27 @@ import json
 import logging
 import math
 import random
+import secrets
 import statistics
 import sys
 import time
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from utils.cli_output import emit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
-from tools.spec_tools import (
+from tools.spec_tools import (  # noqa: E402
     validate_story_with_spec_authority,  # pylint: disable=wrong-import-position
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
 
 ValidationMode = str
 VALID_MODES: tuple[ValidationMode, ...] = ("deterministic", "llm", "hybrid")
@@ -36,6 +41,7 @@ RETRY_JITTER_SECONDS = 0.25
 BRANCH_LOG_LIMIT = 20
 _BRANCH_LOG_COUNTS: dict[str, int] = {}
 _BRANCH_LOG_SUPPRESSED: set[str] = set()
+_RETRY_JITTER_RANDOM = secrets.SystemRandom()
 _PROVIDER_ERROR_PATTERNS: tuple[str, ...] = (
     "requires more credits",
     "eof while parsing",
@@ -73,9 +79,11 @@ def _branch(name: str, condition: bool, when_true: str, when_false: str) -> bool
             name,
             BRANCH_LOG_LIMIT,
         )
-    if condition:
-        return True
-    return False
+    return bool(condition)
+
+
+def _retry_jitter_seconds() -> float:
+    return _RETRY_JITTER_RANDOM.uniform(0, RETRY_JITTER_SECONDS)
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -83,7 +91,7 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as handle:
         for idx, line in enumerate(handle, start=1):
-            line = line.strip()
+            line = line.strip()  # noqa: PLW2901
             if _branch(
                 "read_jsonl.empty_line",
                 not line,
@@ -94,7 +102,8 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
             try:
                 row = json.loads(line)
             except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSON on line {idx} of {path}") from exc
+                msg = f"Invalid JSON on line {idx} of {path}"
+                raise ValueError(msg) from exc
             rows.append(row)
     LOGGER.info("Loaded %d row(s) from %s", len(rows), path)
     return rows
@@ -135,8 +144,9 @@ def _read_cases(path: Path, include_disabled: bool) -> list[dict[str, Any]]:
             f"Invalid IDs for case_id={case_id}; raising",
             f"Valid IDs for case_id={case_id}",
         ):
+            msg = f"Case {case_id} must include integer story_id and spec_version_id"
             raise ValueError(
-                f"Case {case_id} must include integer story_id and spec_version_id"
+                msg
             )
         expected_pass = case.get("expected_pass")
         if _branch(
@@ -246,7 +256,8 @@ def _bootstrap_ci(
         f"Running bootstrap_ci n={len(values)} resamples={n_resamples} seed={seed}",
     ):
         return None
-    rng = random.Random(seed)
+    # Bootstrap sampling is intentionally deterministic for reproducible metrics.
+    rng = random.Random(seed)  # noqa: S311  # nosec B311
     samples: list[float] = []
     value_list = list(values)
     for _ in range(n_resamples):
@@ -290,6 +301,8 @@ def _f1(precision: float | None, recall: float | None) -> float | None:
         f"precision={precision}, recall={recall} -> continue",
     ):
         return None
+    if precision is None or recall is None:
+        return None
     denom = precision + recall
     if _branch(
         "f1.zero_denominator",
@@ -309,6 +322,8 @@ def _fmt_ci(ci: tuple[float, float] | None) -> str:
         "CI present -> format range",
     ):
         return "-"
+    if ci is None:
+        return "-"
     return f"[{ci[0] * 100:.1f}%, {ci[1] * 100:.1f}%]"
 
 
@@ -321,28 +336,28 @@ def _confusion_from_rows(rows: Sequence[dict[str, Any]]) -> dict[str, int]:
         if _branch(
             "confusion.tp",
             expected_fail and predicted_fail,
-            f"case contributes TP (expected_fail={expected_fail}, predicted_fail={predicted_fail})",
+            f"case contributes TP (expected_fail={expected_fail}, predicted_fail={predicted_fail})",  # noqa: E501
             "not TP",
         ):
             tp += 1
         elif _branch(
             "confusion.fp",
             (not expected_fail and predicted_fail),
-            f"case contributes FP (expected_fail={expected_fail}, predicted_fail={predicted_fail})",
+            f"case contributes FP (expected_fail={expected_fail}, predicted_fail={predicted_fail})",  # noqa: E501
             "not FP",
         ):
             fp += 1
         elif _branch(
             "confusion.tn",
             (not expected_fail and not predicted_fail),
-            f"case contributes TN (expected_fail={expected_fail}, predicted_fail={predicted_fail})",
+            f"case contributes TN (expected_fail={expected_fail}, predicted_fail={predicted_fail})",  # noqa: E501
             "not TN",
         ):
             tn += 1
         elif _branch(
             "confusion.fn",
             (expected_fail and not predicted_fail),
-            f"case contributes FN (expected_fail={expected_fail}, predicted_fail={predicted_fail})",
+            f"case contributes FN (expected_fail={expected_fail}, predicted_fail={predicted_fail})",  # noqa: E501
             "not FN",
         ):
             fn += 1
@@ -364,7 +379,8 @@ def _bootstrap_metric_ci(
         f"Bootstrapping metric={metric_name} with n={len(rows)}",
     ):
         return None
-    rng = random.Random(seed)
+    # Metric resampling is intentionally deterministic for reproducible reports.
+    rng = random.Random(seed)  # noqa: S311  # nosec B311
     values: list[float] = []
     for _ in range(n_resamples):
         sample = [rng.choice(rows) for _ in range(len(rows))]
@@ -400,22 +416,31 @@ def _bootstrap_metric_ci(
         ):
             metric = (cm["tp"] + cm["tn"]) / len(sample) if sample else None
         else:
-            raise ValueError(f"Unsupported metric for CI: {metric_name}")
-        if _branch(
-            "bootstrap_metric_ci.metric_not_none",
-            metric is not None,
-            f"Appending metric value={metric}",
-            "Skipping None metric value",
-        ):
+            msg = f"Unsupported metric for CI: {metric_name}"
+            raise ValueError(msg)
+        if metric is None:
+            _branch(
+                "bootstrap_metric_ci.metric_not_none",
+                False,
+                f"Appending metric value={metric}",
+                "Skipping None metric value",
+            )
+        else:
+            _branch(
+                "bootstrap_metric_ci.metric_not_none",
+                True,
+                f"Appending metric value={metric}",
+                "Skipping None metric value",
+            )
             values.append(metric)
     return _bootstrap_ci(values, n_resamples=n_resamples, seed=seed)
 
 
-def _run_case_mode(
+def _run_case_mode(  # noqa: C901, PLR0915
     case: dict[str, Any], mode: ValidationMode, consensus_runs: int
 ) -> dict[str, Any]:
     LOGGER.debug(
-        "Running validation case_id=%s mode=%s story_id=%s spec_version_id=%s consensus=%d",
+        "Running validation case_id=%s mode=%s story_id=%s spec_version_id=%s consensus=%d",  # noqa: E501
         case.get("case_id"),
         mode,
         case.get("story_id"),
@@ -427,10 +452,7 @@ def _run_case_mode(
     total_latency = 0.0
 
     # Deterministic modes don't need consensus
-    if mode == "deterministic":
-        actual_runs = 1
-    else:
-        actual_runs = max(1, consensus_runs)
+    actual_runs = 1 if mode == "deterministic" else max(1, consensus_runs)
 
     for i in range(actual_runs):
         max_attempts = 1 + RETRY_ATTEMPTS
@@ -453,7 +475,7 @@ def _run_case_mode(
                 elapsed_ms = (time.perf_counter() - started) * 1000
                 total_latency += elapsed_ms
                 break
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 elapsed_ms = (time.perf_counter() - started) * 1000
                 total_latency += elapsed_ms
                 error_text = str(e)
@@ -463,7 +485,7 @@ def _run_case_mode(
                 if should_retry:
                     backoff = RETRY_BASE_DELAY_SECONDS * (
                         2 ** (attempt - 1)
-                    ) + random.uniform(0, RETRY_JITTER_SECONDS)
+                    ) + _retry_jitter_seconds()
                     LOGGER.warning(
                         (
                             "Retryable error in validation run %d attempt %d/%d "
@@ -481,7 +503,7 @@ def _run_case_mode(
                     attempt += 1
                     continue
 
-                LOGGER.error("Error in validation run %d: %s", i + 1, error_text)
+                LOGGER.error("Error in validation run %d: %s", i + 1, error_text)  # noqa: TRY400
                 result = {"error": error_text}
                 success = False
                 passed = False
@@ -516,7 +538,7 @@ def _run_case_mode(
         if r["passed"] == predicted_pass:
             merged_reasons.update(r["reason_codes"])
 
-    # Select a representative result object from a run that matches the consensus verdict.
+    # Select a representative result object from a run that matches the consensus verdict.  # noqa: E501
     # Prioritize successful runs.
     representative_run = None
     for r in runs:
@@ -532,12 +554,12 @@ def _run_case_mode(
                 representative_run = r
                 break
 
-    # Final fallback (e.g. split vote where winner had execution errors? shouldn't happen with boolean logic but safe to fallback)
+    # Final fallback (e.g. split vote where winner had execution errors? shouldn't happen with boolean logic but safe to fallback)  # noqa: E501
     if not representative_run:
         representative_run = runs[0]
 
     LOGGER.debug(
-        "Completed case_id=%s mode=%s success=%s predicted_pass=%s reasons=%s latency_ms=%.2f stability=%.2f",
+        "Completed case_id=%s mode=%s success=%s predicted_pass=%s reasons=%s latency_ms=%.2f stability=%.2f",  # noqa: E501
         case.get("case_id"),
         mode,
         representative_run["success"],
@@ -616,7 +638,7 @@ def _compute_mode_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
             if _branch(
                 "compute_mode_metrics.predicted_and_expected_reasons",
                 bool(expected_reasons),
-                f"case_id={row.get('case_id')} precision computed against expected reasons",
+                f"case_id={row.get('case_id')} precision computed against expected reasons",  # noqa: E501
                 f"case_id={row.get('case_id')} precision forced to 0.0",
             ):
                 reason_precision_values.append(
@@ -711,6 +733,8 @@ def _fmt_pct(value: float | None) -> str:
         "Formatting percent",
     ):
         return "-"
+    if value is None:
+        return "-"
     return f"{value * 100:.1f}%"
 
 
@@ -742,7 +766,7 @@ def _build_summary_markdown(
     lines.append(f"- Modes: `{', '.join(modes)}`")
     lines.append("")
     lines.append(
-        "| Mode | Cases | Labeled | Accuracy | Precision (fail) | Recall (fail) | Stability | Reason Recall | Reason Prec | Over-flag % | Avg Latency ms | Median Latency ms |"
+        "| Mode | Cases | Labeled | Accuracy | Precision (fail) | Recall (fail) | Stability | Reason Recall | Reason Prec | Over-flag % | Avg Latency ms | Median Latency ms |"  # noqa: E501
     )
     lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for mode in modes:
@@ -755,8 +779,8 @@ def _build_summary_markdown(
                     str(m["num_cases"]),
                     str(m["num_labeled_cases"]),
                     f"{_fmt_pct(m['accuracy'])} {_fmt_ci(m.get('accuracy_ci_95'))}",
-                    f"{_fmt_pct(m['precision_fail'])} {_fmt_ci(m.get('precision_fail_ci_95'))}",
-                    f"{_fmt_pct(m['recall_fail'])} {_fmt_ci(m.get('recall_fail_ci_95'))}",
+                    f"{_fmt_pct(m['precision_fail'])} {_fmt_ci(m.get('precision_fail_ci_95'))}",  # noqa: E501
+                    f"{_fmt_pct(m['recall_fail'])} {_fmt_ci(m.get('recall_fail_ci_95'))}",  # noqa: E501
                     _fmt_pct(m.get("stability_avg")),
                     _fmt_pct(m["reason_recall_macro"]),
                     _fmt_pct(m.get("reason_precision_macro")),
@@ -772,7 +796,7 @@ def _build_summary_markdown(
     lines.append("## Clean Metrics (provider errors excluded)")
     lines.append("")
     lines.append(
-        "| Mode | Provider Errors | Clean Cases | Clean Accuracy | Clean Precision (fail) | Clean Recall (fail) | Clean F1 (fail) |"
+        "| Mode | Provider Errors | Clean Cases | Clean Accuracy | Clean Precision (fail) | Clean Recall (fail) | Clean F1 (fail) |"  # noqa: E501
     )
     lines.append("|---|---:|---:|---:|---:|---:|---:|")
     for mode in modes:
@@ -809,12 +833,13 @@ def _build_summary_markdown(
     return "\n".join(lines) + "\n"
 
 
-def evaluate_cases(
+def evaluate_cases(  # noqa: C901
     cases: list[dict[str, Any]],
     modes: Sequence[str],
     consensus_runs: int = 1,  # Backward compatibility: default to 1
     max_concurrency: int = 1,
 ) -> dict[str, Any]:
+    """Return evaluate cases."""
     LOGGER.info(
         "Evaluating %d case(s) across mode(s): %s", len(cases), ", ".join(modes)
     )
@@ -867,7 +892,7 @@ def evaluate_cases(
             for finished in asyncio.as_completed(async_tasks):
                 case_order, mode_order, row = await finished
                 ordered[(case_order, mode_order)] = row
-                completed_count += 1
+                completed_count += 1  # noqa: SIM113
                 if (
                     completed_count == total_tasks
                     or completed_count % progress_every == 0
@@ -923,10 +948,11 @@ def _limit_cases(
     ):
         return cases[:limit]
 
-    rng = random.Random(seed)
+    # Case sampling is intentionally deterministic for reproducible evaluations.
+    rng = random.Random(seed)  # noqa: S311  # nosec B311
     positives = [c for c in cases if c.get("expected_pass") is True]
     negatives = [c for c in cases if c.get("expected_pass") is False]
-    unlabeled = [c for c in cases if c.get("expected_pass") is None]
+    unlabeled = [c for c in cases if c.get("expected_pass") is None]  # noqa: F841
 
     labeled_count = len(positives) + len(negatives)
     if _branch(
@@ -988,12 +1014,14 @@ def _validate_min_positive_cases(
         f"Too few positives ({positive_count} < {min_positive_cases}); raising",
         f"Positive coverage ok ({positive_count} >= {min_positive_cases})",
     ):
+        msg = f"Expected at least {min_positive_cases} expected-pass cases, got {positive_count}."  # noqa: E501
         raise SystemExit(
-            f"Expected at least {min_positive_cases} expected-pass cases, got {positive_count}."
+            msg
         )
 
 
 def parse_modes(raw_modes: str) -> list[str]:
+    """Return parse modes."""
     LOGGER.info("Parsing modes from input: %s", raw_modes)
     if _branch(
         "parse_modes.all",
@@ -1010,8 +1038,9 @@ def parse_modes(raw_modes: str) -> list[str]:
         f"Invalid modes found: {invalid}",
         "No invalid modes found",
     ):
+        msg = f"Invalid mode(s): {invalid}. Valid: {list(VALID_MODES)} or all"
         raise ValueError(
-            f"Invalid mode(s): {invalid}. Valid: {list(VALID_MODES)} or all"
+            msg
         )
     if _branch(
         "parse_modes.empty_modes",
@@ -1019,13 +1048,15 @@ def parse_modes(raw_modes: str) -> list[str]:
         "No modes after parsing; raising",
         f"Using parsed modes: {modes}",
     ):
-        raise ValueError("At least one mode is required")
+        msg = "At least one mode is required"
+        raise ValueError(msg)
     return modes
 
 
 def main() -> None:
+    """Return main."""
     parser = argparse.ArgumentParser(
-        description="Evaluate spec validation quality across deterministic/llm/hybrid modes"
+        description="Evaluate spec validation quality across deterministic/llm/hybrid modes"  # noqa: E501
     )
     parser.add_argument(
         "--cases",
@@ -1059,7 +1090,7 @@ def main() -> None:
     parser.add_argument(
         "--stratify",
         action="store_true",
-        help="When used with --limit, sample cases with class balance by expected_pass.",
+        help="When used with --limit, sample cases with class balance by expected_pass.",  # noqa: E501
     )
     parser.add_argument(
         "--seed",
@@ -1071,13 +1102,13 @@ def main() -> None:
         "--min-positive-cases",
         type=int,
         default=0,
-        help="Fail run if selected cases have fewer than this many expected_pass=True labels.",
+        help="Fail run if selected cases have fewer than this many expected_pass=True labels.",  # noqa: E501
     )
     parser.add_argument(
         "--consensus-runs",
         type=int,
         default=1,
-        help="Number of times to run LLM/Hybrid modes per case to determine consensus (default: 1)",
+        help="Number of times to run LLM/Hybrid modes per case to determine consensus (default: 1)",  # noqa: E501
     )
     parser.add_argument(
         "--concurrency",
@@ -1104,7 +1135,8 @@ def main() -> None:
     LOGGER.info("Starting eval_spec_validation")
     LOGGER.info("CLI args: %s", vars(args))
     if args.concurrency < 1:
-        raise SystemExit("--concurrency must be >= 1")
+        msg = "--concurrency must be >= 1"
+        raise SystemExit(msg)
 
     modes = parse_modes(args.modes)
     cases = _read_cases(args.cases, include_disabled=args.include_disabled)
@@ -1121,7 +1153,8 @@ def main() -> None:
         "No cases found after filtering/limiting; exiting",
         f"Proceeding with {len(cases)} case(s)",
     ):
-        raise SystemExit("No benchmark cases found. Build or provide cases first.")
+        msg = "No benchmark cases found. Build or provide cases first."
+        raise SystemExit(msg)
 
     run_timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     evaluated = evaluate_cases(
@@ -1177,7 +1210,7 @@ def main() -> None:
             f"Mode {mode} has no expected-pass coverage; emitting warning",
             f"Mode {mode} has expected-pass coverage",
         ):
-            print(
+            emit(
                 (
                     f"WARNING [{mode}]: No expected-pass coverage detected "
                     "(tn=0 and fp=0). Consider --stratify or --min-positive-cases."
@@ -1185,10 +1218,10 @@ def main() -> None:
                 file=sys.stderr,
             )
 
-    print(f"Evaluated {len(cases)} case(s) across mode(s): {', '.join(modes)}")
-    print(f"Raw results: {raw_path}")
-    print(f"Metrics JSON: {results_path}")
-    print(f"Summary MD: {summary_path}")
+    emit(f"Evaluated {len(cases)} case(s) across mode(s): {', '.join(modes)}")
+    emit(f"Raw results: {raw_path}")
+    emit(f"Metrics JSON: {results_path}")
+    emit(f"Summary MD: {summary_path}")
     LOGGER.info("Evaluation completed")
 
 

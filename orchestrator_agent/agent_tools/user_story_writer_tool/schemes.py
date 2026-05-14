@@ -58,24 +58,21 @@ class UserStoryItem(BaseModel):
             description="Estimated size/effort. XS = hours, S = 1 day, M = 2-3 days. Small tasks like documentation should be XS/S, never artificially split to fill larger buckets."
         ),
     ]
-    produced_artifacts: Annotated[
-        list[str],
-        Field(
-            description="List of specific artifacts, documents, or deliverables this story produces.",
-            default_factory=list,
+    produced_artifacts: list[str] = Field(
+        default_factory=list,
+        description=(
+            "List of specific artifacts, documents, or deliverables this story "
+            "produces."
         ),
-    ]
-    decomposition_warning: Annotated[
-        str | None,
-        Field(
-            default=None,
-            description=(
-                "Reason for low INVEST score. "
-                "Include ONLY when invest_score is 'Low'. "
-                "Omit (null) for 'High' or 'Medium'."
-            ),
+    )
+    decomposition_warning: str | None = Field(
+        default=None,
+        description=(
+            "Reason for low INVEST score. "
+            "Include ONLY when invest_score is 'Low'. "
+            "Omit (null) for 'High' or 'Medium'."
         ),
-    ]
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -181,27 +178,18 @@ class UserStoryWriterInput(BaseModel):
             description="Regulatory, architectural, or organizational constraints.",
         ),
     ]
-    global_roadmap_context: Annotated[
-        str,
-        Field(
-            default="",
-            description="All roadmap milestones to provide boundaries on what NOT to implement.",
-        ),
-    ]
-    already_generated_milestone_stories: Annotated[
-        str,
-        Field(
-            default="",
-            description="Details of stories already generated for other requirements to avoid overlap.",
-        ),
-    ]
-    artifact_registry: Annotated[
-        dict[str, str],
-        Field(
-            default_factory=dict,
-            description="Mapping of artifact_key -> owner_requirement.",
-        ),
-    ]
+    global_roadmap_context: str = Field(
+        default="",
+        description="All roadmap milestones to provide boundaries on what NOT to implement.",
+    )
+    already_generated_milestone_stories: str = Field(
+        default="",
+        description="Details of stories already generated for other requirements to avoid overlap.",
+    )
+    artifact_registry: dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping of artifact_key -> owner_requirement.",
+    )
 
 
 class UserStoryWriterOutput(BaseModel):
@@ -230,10 +218,7 @@ class UserStoryWriterOutput(BaseModel):
             ),
         ),
     ]
-    clarifying_questions: Annotated[
-        list[str],
-        Field(
-            default_factory=list,
-            description="Questions for the user if is_complete is False.",
-        ),
-    ]
+    clarifying_questions: list[str] = Field(
+        default_factory=list,
+        description="Questions for the user if is_complete is False.",
+    )

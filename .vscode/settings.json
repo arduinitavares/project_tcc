@@ -11,5 +11,9 @@
     "./tests",
     "-p",
     "*test.py"
+  ],
+  "bandit.args": [
+    "-c",
+    "${workspaceFolder}/pyproject.toml"
   ]
 }

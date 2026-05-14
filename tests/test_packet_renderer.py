@@ -1,25 +1,27 @@
 """Focused unit tests for the packet renderer (prompt contract split)."""
 
+from typing import Any
+
 from services.packet_renderer import render_human_brief, render_packet
 
 
-def _minimal_packet(
+def _minimal_packet(  # noqa: PLR0913
     *,
-    schema_version="task_packet.v2",
-    task_label="Implement feature X",
-    task_description="Build the feature",
-    ac_items=None,
-    task_checklist_items=None,
-    sprint_goal=None,
-    story_title=None,
-    story_description=None,
-    task_kind="implementation",
-    artifact_targets=None,
-    workstream_tags=None,
-    task_hard_constraints=None,
-    story_compliance_boundaries=None,
-    task_plan=None,
-):
+    schema_version: object = "task_packet.v2",
+    task_label: object = "Implement feature X",
+    task_description: object = "Build the feature",
+    ac_items: object = None,
+    task_checklist_items: object = None,
+    sprint_goal: object = None,
+    story_title: object = None,
+    story_description: object = None,
+    task_kind: object = "implementation",
+    artifact_targets: object = None,
+    workstream_tags: object = None,
+    task_hard_constraints: object = None,
+    story_compliance_boundaries: object = None,
+    task_plan: object = None,
+) -> dict[str, Any]:
     """Build the smallest valid packet dict for renderer testing."""
     story_payload = {
         "story_id": 7,
@@ -68,7 +70,8 @@ def _minimal_packet(
 # ------------------------------------------------------------------
 
 
-def test_render_packet_uses_task_checklist_for_task_packets():
+def test_render_packet_uses_task_checklist_for_task_packets() -> None:
+    """Verify render packet uses task checklist for task packets."""
     packet = _minimal_packet(
         schema_version="task_packet.v2",
         story_title="Parent Story",
@@ -81,7 +84,7 @@ def test_render_packet_uses_task_checklist_for_task_packets():
     assert "Task Checklist" in output
     assert "Verify every task checklist item before claiming completion." in output
     assert (
-        "This prompt assumes the session was already initialized with the parent story prompt. If not, restart with Copy Story Prompt."
+        "This prompt assumes the session was already initialized with the parent story prompt. If not, restart with Copy Story Prompt."  # noqa: E501
         in output
     )
     assert "- [ ] Confirm request shape" in output
@@ -90,7 +93,8 @@ def test_render_packet_uses_task_checklist_for_task_packets():
     assert "Story AC should stay out of task prompts" not in output
 
 
-def test_render_packet_uses_story_acceptance_criteria_for_story_packets():
+def test_render_packet_uses_story_acceptance_criteria_for_story_packets() -> None:
+    """Verify render packet uses story acceptance criteria for story packets."""
     packet = _minimal_packet(
         schema_version="story_packet.v1",
         story_title="Parent Story",
@@ -119,7 +123,8 @@ def test_render_packet_uses_story_acceptance_criteria_for_story_packets():
     assert "Implement request validation" in output
 
 
-def test_story_packet_human_brief_uses_top_level_story_shape():
+def test_story_packet_human_brief_uses_top_level_story_shape() -> None:
+    """Verify story packet human brief uses top level story shape."""
     packet = _minimal_packet(
         schema_version="story_packet.v1",
         story_title="Top-level Story Title",
@@ -149,7 +154,8 @@ def test_story_packet_human_brief_uses_top_level_story_shape():
     assert "## Task Checklist" not in output
 
 
-def test_human_brief_has_no_execution_contract():
+def test_human_brief_has_no_execution_contract() -> None:
+    """Verify human brief has no execution contract."""
     packet = _minimal_packet(
         ac_items=["some AC"], task_checklist_items=["some checklist"]
     )

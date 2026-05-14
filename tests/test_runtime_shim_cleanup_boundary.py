@@ -35,6 +35,7 @@ def _module_import_aliases(module_path: Path, module_name: str) -> set[str]:
 
 
 def test_product_repository_import_boundary() -> None:
+    """Verify product repository import boundary."""
     module_path = ROOT / "repositories/product.py"
 
     core_imports = _imported_names_from(module_path, "models.core")
@@ -68,6 +69,7 @@ def test_product_repository_import_boundary() -> None:
 
 
 def test_story_repository_import_boundary() -> None:
+    """Verify story repository import boundary."""
     module_path = ROOT / "repositories/story.py"
 
     core_imports = _imported_names_from(module_path, "models.core")

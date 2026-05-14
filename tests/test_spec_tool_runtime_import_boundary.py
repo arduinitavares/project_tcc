@@ -47,6 +47,7 @@ def _module_import_aliases(module_path: Path, module_name: str) -> set[str]:
 
 
 def test_spec_tools_import_boundary() -> None:
+    """Verify spec tools import boundary."""
     module_path = ROOT / "tools/spec_tools.py"
 
     core_imports = _imported_names_from(module_path, "models.core")

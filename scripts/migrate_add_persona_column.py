@@ -1,10 +1,13 @@
 """
 Migration script to add persona column to user_stories table.
+
 This preserves all existing data while adding the new column.
 """
 
 import sys
 from pathlib import Path
+
+from utils.cli_output import emit
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -13,7 +16,7 @@ from sqlalchemy import create_engine, text
 from agile_sqlmodel import get_database_url
 
 
-def migrate_add_persona_column():
+def migrate_add_persona_column() -> None:
     """Add persona column to user_stories table."""
     engine = create_engine(get_database_url(), echo=True)
 
@@ -23,12 +26,12 @@ def migrate_add_persona_column():
         columns = [row[1] for row in result.fetchall()]
 
         if "persona" in columns:
-            print(
-                "✓ Column 'persona' already exists in user_stories table. No migration needed."
+            emit(
+                "✓ Column 'persona' already exists in user_stories table. No migration needed."  # noqa: E501
             )
             return
 
-        print("Adding 'persona' column to user_stories table...")
+        emit("Adding 'persona' column to user_stories table...")
 
         # Add the column
         conn.execute(text("ALTER TABLE user_stories ADD COLUMN persona VARCHAR(100)"))
@@ -36,14 +39,14 @@ def migrate_add_persona_column():
         # Create index for the new column
         conn.execute(
             text(
-                "CREATE INDEX IF NOT EXISTS ix_user_stories_persona ON user_stories (persona)"
+                "CREATE INDEX IF NOT EXISTS ix_user_stories_persona ON user_stories (persona)"  # noqa: E501
             )
         )
 
         conn.commit()
 
-        print("✓ Migration complete! Column 'persona' added successfully.")
-        print("\nThe persona field will be auto-extracted from story descriptions.")
+        emit("✓ Migration complete! Column 'persona' added successfully.")
+        emit("\nThe persona field will be auto-extracted from story descriptions.")
 
 
 if __name__ == "__main__":

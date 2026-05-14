@@ -3,10 +3,11 @@
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
+import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import select
+from sqlmodel import Session, select
 
 import api as api_module
 from agile_sqlmodel import (
@@ -40,9 +41,60 @@ from utils.task_metadata import (
     serialize_task_metadata,
 )
 
+HTTP_OK = 200
+HTTP_CONFLICT = 409
+HTTP_NOT_FOUND = 404
+HTTP_UNPROCESSABLE = 422
+HTTP_INTERNAL_SERVER_ERROR = 500
+DEFAULT_SPRINT_DURATION_DAYS = 14
+EXPECTED_SPRINT_LIST_COUNT = 2
+TASK_KIND_ENUM_MESSAGE = (
+    "Input should be 'analysis', 'design', 'implementation', 'testing', "
+    "'documentation', 'refactor' or 'other'"
+)
+TASK_KIND_APPROVAL_INPUT_ERROR = (
+    "Task 'Get approval' has invalid task_kind. Input should be 'analysis', "
+    "'design', 'implementation', 'testing', 'documentation', 'refactor' or "
+    "'other'"
+)
+TASK_KIND_APPROVAL_REWRITTEN_ERROR = (
+    "Task 'Get approval' has invalid task_kind. Use one of: analysis, design, "
+    "implementation, testing, documentation, refactor."
+)
+TASK_KIND_APPROVAL_ERROR = (
+    "Unsupported task_kind 'approval'. Use one of: analysis, design, "
+    "implementation, testing, documentation, refactor."
+)
+TASK_KIND_APPROVAL_ERROR_WITH_OTHER = (
+    "Unsupported task_kind 'approval'. Use one of: analysis, design, "
+    "implementation, testing, documentation, refactor, other."
+)
+TASK_KIND_REVIEW_ERROR = (
+    "Unsupported task_kind 'review'. Use one of: analysis, design, "
+    "implementation, testing, documentation, refactor."
+)
+PAYLOAD_PRODUCT_VISION = (
+    "Build trustworthy execution handoffs.\n\nIgnore this second paragraph."
+)
+PAYLOAD_STORY_DESCRIPTION = (
+    "As a developer, I want payload validation so that requests are safe."
+)
+ALIGNMENT_WARNING_MESSAGE = (
+    "Acceptance criteria may be missing required field 'user_id'."
+)
+TASK_PACKET_PARENT_PROMPT_NOTE = (
+    "This prompt assumes the session was already initialized with the parent "
+    "story prompt. If not, restart with Copy Story Prompt."
+)
+
+
+def _require_id(value: int | None, label: str) -> int:
+    assert value is not None, f"{label} should be persisted before use"
+    return value
+
 
 @dataclass
-class DummyProduct:
+class DummyProduct:  # noqa: D101
     product_id: int
     name: str
     description: str | None = None
@@ -51,20 +103,24 @@ class DummyProduct:
     compiled_authority_json: str | None = None
 
 
-class DummyProductRepository:
-    def __init__(self) -> None:
+class DummyProductRepository:  # noqa: D101
+    def __init__(self) -> None:  # noqa: D107
         self.products = []
 
-    def get_all(self):
+    def get_all(self) -> list[DummyProduct]:  # noqa: D102
         return list(self.products)
 
-    def get_by_id(self, product_id: int):
+    def get_by_id(self, product_id: int) -> DummyProduct | None:  # noqa: D102
         for product in self.products:
             if product.product_id == product_id:
                 return product
         return None
 
-    def create(self, name: str, description: str | None = None):
+    def create(  # noqa: D102
+        self,
+        name: str,
+        description: str | None = None,
+    ) -> DummyProduct:
         product = DummyProduct(
             product_id=len(self.products) + 1,
             name=name,
@@ -74,29 +130,35 @@ class DummyProductRepository:
         return product
 
 
-class DummyWorkflowService:
-    def __init__(self) -> None:
+class DummyWorkflowService:  # noqa: D101
+    def __init__(self) -> None:  # noqa: D107
         self.states: dict[str, dict[str, object]] = {}
 
-    async def initialize_session(self, session_id: str | None = None) -> str:
+    async def initialize_session(self, session_id: str | None = None) -> str:  # noqa: D102
         sid = str(session_id or "generated")
         self.states[sid] = {"fsm_state": "SETUP_REQUIRED"}
         return sid
 
-    def get_session_status(self, session_id: str):
+    def get_session_status(self, session_id: str) -> dict[str, object]:  # noqa: D102
         return dict(self.states.get(str(session_id), {}))
 
-    def update_session_status(self, session_id: str, partial_update):
+    def update_session_status(  # noqa: D102
+        self,
+        session_id: str,
+        partial_update: dict[str, object],
+    ) -> None:
         sid = str(session_id)
         current = dict(self.states.get(sid, {}))
         current.update(partial_update)
         self.states[sid] = current
 
-    def migrate_legacy_setup_state(self) -> int:
+    def migrate_legacy_setup_state(self) -> int:  # noqa: D102
         return 0
 
 
-def _build_client(monkeypatch):
+def _build_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[TestClient, DummyProductRepository, DummyWorkflowService]:
     repo = DummyProductRepository()
     workflow = DummyWorkflowService()
 
@@ -174,7 +236,7 @@ def _seed_sprint_draft_project(
 
 
 def _seed_saved_sprint(
-    session,
+    session: Session,
     repo: DummyProductRepository,
     *,
     started: bool,
@@ -203,19 +265,24 @@ def _seed_saved_sprint(
         status=SprintStatus.ACTIVE if started else SprintStatus.PLANNED,
         started_at=(datetime(2026, 3, 2, 9, 0, tzinfo=UTC) if started else None),
         product_id=product.product_id,
-        team_id=team.team_id,
+        team_id=_require_id(team.team_id, "team_id"),
     )
     session.add(sprint)
     session.flush()
 
-    session.add(SprintStory(sprint_id=sprint.sprint_id, story_id=story.story_id))
+    session.add(
+        SprintStory(
+            sprint_id=_require_id(sprint.sprint_id, "sprint_id"),
+            story_id=_require_id(story.story_id, "story_id"),
+        )
+    )
     session.commit()
 
-    return product.product_id, sprint.sprint_id
+    return product.product_id, _require_id(sprint.sprint_id, "sprint_id")
 
 
 def _seed_completed_sprint(
-    session,
+    session: Session,
     repo: DummyProductRepository,
     *,
     created_title: str,
@@ -238,7 +305,7 @@ def _seed_completed_sprint(
 
 
 def _seed_task_packet_context(
-    session,
+    session: Session,
     repo: DummyProductRepository,
     *,
     pinned: bool,
@@ -249,7 +316,7 @@ def _seed_task_packet_context(
         Product(
             product_id=product.product_id,
             name=product.name,
-            vision="Build trustworthy execution handoffs.\n\nIgnore this second paragraph.",
+            vision=PAYLOAD_PRODUCT_VISION,
         )
     )
 
@@ -260,7 +327,7 @@ def _seed_task_packet_context(
     story = UserStory(
         product_id=product.product_id,
         title="Payload Validation Story",
-        story_description="As a developer, I want payload validation so that requests are safe.",
+        story_description=PAYLOAD_STORY_DESCRIPTION,
         acceptance_criteria="- include user_id\n- reject invalid payloads",
         persona="Developer",
         story_points=3,
@@ -272,7 +339,7 @@ def _seed_task_packet_context(
 
     task = Task(
         description="Implement payload validation for incoming requests",
-        story_id=story.story_id,
+        story_id=_require_id(story.story_id, "story_id"),
         metadata_json=serialize_task_metadata(
             task_metadata or canonical_task_metadata()
         ),
@@ -286,12 +353,15 @@ def _seed_task_packet_context(
         end_date=date(2026, 4, 14),
         status=SprintStatus.PLANNED,
         product_id=product.product_id,
-        team_id=team.team_id,
+        team_id=_require_id(team.team_id, "team_id"),
     )
     session.add(sprint)
     session.flush()
 
-    link = SprintStory(sprint_id=sprint.sprint_id, story_id=story.story_id)
+    link = SprintStory(
+        sprint_id=_require_id(sprint.sprint_id, "sprint_id"),
+        story_id=_require_id(story.story_id, "story_id"),
+    )
     session.add(link)
 
     if pinned:
@@ -329,7 +399,10 @@ def _seed_task_packet_context(
             prompt_hash="0" * 64,
         )
         authority = CompiledSpecAuthority(
-            spec_version_id=spec_version.spec_version_id,
+            spec_version_id=_require_id(
+                spec_version.spec_version_id,
+                "spec_version_id",
+            ),
             compiler_version="1.0.0",
             prompt_hash="0" * 64,
             scope_themes='["API"]',
@@ -344,9 +417,15 @@ def _seed_task_packet_context(
         session.add(authority)
         session.flush()
 
-        story.accepted_spec_version_id = spec_version.spec_version_id
+        story.accepted_spec_version_id = _require_id(
+            spec_version.spec_version_id,
+            "spec_version_id",
+        )
         story.validation_evidence = ValidationEvidence(
-            spec_version_id=spec_version.spec_version_id,
+            spec_version_id=_require_id(
+                spec_version.spec_version_id,
+                "spec_version_id",
+            ),
             validated_at=datetime.now(UTC),
             passed=True,
             rules_checked=["SPEC_VERSION_EXISTS", "SPEC_PRODUCT_MATCH"],
@@ -360,7 +439,7 @@ def _seed_task_packet_context(
                     code="REQUIRED_FIELD_MISSING",
                     invariant=invariant.id,
                     capability=None,
-                    message="Acceptance criteria may be missing required field 'user_id'.",
+                    message=ALIGNMENT_WARNING_MESSAGE,
                     severity="warning",
                     created_at=datetime.now(UTC),
                 )
@@ -373,29 +452,34 @@ def _seed_task_packet_context(
     session.add(story)
     session.commit()
 
-    return product.product_id, sprint.sprint_id, story.story_id, task.task_id
+    return (
+        product.product_id,
+        _require_id(sprint.sprint_id, "sprint_id"),
+        _require_id(story.story_id, "story_id"),
+        _require_id(task.task_id, "task_id"),
+    )
 
 
-def test_complete_story_phase_moves_to_sprint_setup(monkeypatch):
+def test_complete_story_phase_moves_to_sprint_setup(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_story_phase_project(repo, workflow)
 
     response = client.post(f"/api/projects/{project_id}/story/complete_phase")
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()
     assert payload["data"]["fsm_state"] == "SPRINT_SETUP"
     assert workflow.states[str(project_id)]["fsm_state"] == "SPRINT_SETUP"
 
 
-def test_sprint_candidates_endpoint_returns_normalized_items(monkeypatch):
+def test_sprint_candidates_endpoint_returns_normalized_items(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_setup_project(repo, workflow)
 
     monkeypatch.setattr(
         api_module,
         "load_sprint_candidates",
-        lambda project_id: {
+        lambda project_id: {  # noqa: ARG005
             "success": True,
             "count": 1,
             "stories": [
@@ -415,14 +499,14 @@ def test_sprint_candidates_endpoint_returns_normalized_items(monkeypatch):
 
     response = client.get(f"/api/projects/{project_id}/sprint/candidates")
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()
     assert payload["data"]["count"] == 1
     assert payload["data"]["items"][0]["story_title"] == "Event Delta Persistence"
     assert payload["data"]["excluded_counts"]["non_refined"] == 1
 
 
-def test_sprint_generate_rejects_numeric_velocity_request(monkeypatch):
+def test_sprint_generate_rejects_numeric_velocity_request(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_setup_project(repo, workflow)
 
@@ -435,23 +519,23 @@ def test_sprint_generate_rejects_numeric_velocity_request(monkeypatch):
         },
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 422  # noqa: PLR2004
 
 
-def test_sprint_generate_failure_stays_in_setup_and_records_attempt(monkeypatch):
+def test_sprint_generate_failure_stays_in_setup_and_records_attempt(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_setup_project(repo, workflow)
 
-    async def fake_run_sprint_agent_from_state(
-        state,
+    async def fake_run_sprint_agent_from_state(  # noqa: ANN202, PLR0913
+        state,  # noqa: ANN001, ARG001
         *,
-        project_id,
-        team_velocity_assumption,
-        sprint_duration_days,
-        max_story_points,
-        include_task_decomposition,
-        selected_story_ids,
-        user_input,
+        project_id,  # noqa: ANN001, ARG001
+        team_velocity_assumption,  # noqa: ANN001
+        sprint_duration_days,  # noqa: ANN001, ARG001
+        max_story_points,  # noqa: ANN001, ARG001
+        include_task_decomposition,  # noqa: ANN001, ARG001
+        selected_story_ids,  # noqa: ANN001, ARG001
+        user_input,  # noqa: ANN001, ARG001
     ):
         return {
             "success": False,
@@ -481,7 +565,7 @@ def test_sprint_generate_failure_stays_in_setup_and_records_attempt(monkeypatch)
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()
     assert payload["data"]["is_complete"] is False
     assert payload["data"]["fsm_state"] == "SPRINT_SETUP"
@@ -489,23 +573,29 @@ def test_sprint_generate_failure_stays_in_setup_and_records_attempt(monkeypatch)
     attempts = workflow.states[str(project_id)]["sprint_attempts"]
     assert isinstance(attempts, list)
     assert len(attempts) == 1
-    assert attempts[0]["output_artifact"]["error"] == "SPRINT_GENERATION_FAILED"
+    first_attempt = attempts[0]
+    assert isinstance(first_attempt, dict)
+    first_attempt = cast("dict[str, object]", first_attempt)
+    output_artifact = first_attempt["output_artifact"]
+    assert isinstance(output_artifact, dict)
+    output_artifact = cast("dict[str, object]", output_artifact)
+    assert output_artifact["error"] == "SPRINT_GENERATION_FAILED"
 
 
-def test_sprint_failure_validation_errors_are_public_strings_in_history(monkeypatch):
+def test_sprint_failure_validation_errors_are_public_strings_in_history(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_setup_project(repo, workflow)
 
-    async def fake_run_sprint_agent_from_state(
-        state,
+    async def fake_run_sprint_agent_from_state(  # noqa: ANN202, PLR0913
+        state,  # noqa: ANN001
         *,
-        project_id,
-        team_velocity_assumption,
-        sprint_duration_days,
-        max_story_points,
-        include_task_decomposition,
-        selected_story_ids,
-        user_input,
+        project_id,  # noqa: ANN001
+        team_velocity_assumption,  # noqa: ANN001
+        sprint_duration_days,  # noqa: ANN001
+        max_story_points,  # noqa: ANN001
+        include_task_decomposition,  # noqa: ANN001
+        selected_story_ids,  # noqa: ANN001
+        user_input,  # noqa: ANN001
     ):
         _ = (
             state,
@@ -527,9 +617,7 @@ def test_sprint_failure_validation_errors_are_public_strings_in_history(monkeypa
                 "error": "SPRINT_GENERATION_FAILED",
                 "message": "Sprint output validation failed.",
                 "is_complete": False,
-                "validation_errors": [
-                    "Unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor."
-                ],
+                "validation_errors": [TASK_KIND_APPROVAL_ERROR],
             },
             "is_complete": None,
             "error": "Sprint output validation failed.",
@@ -553,21 +641,19 @@ def test_sprint_failure_validation_errors_are_public_strings_in_history(monkeypa
         },
     )
 
-    assert generate_response.status_code == 200
+    assert generate_response.status_code == 200  # noqa: PLR2004
     generate_payload = generate_response.json()
     assert generate_payload["data"]["output_artifact"]["validation_errors"] == [
-        "Unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor."
+        TASK_KIND_APPROVAL_ERROR
     ]
 
     history_response = client.get(f"/api/projects/{project_id}/sprint/history")
 
-    assert history_response.status_code == 200
+    assert history_response.status_code == 200  # noqa: PLR2004
     history_payload = history_response.json()
     assert history_payload["data"]["items"][0]["output_artifact"][
         "validation_errors"
-    ] == [
-        "Unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor."
-    ]
+    ] == [TASK_KIND_APPROVAL_ERROR]
     assert all(
         isinstance(item, str)
         for item in history_payload["data"]["items"][0]["output_artifact"][
@@ -576,7 +662,7 @@ def test_sprint_failure_validation_errors_are_public_strings_in_history(monkeypa
     )
 
 
-def test_sprint_history_normalizes_legacy_structured_validation_errors(monkeypatch):
+def test_sprint_history_normalizes_legacy_structured_validation_errors(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_setup_project(repo, workflow)
     workflow.states[str(project_id)]["sprint_attempts"] = [
@@ -591,7 +677,7 @@ def test_sprint_history_normalizes_legacy_structured_validation_errors(monkeypat
                 "validation_errors": [
                     {
                         "loc": ["selected_stories", 0, "tasks", 0, "task_kind"],
-                        "msg": "Input should be 'analysis', 'design', 'implementation', 'testing', 'documentation', 'refactor' or 'other'",
+                        "msg": TASK_KIND_ENUM_MESSAGE,
                         "input": "review",
                     },
                     {
@@ -614,12 +700,12 @@ def test_sprint_history_normalizes_legacy_structured_validation_errors(monkeypat
 
     history_response = client.get(f"/api/projects/{project_id}/sprint/history")
 
-    assert history_response.status_code == 200
+    assert history_response.status_code == 200  # noqa: PLR2004
     history_payload = history_response.json()
     assert history_payload["data"]["items"][0]["output_artifact"][
         "validation_errors"
     ] == [
-        "Unsupported task_kind 'review'. Use one of: analysis, design, implementation, testing, documentation, refactor.",
+        TASK_KIND_REVIEW_ERROR,
         "Artifact target looks like a file path.",
     ]
     assert all(
@@ -630,7 +716,7 @@ def test_sprint_history_normalizes_legacy_structured_validation_errors(monkeypat
     )
 
 
-def test_sprint_history_rewrites_legacy_task_kind_string_hints(monkeypatch):
+def test_sprint_history_rewrites_legacy_task_kind_string_hints(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_setup_project(repo, workflow)
     workflow.states[str(project_id)]["sprint_attempts"] = [
@@ -643,8 +729,8 @@ def test_sprint_history_rewrites_legacy_task_kind_string_hints(monkeypatch):
                 "message": "Sprint output validation failed.",
                 "is_complete": False,
                 "validation_errors": [
-                    "Task 'Get approval' has invalid task_kind. Input should be 'analysis', 'design', 'implementation', 'testing', 'documentation', 'refactor' or 'other'",
-                    "Unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor, other.",
+                    TASK_KIND_APPROVAL_INPUT_ERROR,
+                    TASK_KIND_APPROVAL_ERROR_WITH_OTHER,
                 ],
             },
             "is_complete": False,
@@ -653,13 +739,13 @@ def test_sprint_history_rewrites_legacy_task_kind_string_hints(monkeypatch):
 
     history_response = client.get(f"/api/projects/{project_id}/sprint/history")
 
-    assert history_response.status_code == 200
+    assert history_response.status_code == 200  # noqa: PLR2004
     history_payload = history_response.json()
     assert history_payload["data"]["items"][0]["output_artifact"][
         "validation_errors"
     ] == [
-        "Task 'Get approval' has invalid task_kind. Use one of: analysis, design, implementation, testing, documentation, refactor.",
-        "Unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor.",
+        TASK_KIND_APPROVAL_REWRITTEN_ERROR,
+        TASK_KIND_APPROVAL_ERROR,
     ]
     assert all(
         "other" not in item
@@ -669,23 +755,23 @@ def test_sprint_history_rewrites_legacy_task_kind_string_hints(monkeypatch):
     )
 
 
-def test_sprint_generate_success_moves_to_draft_and_marks_assessment_complete(
-    monkeypatch,
+def test_sprint_generate_success_moves_to_draft_and_marks_assessment_complete(  # noqa: ANN201, D103
+    monkeypatch,  # noqa: ANN001
 ):
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_setup_project(repo, workflow)
     captured: dict[str, Any] = {}
 
-    async def fake_run_sprint_agent_from_state(
-        state,
+    async def fake_run_sprint_agent_from_state(  # noqa: ANN202, PLR0913
+        state,  # noqa: ANN001, ARG001
         *,
-        project_id,
-        team_velocity_assumption,
-        sprint_duration_days,
-        max_story_points,
-        include_task_decomposition,
-        selected_story_ids,
-        user_input,
+        project_id,  # noqa: ANN001, ARG001
+        team_velocity_assumption,  # noqa: ANN001
+        sprint_duration_days,  # noqa: ANN001
+        max_story_points,  # noqa: ANN001
+        include_task_decomposition,  # noqa: ANN001, ARG001
+        selected_story_ids,  # noqa: ANN001
+        user_input,  # noqa: ANN001, ARG001
     ):
         captured["selected_story_ids"] = selected_story_ids
         captured["team_velocity_assumption"] = team_velocity_assumption
@@ -740,22 +826,22 @@ def test_sprint_generate_success_moves_to_draft_and_marks_assessment_complete(
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()
     assert payload["data"]["is_complete"] is True
     assert payload["data"]["fsm_state"] == "SPRINT_DRAFT"
     assert workflow.states[str(project_id)]["fsm_state"] == "SPRINT_DRAFT"
-    assert (
-        workflow.states[str(project_id)]["sprint_plan_assessment"]["is_complete"]
-        is True
-    )
+    sprint_plan_assessment = workflow.states[str(project_id)]["sprint_plan_assessment"]
+    assert isinstance(sprint_plan_assessment, dict)
+    sprint_plan_assessment = cast("dict[str, object]", sprint_plan_assessment)
+    assert sprint_plan_assessment["is_complete"] is True
     assert captured["selected_story_ids"] == [12]
     assert captured["team_velocity_assumption"] == "High"
 
 
-def test_sprint_history_resets_stale_saved_working_set_after_completed_sprint(
-    session,
-    monkeypatch,
+def test_sprint_history_resets_stale_saved_working_set_after_completed_sprint(  # noqa: ANN201, D103
+    session,  # noqa: ANN001
+    monkeypatch,  # noqa: ANN001
 ):
     client, repo, workflow = _build_client(monkeypatch)
     project_id, completed_sprint_id = _seed_completed_sprint(
@@ -781,7 +867,7 @@ def test_sprint_history_resets_stale_saved_working_set_after_completed_sprint(
 
     response = client.get(f"/api/projects/{project_id}/sprint/history")
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()
     assert payload["data"]["count"] == 0
     assert payload["data"]["items"] == []
@@ -792,9 +878,9 @@ def test_sprint_history_resets_stale_saved_working_set_after_completed_sprint(
     assert state["sprint_planner_owner_sprint_id"] is None
 
 
-def test_sprint_generate_resets_stale_saved_working_set_before_next_cycle(
-    session,
-    monkeypatch,
+def test_sprint_generate_resets_stale_saved_working_set_before_next_cycle(  # noqa: ANN201, D103
+    session,  # noqa: ANN001
+    monkeypatch,  # noqa: ANN001
 ):
     client, repo, workflow = _build_client(monkeypatch)
     project_id, completed_sprint_id = _seed_completed_sprint(
@@ -817,16 +903,16 @@ def test_sprint_generate_resets_stale_saved_working_set_before_next_cycle(
         "sprint_plan_assessment": _build_sprint_assessment(is_complete=True),
     }
 
-    async def fake_run_sprint_agent_from_state(
-        state,
+    async def fake_run_sprint_agent_from_state(  # noqa: ANN202, PLR0913
+        state,  # noqa: ANN001, ARG001
         *,
-        project_id,
-        team_velocity_assumption,
-        sprint_duration_days,
-        max_story_points,
-        include_task_decomposition,
-        selected_story_ids,
-        user_input,
+        project_id,  # noqa: ANN001, ARG001
+        team_velocity_assumption,  # noqa: ANN001
+        sprint_duration_days,  # noqa: ANN001, ARG001
+        max_story_points,  # noqa: ANN001, ARG001
+        include_task_decomposition,  # noqa: ANN001, ARG001
+        selected_story_ids,  # noqa: ANN001
+        user_input,  # noqa: ANN001, ARG001
     ):
         return {
             "success": True,
@@ -853,18 +939,22 @@ def test_sprint_generate_resets_stale_saved_working_set_before_next_cycle(
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()
     assert payload["data"]["trigger"] == "auto_transition"
     attempts = workflow.states[str(project_id)]["sprint_attempts"]
+    assert isinstance(attempts, list)
     assert len(attempts) == 1
-    assert attempts[0]["trigger"] == "auto_transition"
+    reset_attempt = attempts[0]
+    assert isinstance(reset_attempt, dict)
+    reset_attempt = cast("dict[str, object]", reset_attempt)
+    assert reset_attempt["trigger"] == "auto_transition"
     assert workflow.states[str(project_id)]["sprint_planner_owner_sprint_id"] is None
 
 
-def test_sprint_history_preserves_matching_planned_sprint_working_set(
-    session,
-    monkeypatch,
+def test_sprint_history_preserves_matching_planned_sprint_working_set(  # noqa: ANN201, D103
+    session,  # noqa: ANN001
+    monkeypatch,  # noqa: ANN001
 ):
     client, repo, workflow = _build_client(monkeypatch)
     project_id, planned_sprint_id = _seed_saved_sprint(
@@ -889,7 +979,7 @@ def test_sprint_history_preserves_matching_planned_sprint_working_set(
 
     response = client.get(f"/api/projects/{project_id}/sprint/history")
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()
     assert payload["data"]["count"] == 1
     assert payload["data"]["items"][0]["trigger"] == "manual_refine"
@@ -898,9 +988,9 @@ def test_sprint_history_preserves_matching_planned_sprint_working_set(
     assert state["sprint_planner_owner_sprint_id"] == planned_sprint_id
 
 
-def test_create_next_sprint_reset_clears_legacy_ownerless_working_set(
-    session,
-    monkeypatch,
+def test_create_next_sprint_reset_clears_legacy_ownerless_working_set(  # noqa: ANN201, D103
+    session,  # noqa: ANN001
+    monkeypatch,  # noqa: ANN001
 ):
     client, repo, workflow = _build_client(monkeypatch)
     project_id, _completed_sprint_id = _seed_completed_sprint(
@@ -925,7 +1015,7 @@ def test_create_next_sprint_reset_clears_legacy_ownerless_working_set(
 
     response = client.post(f"/api/projects/{project_id}/sprint/planner/reset")
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()
     assert payload["data"]["count"] == 0
     assert payload["data"]["items"] == []
@@ -936,7 +1026,7 @@ def test_create_next_sprint_reset_clears_legacy_ownerless_working_set(
     assert state["sprint_planner_owner_sprint_id"] is None
 
 
-def test_sprint_save_sanitizes_assessment_and_uses_tool_contract(monkeypatch):
+def test_sprint_save_sanitizes_assessment_and_uses_tool_contract(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_draft_project(repo, workflow)
     hydrated_context = SimpleNamespace(
@@ -944,11 +1034,11 @@ def test_sprint_save_sanitizes_assessment_and_uses_tool_contract(monkeypatch):
     )
     captured: dict[str, Any] = {}
 
-    async def fake_hydrate_context(session_id: str, project_id: int):
+    async def fake_hydrate_context(session_id: str, project_id: int):  # noqa: ANN202
         assert session_id == str(project_id)
         return hydrated_context
 
-    def fake_save_sprint_plan_tool(input_data, tool_context):
+    def fake_save_sprint_plan_tool(input_data, tool_context):  # noqa: ANN001, ANN202
         captured["input_data"] = input_data
         captured["tool_context"] = tool_context
         return {"success": True, "sprint_id": 9}
@@ -964,20 +1054,20 @@ def test_sprint_save_sanitizes_assessment_and_uses_tool_contract(monkeypatch):
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()
     assert payload["data"]["fsm_state"] == "SPRINT_PERSISTENCE"
     assert workflow.states[str(project_id)]["fsm_state"] == "SPRINT_PERSISTENCE"
     assert captured["input_data"].team_id is None
     assert captured["input_data"].team_name == "Team Alpha"
     assert captured["input_data"].sprint_start_date == "2026-03-15"
-    assert captured["input_data"].sprint_duration_days == 14
+    assert captured["input_data"].sprint_duration_days == 14  # noqa: PLR2004
     assert captured["tool_context"].state["preserved"] is True
-    assert captured["tool_context"].state["sprint_plan"]["duration_days"] == 14
+    assert captured["tool_context"].state["sprint_plan"]["duration_days"] == 14  # noqa: PLR2004
     assert "is_complete" not in captured["tool_context"].state["sprint_plan"]
 
 
-def test_sprint_save_requires_team_name(monkeypatch):
+def test_sprint_save_requires_team_name(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_draft_project(repo, workflow)
 
@@ -986,10 +1076,10 @@ def test_sprint_save_requires_team_name(monkeypatch):
         json={"sprint_start_date": "2026-03-15"},
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 422  # noqa: PLR2004
 
 
-def test_sprint_save_requires_start_date(monkeypatch):
+def test_sprint_save_requires_start_date(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_draft_project(repo, workflow)
 
@@ -998,10 +1088,10 @@ def test_sprint_save_requires_start_date(monkeypatch):
         json={"team_name": "Team Alpha"},
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 422  # noqa: PLR2004
 
 
-def test_sprint_save_rejects_incomplete_assessment(monkeypatch):
+def test_sprint_save_rejects_incomplete_assessment(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_draft_project(repo, workflow, is_complete=False)
 
@@ -1013,20 +1103,20 @@ def test_sprint_save_rejects_incomplete_assessment(monkeypatch):
         },
     )
 
-    assert response.status_code == 409
+    assert response.status_code == 409  # noqa: PLR2004
     assert (
         response.json()["detail"] == "Sprint cannot be saved until is_complete is true"
     )
 
 
-def test_sprint_save_maps_open_sprint_conflict_to_http_409(monkeypatch):
+def test_sprint_save_maps_open_sprint_conflict_to_http_409(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_draft_project(repo, workflow)
 
-    async def fake_hydrate_context(session_id: str, project_id: int):
+    async def fake_hydrate_context(session_id: str, project_id: int):  # noqa: ANN202, ARG001
         return SimpleNamespace(state={}, session_id=session_id)
 
-    def fake_save_sprint_plan_tool(input_data, tool_context):
+    def fake_save_sprint_plan_tool(input_data, tool_context):  # noqa: ANN001, ANN202, ARG001
         return {
             "success": False,
             "error_code": "STORY_ALREADY_IN_OPEN_SPRINT",
@@ -1044,21 +1134,21 @@ def test_sprint_save_maps_open_sprint_conflict_to_http_409(monkeypatch):
         },
     )
 
-    assert response.status_code == 409
+    assert response.status_code == 409  # noqa: PLR2004
     assert (
         response.json()["detail"]
         == "Stories already assigned to active or planned sprints: [12]"
     )
 
 
-def test_sprint_save_surfaces_unexpected_persistence_tool_error(monkeypatch):
+def test_sprint_save_surfaces_unexpected_persistence_tool_error(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_draft_project(repo, workflow)
 
-    async def fake_hydrate_context(session_id: str, project_id: int):
+    async def fake_hydrate_context(session_id: str, project_id: int):  # noqa: ANN202, ARG001
         return SimpleNamespace(state={}, session_id=session_id)
 
-    def fake_save_sprint_plan_tool(input_data, tool_context):
+    def fake_save_sprint_plan_tool(input_data, tool_context):  # noqa: ANN001, ANN202, ARG001
         return {"success": False, "error": "database unavailable"}
 
     monkeypatch.setattr(api_module, "_hydrate_context", fake_hydrate_context)
@@ -1072,11 +1162,11 @@ def test_sprint_save_surfaces_unexpected_persistence_tool_error(monkeypatch):
         },
     )
 
-    assert response.status_code == 500
+    assert response.status_code == 500  # noqa: PLR2004
     assert response.json()["detail"] == "database unavailable"
 
 
-def test_project_state_normalizes_legacy_sprint_complete(monkeypatch):
+def test_project_state_normalizes_legacy_sprint_complete(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     project_id = _seed_sprint_setup_project(repo, workflow)
     workflow.states[str(project_id)] = {
@@ -1086,11 +1176,11 @@ def test_project_state_normalizes_legacy_sprint_complete(monkeypatch):
 
     response = client.get(f"/api/projects/{project_id}/state")
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     assert response.json()["data"]["fsm_state"] == "SPRINT_PERSISTENCE"
 
 
-def test_list_sprints_returns_saved_sprints_newest_first(session, monkeypatch):
+def test_list_sprints_returns_saved_sprints_newest_first(session, monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, older_sprint_id = _seed_saved_sprint(
         session,
@@ -1122,15 +1212,18 @@ def test_list_sprints_returns_saved_sprints_newest_first(session, monkeypatch):
     session.add(newer_sprint)
     session.flush()
     session.add(
-        SprintStory(sprint_id=newer_sprint.sprint_id, story_id=second_story.story_id)
+        SprintStory(
+            sprint_id=_require_id(newer_sprint.sprint_id, "sprint_id"),
+            story_id=_require_id(second_story.story_id, "story_id"),
+        )
     )
     session.commit()
 
     response = client.get(f"/api/projects/{project_id}/sprints")
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()
-    assert payload["data"]["count"] == 2
+    assert payload["data"]["count"] == 2  # noqa: PLR2004
     assert payload["data"]["runtime_summary"] == {
         "active_sprint_id": older_sprint_id,
         "planned_sprint_id": newer_sprint.sprint_id,
@@ -1158,7 +1251,7 @@ def test_list_sprints_returns_saved_sprints_newest_first(session, monkeypatch):
     assert "selected_stories" not in payload["data"]["items"][0]
 
 
-def test_start_sprint_sets_started_at_once_and_logs_event(session, monkeypatch):
+def test_start_sprint_sets_started_at_once_and_logs_event(session, monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id = _seed_saved_sprint(
         session,
@@ -1191,7 +1284,7 @@ def test_start_sprint_sets_started_at_once_and_logs_event(session, monkeypatch):
     first_response = client.patch(
         f"/api/projects/{project_id}/sprints/{sprint_id}/start"
     )
-    assert first_response.status_code == 200
+    assert first_response.status_code == 200  # noqa: PLR2004
     first_payload = first_response.json()
     sprint = first_payload["data"]["sprint"]
     started_at = first_payload["data"]["sprint"]["started_at"]
@@ -1207,7 +1300,7 @@ def test_start_sprint_sets_started_at_once_and_logs_event(session, monkeypatch):
     second_response = client.patch(
         f"/api/projects/{project_id}/sprints/{sprint_id}/start"
     )
-    assert second_response.status_code == 200
+    assert second_response.status_code == 200  # noqa: PLR2004
     second_payload = second_response.json()
     assert second_payload["data"]["sprint"]["started_at"] == started_at
 
@@ -1219,7 +1312,7 @@ def test_start_sprint_sets_started_at_once_and_logs_event(session, monkeypatch):
     assert len(events) == 1
 
 
-def test_start_sprint_rejects_when_another_sprint_is_active(session, monkeypatch):
+def test_start_sprint_rejects_when_another_sprint_is_active(session, monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id = _seed_saved_sprint(
         session,
@@ -1252,20 +1345,23 @@ def test_start_sprint_rejects_when_another_sprint_is_active(session, monkeypatch
     session.add(active_sprint)
     session.flush()
     session.add(
-        SprintStory(sprint_id=active_sprint.sprint_id, story_id=active_story.story_id)
+        SprintStory(
+            sprint_id=_require_id(active_sprint.sprint_id, "sprint_id"),
+            story_id=_require_id(active_story.story_id, "story_id"),
+        )
     )
     session.commit()
 
     response = client.patch(f"/api/projects/{project_id}/sprints/{sprint_id}/start")
 
-    assert response.status_code == 409
+    assert response.status_code == 409  # noqa: PLR2004
     assert (
         response.json()["detail"]
         == "Another sprint is already active for this project."
     )
 
 
-def test_start_sprint_rejects_completed_sprint(session, monkeypatch):
+def test_start_sprint_rejects_completed_sprint(session, monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id = _seed_saved_sprint(
         session,
@@ -1283,12 +1379,12 @@ def test_start_sprint_rejects_completed_sprint(session, monkeypatch):
 
     response = client.patch(f"/api/projects/{project_id}/sprints/{sprint_id}/start")
 
-    assert response.status_code == 409
+    assert response.status_code == 409  # noqa: PLR2004
     assert response.json()["detail"] == "Completed sprints cannot be restarted."
 
 
-def test_get_story_packet_returns_bootstrap_context_for_pinned_story(
-    session, monkeypatch
+def test_get_story_packet_returns_bootstrap_context_for_pinned_story(  # noqa: ANN201, D103
+    session, monkeypatch  # noqa: ANN001
 ):
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, story_id, _task_id = _seed_task_packet_context(
@@ -1307,7 +1403,7 @@ def test_get_story_packet_returns_bootstrap_context_for_pinned_story(
         f"/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/packet"
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()["data"]
 
     assert payload["schema_version"] == "story_packet.v1"
@@ -1372,7 +1468,7 @@ def test_get_story_packet_returns_bootstrap_context_for_pinned_story(
     )
 
 
-def test_get_task_packet_returns_task_local_execution_context(session, monkeypatch):
+def test_get_task_packet_returns_task_local_execution_context(session, monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, story_id, task_id = _seed_task_packet_context(
         session,
@@ -1391,7 +1487,7 @@ def test_get_task_packet_returns_task_local_execution_context(session, monkeypat
         f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet"
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()["data"]
 
     assert payload["schema_version"] == "task_packet.v2"
@@ -1458,7 +1554,7 @@ def test_get_task_packet_returns_task_local_execution_context(session, monkeypat
     )
 
 
-def test_get_task_packet_returns_cancelled_status(session, monkeypatch):
+def test_get_task_packet_returns_cancelled_status(session, monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, _story_id, task_id = _seed_task_packet_context(
         session,
@@ -1483,13 +1579,13 @@ def test_get_task_packet_returns_cancelled_status(session, monkeypatch):
         f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet"
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()["data"]
     assert payload["task"]["status"] == "Cancelled"
 
 
-def test_task_packet_metadata_hash_changes_when_task_metadata_changes(
-    session, monkeypatch
+def test_task_packet_metadata_hash_changes_when_task_metadata_changes(  # noqa: ANN201, D103
+    session, monkeypatch  # noqa: ANN001
 ):
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, _story_id, task_id = _seed_task_packet_context(
@@ -1529,8 +1625,8 @@ def test_task_packet_metadata_hash_changes_when_task_metadata_changes(
     )
 
 
-def test_build_story_task_plan_orders_identical_descriptions_by_task_id(
-    session, monkeypatch
+def test_build_story_task_plan_orders_identical_descriptions_by_task_id(  # noqa: ANN201, D103
+    session, monkeypatch  # noqa: ANN001
 ):
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, story_id, first_task_id = _seed_task_packet_context(
@@ -1559,8 +1655,14 @@ def test_build_story_task_plan_orders_identical_descriptions_by_task_id(
     assert first_task is not None
     assert second_task.task_id is not None
 
-    reversed_story = SimpleNamespace(tasks=[second_task, first_task])
-    forward_story = SimpleNamespace(tasks=[first_task, second_task])
+    reversed_story = cast(
+        "UserStory",
+        SimpleNamespace(tasks=[second_task, first_task]),
+    )
+    forward_story = cast(
+        "UserStory",
+        SimpleNamespace(tasks=[first_task, second_task]),
+    )
 
     reversed_plan = api_module._build_story_task_plan(reversed_story)
     forward_plan = api_module._build_story_task_plan(forward_story)
@@ -1582,7 +1684,7 @@ def test_build_story_task_plan_orders_identical_descriptions_by_task_id(
     ]
 
 
-def test_story_packet_fingerprint_changes_when_task_plan_changes(session, monkeypatch):
+def test_story_packet_fingerprint_changes_when_task_plan_changes(session, monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, story_id, task_id = _seed_task_packet_context(
         session,
@@ -1625,7 +1727,7 @@ def test_story_packet_fingerprint_changes_when_task_plan_changes(session, monkey
     )
 
 
-def test_get_task_packet_rejects_unlinked_task_sprint_pair(session, monkeypatch):
+def test_get_task_packet_rejects_unlinked_task_sprint_pair(session, monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, _sprint_id, story_id, task_id = _seed_task_packet_context(
         session,
@@ -1653,14 +1755,14 @@ def test_get_task_packet_rejects_unlinked_task_sprint_pair(session, monkeypatch)
         f"/api/projects/{project_id}/sprints/{other_sprint.sprint_id}/tasks/{task_id}/packet"
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 404  # noqa: PLR2004
     assert response.json()["detail"] == "Task packet context not found"
 
     linked_story = session.get(UserStory, story_id)
     assert linked_story is not None
 
 
-def test_same_task_gets_different_packet_identity_across_sprints(session, monkeypatch):
+def test_same_task_gets_different_packet_identity_across_sprints(session, monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, story_id, task_id = _seed_task_packet_context(
         session,
@@ -1683,7 +1785,12 @@ def test_same_task_gets_different_packet_identity_across_sprints(session, monkey
     )
     session.add(second_sprint)
     session.flush()
-    session.add(SprintStory(sprint_id=second_sprint.sprint_id, story_id=story_id))
+    session.add(
+        SprintStory(
+            sprint_id=_require_id(second_sprint.sprint_id, "sprint_id"),
+            story_id=story_id,
+        )
+    )
     session.commit()
 
     first_payload = client.get(
@@ -1707,7 +1814,7 @@ def test_same_task_gets_different_packet_identity_across_sprints(session, monkey
     )
 
 
-def test_unpinned_story_packet_has_no_authority_fallback(session, monkeypatch):
+def test_unpinned_story_packet_has_no_authority_fallback(session, monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, _story_id, task_id = _seed_task_packet_context(
         session,
@@ -1719,7 +1826,7 @@ def test_unpinned_story_packet_has_no_authority_fallback(session, monkeypatch):
         f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet"
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     constraints = response.json()["data"]["constraints"]
     assert constraints["spec_binding"]["binding_status"] == "unpinned"
     assert constraints["spec_binding"]["spec_version_id"] is None
@@ -1729,8 +1836,8 @@ def test_unpinned_story_packet_has_no_authority_fallback(session, monkeypatch):
     assert constraints["validation"]["freshness_status"] == "missing"
 
 
-def test_task_packet_marks_validation_as_stale_when_story_content_changes(
-    session, monkeypatch
+def test_task_packet_marks_validation_as_stale_when_story_content_changes(  # noqa: ANN201, D103
+    session, monkeypatch  # noqa: ANN001
 ):
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, story_id, task_id = _seed_task_packet_context(
@@ -1752,15 +1859,15 @@ def test_task_packet_marks_validation_as_stale_when_story_content_changes(
         f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet"
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()["data"]
     assert payload["constraints"]["validation"]["freshness_status"] == "stale"
     assert payload["source_snapshot"]["story_ac_updated_at"] is not None
 
 
-def test_packet_renderer_escapes_html_and_xml_safely(session, monkeypatch):
+def test_packet_renderer_escapes_html_and_xml_safely(session, monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, _workflow = _build_client(monkeypatch)
-    project_id, sprint_id, story_id, task_id = _seed_task_packet_context(
+    project_id, sprint_id, story_id, task_id = _seed_task_packet_context(  # noqa: RUF059
         session,
         repo,
         pinned=True,
@@ -1783,7 +1890,7 @@ def test_packet_renderer_escapes_html_and_xml_safely(session, monkeypatch):
     res_human = client.get(
         f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet?flavor=human"
     )
-    assert res_human.status_code == 200
+    assert res_human.status_code == 200  # noqa: PLR2004
     human_text = res_human.json()["data"]["render"]
     assert '&lt;script&gt;alert("XSS")&lt;/script&gt;' in human_text
     assert "<script>" not in human_text
@@ -1794,7 +1901,7 @@ def test_packet_renderer_escapes_html_and_xml_safely(session, monkeypatch):
     res_agent = client.get(
         f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet?flavor=cursor"
     )
-    assert res_agent.status_code == 200
+    assert res_agent.status_code == 200  # noqa: PLR2004
     agent_text = res_agent.json()["data"]["render"]
     assert "&lt;/task&gt;" in agent_text
     assert "</task> breaking out" not in agent_text
@@ -1809,18 +1916,15 @@ def test_packet_renderer_escapes_html_and_xml_safely(session, monkeypatch):
     # Task checklist items should drive the task prompt, not story acceptance criteria.
     assert "Task Checklist" in agent_text
     assert "Verify every task checklist item before claiming completion." in agent_text
-    assert (
-        "This prompt assumes the session was already initialized with the parent story prompt. If not, restart with Copy Story Prompt."
-        in agent_text
-    )
+    assert TASK_PACKET_PARENT_PROMPT_NOTE in agent_text
     assert "- [ ] Confirm request shape" in agent_text
     assert "- [ ] Cover invalid payload cases" in agent_text
     assert "Acceptance Criteria Checklist" not in agent_text
     assert "Story Acceptance Criteria" not in agent_text
 
 
-def test_story_packet_flavor_render_includes_story_acceptance_criteria(
-    session, monkeypatch
+def test_story_packet_flavor_render_includes_story_acceptance_criteria(  # noqa: ANN201, D103
+    session, monkeypatch  # noqa: ANN001
 ):
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, story_id, _task_id = _seed_task_packet_context(
@@ -1840,7 +1944,7 @@ def test_story_packet_flavor_render_includes_story_acceptance_criteria(
         f"/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/packet?flavor=cursor"
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()["data"]
     assert payload["schema_version"] == "story_packet.v1"
     assert "render" in payload
@@ -1850,7 +1954,7 @@ def test_story_packet_flavor_render_includes_story_acceptance_criteria(
     assert "Task Checklist" not in payload["render"]
 
 
-def test_story_packet_human_flavor_renders_top_level_story_fields(session, monkeypatch):
+def test_story_packet_human_flavor_renders_top_level_story_fields(session, monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, story_id, _task_id = _seed_task_packet_context(
         session,
@@ -1869,7 +1973,7 @@ def test_story_packet_human_flavor_renders_top_level_story_fields(session, monke
         f"/api/projects/{project_id}/sprints/{sprint_id}/stories/{story_id}/packet?flavor=human"
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()["data"]
     assert payload["schema_version"] == "story_packet.v1"
     assert "render" in payload
@@ -1883,7 +1987,7 @@ def test_story_packet_human_flavor_renders_top_level_story_fields(session, monke
     assert "## Task Checklist" not in payload["render"]
 
 
-def test_task_packet_ignores_unknown_task_invariant_ids(session, monkeypatch):
+def test_task_packet_ignores_unknown_task_invariant_ids(session, monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, _story_id, task_id = _seed_task_packet_context(
         session,
@@ -1901,7 +2005,7 @@ def test_task_packet_ignores_unknown_task_invariant_ids(session, monkeypatch):
         f"/api/projects/{project_id}/sprints/{sprint_id}/tasks/{task_id}/packet"
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     assert response.json()["data"]["constraints"]["task_hard_constraints"] == [
         {
             "invariant_id": "INV-0123456789abcdef",
@@ -1913,7 +2017,7 @@ def test_task_packet_ignores_unknown_task_invariant_ids(session, monkeypatch):
     ]
 
 
-def test_get_sprint_detail_returns_task_objects(session, monkeypatch):
+def test_get_sprint_detail_returns_task_objects(session, monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id, story_id, task_id = _seed_task_packet_context(
         session,
@@ -1940,7 +2044,7 @@ def test_get_sprint_detail_returns_task_objects(session, monkeypatch):
     session.commit()
 
     response = client.get(f"/api/projects/{project_id}/sprints/{sprint_id}")
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
 
     data = response.json()["data"]
     sprint = data["sprint"]

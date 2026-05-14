@@ -1,3 +1,7 @@
+"""Script for fix persona drift."""
+
+from utils.cli_output import emit
+
 # scripts/fix_persona_drift.py
 """
 Automated persona correction for existing user stories.
@@ -16,24 +20,19 @@ Usage:
     python scripts/fix_persona_drift.py --product-id 1 --report-only
 """
 
-import argparse
-import csv
-import sys
-from pathlib import Path
+import argparse  # noqa: E402
+import csv  # noqa: E402
+import re  # noqa: E402
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from orchestrator_agent.agent_tools.story_pipeline.steps.persona_checker import (
-    auto_correct_persona,
-    detect_generic_personas,
-    extract_persona_from_story,
-    suggest_persona_replacement,
-)
-from sqlmodel import Session, select
+from sqlmodel import Session, select  # noqa: E402
 
-from agile_sqlmodel import Product, UserStory, get_engine
-from models.core import Feature
+from agile_sqlmodel import Product, UserStory, get_engine  # noqa: E402
+from models.core import Feature  # noqa: E402
 
 _MODEL_IMPORT_BOUNDARY = (Feature,)
 
@@ -51,6 +50,51 @@ PERSONA_FIXES = {
     "user": "automation engineer",  # Default - may need manual review
 }
 
+_PERSONA_PATTERN = re.compile(r"\bAs an? (?P<persona>[^,]+),", re.IGNORECASE)
+
+
+def extract_persona_from_story(description: str | None) -> str | None:
+    """Extract the persona from a canonical user-story statement."""
+    if not description:
+        return None
+    match = _PERSONA_PATTERN.search(description)
+    if match is None:
+        return None
+    return match.group("persona").strip()
+
+
+def detect_generic_personas(description: str | None) -> bool:
+    """Return whether a story uses one of the generic personas this script fixes."""
+    persona = extract_persona_from_story(description)
+    return bool(persona and persona.lower().strip() in PERSONA_FIXES)
+
+
+def _persona_article(persona: str) -> str:
+    first = persona.strip()[:1].lower()
+    return "an" if first in {"a", "e", "i", "o", "u"} else "a"
+
+
+def auto_correct_persona(
+    story_dict: dict[str, str],
+    new_persona: str,
+) -> dict[str, str]:
+    """Replace the persona phrase in a story description."""
+    description = story_dict.get("description", "")
+    replacement = f"As {_persona_article(new_persona)} {new_persona},"
+    corrected = _PERSONA_PATTERN.sub(replacement, description, count=1)
+    return {**story_dict, "description": corrected}
+
+
+def suggest_persona_replacement(current_persona: str, feature_title: str) -> str:
+    """Suggest a domain persona from the current persona and feature context."""
+    normalized = current_persona.lower().strip()
+    if normalized in PERSONA_FIXES:
+        return PERSONA_FIXES[normalized]
+    lowered_feature = feature_title.lower()
+    if "train" in lowered_feature or "model" in lowered_feature:
+        return "ML engineer"
+    return "automation engineer"
+
 
 def analyze_product_personas(product_id: int) -> dict:
     """
@@ -65,7 +109,8 @@ def analyze_product_personas(product_id: int) -> dict:
     with Session(get_engine()) as session:
         product = session.get(Product, product_id)
         if not product:
-            raise ValueError(f"Product {product_id} not found")
+            msg = f"Product {product_id} not found"
+            raise ValueError(msg)
 
         stories = session.exec(
             select(UserStory).where(UserStory.product_id == product_id)
@@ -76,7 +121,7 @@ def analyze_product_personas(product_id: int) -> dict:
         no_persona_count = 0
 
         for story in stories:
-            persona = extract_persona_from_story(story.description)
+            persona = extract_persona_from_story(story.story_description)
 
             if not persona:
                 no_persona_count += 1
@@ -84,11 +129,11 @@ def analyze_product_personas(product_id: int) -> dict:
                 persona_lower = persona.lower().strip()
                 persona_counts[persona_lower] = persona_counts.get(persona_lower, 0) + 1
 
-                if detect_generic_personas(story.description):
+                if detect_generic_personas(story.story_description):
                     generic_count += 1
 
         return {
-            "product_name": product.product_name,
+            "product_name": product.name,
             "total_stories": len(stories),
             "persona_distribution": persona_counts,
             "generic_persona_count": generic_count,
@@ -96,7 +141,7 @@ def analyze_product_personas(product_id: int) -> dict:
         }
 
 
-def fix_story_personas(
+def fix_story_personas(  # noqa: C901, PLR0912
     product_id: int,
     target_persona: str = "automation engineer",
     dry_run: bool = True,
@@ -117,7 +162,8 @@ def fix_story_personas(
     with Session(get_engine()) as session:
         product = session.get(Product, product_id)
         if not product:
-            raise ValueError(f"Product {product_id} not found")
+            msg = f"Product {product_id} not found"
+            raise ValueError(msg)
 
         stories = session.exec(
             select(UserStory).where(UserStory.product_id == product_id)
@@ -129,13 +175,13 @@ def fix_story_personas(
 
         for story in stories:
             # Extract current persona
-            current_persona = extract_persona_from_story(story.description)
+            current_persona = extract_persona_from_story(story.story_description)
 
             if not current_persona:
                 skipped_count += 1
                 if verbose:
-                    print(
-                        f"⚠️  Story {story.story_id}: No persona found - SKIPPED (manual review needed)"
+                    emit(
+                        f"⚠️  Story {story.story_id}: No persona found - SKIPPED (manual review needed)"  # noqa: E501
                     )
                 continue
 
@@ -148,7 +194,7 @@ def fix_story_personas(
                 new_persona = PERSONA_FIXES[persona_lower]
 
                 # Check for ML context override
-                feature_title = story.feature.feature_title if story.feature else ""
+                feature_title = story.feature.title if story.feature else ""
                 if "train" in feature_title.lower() or "model" in feature_title.lower():
                     new_persona = "ML engineer"
 
@@ -160,13 +206,13 @@ def fix_story_personas(
                 # Unknown persona - skip for manual review
                 skipped_count += 1
                 if verbose:
-                    print(
-                        f"⚠️  Story {story.story_id}: Unknown persona '{current_persona}' - SKIPPED (manual review needed)"
+                    emit(
+                        f"⚠️  Story {story.story_id}: Unknown persona '{current_persona}' - SKIPPED (manual review needed)"  # noqa: E501
                     )
                 continue
 
             # Apply correction
-            old_desc = story.description
+            old_desc = story.story_description or ""
             story_dict = {"description": old_desc}
             corrected_dict = auto_correct_persona(story_dict, new_persona)
             new_desc = corrected_dict["description"]
@@ -174,7 +220,7 @@ def fix_story_personas(
             if old_desc != new_desc:
                 change_record = {
                     "story_id": story.story_id,
-                    "feature": story.feature.feature_title if story.feature else "N/A",
+                    "feature": story.feature.title if story.feature else "N/A",
                     "old_persona": current_persona,
                     "new_persona": new_persona,
                     "old_description": old_desc[:80] + "...",
@@ -183,12 +229,12 @@ def fix_story_personas(
                 changes.append(change_record)
 
                 if verbose:
-                    print(
-                        f"✅ Story {story.story_id}: '{current_persona}' → '{new_persona}'"
+                    emit(
+                        f"✅ Story {story.story_id}: '{current_persona}' → '{new_persona}'"  # noqa: E501
                     )
 
                 if not dry_run:
-                    story.description = new_desc
+                    story.story_description = new_desc
                     session.add(story)
 
                 fixed_count += 1
@@ -196,19 +242,19 @@ def fix_story_personas(
         if not dry_run and fixed_count > 0:
             session.commit()
             if verbose:
-                print(f"\n💾 Committed {fixed_count} changes to database")
+                emit(f"\n💾 Committed {fixed_count} changes to database")
 
-        stats = {
+        return {
             "total_stories": len(stories),
             "fixed_count": fixed_count,
             "skipped_count": skipped_count,
             "changes": changes,
         }
 
-        return stats
 
-
-def generate_review_report(product_id: int, output_file: str = "persona_review.csv"):
+def generate_review_report(
+    product_id: int, output_file: str = "persona_review.csv"
+) -> None:
     """
     Generate CSV report for manual persona review.
 
@@ -219,13 +265,14 @@ def generate_review_report(product_id: int, output_file: str = "persona_review.c
     with Session(get_engine()) as session:
         product = session.get(Product, product_id)
         if not product:
-            raise ValueError(f"Product {product_id} not found")
+            msg = f"Product {product_id} not found"
+            raise ValueError(msg)
 
         stories = session.exec(
             select(UserStory).where(UserStory.product_id == product_id)
         ).all()
 
-        with open(output_file, "w", newline="", encoding="utf-8") as f:
+        with open(output_file, "w", newline="", encoding="utf-8") as f:  # noqa: PTH123
             writer = csv.writer(f)
             writer.writerow(
                 [
@@ -241,14 +288,14 @@ def generate_review_report(product_id: int, output_file: str = "persona_review.c
             )
 
             for story in stories:
-                current_persona = extract_persona_from_story(story.description)
-                is_generic = detect_generic_personas(story.description)
+                current_persona = extract_persona_from_story(story.story_description)
+                is_generic = detect_generic_personas(story.story_description)
 
                 # Suggest fix
                 if current_persona and current_persona.lower() in PERSONA_FIXES:
                     suggested = PERSONA_FIXES[current_persona.lower()]
                 elif is_generic:
-                    feature_title = story.feature.feature_title if story.feature else ""
+                    feature_title = story.feature.title if story.feature else ""
                     suggested = suggest_persona_replacement(
                         current_persona or "", feature_title
                     )
@@ -258,11 +305,11 @@ def generate_review_report(product_id: int, output_file: str = "persona_review.c
                 writer.writerow(
                     [
                         story.story_id,
-                        story.feature.feature_title if story.feature else "N/A",
+                        story.feature.title if story.feature else "N/A",
                         current_persona or "MISSING",
                         "YES" if is_generic else "NO",
                         suggested or "MANUAL_REVIEW",
-                        story.description[:100],
+                        (story.story_description or "")[:100],
                         story.acceptance_criteria[:100]
                         if story.acceptance_criteria
                         else "",
@@ -270,11 +317,12 @@ def generate_review_report(product_id: int, output_file: str = "persona_review.c
                     ]
                 )
 
-    print(f"📊 Review report saved to {output_file}")
-    print("   Open in Excel/Sheets for manual review")
+    emit(f"📊 Review report saved to {output_file}")
+    emit("   Open in Excel/Sheets for manual review")
 
 
-def main():
+def main() -> None:
+    """Return main."""
     parser = argparse.ArgumentParser(
         description="Fix persona drift in user stories",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -315,29 +363,29 @@ Examples:
 
     try:
         if args.report_only:
-            print(f"Generating persona review report for product {args.product_id}...")
+            emit(f"Generating persona review report for product {args.product_id}...")
             generate_review_report(args.product_id)
 
         else:
             # Analyze first
-            print(f"Analyzing product {args.product_id}...\n")
+            emit(f"Analyzing product {args.product_id}...\n")
             analysis = analyze_product_personas(args.product_id)
 
-            print(f"Product: {analysis['product_name']}")
-            print(f"Total Stories: {analysis['total_stories']}")
-            print(f"Generic Personas: {analysis['generic_persona_count']}")
-            print(f"Missing Personas: {analysis['no_persona_count']}")
-            print("\nPersona Distribution:")
+            emit(f"Product: {analysis['product_name']}")
+            emit(f"Total Stories: {analysis['total_stories']}")
+            emit(f"Generic Personas: {analysis['generic_persona_count']}")
+            emit(f"Missing Personas: {analysis['no_persona_count']}")
+            emit("\nPersona Distribution:")
             for persona, count in sorted(
                 analysis["persona_distribution"].items(),
                 key=lambda x: x[1],
                 reverse=True,
             ):
                 marker = "⚠️ " if persona in PERSONA_FIXES else "✅ "
-                print(f"  {marker}{persona}: {count}")
+                emit(f"  {marker}{persona}: {count}")
 
-            print(
-                f"\n{'=' * 60}\n{'PREVIEW MODE - No changes will be saved' if args.dry_run else 'APPLYING FIXES'}\n{'=' * 60}\n"
+            emit(
+                f"\n{'=' * 60}\n{'PREVIEW MODE - No changes will be saved' if args.dry_run else 'APPLYING FIXES'}\n{'=' * 60}\n"  # noqa: E501
             )
 
             # Fix personas
@@ -349,22 +397,22 @@ Examples:
             )
 
             # Summary
-            print(f"\n{'=' * 60}")
-            print("SUMMARY")
-            print(f"{'=' * 60}")
-            print(f"Total Stories: {stats['total_stories']}")
-            print(f"Fixed: {stats['fixed_count']}")
-            print(f"Skipped (manual review): {stats['skipped_count']}")
+            emit(f"\n{'=' * 60}")
+            emit("SUMMARY")
+            emit(f"{'=' * 60}")
+            emit(f"Total Stories: {stats['total_stories']}")
+            emit(f"Fixed: {stats['fixed_count']}")
+            emit(f"Skipped (manual review): {stats['skipped_count']}")
 
             if args.dry_run and stats["fixed_count"] > 0:
-                print("\n💡 Run without --dry-run to apply these changes")
+                emit("\n💡 Run without --dry-run to apply these changes")
 
             if stats["skipped_count"] > 0:
-                print(f"\n⚠️  {stats['skipped_count']} stories require manual review")
-                print("   Run with --report-only to generate a review CSV")
+                emit(f"\n⚠️  {stats['skipped_count']} stories require manual review")
+                emit("   Run with --report-only to generate a review CSV")
 
-    except Exception as e:
-        print(f"❌ Error: {e}")
+    except Exception as e:  # noqa: BLE001
+        emit(f"❌ Error: {e}")
         sys.exit(1)
 
 

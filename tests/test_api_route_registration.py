@@ -1,3 +1,5 @@
+"""API tests for sprint route registration helpers."""
+
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 
@@ -5,7 +7,8 @@ import api as api_module
 from routers.sprint import register_manual_sprint_routes, register_sprint_routes
 
 
-def test_manual_sprint_execution_and_packet_routes_are_registered():
+def test_manual_sprint_execution_and_packet_routes_are_registered() -> None:
+    """Confirm the API module exposes the manual sprint routes."""
     routes = {
         (route.path, tuple(sorted(route.methods or ())))
         for route in api_module.app.routes
@@ -45,15 +48,18 @@ def test_manual_sprint_execution_and_packet_routes_are_registered():
     assert not missing, f"Missing route registrations: {sorted(missing)}"
 
 
-async def _async_stub(**_kwargs):
+async def _async_stub(**_kwargs: object) -> dict[str, str]:
+    """Return a simple success payload for async route handlers."""
     return {"status": "success"}
 
 
-def _sync_stub(**_kwargs):
+def _sync_stub(**_kwargs: object) -> dict[str, str]:
+    """Return a simple success payload for sync route handlers."""
     return {"status": "success"}
 
 
-def test_manual_sprint_router_module_registers_routes():
+def test_manual_sprint_router_module_registers_routes() -> None:
+    """Confirm the manual sprint router helper registers its route set."""
     app = FastAPI()
 
     register_manual_sprint_routes(
@@ -107,7 +113,8 @@ def test_manual_sprint_router_module_registers_routes():
     assert not missing, f"Missing router module registrations: {sorted(missing)}"
 
 
-def test_sprint_router_module_registers_full_sprint_surface():
+def test_sprint_router_module_registers_full_sprint_surface() -> None:
+    """Confirm the full sprint router helper registers every sprint endpoint."""
     app = FastAPI()
 
     register_sprint_routes(

@@ -1,11 +1,15 @@
+# ruff: noqa: E501
+"""Tests for db migrations task metadata."""
+
 from sqlalchemy import inspect, text
+from sqlalchemy.engine import Engine
 from sqlmodel import create_engine
 
 from db.migrations import migrate_task_metadata
 from utils.task_metadata import canonical_task_metadata_json
 
 
-def _create_min_tasks_schema(engine) -> None:
+def _create_min_tasks_schema(engine: Engine) -> None:
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -34,6 +38,7 @@ def _create_min_tasks_schema(engine) -> None:
 
 
 def test_migrate_task_metadata_adds_column_and_backfills_rows() -> None:
+    """Verify migrate task metadata adds column and backfills rows."""
     engine = create_engine("sqlite:///:memory:")
     _create_min_tasks_schema(engine)
 
@@ -57,6 +62,7 @@ def test_migrate_task_metadata_adds_column_and_backfills_rows() -> None:
 
 
 def test_migrate_task_metadata_is_idempotent() -> None:
+    """Verify migrate task metadata is idempotent."""
     engine = create_engine("sqlite:///:memory:")
     _create_min_tasks_schema(engine)
     migrate_task_metadata(engine)

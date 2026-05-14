@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, timedelta
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from sqlmodel import Session
 
@@ -20,6 +20,7 @@ from agile_sqlmodel import (
 )
 from models.core import Epic, Feature, Team, Theme
 from scripts.export_snapshot import export_snapshot_command
+from tests.typing_helpers import require_id
 from tools.export_snapshot import export_project_snapshot_html
 from utils.spec_schemas import (
     Invariant,
@@ -28,6 +29,11 @@ from utils.spec_schemas import (
     SpecAuthorityCompilationSuccess,
     SpecAuthorityCompilerOutput,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from sqlalchemy.engine import Engine
 
 
 def _insert_basic_project(session: Session) -> Product:
@@ -56,7 +62,7 @@ def _insert_story_structure(session: Session, product_id: int) -> UserStory:
     session.refresh(theme)
 
     epic = Epic(
-        theme_id=theme.theme_id,
+        theme_id=require_id(theme.theme_id, "theme_id"),
         title="Checkout",
         summary="Checkout flow",
     )
@@ -65,7 +71,7 @@ def _insert_story_structure(session: Session, product_id: int) -> UserStory:
     session.refresh(epic)
 
     feature = Feature(
-        epic_id=epic.epic_id,
+        epic_id=require_id(epic.epic_id, "epic_id"),
         title="Card payments",
         description="Support card payments",
     )
@@ -102,10 +108,10 @@ def _insert_current_sprint(
 
     sprint = Sprint(
         product_id=product_id,
-        team_id=team.team_id,
+        team_id=require_id(team.team_id, "team_id"),
         goal="Current Sprint Goal",
-        start_date=date.today() - timedelta(days=3),
-        end_date=date.today() + timedelta(days=7),
+        start_date=date.today() - timedelta(days=3),  # noqa: DTZ011
+        end_date=date.today() + timedelta(days=7),  # noqa: DTZ011
         status=SprintStatus.ACTIVE,
     )
     session.add(sprint)
@@ -113,7 +119,11 @@ def _insert_current_sprint(
     session.refresh(sprint)
 
     for story_id in story_ids:
-        session.add(SprintStory(sprint_id=sprint.sprint_id, story_id=story_id))
+        session.add(
+            SprintStory(
+                sprint_id=require_id(sprint.sprint_id, "sprint_id"), story_id=story_id
+            )
+        )
     session.commit()
     return sprint
 
@@ -153,7 +163,7 @@ def _insert_approved_spec_with_authority(
     compiled_json = SpecAuthorityCompilerOutput(success).model_dump_json()
 
     authority = CompiledSpecAuthority(
-        spec_version_id=spec.spec_version_id,
+        spec_version_id=require_id(spec.spec_version_id, "spec_version_id"),
         compiler_version="1.0.0",
         prompt_hash="a" * 64,
         scope_themes=json.dumps(["Payments"]),
@@ -175,13 +185,18 @@ def _insert_approved_spec_with_authority(
     return spec
 
 
-def test_export_snapshot_html_basic(engine, tmp_path: Path) -> None:
+def test_export_snapshot_html_basic(engine: Engine, tmp_path: Path) -> None:
+    """Verify export snapshot html basic."""
     with Session(engine) as session:
         product = _insert_basic_project(session)
-        product_id = product.product_id  # Capture before session closes
+        product_id = require_id(
+            product.product_id, "product_id"
+        )  # Capture before session closes
         story = _insert_story_structure(session, product_id)
         _insert_current_sprint(
-            session, product_id=product_id, story_ids=[story.story_id]
+            session,
+            product_id=product_id,
+            story_ids=[require_id(story.story_id, "story_id")],
         )
         _insert_approved_spec_with_authority(session, product_id)
 
@@ -206,11 +221,12 @@ def test_export_snapshot_html_basic(engine, tmp_path: Path) -> None:
 
 
 def test_export_snapshot_only_refined_current_sprint_stories(
-    engine, tmp_path: Path
+    engine: Engine, tmp_path: Path
 ) -> None:
+    """Verify export snapshot only refined current sprint stories."""
     with Session(engine) as session:
         product = _insert_basic_project(session)
-        product_id = product.product_id
+        product_id = require_id(product.product_id, "product_id")
         in_scope_story = _insert_story_structure(session, product_id)
 
         non_refined_in_sprint = UserStory(
@@ -238,7 +254,10 @@ def test_export_snapshot_only_refined_current_sprint_stories(
         _insert_current_sprint(
             session,
             product_id=product_id,
-            story_ids=[in_scope_story.story_id, non_refined_in_sprint.story_id],
+            story_ids=[
+                require_id(in_scope_story.story_id, "story_id"),
+                require_id(non_refined_in_sprint.story_id, "story_id"),
+            ],
         )
 
     output_path = export_project_snapshot_html(
@@ -254,12 +273,15 @@ def test_export_snapshot_only_refined_current_sprint_stories(
     assert "Total 1" in html
 
 
-def test_export_snapshot_falls_back_to_product_spec(engine, tmp_path: Path) -> None:
+def test_export_snapshot_falls_back_to_product_spec(
+    engine: Engine, tmp_path: Path
+) -> None:
+    """Verify export snapshot falls back to product spec."""
     with Session(engine) as session:
         product = _insert_basic_project(session)
 
     output_path = export_project_snapshot_html(
-        product_id=product.product_id,
+        product_id=require_id(product.product_id, "product_id"),
         output_dir=tmp_path,
         engine_override=engine,
     )
@@ -268,12 +290,13 @@ def test_export_snapshot_falls_back_to_product_spec(engine, tmp_path: Path) -> N
     assert "Fallback spec" in html
 
 
-def test_export_snapshot_command_writes_file(engine, tmp_path: Path) -> None:
+def test_export_snapshot_command_writes_file(engine: Engine, tmp_path: Path) -> None:
+    """Verify export snapshot command writes file."""
     with Session(engine) as session:
         product = _insert_basic_project(session)
 
     output_path = export_snapshot_command(
-        product_id=product.product_id,
+        product_id=require_id(product.product_id, "product_id"),
         output_dir=tmp_path,
         engine_override=engine,
     )

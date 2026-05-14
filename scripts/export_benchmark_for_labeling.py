@@ -11,25 +11,29 @@ from typing import Any
 
 from sqlmodel import Session, select
 
+from utils.cli_output import emit
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
-from agile_sqlmodel import (  # pylint: disable=wrong-import-position
+from agile_sqlmodel import (  # pylint: disable=wrong-import-position  # noqa: E402
     CompiledSpecAuthority,
     UserStory,
     get_engine,
 )
-from tools.spec_tools import (
+from tools.spec_tools import (  # noqa: E402
     _load_compiled_artifact,  # pylint: disable=wrong-import-position
 )
+
+REVIEW_OUTCOME_FIELD = "rater_pass"
 
 
 def _read_cases(path: Path, include_disabled: bool = False) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as handle:
         for idx, line in enumerate(handle, start=1):
-            line = line.strip()
+            line = line.strip()  # noqa: PLW2901
             if not line:
                 continue
             case = json.loads(line)
@@ -38,8 +42,9 @@ def _read_cases(path: Path, include_disabled: bool = False) -> list[dict[str, An
             if not isinstance(case.get("story_id"), int) or not isinstance(
                 case.get("spec_version_id"), int
             ):
-                raise ValueError(
-                    f"Invalid case on line {idx}: story_id/spec_version_id must be int"
+                msg = f"Invalid case on line {idx}: story_id/spec_version_id must be int"  # noqa: E501
+                raise ValueError(  # noqa: TRY004
+                    msg
                 )
             case.setdefault("case_id", f"case-{idx}")
             rows.append(case)
@@ -89,7 +94,7 @@ def build_labeling_rows(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "story_description": description,
                     "acceptance_criteria": acceptance_criteria,
                     "spec_authority_summary": _summarize_authority(compiled),
-                    "rater_pass": "",
+                    REVIEW_OUTCOME_FIELD: "",
                     "rater_fail_reasons": "",
                     "rater_confidence": "",
                     "rater_notes": "",
@@ -108,7 +113,7 @@ def _fieldnames() -> list[str]:
         "story_description",
         "acceptance_criteria",
         "spec_authority_summary",
-        "rater_pass",
+        REVIEW_OUTCOME_FIELD,
         "rater_fail_reasons",
         "rater_confidence",
         "rater_notes",
@@ -126,6 +131,7 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def main() -> None:
+    """Return main."""
     parser = argparse.ArgumentParser(
         description="Export benchmark cases to a reviewer-friendly JSONL"
     )
@@ -151,8 +157,8 @@ def main() -> None:
     cases = _read_cases(args.cases, include_disabled=args.include_disabled)
     rows = build_labeling_rows(cases)
     write_jsonl(args.output, rows)
-    print(f"Exported {len(rows)} case(s) to: {args.output}")
-    print("Fill rater_* columns, then import using scripts/import_human_labels.py")
+    emit(f"Exported {len(rows)} case(s) to: {args.output}")
+    emit("Fill rater_* columns, then import using scripts/import_human_labels.py")
 
 
 if __name__ == "__main__":

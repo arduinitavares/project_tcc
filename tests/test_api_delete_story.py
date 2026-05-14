@@ -1,11 +1,17 @@
+"""API tests for deleting story requirements and resetting story runtime state."""
+
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 import pytest
 from httpx import AsyncClient
-from sqlmodel import Session, select
+from sqlalchemy.engine import Engine
+from sqlmodel import Session, col, select
 
+import api as api_module
 from agile_sqlmodel import (
     Product,
     Sprint,
@@ -18,137 +24,254 @@ from agile_sqlmodel import (
     TaskStatus,
     UserStory,
 )
-from api import app
 from models.core import Team
 from orchestrator_agent.agent_tools.story_linkage import normalize_requirement_key
 
+HTTP_OK = 200
+SPRINT_COUNT = 2
+STORY_COUNT = 3
+STORY_LOGS_PER_STORY = 2
+TASKS_PER_STORY = 3
+EXPECTED_ATTEMPT_HISTORY_COUNT = 2
 
-@pytest.fixture
-def setup_test_data(session: Session):
-    # Create product
+
+@dataclass
+class DeleteStoryData:
+    """Persisted identifiers used by the delete-story route test."""
+
+    product_id: int
+    parent_requirement: str
+    story_ids: list[int]
+    task_ids: list[int]
+
+
+def _require_id(value: int | None, label: str) -> int:
+    assert value is not None, f"{label} should be persisted before use"
+    return value
+
+
+def _create_product(session: Session) -> Product:
     product = Product(name=f"Test Product {uuid.uuid4()}", description="Test")
     session.add(product)
     session.commit()
     session.refresh(product)
+    return product
 
-    # Create unique team
+
+def _create_team(session: Session) -> Team:
     team = Team(name=f"Test Team {uuid.uuid4()}")
     session.add(team)
     session.commit()
     session.refresh(team)
+    return team
 
-    # Create Sprints
-    sprints = []
-    now = datetime.now(UTC)
-    for _ in range(2):
-        s = Sprint(
-            product_id=product.product_id,
-            team_id=team.team_id,
-            start_date=now,
-            end_date=now,
+
+def _create_sprints(
+    session: Session,
+    *,
+    product_id: int,
+    team_id: int,
+) -> list[Sprint]:
+    today = datetime.now(UTC).date()
+    sprints = [
+        Sprint(
+            product_id=product_id,
+            team_id=team_id,
+            start_date=today,
+            end_date=today,
             status=SprintStatus.PLANNED,
         )
-        session.add(s)
-        sprints.append(s)
+        for _ in range(SPRINT_COUNT)
+    ]
+    session.add_all(sprints)
     session.commit()
-    for s in sprints:
-        session.refresh(s)
+    for sprint in sprints:
+        session.refresh(sprint)
+    return sprints
 
-    parent_req = f"Test Req {uuid.uuid4()}"
-    normalized_parent_req = normalize_requirement_key(parent_req)
 
-    stories = []
-    sprint_mappings = []
-    logs = []
-    tasks = []
-    task_execution_logs = []
-
-    # Create Stories
-    for i in range(3):
-        story = UserStory(
-            product_id=product.product_id,
-            title=f"Test Story {i}",
-            source_requirement=normalized_parent_req,
+def _create_stories(
+    session: Session,
+    *,
+    product_id: int,
+    parent_requirement: str,
+) -> list[UserStory]:
+    normalized_parent_requirement = normalize_requirement_key(parent_requirement)
+    stories = [
+        UserStory(
+            product_id=product_id,
+            title=f"Test Story {index}",
+            source_requirement=normalized_parent_requirement,
             status=StoryStatus.TO_DO,
         )
-        stories.append(story)
-
+        for index in range(STORY_COUNT)
+    ]
     session.add_all(stories)
     session.commit()
-    for s in stories:
-        session.refresh(s)
-
-    # Create Mappings, Logs, Tasks, and Task Execution Logs
     for story in stories:
-        for s in sprints:
-            sm = SprintStory(sprint_id=s.sprint_id, story_id=story.story_id)
-            sprint_mappings.append(sm)
+        session.refresh(story)
+    return stories
 
-        for _ in range(2):
-            log = StoryCompletionLog(
-                story_id=story.story_id,
+
+def _create_story_supporting_records(
+    session: Session,
+    *,
+    stories: list[UserStory],
+    sprints: list[Sprint],
+) -> list[Task]:
+    sprint_mappings: list[SprintStory] = []
+    logs: list[StoryCompletionLog] = []
+    tasks: list[Task] = []
+
+    for story in stories:
+        story_id = _require_id(story.story_id, "story_id")
+        sprint_mappings.extend(
+            SprintStory(
+                sprint_id=_require_id(sprint.sprint_id, "sprint_id"),
+                story_id=story_id,
+            )
+            for sprint in sprints
+        )
+
+        logs.extend(
+            StoryCompletionLog(
+                story_id=story_id,
                 old_status=StoryStatus.TO_DO,
                 new_status=StoryStatus.IN_PROGRESS,
             )
-            logs.append(log)
+            for _ in range(STORY_LOGS_PER_STORY)
+        )
 
-        for _ in range(3):
-            t = Task(
-                story_id=story.story_id,
+        tasks.extend(
+            Task(
+                story_id=story_id,
                 description="Task",
                 status=TaskStatus.TO_DO,
             )
-            tasks.append(t)
+            for _ in range(TASKS_PER_STORY)
+        )
 
     session.add_all(sprint_mappings)
     session.add_all(logs)
     session.add_all(tasks)
     session.commit()
-    for t in tasks:
-        session.refresh(t)
+    for task in tasks:
+        session.refresh(task)
+    return tasks
 
-    # Add Task Execution Logs for tasks
-    for t in tasks:
-        t_log = TaskExecutionLog(
-            task_id=t.task_id,
-            sprint_id=sprints[0].sprint_id,
+
+def _create_task_execution_logs(
+    session: Session,
+    *,
+    tasks: list[Task],
+    sprint_id: int,
+) -> None:
+    task_execution_logs = [
+        TaskExecutionLog(
+            task_id=_require_id(task.task_id, "task_id"),
+            sprint_id=sprint_id,
             new_status=TaskStatus.IN_PROGRESS,
         )
-        task_execution_logs.append(t_log)
-
+        for task in tasks
+    ]
     session.add_all(task_execution_logs)
     session.commit()
 
-    return (
-        product.product_id,
-        parent_req,
-        [s.story_id for s in stories],
-        [t.task_id for t in tasks],
+
+def _count_stories(session: Session, story_ids: list[int]) -> int:
+    return len(
+        session.exec(
+            select(UserStory).where(col(UserStory.story_id).in_(story_ids))
+        ).all()
+    )
+
+
+def _count_sprint_links(session: Session, story_ids: list[int]) -> int:
+    return len(
+        session.exec(
+            select(SprintStory).where(col(SprintStory.story_id).in_(story_ids))
+        ).all()
+    )
+
+
+def _count_story_logs(session: Session, story_ids: list[int]) -> int:
+    return len(
+        session.exec(
+            select(StoryCompletionLog).where(
+                col(StoryCompletionLog.story_id).in_(story_ids)
+            )
+        ).all()
+    )
+
+
+def _count_tasks(session: Session, story_ids: list[int]) -> int:
+    return len(
+        session.exec(select(Task).where(col(Task.story_id).in_(story_ids))).all()
+    )
+
+
+def _count_task_logs(session: Session, task_ids: list[int]) -> int:
+    return len(
+        session.exec(
+            select(TaskExecutionLog).where(col(TaskExecutionLog.task_id).in_(task_ids))
+        ).all()
+    )
+
+
+@pytest.fixture
+def setup_test_data(session: Session) -> DeleteStoryData:
+    """Create story-linked records that can be deleted in a single request."""
+    product = _create_product(session)
+    team = _create_team(session)
+    product_id = _require_id(product.product_id, "product_id")
+    team_id = _require_id(team.team_id, "team_id")
+    sprints = _create_sprints(session, product_id=product_id, team_id=team_id)
+    parent_requirement = f"Test Req {uuid.uuid4()}"
+    stories = _create_stories(
+        session,
+        product_id=product_id,
+        parent_requirement=parent_requirement,
+    )
+    tasks = _create_story_supporting_records(
+        session,
+        stories=stories,
+        sprints=sprints,
+    )
+    _create_task_execution_logs(
+        session,
+        tasks=tasks,
+        sprint_id=_require_id(sprints[0].sprint_id, "sprint_id"),
+    )
+    return DeleteStoryData(
+        product_id=product_id,
+        parent_requirement=parent_requirement,
+        story_ids=[_require_id(story.story_id, "story_id") for story in stories],
+        task_ids=[_require_id(task.task_id, "task_id") for task in tasks],
     )
 
 
 @pytest.mark.asyncio
 async def test_delete_project_story(
-    session: Session, setup_test_data, monkeypatch, engine
-):
-    import api as api_module
-
+    session: Session,
+    setup_test_data: DeleteStoryData,
+    monkeypatch: pytest.MonkeyPatch,
+    engine: Engine,
+) -> None:
+    """Delete all story artifacts for a requirement and reset the runtime state."""
     monkeypatch.setattr(api_module, "get_engine", lambda: engine)
     monkeypatch.setattr(api_module.product_repo, "_get_session", lambda: session)
     monkeypatch.setattr("agile_sqlmodel.get_engine", lambda: engine)
 
-    product_id, parent_req, story_ids, task_ids = setup_test_data
-    normalized_parent_req = normalize_requirement_key(parent_req)
+    product_id = setup_test_data.product_id
+    parent_requirement = setup_test_data.parent_requirement
+    story_ids = setup_test_data.story_ids
+    task_ids = setup_test_data.task_ids
 
-    # 1. Seed session state data to ensure cleanup works
-    str(product_id)
-
-    # Mock _ensure_session and _save_session_state for easier verification
-    mock_state = {
-        "story_saved": {parent_req: True},
-        "story_outputs": {parent_req: {"data": "some artifact"}},
+    mock_state: dict[str, Any] = {
+        "story_saved": {parent_requirement: True},
+        "story_outputs": {parent_requirement: {"data": "some artifact"}},
         "story_attempts": {
-            parent_req: [
+            parent_requirement: [
                 {
                     "created_at": "2026-03-28T10:00:00Z",
                     "trigger": "manual_refine",
@@ -165,9 +288,9 @@ async def test_delete_project_story(
         },
         "interview_runtime": {
             "story": {
-                parent_req: {
+                parent_requirement: {
                     "phase": "story",
-                    "subject_key": parent_req,
+                    "subject_key": parent_requirement,
                     "attempt_history": [
                         {
                             "attempt_id": "attempt-1",
@@ -211,7 +334,7 @@ async def test_delete_project_story(
                     },
                     "request_projection": {
                         "request_snapshot_id": "request-1",
-                        "payload": {"parent_requirement": parent_req},
+                        "payload": {"parent_requirement": parent_requirement},
                         "request_hash": "hash-1",
                         "created_at": "2026-03-28T10:00:00Z",
                         "draft_basis_attempt_id": None,
@@ -223,119 +346,59 @@ async def test_delete_project_story(
         },
         "another_req": "should not be touched",
     }
+    saved_state_calls: list[dict[str, Any]] = []
 
-    saved_state_calls = []
-
-    async def mock_ensure_session(sid):
+    async def mock_ensure_session(_sid: str) -> dict[str, Any]:
         return mock_state
 
-    def mock_save_session_state(sid, state):
+    def mock_save_session_state(_sid: str, state: dict[str, Any]) -> None:
         saved_state_calls.append(state.copy())
 
     monkeypatch.setattr(api_module, "_ensure_session", mock_ensure_session)
     monkeypatch.setattr(api_module, "_save_session_state", mock_save_session_state)
 
-    # Assert data exists before deletion
-    assert len(
-        session.exec(select(UserStory).where(UserStory.story_id.in_(story_ids))).all()
-    ) == len(story_ids)
-    assert (
-        len(
-            session.exec(
-                select(SprintStory).where(SprintStory.story_id.in_(story_ids))
-            ).all()
-        )
-        > 0
-    )
-    assert (
-        len(
-            session.exec(
-                select(StoryCompletionLog).where(
-                    StoryCompletionLog.story_id.in_(story_ids)
-                )
-            ).all()
-        )
-        > 0
-    )
-    assert len(
-        session.exec(select(Task).where(Task.story_id.in_(story_ids))).all()
-    ) == len(task_ids)
-    assert (
-        len(
-            session.exec(
-                select(TaskExecutionLog).where(TaskExecutionLog.task_id.in_(task_ids))
-            ).all()
-        )
-        > 0
-    )
+    assert _count_stories(session, story_ids) == len(story_ids)
+    assert _count_sprint_links(session, story_ids) > 0
+    assert _count_story_logs(session, story_ids) > 0
+    assert _count_tasks(session, story_ids) == len(task_ids)
+    assert _count_task_logs(session, task_ids) > 0
 
-    # Invoke the API
     async with AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
+        transport=httpx.ASGITransport(app=api_module.app),
+        base_url="http://test",
     ) as client:
         response = await client.delete(
             f"/api/projects/{product_id}/story",
-            params={"parent_requirement": f"  {parent_req}  "},
+            params={"parent_requirement": f"  {parent_requirement}  "},
         )
 
-    assert response.status_code == 200
+    assert response.status_code == HTTP_OK
     assert response.json()["status"] == "success"
-    assert response.json()["parent_requirement"] == parent_req
+    assert response.json()["parent_requirement"] == parent_requirement
     assert response.json()["data"]["deleted_count"] == len(story_ids)
 
-    # Assert data is completely removed
-    assert (
-        len(
-            session.exec(
-                select(UserStory).where(UserStory.story_id.in_(story_ids))
-            ).all()
-        )
-        == 0
-    )
-    assert (
-        len(
-            session.exec(
-                select(SprintStory).where(SprintStory.story_id.in_(story_ids))
-            ).all()
-        )
-        == 0
-    )
-    assert (
-        len(
-            session.exec(
-                select(StoryCompletionLog).where(
-                    StoryCompletionLog.story_id.in_(story_ids)
-                )
-            ).all()
-        )
-        == 0
-    )
-    assert (
-        len(session.exec(select(Task).where(Task.story_id.in_(story_ids))).all()) == 0
-    )
-    assert (
-        len(
-            session.exec(
-                select(TaskExecutionLog).where(TaskExecutionLog.task_id.in_(task_ids))
-            ).all()
-        )
-        == 0
-    )
+    assert _count_stories(session, story_ids) == 0
+    assert _count_sprint_links(session, story_ids) == 0
+    assert _count_story_logs(session, story_ids) == 0
+    assert _count_tasks(session, story_ids) == 0
+    assert _count_task_logs(session, task_ids) == 0
 
-    # Assert session state was cleaned up properly
     assert len(saved_state_calls) == 1
     final_state = saved_state_calls[0]
 
-    assert parent_req not in final_state["story_saved"]
-    assert parent_req not in final_state["story_outputs"]
-    assert len(final_state["story_attempts"][parent_req]) == 1
-    assert final_state["story_attempts"][parent_req][0]["trigger"] == "manual_refine"
+    assert parent_requirement not in final_state["story_saved"]
+    assert parent_requirement not in final_state["story_outputs"]
+    assert len(final_state["story_attempts"][parent_requirement]) == 1
+    assert (
+        final_state["story_attempts"][parent_requirement][0]["trigger"]
+        == "manual_refine"
+    )
 
-    runtime = final_state["interview_runtime"]["story"][parent_req]
+    runtime = final_state["interview_runtime"]["story"][parent_requirement]
     assert runtime["draft_projection"] == {}
     assert runtime["request_projection"] == {}
     assert runtime["feedback_projection"]["items"] == []
-    assert len(runtime["attempt_history"]) == 2
+    assert len(runtime["attempt_history"]) == EXPECTED_ATTEMPT_HISTORY_COUNT
     reset_attempt = runtime["attempt_history"][-1]
     assert reset_attempt["trigger"] == "reset"
     assert reset_attempt["classification"] == "reset_marker"

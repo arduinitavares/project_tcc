@@ -23,6 +23,7 @@ class TestUserStoryItem:
     """Tests for the UserStoryItem schema."""
 
     def test_valid_high_score_item(self) -> None:
+        """Verify valid high score item."""
         item = UserStoryItem(
             story_title="Login via email",
             statement=(
@@ -42,6 +43,7 @@ class TestUserStoryItem:
         assert item.decomposition_warning is None
 
     def test_valid_medium_score_item(self) -> None:
+        """Verify valid medium score item."""
         item = UserStoryItem(
             story_title="Export CSV report",
             statement=(
@@ -57,6 +59,7 @@ class TestUserStoryItem:
         assert item.decomposition_warning is None
 
     def test_valid_low_score_with_warning(self) -> None:
+        """Verify valid low score with warning."""
         item = UserStoryItem(
             story_title="Batch data migration",
             statement=(
@@ -70,9 +73,11 @@ class TestUserStoryItem:
             decomposition_warning="Hard dependency on legacy API availability.",
         )
         assert item.invest_score == "Low"
+        assert item.decomposition_warning is not None
         assert "Hard dependency" in item.decomposition_warning
 
     def test_rejects_invalid_statement_missing_as_a(self) -> None:
+        """Verify rejects invalid statement missing as a."""
         with pytest.raises(
             ValidationError, match="Statement must precisely start with"
         ):
@@ -86,6 +91,7 @@ class TestUserStoryItem:
             )
 
     def test_rejects_invalid_statement_missing_i_want(self) -> None:
+        """Verify rejects invalid statement missing i want."""
         with pytest.raises(ValidationError, match="I want"):
             UserStoryItem(
                 story_title="Bad story",
@@ -97,6 +103,7 @@ class TestUserStoryItem:
             )
 
     def test_rejects_invalid_statement_missing_so_that(self) -> None:
+        """Verify rejects invalid statement missing so that."""
         with pytest.raises(ValidationError, match="so that"):
             UserStoryItem(
                 story_title="Bad story",
@@ -108,6 +115,7 @@ class TestUserStoryItem:
             )
 
     def test_coerces_high_score_with_warning_to_low(self) -> None:
+        """Verify coerces high score with warning to low."""
         item = UserStoryItem(
             story_title="Some story title",
             statement="As a user, I want feature X, so that I get benefit Y.",
@@ -123,6 +131,7 @@ class TestUserStoryItem:
         )
 
     def test_coerces_medium_score_with_warning_to_low(self) -> None:
+        """Verify coerces medium score with warning to low."""
         item = UserStoryItem(
             story_title="Some story title",
             statement="As a user, I want feature X, so that I get benefit Y.",
@@ -138,6 +147,7 @@ class TestUserStoryItem:
         )
 
     def test_accepts_high_score_with_known_placeholder_warning(self) -> None:
+        """Verify accepts high score with known placeholder warning."""
         item = UserStoryItem(
             story_title="Some story title",
             statement="As a user, I want feature X, so that I get benefit Y.",
@@ -150,6 +160,7 @@ class TestUserStoryItem:
         assert item.decomposition_warning is None
 
     def test_rejects_low_score_without_warning(self) -> None:
+        """Verify rejects low score without warning."""
         with pytest.raises(
             ValidationError, match="required when invest_score is 'Low'"
         ):
@@ -163,6 +174,7 @@ class TestUserStoryItem:
             )
 
     def test_rejects_empty_acceptance_criteria(self) -> None:
+        """Verify rejects empty acceptance criteria."""
         with pytest.raises(ValidationError):
             UserStoryItem(
                 story_title="Some story title",
@@ -174,6 +186,7 @@ class TestUserStoryItem:
             )
 
     def test_json_round_trip(self) -> None:
+        """Verify json round trip."""
         item = UserStoryItem(
             story_title="Upload CSV file",
             statement=(
@@ -195,15 +208,20 @@ class TestUserStoryItem:
         assert loaded.decomposition_warning is None
 
     def test_rejects_extra_fields(self) -> None:
+        """Verify rejects extra fields."""
         with pytest.raises(ValidationError):
-            UserStoryItem(
-                story_title="Valid title here",
-                statement="As a user, I want feature X, so that I get benefit Y.",
-                acceptance_criteria=["Verify X."],
-                invest_score="High",
-                estimated_effort="S",
-                produced_artifacts=[],
-                unknown_field="bad",
+            UserStoryItem.model_validate(
+                {
+                    "story_title": "Valid title here",
+                    "statement": (
+                        "As a user, I want feature X, so that I get benefit Y."
+                    ),
+                    "acceptance_criteria": ["Verify X."],
+                    "invest_score": "High",
+                    "estimated_effort": "S",
+                    "produced_artifacts": [],
+                    "unknown_field": "bad",
+                }
             )
 
 
@@ -216,6 +234,7 @@ class TestUserStoryWriterInput:
     """Tests for the input schema."""
 
     def test_valid_input(self) -> None:
+        """Verify valid input."""
         inp = UserStoryWriterInput(
             parent_requirement="Offline Dataset Ingestion",
             requirement_context="Must support CSV and Parquet formats.",
@@ -226,16 +245,19 @@ class TestUserStoryWriterInput:
 
     def test_accepts_extra_fields_for_adk_compat(self) -> None:
         """ADK input schemas must NOT use extra='forbid'."""
-        inp = UserStoryWriterInput(
-            parent_requirement="Valid requirement name",
-            requirement_context="context",
-            technical_spec="spec",
-            compiled_authority="auth",
-            extra_field="tolerated",
+        inp = UserStoryWriterInput.model_validate(
+            {
+                "parent_requirement": "Valid requirement name",
+                "requirement_context": "context",
+                "technical_spec": "spec",
+                "compiled_authority": "auth",
+                "extra_field": "tolerated",
+            }
         )
         assert inp.parent_requirement == "Valid requirement name"
 
     def test_json_round_trip(self) -> None:
+        """Verify json round trip."""
         payload: dict[str, Any] = {
             "parent_requirement": "User Authentication",
             "requirement_context": "Critical for security.",
@@ -256,8 +278,8 @@ class TestUserStoryWriterInput:
 class TestUserStoryWriterOutput:
     """Tests for the output schema."""
 
-    def _make_valid_story(self, **overrides: Any) -> dict[str, Any]:
-        """Helper: build a valid UserStoryItem dict."""
+    def _make_valid_story(self, **overrides: Any) -> dict[str, Any]:  # noqa: ANN401
+        """Helper: build a valid UserStoryItem dict."""  # noqa: D401
         base: dict[str, Any] = {
             "story_title": "Upload CSV file",
             "statement": (
@@ -273,6 +295,7 @@ class TestUserStoryWriterOutput:
         return base
 
     def test_valid_complete_output(self) -> None:
+        """Verify valid complete output."""
         out = UserStoryWriterOutput(
             parent_requirement="Offline Dataset Ingestion",
             user_stories=[UserStoryItem(**self._make_valid_story())],
@@ -283,6 +306,7 @@ class TestUserStoryWriterOutput:
         assert out.clarifying_questions == []
 
     def test_valid_incomplete_output_with_questions(self) -> None:
+        """Verify valid incomplete output with questions."""
         out = UserStoryWriterOutput(
             parent_requirement="Dashboard Analytics",
             user_stories=[
@@ -305,6 +329,7 @@ class TestUserStoryWriterOutput:
         assert len(out.clarifying_questions) == 1
 
     def test_rejects_empty_stories(self) -> None:
+        """Verify rejects empty stories."""
         with pytest.raises(ValidationError):
             UserStoryWriterOutput(
                 parent_requirement="Something valid",
@@ -313,15 +338,19 @@ class TestUserStoryWriterOutput:
             )
 
     def test_rejects_extra_fields(self) -> None:
+        """Verify rejects extra fields."""
         with pytest.raises(ValidationError):
-            UserStoryWriterOutput(
-                parent_requirement="Valid requirement",
-                user_stories=[UserStoryItem(**self._make_valid_story())],
-                is_complete=True,
-                bonus="bad",
+            UserStoryWriterOutput.model_validate(
+                {
+                    "parent_requirement": "Valid requirement",
+                    "user_stories": [UserStoryItem(**self._make_valid_story())],
+                    "is_complete": True,
+                    "bonus": "bad",
+                }
             )
 
     def test_json_round_trip(self) -> None:
+        """Verify json round trip."""
         out = UserStoryWriterOutput(
             parent_requirement="Authentication",
             user_stories=[

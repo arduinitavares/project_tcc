@@ -1,3 +1,5 @@
+"""Tests for generate example."""
+
 import json
 from pathlib import Path
 
@@ -5,6 +7,7 @@ from scripts.generate_example import build_demo_artifacts, save_artifacts
 
 
 def test_build_demo_artifacts_contains_expected_keys() -> None:
+    """Verify build demo artifacts contains expected keys."""
     artifacts = build_demo_artifacts()
     assert "software_example" in artifacts
     assert "construction_forbidden_example" in artifacts
@@ -12,10 +15,11 @@ def test_build_demo_artifacts_contains_expected_keys() -> None:
 
 
 def test_save_artifacts_writes_json_files(tmp_path: Path) -> None:
+    """Verify save artifacts writes json files."""
     output_dir = tmp_path / "artifacts"
     written = save_artifacts(output_dir)
 
-    assert len(written) == 3
+    assert len(written) == 3  # noqa: PLR2004
     for path in written:
         assert path.exists()
         payload = json.loads(path.read_text(encoding="utf-8"))

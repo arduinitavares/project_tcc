@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """
 Contract tests for spec_authority_compiler_agent.
 
@@ -41,6 +42,7 @@ class TestSpecAuthorityCompilerInput:
     """Validate input schema rules (exactly one source field)."""
 
     def test_requires_exactly_one_source_field(self) -> None:
+        """Verify requires exactly one source field."""
         with pytest.raises(ValidationError):
             SpecAuthorityCompilerInput(
                 spec_source="raw text",
@@ -60,6 +62,7 @@ class TestSpecAuthorityCompilerInput:
             )
 
     def test_accepts_spec_source_only(self) -> None:
+        """Verify accepts spec source only."""
         payload = SpecAuthorityCompilerInput(
             spec_source="Raw spec text",
             spec_content_ref=None,
@@ -71,6 +74,7 @@ class TestSpecAuthorityCompilerInput:
         assert payload.spec_content_ref is None
 
     def test_accepts_spec_content_ref_only(self) -> None:
+        """Verify accepts spec content ref only."""
         payload = SpecAuthorityCompilerInput(
             spec_source=None,
             spec_content_ref="specs/spec.md",
@@ -86,6 +90,7 @@ class TestCompilerOutputSchema:
     """Schema / contract tests for compiler output."""
 
     def test_schema_closes_eligible_feature_rule_items(self) -> None:
+        """Verify schema closes eligible feature rule items."""
         schema = SpecAuthorityCompilerEnvelope.model_json_schema()
         items = schema["$defs"]["SpecAuthorityCompilationSuccess"]["properties"][
             "eligible_feature_rules"
@@ -98,6 +103,7 @@ class TestCompilerOutputSchema:
         assert "rule" in items["properties"]
 
     def test_success_payload_valid_json(self) -> None:
+        """Verify success payload valid json."""
         payload: dict[str, Any] = {
             "scope_themes": ["API"],
             "invariants": [
@@ -126,6 +132,7 @@ class TestCompilerOutputSchema:
         assert parsed.root.compiler_version == "1.0.0"
 
     def test_failure_payload_valid_json(self) -> None:
+        """Verify failure payload valid json."""
         payload: dict[str, Any] = {
             "error": "SPEC_COMPILATION_FAILED",
             "reason": "Missing required sections",
@@ -137,6 +144,7 @@ class TestCompilerOutputSchema:
         assert parsed.root.error == "SPEC_COMPILATION_FAILED"
 
     def test_envelope_accepts_success_payload(self) -> None:
+        """Verify envelope accepts success payload."""
         payload: dict[str, Any] = {
             "scope_themes": ["API"],
             "invariants": [
@@ -166,6 +174,7 @@ class TestCompilerOutputSchema:
         assert isinstance(parsed.result, SpecAuthorityCompilationSuccess)
 
     def test_envelope_accepts_failure_payload(self) -> None:
+        """Verify envelope accepts failure payload."""
         payload: dict[str, Any] = {
             "error": "SPEC_COMPILATION_FAILED",
             "reason": "Missing required sections",
@@ -178,6 +187,7 @@ class TestCompilerOutputSchema:
         assert isinstance(parsed.result, SpecAuthorityCompilationFailure)
 
     def test_extra_keys_are_forbidden(self) -> None:
+        """Verify extra keys are forbidden."""
         payload: dict[str, Any] = {
             "error": "SPEC_COMPILATION_FAILED",
             "reason": "Bad output",
@@ -189,6 +199,7 @@ class TestCompilerOutputSchema:
             SpecAuthorityCompilerOutput.model_validate_json(json.dumps(payload))
 
     def test_invariant_type_must_be_allowed_enum(self) -> None:
+        """Verify invariant type must be allowed enum."""
         payload: dict[str, Any] = {
             "scope_themes": [],
             "invariants": [
@@ -210,6 +221,7 @@ class TestCompilerOutputSchema:
             SpecAuthorityCompilerOutput.model_validate_json(json.dumps(payload))
 
     def test_invariant_id_format(self) -> None:
+        """Verify invariant id format."""
         invariant_id = compute_invariant_id(
             excerpt="Must not use Redis.",
             invariant_type=InvariantType.FORBIDDEN_CAPABILITY,
@@ -217,6 +229,7 @@ class TestCompilerOutputSchema:
         assert re.match(r"^INV-[0-9a-f]{16}$", invariant_id)
 
     def test_normalizer_overwrites_placeholder_hash_and_ids(self) -> None:
+        """Verify normalizer overwrites placeholder hash and ids."""
         payload: dict[str, Any] = {
             "scope_themes": ["payload"],
             "invariants": [
@@ -257,6 +270,7 @@ class TestInvariantClassificationRules:
     """Mapping rules for deterministic invariant extraction."""
 
     def test_forbidden_capability_mapping(self) -> None:
+        """Verify forbidden capability mapping."""
         invariant = classify_invariant_from_text("System must not use Redis.")
         assert invariant is not None
         assert invariant.type == InvariantType.FORBIDDEN_CAPABILITY
@@ -264,6 +278,7 @@ class TestInvariantClassificationRules:
         assert invariant.parameters.capability == "redis"
 
     def test_required_field_mapping(self) -> None:
+        """Verify required field mapping."""
         invariant = classify_invariant_from_text("Requests must include auth_token.")
         assert invariant is not None
         assert invariant.type == InvariantType.REQUIRED_FIELD
@@ -271,27 +286,31 @@ class TestInvariantClassificationRules:
         assert invariant.parameters.field_name == "auth_token"
 
     def test_max_value_mapping(self) -> None:
+        """Verify max value mapping."""
         invariant = classify_invariant_from_text("Latency must be <= 200 ms.")
         assert invariant is not None
         assert invariant.type == InvariantType.MAX_VALUE
         assert isinstance(invariant.parameters, MaxValueParams)
         assert invariant.parameters.field_name == "latency"
-        assert invariant.parameters.max_value == 200
+        assert invariant.parameters.max_value == 200  # noqa: PLR2004
 
 
 class TestReproducibilityGuards:
     """Deterministic hashing and ID stability checks."""
 
     def test_spec_hash_stable_for_same_input(self) -> None:
+        """Verify spec hash stable for same input."""
         content = "Spec v1\nMust not use Redis."
         assert compute_spec_hash(content) == compute_spec_hash(content)
 
     def test_prompt_hash_changes_when_prompt_changes(self) -> None:
+        """Verify prompt hash changes when prompt changes."""
         hash_one = compute_prompt_hash("Prompt A")
         hash_two = compute_prompt_hash("Prompt B")
         assert hash_one != hash_two
 
     def test_invariant_id_stable_for_same_input(self) -> None:
+        """Verify invariant id stable for same input."""
         excerpt = "Requests must include auth_token."
         invariant_id_1 = compute_invariant_id(
             excerpt=excerpt,
@@ -388,16 +407,16 @@ class TestSpecAuthorityCompilerAgentIntegration:
         - invariant.id == compute_invariant_id(source_map.excerpt, invariant.type)
         - source_map ties invariant_id to excerpt
         """
-        from google.adk.runners import Runner
-        from google.adk.sessions import InMemorySessionService
+        from google.adk.runners import Runner  # noqa: PLC0415
+        from google.adk.sessions import InMemorySessionService  # noqa: PLC0415
 
-        from orchestrator_agent.agent_tools.spec_authority_compiler_agent.agent import (
+        from orchestrator_agent.agent_tools.spec_authority_compiler_agent.agent import (  # noqa: PLC0415
             root_agent,
         )
-        from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (
+        from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (  # noqa: PLC0415
             SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
         )
-        from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+        from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (  # noqa: PLC0415
             normalize_compiler_output,
         )
 
@@ -434,7 +453,7 @@ class TestSpecAuthorityCompilerAgentIntegration:
             session_id=session.id,
             new_message=new_message,
         ):
-            events.append(event)
+            events.append(event)  # noqa: PERF401
 
         # Extract final response text
         final_event = events[-1] if events else None

@@ -1,24 +1,33 @@
+"""Tests for setup service."""
+
 from types import SimpleNamespace
+from typing import Any, Never
 
 import pytest
 
+JsonDict = dict[str, Any]
+
 
 @pytest.mark.asyncio
-async def test_run_project_setup_marks_compile_failure_and_skips_auto_vision():
-    from services.setup_service import run_project_setup
+async def test_run_project_setup_marks_compile_failure_and_skips_auto_vision() -> None:
+    """Verify run project setup marks compile failure and skips auto vision."""
+    from services.setup_service import run_project_setup  # noqa: PLC0415
 
     context = SimpleNamespace(state={"fsm_state": "SETUP_REQUIRED"}, session_id="1")
-    saved: dict[str, object] = {}
-    calls: dict[str, object] = {}
+    saved: JsonDict = {}
+    calls: JsonDict = {}
 
-    async def hydrate_context(session_id: str, project_id: int):
+    async def hydrate_context(session_id: str, project_id: int) -> object:
         calls["hydrate"] = (session_id, project_id)
         return context
 
-    def build_tool_context(ctx):
+    def build_tool_context(ctx: object) -> object:
         return ctx
 
-    def link_spec_to_product(params, tool_context=None):
+    def link_spec_to_product(
+        params: JsonDict,
+        tool_context: object = None,
+    ) -> JsonDict:
         calls["link"] = {
             "params": params,
             "tool_context": tool_context,
@@ -34,11 +43,11 @@ async def test_run_project_setup_marks_compile_failure_and_skips_auto_vision():
             "has_full_artifact": True,
         }
 
-    def refresh_project_context(project_id: int, tool_context):
+    def refresh_project_context(project_id: int, tool_context: object) -> JsonDict:
         calls["refresh"] = (project_id, tool_context)
         return {"success": True}
 
-    def load_project(project_id: int):
+    def load_project(project_id: int) -> object:
         calls["load_project"] = project_id
         return SimpleNamespace(
             product_id=project_id,
@@ -46,13 +55,17 @@ async def test_run_project_setup_marks_compile_failure_and_skips_auto_vision():
             compiled_authority_json=None,
         )
 
-    def setup_blocker(_product):
+    def setup_blocker(_product: object) -> None:
         return None
 
-    async def run_vision_agent(_state, *, project_id: int, user_input: str):
-        raise AssertionError("vision agent should not be called on compile failure")
+    async def run_vision_agent(
+        _state: object, *, project_id: int, user_input: str
+    ) -> Never:
+        del project_id, user_input
+        msg = "vision agent should not be called on compile failure"
+        raise AssertionError(msg)
 
-    def save_session_state(session_id: str, state: dict[str, object]) -> None:
+    def save_session_state(session_id: str, state: JsonDict) -> None:
         saved["session_id"] = session_id
         saved["state"] = dict(state)
 
@@ -83,8 +96,9 @@ async def test_run_project_setup_marks_compile_failure_and_skips_auto_vision():
 
 
 @pytest.mark.asyncio
-async def test_run_project_setup_runs_auto_vision_after_successful_setup():
-    from services.setup_service import run_project_setup
+async def test_run_project_setup_runs_auto_vision_after_successful_setup() -> None:
+    """Verify run project setup runs auto vision after successful setup."""
+    from services.setup_service import run_project_setup  # noqa: PLC0415
 
     context = SimpleNamespace(
         state={
@@ -94,17 +108,20 @@ async def test_run_project_setup_runs_auto_vision_after_successful_setup():
         },
         session_id="7",
     )
-    saved: dict[str, object] = {}
-    calls: dict[str, object] = {}
+    saved: JsonDict = {}
+    calls: JsonDict = {}
 
-    async def hydrate_context(session_id: str, project_id: int):
+    async def hydrate_context(session_id: str, project_id: int) -> object:
         calls["hydrate"] = (session_id, project_id)
         return context
 
-    def build_tool_context(ctx):
+    def build_tool_context(ctx: object) -> object:
         return ctx
 
-    def link_spec_to_product(params, tool_context=None):
+    def link_spec_to_product(
+        params: JsonDict,
+        tool_context: object = None,
+    ) -> JsonDict:
         calls["link"] = {
             "params": params,
             "tool_context": tool_context,
@@ -115,21 +132,23 @@ async def test_run_project_setup_runs_auto_vision_after_successful_setup():
             "spec_path": params["spec_path"],
         }
 
-    def refresh_project_context(project_id: int, tool_context):
+    def refresh_project_context(project_id: int, tool_context: object) -> JsonDict:
         calls["refresh"] = (project_id, tool_context)
         return {"success": True}
 
-    def load_project(project_id: int):
+    def load_project(project_id: int) -> object:
         return SimpleNamespace(
             product_id=project_id,
             spec_file_path=__file__,
             compiled_authority_json='{"ok": true}',
         )
 
-    def setup_blocker(_product):
+    def setup_blocker(_product: object) -> None:
         return None
 
-    async def run_vision_agent(state, *, project_id: int, user_input: str):
+    async def run_vision_agent(
+        state: JsonDict, *, project_id: int, user_input: str
+    ) -> JsonDict:
         calls["vision"] = {
             "project_id": project_id,
             "user_input": user_input,
@@ -157,7 +176,7 @@ async def test_run_project_setup_runs_auto_vision_after_successful_setup():
             "has_full_artifact": False,
         }
 
-    def save_session_state(session_id: str, state: dict[str, object]) -> None:
+    def save_session_state(session_id: str, state: JsonDict) -> None:
         saved["session_id"] = session_id
         saved["state"] = dict(state)
 

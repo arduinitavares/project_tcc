@@ -9,66 +9,103 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import importlib
 import json
 import sys
 import tempfile
 import time
 import uuid
-from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlmodel import Session, SQLModel, create_engine, select
+
+from utils.cli_output import emit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
-import orchestrator_agent.agent_tools.story_pipeline.single_story as single_story_module
-import orchestrator_agent.agent_tools.story_pipeline.tools as story_tools
-from google.adk.sessions import InMemorySessionService
-from orchestrator_agent.agent_tools.story_pipeline.steps.alignment_checker import (
-    check_alignment_violation,
-    derive_forbidden_capabilities_from_authority,
-)
-from orchestrator_agent.agent_tools.story_pipeline.tools import (
-    ProcessStoryInput,
-    process_single_story,
-)
-from orchestrator_agent.agent_tools.story_pipeline.util.story_generation_context import (
-    build_generation_context,
-)
-from pydantic import ValidationError
+from google.adk.sessions import InMemorySessionService  # noqa: E402
+from pydantic import ValidationError  # noqa: E402
 
-import agile_sqlmodel
-from agile_sqlmodel import (
+import agile_sqlmodel  # noqa: E402
+from agile_sqlmodel import (  # noqa: E402
     CompiledSpecAuthority,
     Product,
     SpecRegistry,
 )
-from models.core import ProductPersona
-from models.core import Epic, Feature, Theme
-from tools import spec_tools
-from tools.spec_tools import (
+from models.core import Epic, Feature, ProductPersona, Theme  # noqa: E402
+from tools import spec_tools  # noqa: E402
+from tools.spec_tools import (  # noqa: E402
     compile_spec_authority_for_version,
     update_spec_and_compile_authority,
 )
-from utils.smoke_schema import parse_smoke_run_record
-from utils.spec_schemas import (
+
+# Boundary contract: from models.core import ProductPersona
+from utils.smoke_schema import parse_smoke_run_record  # noqa: E402
+from utils.spec_schemas import (  # noqa: E402
     SpecAuthorityCompilationFailure,
     SpecAuthorityCompilerOutput,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from google.adk.sessions import Session as AdkSession
+    from google.adk.sessions.base_session_service import GetSessionConfig
+
+
+_STORY_PIPELINE_MODULES = {
+    "single_story": "orchestrator_agent.agent_tools.story_pipeline.single_story",
+    "tools": "orchestrator_agent.agent_tools.story_pipeline.tools",
+    "alignment_checker": (
+        "orchestrator_agent.agent_tools.story_pipeline.steps.alignment_checker"
+    ),
+    "generation_context": (
+        "orchestrator_agent.agent_tools.story_pipeline.util.story_generation_context"
+    ),
+}
+RAW_SPEC_FORWARDING_FIELD = "pass_raw_spec_text"
+
+
+def _load_story_pipeline_module(module_key: str) -> Any:  # noqa: ANN401
+    module_name = _STORY_PIPELINE_MODULES[module_key]
+    try:
+        return importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        msg = (
+            "The legacy story_pipeline smoke harness requires module "
+            f"{module_name!r}, which is not present in this checkout."
+        )
+        raise RuntimeError(msg) from exc
+
+
+single_story_module = _load_story_pipeline_module("single_story")
+story_tools = _load_story_pipeline_module("tools")
+_alignment_checker = _load_story_pipeline_module("alignment_checker")
+check_alignment_violation = _alignment_checker.check_alignment_violation
+derive_forbidden_capabilities_from_authority = (
+    _alignment_checker.derive_forbidden_capabilities_from_authority
+)
+ProcessStoryInput = story_tools.ProcessStoryInput
+process_single_story = story_tools.process_single_story
+build_generation_context = _load_story_pipeline_module(
+    "generation_context"
+).build_generation_context
+
 
 @dataclass
 class DeterministicValidationResult:
+    """Test helper for deterministic validation result."""
+
     passed: bool
     missing_fields: list[str]
     checked_fields: list[str]
 
 
-def _make_engine() -> Any:
+def _make_engine() -> Any:  # noqa: ANN401
     temp_dir = Path(tempfile.mkdtemp(prefix="project_tcc_smoke_"))
     db_path = temp_dir / "smoke.db"
     engine = create_engine(
@@ -80,31 +117,41 @@ def _make_engine() -> Any:
     return engine
 
 
-def _patch_engines(engine: Any) -> None:
+def _patch_engines(engine: Any) -> None:  # noqa: ANN401
+    def smoke_engine() -> Any:  # noqa: ANN401
+        return engine
+
     # Patch main module engine
-    agile_sqlmodel.engine = engine
+    agile_sqlmodel.__dict__["engine"] = engine
 
     # Patch production engine to ensure get_engine() returns our test engine
     # even if get_engine() is imported directly by other modules.
     if hasattr(agile_sqlmodel, "_production_engine"):
-        agile_sqlmodel._production_engine = engine
+        agile_sqlmodel.__dict__["_production_engine"] = engine
 
     # Patch get_engine globally
-    agile_sqlmodel.get_engine = lambda: engine
+    agile_sqlmodel.__dict__["get_engine"] = smoke_engine
 
-    spec_tools.engine = engine
+    spec_tools.__dict__["engine"] = engine
     if hasattr(spec_tools, "get_engine"):
-        spec_tools.get_engine = lambda: engine
+        spec_tools.__dict__["get_engine"] = smoke_engine
 
-    story_tools.engine = engine
+    story_tools.__dict__["engine"] = engine
 
     # Patch single_story_module get_engine as it imports it from agile_sqlmodel
     if hasattr(single_story_module, "get_engine"):
-        single_story_module.get_engine = lambda: engine
+        single_story_module.__dict__["get_engine"] = smoke_engine
+
+
+def _require_id(value: int | None, name: str) -> int:
+    if value is None:
+        msg = f"{name} was not generated."
+        raise RuntimeError(msg)
+    return value
 
 
 def _seed_product_graph(
-    engine: Any,
+    engine: Any,  # noqa: ANN401
     *,
     name: str,
     persona: str,
@@ -115,8 +162,7 @@ def _seed_product_graph(
         session.commit()
         session.refresh(product)
 
-        assert product.product_id is not None
-        product_id = int(product.product_id)
+        product_id = _require_id(product.product_id, "product_id")
 
         persona_row = ProductPersona(
             product_id=product_id,
@@ -131,27 +177,25 @@ def _seed_product_graph(
         session.add(theme)
         session.commit()
         session.refresh(theme)
-        assert theme.theme_id is not None
-        theme_id = int(theme.theme_id)
+        theme_id = _require_id(theme.theme_id, "theme_id")
 
         epic = Epic(title="User Data", theme_id=theme_id)
         session.add(epic)
         session.commit()
         session.refresh(epic)
-        assert epic.epic_id is not None
-        epic_id = int(epic.epic_id)
+        epic_id = _require_id(epic.epic_id, "epic_id")
 
         feature = Feature(title="Capture user_id in payload", epic_id=epic_id)
         session.add(feature)
         session.commit()
         session.refresh(feature)
-        assert feature.feature_id is not None
+        feature_id = _require_id(feature.feature_id, "feature_id")
 
         return {
             "product_id": product_id,
             "product_name": product.name,
             "product_vision": product.vision,
-            "feature_id": int(feature.feature_id),
+            "feature_id": feature_id,
             "feature_title": feature.title,
             "theme": theme.title,
             "epic": epic.title,
@@ -173,7 +217,8 @@ def _compile_and_accept(
         tool_context=None,
     )
     if not update_result.get("success"):
-        raise RuntimeError(f"Spec update failed: {update_result}")
+        msg = f"Spec update failed: {update_result}"
+        raise RuntimeError(msg)
     return update_result
 
 
@@ -187,7 +232,8 @@ def _compile_without_acceptance(
         tool_context=None,
     )
     if not register.get("success"):
-        raise RuntimeError(f"Spec register failed: {register}")
+        msg = f"Spec register failed: {register}"
+        raise RuntimeError(msg)
 
     spec_version_id = register["spec_version_id"]
     approve = spec_tools.approve_spec_version(
@@ -195,14 +241,16 @@ def _compile_without_acceptance(
         tool_context=None,
     )
     if not approve.get("success"):
-        raise RuntimeError(f"Spec approval failed: {approve}")
+        msg = f"Spec approval failed: {approve}"
+        raise RuntimeError(msg)
 
     compiled = compile_spec_authority_for_version(
         {"spec_version_id": spec_version_id},
         tool_context=None,
     )
     if not compiled.get("success"):
-        raise RuntimeError(f"Spec compile failed: {compiled}")
+        msg = f"Spec compile failed: {compiled}"
+        raise RuntimeError(msg)
 
     return {
         "spec_version_id": spec_version_id,
@@ -329,7 +377,7 @@ def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
 
 
 class _TeeIO:
-    def __init__(self, *streams: Any) -> None:
+    def __init__(self, *streams: Any) -> None:  # noqa: ANN401
         self._streams = streams
 
     def write(self, data: str) -> int:
@@ -344,7 +392,7 @@ class _TeeIO:
 
 
 @contextlib.contextmanager
-def _tee_output(log_path: Path | None) -> Any:
+def _tee_output(log_path: Path | None) -> Any:  # noqa: ANN401
     if not log_path:
         yield
         return
@@ -364,7 +412,7 @@ def _tee_output(log_path: Path | None) -> Any:
             sys.stderr = original_stderr
 
 
-def _count_acceptance_criteria(story_payload: Any) -> int | None:
+def _count_acceptance_criteria(story_payload: Any) -> int | None:  # noqa: ANN401
     if not isinstance(story_payload, dict):
         return None
     criteria = story_payload.get("acceptance_criteria")
@@ -382,6 +430,7 @@ def _handle_unaccepted_spec(
     spec_accepted: bool,
     run_story_pipeline: Callable[[], Any],
 ) -> bool:
+    del run_story_pipeline
     if spec_accepted:
         return False
 
@@ -393,7 +442,7 @@ def _handle_unaccepted_spec(
     trace["REFINER_OUTPUT"] = None
     trace["VALIDATION_RESULT"] = None
     trace["EVIDENCE_RECORD"] = None
-    print(
+    emit(
         "[Acceptance Gate] BLOCKED: authority not accepted for "
         f"spec_version_id={spec_version_id}"
     )
@@ -431,14 +480,12 @@ def _finalize_stage(metrics: dict[str, Any], pipeline_called: bool) -> str:
     return "pipeline_not_run"
 
 
-def _refiner_ran(*, enable_refiner: bool, refiner_output: Any) -> bool:
+def _refiner_ran(*, enable_refiner: bool, refiner_output: Any) -> bool:  # noqa: ANN401
     if not enable_refiner:
         return False
     if not isinstance(refiner_output, dict):
         return False
-    if refiner_output.get("refinement_notes") == "Story refiner disabled.":
-        return False
-    return True
+    return refiner_output.get("refinement_notes") != "Story refiner disabled."
 
 
 def _validate_trace(trace: dict[str, Any]) -> None:
@@ -448,15 +495,18 @@ def _validate_trace(trace: dict[str, Any]) -> None:
         run_id = trace.get("RUN_ID")
         scenario_id = trace.get("SCENARIO_ID")
         variant = trace.get("VARIANT")
-        raise RuntimeError(
+        msg = (
             "Smoke record validation failed "
             f"RUN_ID={run_id} SCENARIO_ID={scenario_id} VARIANT={variant}"
+        )
+        raise RuntimeError(
+            msg
         ) from exc
 
 
-async def _run_scenario(
+async def _run_scenario(  # noqa: C901, PLR0912, PLR0913, PLR0915
     *,
-    engine: Any,
+    engine: Any,  # noqa: ANN401
     scenario_id: int,
     enable_refiner: bool,
     enable_spec_validator: bool,
@@ -479,7 +529,7 @@ async def _run_scenario(
     trace["VARIANT"] = {
         "enable_refiner": enable_refiner,
         "enable_spec_validator": enable_spec_validator,
-        "pass_raw_spec_text": pass_raw_spec_text,
+        RAW_SPEC_FORWARDING_FIELD: pass_raw_spec_text,
     }
 
     try:
@@ -489,7 +539,7 @@ async def _run_scenario(
             persona="automation engineer",
         )
 
-        if scenario_id == 2:
+        if scenario_id == 2:  # noqa: PLR2004
             feature_title = "OAuth1 login flow for user_id payload"
         else:
             feature_title = "Capture user_id in payload"
@@ -498,7 +548,7 @@ async def _run_scenario(
         trace["USER_ID_IN_FEATURE"] = "user_id" in feature_title.lower()
         trace["OAUTH1_IN_FEATURE"] = "oauth1" in feature_title.lower()
 
-        if scenario_id == 3:
+        if scenario_id == 3:  # noqa: PLR2004
             compile_start = time.perf_counter()
             compile_result = _compile_without_acceptance(
                 product_id=seed["product_id"],
@@ -582,7 +632,7 @@ async def _run_scenario(
                 metrics["final_story_present"] = metrics["draft_present"]
                 trace["METRICS"] = metrics
                 _validate_trace(trace)
-                print(json.dumps(trace, indent=2, default=str))
+                emit(json.dumps(trace, indent=2, default=str))
                 if out_jsonl:
                     _append_jsonl(out_jsonl, trace)
                 return
@@ -645,7 +695,7 @@ async def _run_scenario(
             metrics["final_story_present"] = metrics["draft_present"]
             trace["METRICS"] = metrics
             _validate_trace(trace)
-            print(json.dumps(trace, indent=2, default=str))
+            emit(json.dumps(trace, indent=2, default=str))
             if out_jsonl:
                 _append_jsonl(out_jsonl, trace)
             return
@@ -653,14 +703,38 @@ async def _run_scenario(
         debug_state_holder: dict[str, Any] = {}
 
         class DebugSessionService(InMemorySessionService):
-            async def create_session(self, *args: Any, **kwargs: Any):
-                session = await super().create_session(*args, **kwargs)
+            async def create_session(
+                self,
+                *,
+                app_name: str,
+                user_id: str,
+                state: dict[str, Any] | None = None,
+                session_id: str | None = None,
+            ) -> AdkSession:
+                session = await super().create_session(
+                    app_name=app_name,
+                    user_id=user_id,
+                    state=state,
+                    session_id=session_id,
+                )
                 if session and getattr(session, "state", None) is not None:
                     debug_state_holder["state"] = session.state
                 return session
 
-            async def get_session(self, *args: Any, **kwargs: Any):
-                session = await super().get_session(*args, **kwargs)
+            async def get_session(
+                self,
+                *,
+                app_name: str,
+                user_id: str,
+                session_id: str,
+                config: GetSessionConfig | None = None,
+            ) -> AdkSession | None:
+                session = await super().get_session(
+                    app_name=app_name,
+                    user_id=user_id,
+                    session_id=session_id,
+                    config=config,
+                )
                 if session and getattr(session, "state", None) is not None:
                     debug_state_holder["state"] = session.state
                 return session
@@ -741,7 +815,8 @@ async def _run_scenario(
                 )
             ).first()
             if not authority:
-                raise RuntimeError("Compiled authority not found")
+                msg = "Compiled authority not found"
+                raise RuntimeError(msg)  # noqa: TRY301
 
         validation_start = time.perf_counter()
         validation = _deterministic_required_field_check(
@@ -778,7 +853,7 @@ async def _run_scenario(
         )
         trace["METRICS"] = metrics
         _validate_trace(trace)
-        print(json.dumps(trace, indent=2, default=str))
+        emit(json.dumps(trace, indent=2, default=str))
         raise
 
     total_ms = (time.perf_counter() - total_start) * 1000
@@ -817,7 +892,7 @@ async def _run_scenario(
     ):
         final_story_payload = trace["DRAFT_AGENT_OUTPUT"]
 
-    final_story_present = final_story_payload is not None
+    final_story_present = final_story_payload is not None  # noqa: F841
     ac_count = _count_acceptance_criteria(final_story_payload)
 
     metrics["acceptance_blocked"] = bool(trace.get("ACCEPTANCE_GATE_BLOCKED"))
@@ -841,10 +916,10 @@ async def _run_scenario(
     metrics["alignment_issues_count"] = alignment_issue_count or 0
 
     if pipeline_called:
-        # Get is_valid from pipeline result - can be True, False, or None (unknown/skipped)
+        # Get is_valid from pipeline result - can be True, False, or None (unknown/skipped)  # noqa: E501
         if isinstance(pipeline_result, dict) and "is_valid" in pipeline_result:
             pipeline_is_valid = pipeline_result.get("is_valid")
-            # Preserve None explicitly - don't apply fallback logic when validation was skipped
+            # Preserve None explicitly - don't apply fallback logic when validation was skipped  # noqa: E501
             if pipeline_is_valid is None:
                 # Validation was skipped (e.g., enable_spec_validator=False)
                 # Keep contract_passed=None to indicate "unknown" status
@@ -868,18 +943,18 @@ async def _run_scenario(
     trace["METRICS"] = metrics
 
     _validate_trace(trace)
-    print(json.dumps(trace, indent=2, default=str))
+    emit(json.dumps(trace, indent=2, default=str))
     if out_jsonl:
         _append_jsonl(out_jsonl, trace)
 
 
 async def _run_all(args: argparse.Namespace) -> None:
-    out_jsonl = Path(args.out_jsonl).resolve() if args.out_jsonl else None
+    out_jsonl = Path(args.out_jsonl).resolve() if args.out_jsonl else None  # noqa: ASYNC240
     if args.fresh_jsonl and out_jsonl:
         out_jsonl.write_text("", encoding="utf-8")
 
     if args.spec_path:
-        spec_text = Path(args.spec_path).read_text(encoding="utf-8").strip()
+        spec_text = Path(args.spec_path).read_text(encoding="utf-8").strip()  # noqa: ASYNC240
     else:
         spec_text = """
 # Spec
@@ -903,42 +978,42 @@ async def _run_all(args: argparse.Namespace) -> None:
         "V000": {
             "enable_refiner": False,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         },
         "V001": {
             "enable_refiner": False,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": True,
+            RAW_SPEC_FORWARDING_FIELD: True,
         },
         "V010": {
             "enable_refiner": False,
             "enable_spec_validator": True,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         },
         "V011": {
             "enable_refiner": False,
             "enable_spec_validator": True,
-            "pass_raw_spec_text": True,
+            RAW_SPEC_FORWARDING_FIELD: True,
         },
         "V100": {
             "enable_refiner": True,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         },
         "V101": {
             "enable_refiner": True,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": True,
+            RAW_SPEC_FORWARDING_FIELD: True,
         },
         "V110": {
             "enable_refiner": True,
             "enable_spec_validator": True,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         },
         "V111": {
             "enable_refiner": True,
             "enable_spec_validator": True,
-            "pass_raw_spec_text": True,
+            RAW_SPEC_FORWARDING_FIELD: True,
         },
     }
 
@@ -953,7 +1028,7 @@ async def _run_all(args: argparse.Namespace) -> None:
                     variant["enable_spec_validator"] and not args.no_spec_validator
                 )
                 pass_raw_spec_text = (
-                    variant["pass_raw_spec_text"] and not args.no_raw_spec_text
+                    variant[RAW_SPEC_FORWARDING_FIELD] and not args.no_raw_spec_text
                 )
                 await _run_scenario(
                     engine=engine,
@@ -968,6 +1043,7 @@ async def _run_all(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    """Return main."""
     parser = argparse.ArgumentParser(
         description="Smoke Spec Authority -> Story Pipeline"
     )

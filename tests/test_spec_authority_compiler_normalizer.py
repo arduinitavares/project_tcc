@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any
 
-from orchestrator_agent.agent_tools.spec_authority_compiler_agent.compiler_contract import (
+from orchestrator_agent.agent_tools.spec_authority_compiler_agent.compiler_contract import (  # noqa: E501
     compute_invariant_id,
     compute_prompt_hash,
 )
@@ -18,11 +18,11 @@ from utils.spec_schemas import (
 
 def test_normalizer_rewrites_bad_ids_from_llm() -> None:
     """Normalizer must rewrite bad prompt_hash and invariant IDs deterministically."""
-    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.instructions_source import (  # noqa: E501, PLC0415
         SPEC_AUTHORITY_COMPILER_INSTRUCTIONS,
         SPEC_AUTHORITY_COMPILER_VERSION,
     )
-    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (  # noqa: E501, PLC0415
         normalize_compiler_output,
     )
 
@@ -74,8 +74,8 @@ def test_normalizer_rewrites_bad_ids_from_llm() -> None:
 
 
 def test_normalizer_fails_when_source_map_missing_or_unmatchable() -> None:
-    """Normalizer must fail deterministically if source_map cannot support ID mapping."""
-    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+    """Normalizer must fail deterministically if source_map cannot support ID mapping."""  # noqa: E501
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (  # noqa: E501, PLC0415
         normalize_compiler_output,
     )
 
@@ -106,7 +106,7 @@ def test_normalizer_fails_when_source_map_missing_or_unmatchable() -> None:
 
 def test_normalizer_returns_failure_for_invalid_json() -> None:
     """Normalizer must return structured failure if raw output is not valid JSON."""
-    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (  # noqa: E501, PLC0415
         normalize_compiler_output,
     )
 
@@ -123,7 +123,7 @@ def test_normalizer_handles_duplicate_placeholder_invariant_ids() -> None:
     invariants instead of generating unique IDs. The normalizer must use positional
     matching to assign correct types to source_map entries.
     """
-    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (  # noqa: E501, PLC0415
         normalize_compiler_output,
     )
 
@@ -173,9 +173,9 @@ def test_normalizer_handles_duplicate_placeholder_invariant_ids() -> None:
     )
 
     # Two distinct invariants with deterministic IDs
-    assert len(normalized.root.invariants) == 2
+    assert len(normalized.root.invariants) == 2  # noqa: PLR2004
     inv_ids = [inv.id for inv in normalized.root.invariants]
-    assert len(set(inv_ids)) == 2, "Invariant IDs must be unique after normalization"
+    assert len(set(inv_ids)) == 2, "Invariant IDs must be unique after normalization"  # noqa: PLR2004
 
     # Source map entries must match invariant IDs
     source_map_ids = {entry.invariant_id for entry in normalized.root.source_map}
@@ -186,7 +186,8 @@ def test_normalizer_handles_duplicate_placeholder_invariant_ids() -> None:
 
 
 def test_normalizer_handles_duplicate_ids_different_types_length_mismatch() -> None:
-    """Normalizer must succeed when LLM returns duplicate IDs with different types
+    """Normalizer must succeed when LLM returns duplicate IDs with different types.
+
     AND the number of source_map entries doesn't match the number of invariants.
 
     Regression: original_id_to_type dict loses type information for duplicate IDs
@@ -195,7 +196,7 @@ def test_normalizer_handles_duplicate_ids_different_types_length_mismatch() -> N
     resolve to the last-wins type, producing an ID that covers only one invariant
     while leaving the other as SOURCE_MAP_INVARIANT_MISMATCH.
     """
-    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (  # noqa: E501, PLC0415
         normalize_compiler_output,
     )
 
@@ -251,9 +252,9 @@ def test_normalizer_handles_duplicate_ids_different_types_length_mismatch() -> N
     )
 
     # Two distinct invariants with deterministic IDs
-    assert len(normalized.root.invariants) == 2
+    assert len(normalized.root.invariants) == 2  # noqa: PLR2004
     inv_ids = [inv.id for inv in normalized.root.invariants]
-    assert len(set(inv_ids)) == 2, "Invariant IDs must be unique after normalization"
+    assert len(set(inv_ids)) == 2, "Invariant IDs must be unique after normalization"  # noqa: PLR2004
 
     # Every invariant must have at least one source_map entry
     source_map_ids = {entry.invariant_id for entry in normalized.root.source_map}
@@ -265,7 +266,8 @@ def test_normalizer_handles_duplicate_ids_different_types_length_mismatch() -> N
 
 
 def test_normalize_zero_invariants_returns_success_with_warning() -> None:
-    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+    """Verify normalize zero invariants returns success with warning."""
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (  # noqa: E501, PLC0415
         normalize_compiler_output,
     )
 
@@ -294,7 +296,8 @@ def test_normalize_zero_invariants_returns_success_with_warning() -> None:
 
 
 def test_normalize_empty_invariants_allows_empty_source_map() -> None:
-    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+    """Verify normalize empty invariants allows empty source map."""
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (  # noqa: E501, PLC0415
         normalize_compiler_output,
     )
 
@@ -317,7 +320,8 @@ def test_normalize_empty_invariants_allows_empty_source_map() -> None:
 
 
 def test_normalizer_extracts_json_from_wrapped_text() -> None:
-    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+    """Verify normalizer extracts json from wrapped text."""
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (  # noqa: E501, PLC0415
         normalize_compiler_output,
     )
 
@@ -360,7 +364,8 @@ def test_normalizer_extracts_json_from_wrapped_text() -> None:
 
 
 def test_normalizer_accepts_enveloped_result_payload() -> None:
-    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+    """Verify normalizer accepts enveloped result payload."""
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (  # noqa: E501, PLC0415
         normalize_compiler_output,
     )
 
@@ -395,7 +400,8 @@ def test_normalizer_accepts_enveloped_result_payload() -> None:
 
 
 def test_normalizer_filters_meta_policy_invariant_from_plagiarism_section() -> None:
-    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+    """Verify normalizer filters meta policy invariant from plagiarism section."""
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (  # noqa: E501, PLC0415
         normalize_compiler_output,
     )
 
@@ -417,7 +423,7 @@ def test_normalizer_filters_meta_policy_invariant_from_plagiarism_section() -> N
                 "invariant_id": "INV-0000000000000000",
                 "excerpt": (
                     "Knowingly representing the works of others as one's own or "
-                    "referencing the works of others without appropriate citation is prohibited."
+                    "referencing the works of others without appropriate citation is prohibited."  # noqa: E501
                 ),
                 "location": "Plagiarism Policy",
             }
@@ -438,7 +444,8 @@ def test_normalizer_filters_meta_policy_invariant_from_plagiarism_section() -> N
 
 
 def test_normalizer_preserves_real_product_forbidden_capability() -> None:
-    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+    """Verify normalizer preserves real product forbidden capability."""
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (  # noqa: E501, PLC0415
         normalize_compiler_output,
     )
 
@@ -477,7 +484,8 @@ def test_normalizer_preserves_real_product_forbidden_capability() -> None:
 def test_normalizer_does_not_filter_product_invariant_from_api_references_section() -> (
     None
 ):
-    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (
+    """Verify normalizer does not filter product invariant from api references section."""  # noqa: E501
+    from orchestrator_agent.agent_tools.spec_authority_compiler_agent.normalizer import (  # noqa: E501, PLC0415
         normalize_compiler_output,
     )
 

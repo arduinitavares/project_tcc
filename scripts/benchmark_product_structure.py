@@ -1,9 +1,13 @@
+"""Script for benchmark product structure."""
+
 import sys
 import time
 from pathlib import Path
 
 from sqlalchemy import Engine, event
 from sqlmodel import Session, SQLModel, create_engine
+
+from utils.cli_output import emit
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -17,18 +21,31 @@ engine = create_engine("sqlite:///:memory:")
 SQLModel.metadata.create_all(engine)
 
 # Patch the engine in db_tools
-import tools.db_tools
+import tools.db_tools  # noqa: E402
 
-tools.db_tools.engine = engine
+
+def _benchmark_engine() -> Engine:
+    return engine
+
+
+tools.db_tools.__dict__["get_engine"] = _benchmark_engine
+
+
+def _require_id(value: int | None, name: str) -> int:
+    if value is None:
+        msg = f"{name} was not generated"
+        raise RuntimeError(msg)
+    return value
 
 
 def seed_database(
-    product_count=1,
-    themes_per_product=5,
-    epics_per_theme=5,
-    features_per_epic=5,
-    stories_per_feature=5,
-):
+    product_count: int = 1,
+    themes_per_product: int = 5,
+    epics_per_theme: int = 5,
+    features_per_epic: int = 5,
+    stories_per_feature: int = 5,
+) -> None:
+    """Return seed database."""
     with Session(engine) as session:
         for p in range(product_count):
             product = Product(
@@ -37,58 +54,67 @@ def seed_database(
             session.add(product)
             session.commit()
             session.refresh(product)
+            product_id = _require_id(product.product_id, "Product ID")
 
             for t in range(themes_per_product):
                 theme = Theme(
                     title=f"Theme {t}",
                     description="Desc",
-                    product_id=product.product_id,
+                    product_id=product_id,
                 )
                 session.add(theme)
                 session.commit()
                 session.refresh(theme)
+                theme_id = _require_id(theme.theme_id, "Theme ID")
 
                 for e in range(epics_per_theme):
-                    epic = Epic(
-                        title=f"Epic {e}", summary="Sum", theme_id=theme.theme_id
-                    )
+                    epic = Epic(title=f"Epic {e}", summary="Sum", theme_id=theme_id)
                     session.add(epic)
                     session.commit()
                     session.refresh(epic)
+                    epic_id = _require_id(epic.epic_id, "Epic ID")
 
                     for f in range(features_per_epic):
                         feature = Feature(
                             title=f"Feature {f}",
                             description="Desc",
-                            epic_id=epic.epic_id,
+                            epic_id=epic_id,
                         )
                         session.add(feature)
                         session.commit()
                         session.refresh(feature)
+                        feature_id = _require_id(feature.feature_id, "Feature ID")
 
                         for s in range(stories_per_feature):
                             story = UserStory(
                                 title=f"Story {s}",
                                 story_description="Desc",
                                 status=StoryStatus.TO_DO,
-                                product_id=product.product_id,
-                                feature_id=feature.feature_id,
+                                product_id=product_id,
+                                feature_id=feature_id,
                             )
                             session.add(story)
         session.commit()
-    print(
-        f"Seeded DB with {product_count} products, {themes_per_product} themes/prod, {epics_per_theme} epics/theme, {features_per_epic} features/epic, {stories_per_feature} stories/feature."
+    emit(
+        f"Seeded DB with {product_count} products, {themes_per_product} themes/prod, {epics_per_theme} epics/theme, {features_per_epic} features/epic, {stories_per_feature} stories/feature."  # noqa: E501
     )
 
 
-def benchmark():
+def benchmark() -> None:
     # Reset query count
+    """Return benchmark."""
     query_count = 0
 
     @event.listens_for(Engine, "before_cursor_execute")
-    def before_cursor_execute(
-        conn, cursor, statement, parameters, context, executemany
-    ):
+    def before_cursor_execute(  # noqa: PLR0913
+        conn: object,
+        cursor: object,
+        statement: object,
+        parameters: object,
+        context: object,
+        executemany: object,
+    ) -> None:
+        del conn, cursor, statement, parameters, context, executemany
         nonlocal query_count
         query_count += 1
 
@@ -99,16 +125,16 @@ def benchmark():
 
     duration = end_time - start_time
 
-    print(f"Execution Time: {duration:.4f} seconds")
-    print(f"Query Count: {query_count}")
+    emit(f"Execution Time: {duration:.4f} seconds")
+    emit(f"Query Count: {query_count}")
 
     if not result["success"]:
-        print("Error in query_product_structure")
+        emit("Error in query_product_structure")
         sys.exit(1)
 
 
 if __name__ == "__main__":
-    print("Seeding database...")
+    emit("Seeding database...")
     seed_database()
-    print("Running benchmark...")
+    emit("Running benchmark...")
     benchmark()

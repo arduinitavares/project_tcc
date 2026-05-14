@@ -1,21 +1,22 @@
+"""Tests for specs lifecycle service."""
+
 import hashlib
 from pathlib import Path
 
+import pytest
+from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from agile_sqlmodel import Product, SpecRegistry
-
-
-class MockToolContext:
-    def __init__(self, state: dict):
-        self.state = state
+from tests.typing_helpers import make_tool_context
 
 
 def test_link_spec_to_product_persists_link_and_delegates_compile(
-    session, tmp_path, monkeypatch
-):
-    from services.specs import lifecycle_service
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify link spec to product persists link and delegates compile."""
+    from services.specs import lifecycle_service  # noqa: PLC0415
 
     product = Product(name="Lifecycle Product", vision="vision")
     session.add(product)
@@ -27,7 +28,9 @@ def test_link_spec_to_product_persists_link_and_delegates_compile(
 
     calls: dict[str, object] = {}
 
-    def fake_compile(*, product_id: int, spec_path: str, tool_context):
+    def fake_compile(
+        *, product_id: int, spec_path: str, tool_context: object
+    ) -> object:
         calls["product_id"] = product_id
         calls["spec_path"] = spec_path
         calls["tool_context"] = tool_context
@@ -43,7 +46,7 @@ def test_link_spec_to_product_persists_link_and_delegates_compile(
         fake_compile,
     )
 
-    ctx = MockToolContext(state={"spec_persisted": False})
+    ctx = make_tool_context(state={"spec_persisted": False})
     result = lifecycle_service.link_spec_to_product(
         {
             "product_id": product.product_id,
@@ -54,7 +57,7 @@ def test_link_spec_to_product_persists_link_and_delegates_compile(
 
     assert result["success"] is True
     assert result["compile_success"] is True
-    assert result["authority_id"] == 34
+    assert result["authority_id"] == 34  # noqa: PLR2004
     assert calls["product_id"] == product.product_id
     assert calls["spec_path"] == str(spec_path)
     assert calls["tool_context"] is ctx
@@ -69,9 +72,10 @@ def test_link_spec_to_product_persists_link_and_delegates_compile(
 
 
 def test_save_project_specification_from_file_persists_content(
-    session, tmp_path, monkeypatch
-):
-    from services.specs import lifecycle_service
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify save project specification from file persists content."""
+    from services.specs import lifecycle_service  # noqa: PLC0415
 
     product = Product(name="Save File Product", vision="vision")
     session.add(product)
@@ -83,7 +87,9 @@ def test_save_project_specification_from_file_persists_content(
 
     calls: dict[str, object] = {}
 
-    def fake_compile(*, product_id: int, spec_path: str, tool_context):
+    def fake_compile(
+        *, product_id: int, spec_path: str, tool_context: object
+    ) -> object:
         calls["product_id"] = product_id
         calls["spec_path"] = spec_path
         calls["tool_context"] = tool_context
@@ -100,7 +106,7 @@ def test_save_project_specification_from_file_persists_content(
         raising=False,
     )
 
-    ctx = MockToolContext(state={"spec_persisted": False})
+    ctx = make_tool_context(state={"spec_persisted": False})
     result = lifecycle_service.save_project_specification(
         {
             "product_id": product.product_id,
@@ -113,7 +119,7 @@ def test_save_project_specification_from_file_persists_content(
     assert result["success"] is True
     assert result["file_created"] is False
     assert result["compile_success"] is True
-    assert result["authority_id"] == 22
+    assert result["authority_id"] == 22  # noqa: PLR2004
     assert calls["product_id"] == product.product_id
     assert calls["spec_path"] == str(spec_path)
     assert ctx.state["spec_persisted"] is True
@@ -127,9 +133,10 @@ def test_save_project_specification_from_file_persists_content(
 
 
 def test_save_project_specification_from_text_creates_backup_file(
-    session, tmp_path, monkeypatch
-):
-    from services.specs import lifecycle_service
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify save project specification from text creates backup file."""
+    from services.specs import lifecycle_service  # noqa: PLC0415
 
     product = Product(name="Save Text Product", vision="vision")
     session.add(product)
@@ -138,7 +145,9 @@ def test_save_project_specification_from_text_creates_backup_file(
 
     calls: dict[str, object] = {}
 
-    def fake_compile(*, product_id: int, spec_path: str, tool_context):
+    def fake_compile(
+        *, product_id: int, spec_path: str, tool_context: object
+    ) -> object:
         calls["product_id"] = product_id
         calls["spec_path"] = spec_path
         calls["tool_context"] = tool_context
@@ -157,7 +166,7 @@ def test_save_project_specification_from_text_creates_backup_file(
 
     monkeypatch.chdir(tmp_path)
     pasted_spec = "# Text Spec\n\nBody"
-    ctx = MockToolContext(state={"spec_persisted": False})
+    ctx = make_tool_context(state={"spec_persisted": False})
 
     result = lifecycle_service.save_project_specification(
         {
@@ -171,7 +180,7 @@ def test_save_project_specification_from_text_creates_backup_file(
     assert result["success"] is True
     assert result["file_created"] is True
     assert result["compile_success"] is True
-    assert result["authority_id"] == 32
+    assert result["authority_id"] == 32  # noqa: PLR2004
     assert "specs" in result["spec_path"]
     assert calls["product_id"] == product.product_id
     assert calls["spec_path"] == result["spec_path"]
@@ -189,8 +198,9 @@ def test_save_project_specification_from_text_creates_backup_file(
     assert stored.spec_loaded_at is not None
 
 
-def test_link_spec_to_product_rejects_missing_file(session):
-    from services.specs import lifecycle_service
+def test_link_spec_to_product_rejects_missing_file(session: Session) -> None:
+    """Verify link spec to product rejects missing file."""
+    from services.specs import lifecycle_service  # noqa: PLC0415
 
     product = Product(name="Missing File Product", vision="vision")
     session.add(product)
@@ -209,9 +219,10 @@ def test_link_spec_to_product_rejects_missing_file(session):
 
 
 def test_link_spec_to_product_handles_compile_failure_after_link(
-    session, tmp_path, monkeypatch
-):
-    from services.specs import lifecycle_service
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify link spec to product handles compile failure after link."""
+    from services.specs import lifecycle_service  # noqa: PLC0415
 
     product = Product(
         name="Compile Failure Product",
@@ -226,7 +237,10 @@ def test_link_spec_to_product_handles_compile_failure_after_link(
     spec_path = tmp_path / "compile_failure.md"
     spec_path.write_text("# Linked spec\n", encoding="utf-8")
 
-    def fake_compile(*, product_id: int, spec_path: str, tool_context):
+    def fake_compile(
+        *, product_id: int, spec_path: str, tool_context: object
+    ) -> object:
+        del product_id, spec_path, tool_context
         return {
             "success": False,
             "error": "Compilation error",
@@ -264,9 +278,10 @@ def test_link_spec_to_product_handles_compile_failure_after_link(
 
 
 def test_read_project_specification_prefers_db_blob_and_updates_context_state(
-    session, tmp_path
-):
-    from services.specs import lifecycle_service
+    session: Session, tmp_path: Path
+) -> None:
+    """Verify read project specification prefers db blob and updates context state."""
+    from services.specs import lifecycle_service  # noqa: PLC0415
 
     spec_path = tmp_path / "backing_spec.md"
     spec_path.write_text("# File Spec\n\nFile body", encoding="utf-8")
@@ -281,7 +296,7 @@ def test_read_project_specification_prefers_db_blob_and_updates_context_state(
     session.commit()
     session.refresh(product)
 
-    ctx = MockToolContext(
+    ctx = make_tool_context(
         state={
             "active_project": {
                 "product_id": product.product_id,
@@ -301,9 +316,10 @@ def test_read_project_specification_prefers_db_blob_and_updates_context_state(
 
 
 def test_read_project_specification_falls_back_to_file_when_db_blob_is_empty(
-    session, tmp_path
-):
-    from services.specs import lifecycle_service
+    session: Session, tmp_path: Path
+) -> None:
+    """Verify read project specification falls back to file when db blob is empty."""
+    from services.specs import lifecycle_service  # noqa: PLC0415
 
     spec_path = tmp_path / "empty_db_fallback.md"
     spec_path.write_text("# File Spec\n\nFile body", encoding="utf-8")
@@ -318,7 +334,7 @@ def test_read_project_specification_falls_back_to_file_when_db_blob_is_empty(
     session.commit()
     session.refresh(product)
 
-    ctx = MockToolContext(
+    ctx = make_tool_context(
         state={
             "active_project": {
                 "product_id": product.product_id,
@@ -336,10 +352,11 @@ def test_read_project_specification_falls_back_to_file_when_db_blob_is_empty(
     assert ctx.state["pending_spec_path"] == str(spec_path)
 
 
-def test_read_project_specification_requires_active_project_context():
-    from services.specs import lifecycle_service
+def test_read_project_specification_requires_active_project_context() -> None:
+    """Verify read project specification requires active project context."""
+    from services.specs import lifecycle_service  # noqa: PLC0415
 
-    ctx = MockToolContext(state={})
+    ctx = make_tool_context(state={})
 
     result = lifecycle_service.read_project_specification({}, ctx)
 
@@ -347,8 +364,11 @@ def test_read_project_specification_requires_active_project_context():
     assert "active project" in result["error"].lower()
 
 
-def test_register_spec_version_creates_draft_from_service_boundary(session):
-    from services.specs import lifecycle_service
+def test_register_spec_version_creates_draft_from_service_boundary(
+    session: Session,
+) -> None:
+    """Verify register spec version creates draft from service boundary."""
+    from services.specs import lifecycle_service  # noqa: PLC0415
 
     product = Product(name="Service Register Product", vision="vision")
     session.add(product)
@@ -381,8 +401,11 @@ def test_register_spec_version_creates_draft_from_service_boundary(session):
     assert spec.approved_by is None
 
 
-def test_approve_spec_version_updates_metadata_from_service_boundary(session):
-    from services.specs import lifecycle_service
+def test_approve_spec_version_updates_metadata_from_service_boundary(
+    session: Session,
+) -> None:
+    """Verify approve spec version updates metadata from service boundary."""
+    from services.specs import lifecycle_service  # noqa: PLC0415
 
     product = Product(name="Service Approve Product", vision="vision")
     session.add(product)
@@ -423,10 +446,11 @@ def test_approve_spec_version_updates_metadata_from_service_boundary(session):
 
 
 def test_register_spec_version_honors_legacy_spec_tools_engine_override(
-    engine, monkeypatch
-):
-    from services.specs import lifecycle_service
-    from tools import spec_tools
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify register spec version honors legacy spec tools engine override."""
+    from services.specs import lifecycle_service  # noqa: PLC0415
+    from tools import spec_tools  # noqa: PLC0415
 
     isolated_engine = create_engine(
         "sqlite:///:memory:",
@@ -438,7 +462,7 @@ def test_register_spec_version_honors_legacy_spec_tools_engine_override(
     # Keep get_engine on the default path so explicit spec_tools.engine override wins.
     monkeypatch.setattr(spec_tools, "get_engine", lifecycle_service.get_engine)
 
-    previous_engine = getattr(spec_tools, "engine", None)
+    previous_engine: Engine = spec_tools.engine
     spec_tools.engine = isolated_engine
     try:
         with Session(isolated_engine) as isolated_session:
@@ -470,10 +494,11 @@ def test_register_spec_version_honors_legacy_spec_tools_engine_override(
 
 
 def test_resolve_engine_prefers_spec_tools_get_engine_override_over_stale_engine(
-    monkeypatch,
-):
-    from services.specs import lifecycle_service
-    from tools import spec_tools
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify resolve engine prefers spec tools get engine override over stale engine."""  # noqa: E501
+    from services.specs import lifecycle_service  # noqa: PLC0415
+    from tools import spec_tools  # noqa: PLC0415
 
     preferred_engine = create_engine(
         "sqlite:///:memory:",
@@ -500,10 +525,11 @@ def test_resolve_engine_prefers_spec_tools_get_engine_override_over_stale_engine
 
 
 def test_register_and_approve_prefer_spec_tools_get_engine_override_over_stale_engine(
-    monkeypatch,
-):
-    from services.specs import lifecycle_service
-    from tools import spec_tools
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify register and approve prefer spec tools get engine override over stale engine."""  # noqa: E501
+    from services.specs import lifecycle_service  # noqa: PLC0415
+    from tools import spec_tools  # noqa: PLC0415
 
     preferred_engine = create_engine(
         "sqlite:///:memory:",
@@ -556,23 +582,24 @@ def test_register_and_approve_prefer_spec_tools_get_engine_override_over_stale_e
         assert stale_session.get(SpecRegistry, spec_version_id) is None
 
 
-def test_tool_lifecycle_input_models_alias_service_models():
-    from services.specs.lifecycle_service import (
+def test_tool_lifecycle_input_models_alias_service_models() -> None:
+    """Verify tool lifecycle input models alias service models."""
+    from services.specs.lifecycle_service import (  # noqa: PLC0415
         ApproveSpecVersionInput as ServiceApproveSpecVersionInput,
     )
-    from services.specs.lifecycle_service import (
+    from services.specs.lifecycle_service import (  # noqa: PLC0415
         LinkSpecToProductInput as ServiceLinkSpecToProductInput,
     )
-    from services.specs.lifecycle_service import (
+    from services.specs.lifecycle_service import (  # noqa: PLC0415
         ReadProjectSpecificationInput as ServiceReadProjectSpecificationInput,
     )
-    from services.specs.lifecycle_service import (
+    from services.specs.lifecycle_service import (  # noqa: PLC0415
         RegisterSpecVersionInput as ServiceRegisterSpecVersionInput,
     )
-    from services.specs.lifecycle_service import (
+    from services.specs.lifecycle_service import (  # noqa: PLC0415
         SaveProjectSpecificationInput as ServiceSaveProjectSpecificationInput,
     )
-    from tools.spec_tools import (
+    from tools.spec_tools import (  # noqa: PLC0415
         ApproveSpecVersionInput,
         LinkSpecToProductInput,
         ReadProjectSpecificationInput,
@@ -588,10 +615,11 @@ def test_tool_lifecycle_input_models_alias_service_models():
 
 
 def test_save_project_specification_honors_legacy_spec_tools_engine_override(
-    monkeypatch, tmp_path
-):
-    from services.specs import lifecycle_service
-    from tools import spec_tools
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify save project specification honors legacy spec tools engine override."""
+    from services.specs import lifecycle_service  # noqa: PLC0415
+    from tools import spec_tools  # noqa: PLC0415
 
     isolated_engine = create_engine(
         "sqlite:///:memory:",
@@ -601,7 +629,7 @@ def test_save_project_specification_honors_legacy_spec_tools_engine_override(
     SQLModel.metadata.create_all(isolated_engine)
 
     monkeypatch.setattr(spec_tools, "get_engine", lifecycle_service.get_engine)
-    previous_engine = getattr(spec_tools, "engine", None)
+    previous_engine: Engine = spec_tools.engine
     spec_tools.engine = isolated_engine
 
     spec_path = tmp_path / "isolated_save.md"
@@ -643,10 +671,11 @@ def test_save_project_specification_honors_legacy_spec_tools_engine_override(
 
 
 def test_link_and_read_specification_honor_legacy_spec_tools_engine_override(
-    monkeypatch, tmp_path
-):
-    from services.specs import lifecycle_service
-    from tools import spec_tools
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify link and read specification honor legacy spec tools engine override."""
+    from services.specs import lifecycle_service  # noqa: PLC0415
+    from tools import spec_tools  # noqa: PLC0415
 
     isolated_engine = create_engine(
         "sqlite:///:memory:",
@@ -656,7 +685,7 @@ def test_link_and_read_specification_honor_legacy_spec_tools_engine_override(
     SQLModel.metadata.create_all(isolated_engine)
 
     monkeypatch.setattr(spec_tools, "get_engine", lifecycle_service.get_engine)
-    previous_engine = getattr(spec_tools, "engine", None)
+    previous_engine: Engine = spec_tools.engine
     spec_tools.engine = isolated_engine
 
     spec_path = tmp_path / "isolated_link.md"
@@ -687,7 +716,7 @@ def test_link_and_read_specification_honor_legacy_spec_tools_engine_override(
 
         assert link_result["success"] is True
 
-        ctx = MockToolContext(
+        ctx = make_tool_context(
             state={
                 "active_project": {
                     "product_id": product_id,

@@ -5,8 +5,11 @@ Checks whether the agent_transfer request processor interferes with tools_dict.
 
 import os
 import sys
+from collections.abc import Iterable
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.cli_output import emit
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # noqa: PTH100, PTH120
 
 from google.adk.models.llm_request import LlmRequest
 from google.adk.tools.agent_tool import AgentTool
@@ -17,9 +20,9 @@ from orchestrator_agent.fsm.definitions import STATE_REGISTRY
 from orchestrator_agent.fsm.states import OrchestratorState
 
 
-def _dedupe_tools(tools):
-    seen: set = set()
-    deduped: list = []
+def _dedupe_tools(tools: Iterable[object]) -> list[object]:
+    seen: set[str] = set()
+    deduped: list[object] = []
     for tool in tools:
         name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
         name = name or repr(tool)
@@ -30,7 +33,7 @@ def _dedupe_tools(tools):
     return deduped
 
 
-state_def = STATE_REGISTRY[OrchestratorState.ROUTING_MODE]
+state_def = STATE_REGISTRY[OrchestratorState.SETUP_REQUIRED]
 tools = _dedupe_tools(state_def.tools)
 
 # Simulate what _preprocess_async does
@@ -44,39 +47,40 @@ for tool_union in tools:
         ft = FunctionTool(func=tool_union)
         llm_request.append_tools([ft])
 
-print("After appending all tools:")
-print(
-    f"  tools_dict keys ({len(llm_request.tools_dict)}): {list(llm_request.tools_dict.keys())}"
+emit("After appending all tools:")
+emit(
+    f"  tools_dict keys ({len(llm_request.tools_dict)}): {list(llm_request.tools_dict.keys())}"  # noqa: E501
 )
-print(
-    f"  'sprint_planner_tool' in tools_dict: {'sprint_planner_tool' in llm_request.tools_dict}"
+emit(
+    f"  'sprint_planner_tool' in tools_dict: {'sprint_planner_tool' in llm_request.tools_dict}"  # noqa: E501
 )
 
 # Now simulate the agent_transfer processor adding transfer_to_agent
-from google.adk.tools.transfer_to_agent_tool import transfer_to_agent
+from google.adk.tools.transfer_to_agent_tool import transfer_to_agent  # noqa: E402
 
 transfer_tool = FunctionTool(func=transfer_to_agent)
 llm_request.append_tools([transfer_tool])
 
-print("\nAfter agent_transfer processor:")
-print(
-    f"  tools_dict keys ({len(llm_request.tools_dict)}): {list(llm_request.tools_dict.keys())}"
+emit("\nAfter agent_transfer processor:")
+emit(
+    f"  tools_dict keys ({len(llm_request.tools_dict)}): {list(llm_request.tools_dict.keys())}"  # noqa: E501
 )
-print(
-    f"  'sprint_planner_tool' in tools_dict: {'sprint_planner_tool' in llm_request.tools_dict}"
+emit(
+    f"  'sprint_planner_tool' in tools_dict: {'sprint_planner_tool' in llm_request.tools_dict}"  # noqa: E501
 )
 
 # Check if any tool name conflicts
 all_names = [getattr(t, "name", None) or getattr(t, "__name__", None) for t in tools]
-print(f"\nOriginal tool names: {all_names}")
+emit(f"\nOriginal tool names: {all_names}")
 
 # Check if AgentTool instances are the ones from definitions.py or agent.py
 for tool_union in tools:
     if isinstance(tool_union, AgentTool) and tool_union.name == "sprint_planner_tool":
-        print("\nsprint_planner_tool AgentTool details:")
-        print(f"  Python id: {id(tool_union)}")
-        print(f"  Agent name: {tool_union.agent.name}")
-        print(f"  Agent type: {type(tool_union.agent).__name__}")
-        print(f"  Agent input_schema: {tool_union.agent.input_schema}")
-        print(f"  Agent output_schema: {tool_union.agent.output_schema}")
-        print(f"  Declaration: {tool_union._get_declaration()}")
+        emit("\nsprint_planner_tool AgentTool details:")
+        emit(f"  Python id: {id(tool_union)}")
+        emit(f"  Agent name: {tool_union.agent.name}")
+        emit(f"  Agent type: {type(tool_union.agent).__name__}")
+        emit(f"  Agent input_schema: {getattr(tool_union.agent, 'input_schema', None)}")
+        output_schema = getattr(tool_union.agent, "output_schema", None)
+        emit(f"  Agent output_schema: {output_schema}")
+        emit(f"  Declaration: {tool_union._get_declaration()}")

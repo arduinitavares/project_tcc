@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 import pytest
+from sqlalchemy.engine import Engine
 from sqlmodel import Session, select
 
 from agile_sqlmodel import CompiledSpecAuthority, Product, SpecRegistry
@@ -21,7 +22,7 @@ from utils.spec_schemas import (
 
 
 @pytest.fixture
-def sample_product(session: Session, engine) -> Product:
+def sample_product(session: Session, engine: Engine) -> Product:
     """Create a product without spec."""
     spec_tools.engine = engine
 
@@ -62,7 +63,8 @@ def _build_raw_compiler_output(excerpt: str, field_name: str) -> str:
 
 
 @pytest.fixture
-def compiler_stub(monkeypatch):
+def compiler_stub(monkeypatch: pytest.MonkeyPatch) -> object:
+    """Return compiler stub."""
     raw_json = _build_raw_compiler_output(
         excerpt="The payload must include user_id.",
         field_name="user_id",
@@ -76,9 +78,10 @@ def compiler_stub(monkeypatch):
 
 
 def test_creates_new_version_on_content_change(
-    session: Session, sample_product: Product, compiler_stub
+    session: Session, sample_product: Product, compiler_stub: object
 ) -> None:
     """Tool should create approved spec and compiled authority."""
+    del compiler_stub
     result = update_spec_and_compile_authority(
         {
             "product_id": sample_product.product_id,
@@ -105,9 +108,10 @@ def test_creates_new_version_on_content_change(
 
 
 def test_noop_on_unchanged_content(
-    session: Session, sample_product: Product, compiler_stub
+    session: Session, sample_product: Product, compiler_stub: object
 ) -> None:
     """Second call with unchanged content should reuse version and authority."""
+    del compiler_stub
     first = update_spec_and_compile_authority(
         {"product_id": sample_product.product_id, "spec_content": "Spec A"},
         tool_context=None,
@@ -128,9 +132,10 @@ def test_noop_on_unchanged_content(
 
 
 def test_content_ref_path(
-    session: Session, sample_product: Product, tmp_path: Path, compiler_stub
+    session: Session, sample_product: Product, tmp_path: Path, compiler_stub: object
 ) -> None:
     """Tool should load content from content_ref path."""
+    del compiler_stub
     spec_path = tmp_path / "spec.md"
     spec_path.write_text("Spec from file", encoding="utf-8")
 
@@ -150,9 +155,10 @@ def test_content_ref_path(
 
 
 def test_recompile_behavior(
-    session: Session, sample_product: Product, compiler_stub
+    session: Session, sample_product: Product, compiler_stub: object
 ) -> None:
     """Recompile should update compiled_at when requested."""
+    del compiler_stub
     first = update_spec_and_compile_authority(
         {"product_id": sample_product.product_id, "spec_content": "Spec A"},
         tool_context=None,
@@ -192,13 +198,13 @@ def test_recompile_behavior(
 
 def test_input_validation() -> None:
     """Providing both or neither content inputs should raise ValueError."""
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError):  # noqa: PT011
         update_spec_and_compile_authority(
             {"product_id": 1, "spec_content": "A", "content_ref": "x"},
             tool_context=None,
         )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError):  # noqa: PT011
         update_spec_and_compile_authority(
             {"product_id": 1},
             tool_context=None,
@@ -206,9 +212,10 @@ def test_input_validation() -> None:
 
 
 def test_compiler_hashing_failure_is_rejected(
-    session: Session, sample_product: Product, monkeypatch
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Compiler hashing-related failures should be rejected at the boundary."""
+    del session
     failure_payload = {
         "error": "SPEC_COMPILATION_FAILED",
         "reason": "Unable to deterministically compute SHA-256 prompt_hash",

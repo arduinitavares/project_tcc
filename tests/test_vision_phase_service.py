@@ -1,7 +1,11 @@
+"""Tests for vision phase service."""
+
 from types import SimpleNamespace
+from typing import Any, Never
 
 import pytest
 
+from orchestrator_agent.agent_tools.product_vision_tool.tools import SaveVisionInput
 from services.phases.vision_service import (
     VisionPhaseError,
     ensure_vision_attempts,
@@ -13,9 +17,12 @@ from services.phases.vision_service import (
     vision_state_from_complete,
 )
 
+JsonDict = dict[str, Any]
 
-def test_record_vision_attempt_updates_state_and_failure_metadata():
-    state = {}
+
+def test_record_vision_attempt_updates_state_and_failure_metadata() -> None:
+    """Verify record vision attempt updates state and failure metadata."""
+    state: JsonDict = {}
 
     count = record_vision_attempt(
         state,
@@ -47,13 +54,15 @@ def test_record_vision_attempt_updates_state_and_failure_metadata():
     assert state["vision_attempts"][0]["failure_artifact_id"] == "vision-failure-1"
 
 
-def test_vision_state_from_complete_maps_to_review_and_interview():
+def test_vision_state_from_complete_maps_to_review_and_interview() -> None:
+    """Verify vision state from complete maps to review and interview."""
     assert vision_state_from_complete(True) == "VISION_REVIEW"
     assert vision_state_from_complete(False) == "VISION_INTERVIEW"
 
 
-def test_set_vision_fsm_state_updates_state():
-    state = {}
+def test_set_vision_fsm_state_updates_state() -> None:
+    """Verify set vision fsm state updates state."""
+    state: JsonDict = {}
 
     next_state = set_vision_fsm_state(
         state,
@@ -66,26 +75,30 @@ def test_set_vision_fsm_state_updates_state():
     assert state["fsm_state_entered_at"] == "2026-04-04T00:00:00Z"
 
 
-def test_ensure_vision_attempts_returns_existing_list():
+def test_ensure_vision_attempts_returns_existing_list() -> None:
+    """Verify ensure vision attempts returns existing list."""
     attempts = [{"created_at": "2026-04-04T00:00:00Z"}]
-    state = {"vision_attempts": attempts}
+    state: JsonDict = {"vision_attempts": attempts}
 
     assert ensure_vision_attempts(state) is attempts
 
 
 @pytest.mark.asyncio
-async def test_generate_vision_draft_allows_empty_input_on_first_attempt():
-    state = {"fsm_state": "VISION_INTERVIEW"}
-    saved: dict[str, object] = {}
-    captured: dict[str, object] = {}
+async def test_generate_vision_draft_allows_empty_input_on_first_attempt() -> None:
+    """Verify generate vision draft allows empty input on first attempt."""
+    state: JsonDict = {"fsm_state": "VISION_INTERVIEW"}
+    saved: JsonDict = {}
+    captured: JsonDict = {}
 
-    async def load_state() -> dict[str, object]:
+    async def load_state() -> JsonDict:
         return state
 
-    def save_state(updated: dict[str, object]) -> None:
+    def save_state(updated: JsonDict) -> None:
         saved["state"] = dict(updated)
 
-    async def fake_run_vision_agent_from_state(state, *, project_id, user_input):
+    async def fake_run_vision_agent_from_state(
+        state: object, *, project_id: int, user_input: str | None
+    ) -> JsonDict:
         captured["state"] = state
         captured["project_id"] = project_id
         captured["user_input"] = user_input
@@ -130,17 +143,19 @@ async def test_generate_vision_draft_allows_empty_input_on_first_attempt():
 
 
 @pytest.mark.asyncio
-async def test_generate_vision_draft_requires_feedback_after_first_attempt():
-    state = {
+async def test_generate_vision_draft_requires_feedback_after_first_attempt() -> None:
+    """Verify generate vision draft requires feedback after first attempt."""
+    state: JsonDict = {
         "fsm_state": "VISION_INTERVIEW",
         "vision_attempts": [{"created_at": "2026-04-03T00:00:00Z"}],
     }
 
-    async def load_state() -> dict[str, object]:
+    async def load_state() -> JsonDict:
         return state
 
-    async def fake_run_vision_agent_from_state(**_kwargs):
-        raise AssertionError("runner should not be called")
+    async def fake_run_vision_agent_from_state(**_kwargs: object) -> Never:
+        msg = "runner should not be called"
+        raise AssertionError(msg)
 
     with pytest.raises(VisionPhaseError) as exc_info:
         await generate_vision_draft(
@@ -153,13 +168,14 @@ async def test_generate_vision_draft_requires_feedback_after_first_attempt():
             user_input="   ",
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert "Feedback is required" in exc_info.value.detail
 
 
 @pytest.mark.asyncio
-async def test_get_vision_history_returns_count_and_items():
-    state = {
+async def test_get_vision_history_returns_count_and_items() -> None:
+    """Verify get vision history returns count and items."""
+    state: JsonDict = {
         "vision_attempts": [
             {"created_at": "2026-04-03T00:00:00Z", "trigger": "manual_refine"}
         ]
@@ -172,15 +188,16 @@ async def test_get_vision_history_returns_count_and_items():
 
 
 @pytest.mark.asyncio
-async def test_save_vision_draft_requires_complete_assessment():
-    state = {
+async def test_save_vision_draft_requires_complete_assessment() -> None:
+    """Verify save vision draft requires complete assessment."""
+    state: JsonDict = {
         "product_vision_assessment": {
             "product_vision_statement": "Draft",
             "is_complete": False,
         }
     }
 
-    async def hydrate_context():
+    async def hydrate_context() -> object:
         return SimpleNamespace(state=dict(state))
 
     with pytest.raises(VisionPhaseError) as exc_info:
@@ -195,12 +212,13 @@ async def test_save_vision_draft_requires_complete_assessment():
             save_vision_tool=_fake_save_vision_tool,
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert "is_complete is true" in exc_info.value.detail
 
 
 @pytest.mark.asyncio
-async def test_save_vision_draft_persists_persistence_state():
+async def test_save_vision_draft_persists_persistence_state() -> None:
+    """Verify save vision draft persists persistence state."""
     state = {
         "product_vision_assessment": {
             "product_vision_statement": "Final vision",
@@ -208,18 +226,21 @@ async def test_save_vision_draft_persists_persistence_state():
         },
         "setup_status": "failed",
     }
-    saved: dict[str, object] = {}
-    captured: dict[str, object] = {}
+    saved: JsonDict = {}
+    captured: JsonDict = {}
 
-    async def hydrate_context():
+    async def hydrate_context() -> object:
         context = SimpleNamespace(state=dict(state), session_id="7")
         context.state["pending_spec_content"] = "SPEC"
         return context
 
-    def save_state(updated: dict[str, object]) -> None:
+    def save_state(updated: JsonDict) -> None:
         saved["state"] = dict(updated)
 
-    def fake_save_vision_tool(vision_input, tool_context):
+    def fake_save_vision_tool(
+        vision_input: SaveVisionInput,
+        tool_context: object,
+    ) -> JsonDict:
         captured["vision_input"] = vision_input
         captured["tool_context"] = tool_context
         return {
@@ -247,9 +268,10 @@ async def test_save_vision_draft_persists_persistence_state():
     assert saved["state"]["vision_saved_at"] == "2026-04-04T00:00:00Z"
 
 
-async def _async_value(value):
+async def _async_value(value: object) -> object:
     return value
 
 
-def _fake_save_vision_tool(*_args, **_kwargs):
-    raise AssertionError("save_vision_tool should not be called")
+def _fake_save_vision_tool(*_args: object, **_kwargs: object) -> Never:
+    msg = "save_vision_tool should not be called"
+    raise AssertionError(msg)

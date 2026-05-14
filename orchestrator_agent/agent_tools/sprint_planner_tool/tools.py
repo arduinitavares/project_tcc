@@ -4,7 +4,7 @@ import json
 import re
 import time
 from datetime import date, timedelta
-from typing import Annotated, Any, Optional, cast
+from typing import Any, Optional, cast
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field, ValidationError
@@ -28,31 +28,20 @@ from .schemes import (
 class SaveSprintPlanInput(BaseModel):
     """Input schema for save_sprint_plan_tool."""
 
-    product_id: Annotated[int, Field(description="Product ID for the sprint.")]
-    team_id: Annotated[
-        Optional[int],
-        Field(
-            default=None,
-            description="Team ID owning the sprint. Required if team_name is not provided.",
-        ),
-    ]
-    team_name: Annotated[
-        Optional[str],
-        Field(
-            default=None,
-            description="Team name to lookup or create. Used if team_id is not provided.",
-        ),
-    ]
-    sprint_start_date: Annotated[
-        str, Field(description="Sprint start date (YYYY-MM-DD).")
-    ]
-    sprint_duration_days: Annotated[
-        int,
-        Field(
-            default=14,
-            description="Sprint duration in days (default 14, min 1, max 31).",
-        ),
-    ]
+    product_id: int = Field(description="Product ID for the sprint.")
+    team_id: Optional[int] = Field(  # noqa: UP045
+        default=None,
+        description="Team ID owning the sprint. Required if team_name is not provided.",
+    )
+    team_name: Optional[str] = Field(  # noqa: UP045
+        default=None,
+        description="Team name to lookup or create. Used if team_id is not provided.",
+    )
+    sprint_start_date: str = Field(description="Sprint start date (YYYY-MM-DD).")
+    sprint_duration_days: int = Field(
+        default=14,
+        description="Sprint duration in days (default 14, min 1, max 31).",
+    )
 
 
 def _get_story_conflicts(

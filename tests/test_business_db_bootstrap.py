@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
+from typing import TYPE_CHECKING
 
+import pytest  # noqa: TC002
 from fastapi.testclient import TestClient
 from sqlmodel import create_engine
 
 import api as api_module
 from agile_sqlmodel import ensure_business_db_ready
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 def test_ensure_business_db_ready_creates_core_tables(tmp_path: Path) -> None:
+    """Verify ensure business db ready creates core tables."""
     db_path = tmp_path / "business_bootstrap.db"
     engine = create_engine(
         f"sqlite:///{db_path}",
@@ -36,7 +41,8 @@ def test_ensure_business_db_ready_creates_core_tables(tmp_path: Path) -> None:
     assert spec_registry is not None
 
 
-def test_api_startup_bootstraps_business_db(monkeypatch) -> None:
+def test_api_startup_bootstraps_business_db(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify api startup bootstraps business db."""
     called = {"value": False}
 
     def _fake_bootstrap() -> None:

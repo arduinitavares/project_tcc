@@ -15,8 +15,8 @@ Retry Strategy (Best Practice for Unstable LLM APIs):
 
 import asyncio
 import logging
-import random
 import re
+import secrets
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -38,6 +38,7 @@ RATE_LIMIT_MIN_BACKOFF_SECONDS = 10
 RATE_LIMIT_MAX_BACKOFF_SECONDS = 30
 PROVIDER_ERROR_MAX_RETRIES = 3
 PROVIDER_ERROR_MAX_BACKOFF_SECONDS = 5
+_BACKOFF_RANDOM = secrets.SystemRandom()
 
 
 def _is_rate_limit_error(error: Exception) -> bool:
@@ -197,7 +198,7 @@ class SelfHealingAgent(BaseAgent):
                         )
                         raise
 
-                    backoff = random.uniform(0, ZDR_MAX_BACKOFF_SECONDS)
+                    backoff = _BACKOFF_RANDOM.uniform(0, ZDR_MAX_BACKOFF_SECONDS)
                     logger.warning(
                         f"[{self.name}] ZDR routing failure (Attempt {zdr_consecutive}/{self.max_zdr_retries}). "
                         f"Retrying in {backoff:.1f}s..."
@@ -232,7 +233,7 @@ class SelfHealingAgent(BaseAgent):
                             f"[{self.name}] Using retry-after header: {backoff:.1f}s"
                         )
                     else:
-                        backoff = random.uniform(
+                        backoff = _BACKOFF_RANDOM.uniform(
                             RATE_LIMIT_MIN_BACKOFF_SECONDS,
                             RATE_LIMIT_MAX_BACKOFF_SECONDS,
                         )
@@ -254,7 +255,9 @@ class SelfHealingAgent(BaseAgent):
                         )
                         raise
 
-                    backoff = random.uniform(0, PROVIDER_ERROR_MAX_BACKOFF_SECONDS)
+                    backoff = _BACKOFF_RANDOM.uniform(
+                        0, PROVIDER_ERROR_MAX_BACKOFF_SECONDS
+                    )
                     logger.warning(
                         f"[{self.name}] Provider error (5xx) retry {provider_error_consecutive}/{self.max_provider_error_retries} - "
                         f"waiting {backoff:.1f}s..."

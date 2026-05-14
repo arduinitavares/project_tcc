@@ -73,6 +73,7 @@ def _dotted_attribute_references(module_path: Path) -> set[str]:
 
 
 def test_backlog_primer_tool_import_boundary() -> None:
+    """Verify backlog primer tool import boundary."""
     module_path = ROOT / "orchestrator_agent/agent_tools/backlog_primer/tools.py"
 
     core_imports = _imported_names_from(module_path, "models.core")
@@ -109,6 +110,7 @@ def test_backlog_primer_tool_import_boundary() -> None:
 
 
 def test_sprint_planner_tool_import_boundary() -> None:
+    """Verify sprint planner tool import boundary."""
     module_path = ROOT / "orchestrator_agent/agent_tools/sprint_planner_tool/tools.py"
 
     core_imports = _imported_names_from(module_path, "models.core")

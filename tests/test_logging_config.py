@@ -5,11 +5,15 @@ from __future__ import annotations
 import io
 import logging
 from contextlib import redirect_stderr
+from typing import TYPE_CHECKING
 
 import pytest
 
 from utils.logging_config import configure_logging
 from utils.runtime_config import clear_runtime_config_cache
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 def _remove_console_handlers() -> None:
@@ -25,7 +29,7 @@ def _remove_console_handlers() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _reset_console_logging() -> None:
+def _reset_console_logging() -> Iterator[None]:
     _remove_console_handlers()
     clear_runtime_config_cache()
     yield
@@ -36,6 +40,7 @@ def _reset_console_logging() -> None:
 def test_console_logging_hides_file_only_messages_and_sql(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify console logging hides file only messages and sql."""
     monkeypatch.delenv("PROJECT_TCC_DB_ECHO", raising=False)
 
     stream = io.StringIO()
@@ -63,6 +68,7 @@ def test_console_logging_hides_file_only_messages_and_sql(
 def test_console_logging_allows_sql_when_echo_is_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify console logging allows sql when echo is enabled."""
     monkeypatch.setenv("PROJECT_TCC_DB_ECHO", "true")
 
     stream = io.StringIO()

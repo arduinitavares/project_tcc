@@ -12,7 +12,9 @@ from utils.model_config import (
 )
 
 
-def test_openrouter_extra_body_includes_provider(monkeypatch: pytest.MonkeyPatch):
+def test_openrouter_extra_body_includes_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Extra body should include a provider object with strict privacy controls."""
     monkeypatch.setenv("RELAX_ZDR_FOR_TESTS", "false")
     extra_body = get_openrouter_extra_body()
@@ -20,7 +22,7 @@ def test_openrouter_extra_body_includes_provider(monkeypatch: pytest.MonkeyPatch
     assert extra_body["provider"] is not OPENROUTER_PROVIDER
 
 
-def test_openrouter_privacy_error_message_is_stable():
+def test_openrouter_privacy_error_message_is_stable() -> None:
     """Privacy error message should be explicit and stable for routing failures."""
     assert (
         OPENROUTER_PRIVACY_ERROR_MESSAGE
@@ -28,7 +30,7 @@ def test_openrouter_privacy_error_message_is_stable():
     )
 
 
-def test_is_zdr_routing_error_detects_zdr_errors():
+def test_is_zdr_routing_error_detects_zdr_errors() -> None:
     """is_zdr_routing_error should detect ZDR/privacy routing failures."""
     # Should detect
     assert is_zdr_routing_error(Exception("No ZDR provider available"))
@@ -44,9 +46,9 @@ def test_is_zdr_routing_error_detects_zdr_errors():
     assert not is_zdr_routing_error(ValueError("Bad input"))
 
 
-def test_zdr_retry_constants_are_reasonable():
+def test_zdr_retry_constants_are_reasonable() -> None:
     """ZDR retry constants should have sensible defaults."""
-    assert ZDR_MAX_RETRIES >= 3  # At least 3 retries
-    assert ZDR_MAX_RETRIES <= 10  # Not too many
-    assert ZDR_MAX_BACKOFF_SECONDS >= 5.0  # At least 5s max backoff
-    assert ZDR_MAX_BACKOFF_SECONDS <= 30.0  # Not too long
+    assert ZDR_MAX_RETRIES >= 3  # At least 3 retries  # noqa: PLR2004
+    assert ZDR_MAX_RETRIES <= 10  # Not too many  # noqa: PLR2004
+    assert ZDR_MAX_BACKOFF_SECONDS >= 5.0  # At least 5s max backoff  # noqa: PLR2004
+    assert ZDR_MAX_BACKOFF_SECONDS <= 30.0  # Not too long  # noqa: PLR2004

@@ -3,10 +3,9 @@
 import json
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
-from google.adk.tools import ToolContext
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from agile_sqlmodel import (
     Product,
@@ -23,9 +22,18 @@ from orchestrator_agent.agent_tools.sprint_planner_tool.tools import (
     SaveSprintPlanInput,
     save_sprint_plan_tool,
 )
+from tests.typing_helpers import require_id
 from tools.orchestrator_tools import fetch_sprint_candidates
 from utils.spec_schemas import ValidationEvidence
 from utils.task_metadata import TaskMetadata, serialize_task_metadata
+
+if TYPE_CHECKING:
+    from google.adk.tools import ToolContext
+
+
+def _task_metadata(task: Task) -> TaskMetadata:
+    assert task.metadata_json is not None
+    return TaskMetadata.model_validate(json.loads(task.metadata_json))
 
 
 def _seed_product_team_stories(session: Session) -> tuple[int, int, list[int]]:
@@ -123,7 +131,7 @@ def _build_sprint_plan(story_ids: list[int]) -> dict[str, Any]:
     }
 
 
-def test_save_sprint_plan_creates_records(session: Session):
+def test_save_sprint_plan_creates_records(session: Session) -> None:
     """Ensure sprint plan persistence creates sprint, links, and tasks."""
     product_id, team_id, story_ids = _seed_product_team_stories(session)
 
@@ -150,9 +158,9 @@ def test_save_sprint_plan_creates_records(session: Session):
     assert len(links) == 1
 
     tasks = session.exec(select(Task)).all()
-    assert len(tasks) == 2
+    assert len(tasks) == 2  # noqa: PLR2004
     metadata_by_description = {
-        task.description: TaskMetadata.model_validate(json.loads(task.metadata_json))
+        task.description: _task_metadata(task)
         for task in tasks
     }
     assert metadata_by_description["Create auth table"].task_kind == "implementation"
@@ -165,7 +173,9 @@ def test_save_sprint_plan_creates_records(session: Session):
     ]
 
 
-def test_save_sprint_plan_uses_orchestrator_duration_when_valid(session: Session):
+def test_save_sprint_plan_uses_orchestrator_duration_when_valid(
+    session: Session,
+) -> None:
     """Persisted workflow event must keep a valid orchestrator-provided duration."""
     product_id, team_id, story_ids = _seed_product_team_stories(session)
 
@@ -194,11 +204,11 @@ def test_save_sprint_plan_uses_orchestrator_duration_when_valid(session: Session
         )
     ).first()
     assert event is not None
-    assert event.duration_seconds == 12.75
+    assert event.duration_seconds == 12.75  # noqa: PLR2004
 
 
-def test_save_sprint_plan_falls_back_to_elapsed_duration(session: Session):
-    """Persisted workflow event must include numeric duration when state key is missing."""
+def test_save_sprint_plan_falls_back_to_elapsed_duration(session: Session) -> None:
+    """Persisted workflow event must include numeric duration when state key is missing."""  # noqa: E501
     product_id, team_id, story_ids = _seed_product_team_stories(session)
 
     tool_context = cast(
@@ -226,7 +236,9 @@ def test_save_sprint_plan_falls_back_to_elapsed_duration(session: Session):
     assert event.duration_seconds >= 0.0
 
 
-def test_save_sprint_plan_falls_back_when_state_duration_invalid(session: Session):
+def test_save_sprint_plan_falls_back_when_state_duration_invalid(
+    session: Session,
+) -> None:
     """Invalid state duration must not propagate as NULL to workflow event."""
     product_id, team_id, story_ids = _seed_product_team_stories(session)
 
@@ -260,7 +272,7 @@ def test_save_sprint_plan_falls_back_when_state_duration_invalid(session: Sessio
     assert event.duration_seconds >= 0.0
 
 
-def test_save_sprint_plan_rejects_story_conflict(session: Session):
+def test_save_sprint_plan_rejects_story_conflict(session: Session) -> None:
     """Ensure a story cannot be assigned to another open sprint."""
     product_id, team_id, story_ids = _seed_product_team_stories(session)
 
@@ -294,7 +306,9 @@ def test_save_sprint_plan_rejects_story_conflict(session: Session):
     assert "Stories already assigned" in result["error"]
 
 
-def test_save_sprint_plan_updates_existing_planned_sprint_in_place(session: Session):
+def test_save_sprint_plan_updates_existing_planned_sprint_in_place(
+    session: Session,
+) -> None:
     """Saving a revised draft should reuse the open planned sprint for the product."""
     product_id, team_id, story_ids = _seed_product_team_stories(session)
 
@@ -385,8 +399,10 @@ def test_save_sprint_plan_updates_existing_planned_sprint_in_place(session: Sess
     ).all()
     assert sorted(link.story_id for link in links) == sorted(story_ids)
 
-    tasks = session.exec(select(Task).order_by(Task.story_id, Task.description)).all()
-    assert len(tasks) == 3
+    tasks = session.exec(
+        select(Task).order_by(col(Task.story_id), col(Task.description))
+    ).all()
+    assert len(tasks) == 3  # noqa: PLR2004
     assert sum(1 for task in tasks if task.description == "Create auth table") == 1
     assert sorted(task.description for task in tasks) == [
         "Add audit logging",
@@ -395,7 +411,7 @@ def test_save_sprint_plan_updates_existing_planned_sprint_in_place(session: Sess
     ]
 
 
-def test_save_sprint_plan_handles_large_task_deletion_volume(session: Session):
+def test_save_sprint_plan_handles_large_task_deletion_volume(session: Session) -> None:
     """Large volumes of task deletions should be chunked safely for SQLite."""
     product_id, team_id, story_ids = _seed_product_team_stories(session)
 
@@ -416,7 +432,7 @@ def test_save_sprint_plan_handles_large_task_deletion_volume(session: Session):
     # Add 501 tasks to trigger chunking logic safely past the 500 limit
     bulk_tasks = []
     for _ in range(501):
-        bulk_tasks.append(
+        bulk_tasks.append(  # noqa: PERF401
             Task(
                 story_id=story_ids[0],
                 description="Obsolete task description",
@@ -459,7 +475,7 @@ def test_save_sprint_plan_handles_large_task_deletion_volume(session: Session):
 
 def test_save_sprint_plan_reconciles_selected_story_tasks_on_planned_update(
     session: Session,
-):
+) -> None:
     """Selected-story tasks should exactly match the revised planned sprint."""
     product_id, team_id, story_ids = _seed_product_team_stories(session)
 
@@ -552,11 +568,11 @@ def test_save_sprint_plan_reconciles_selected_story_tasks_on_planned_update(
     assert result["success"] is True
 
     story_tasks = session.exec(
-        select(Task).where(Task.story_id == story_ids[0]).order_by(Task.task_id)
+        select(Task).where(Task.story_id == story_ids[0]).order_by(col(Task.task_id))
     ).all()
     assert len(story_tasks) == 1
     assert story_tasks[0].description == "Create auth table"
-    metadata = TaskMetadata.model_validate(json.loads(story_tasks[0].metadata_json))
+    metadata = _task_metadata(story_tasks[0])
     assert metadata.task_kind == "implementation"
     assert metadata.artifact_targets == ["auth schema"]
     assert metadata.workstream_tags == ["backend", "auth"]
@@ -567,7 +583,9 @@ def test_save_sprint_plan_reconciles_selected_story_tasks_on_planned_update(
     ]
 
 
-def test_fetch_sprint_candidates_excludes_stories_in_open_sprints(session: Session):
+def test_fetch_sprint_candidates_excludes_stories_in_open_sprints(
+    session: Session,
+) -> None:
     """Only stories tied to open planned/active sprints should be excluded."""
     product = Product(name="Candidate Product", vision="Vision", description="Desc")
     team = Team(name="Candidate Team")
@@ -664,16 +682,22 @@ def test_fetch_sprint_candidates_excludes_stories_in_open_sprints(session: Sessi
     session.add_all(
         [
             SprintStory(
-                sprint_id=planned_sprint.sprint_id,
-                story_id=stories["planned"].story_id,
+                sprint_id=require_id(planned_sprint.sprint_id, "planned_sprint_id"),
+                story_id=require_id(stories["planned"].story_id, "planned_story_id"),
             ),
             SprintStory(
-                sprint_id=active_sprint.sprint_id,
-                story_id=stories["active"].story_id,
+                sprint_id=require_id(active_sprint.sprint_id, "active_sprint_id"),
+                story_id=require_id(stories["active"].story_id, "active_story_id"),
             ),
             SprintStory(
-                sprint_id=completed_sprint.sprint_id,
-                story_id=stories["completed_only"].story_id,
+                sprint_id=require_id(
+                    completed_sprint.sprint_id,
+                    "completed_sprint_id",
+                ),
+                story_id=require_id(
+                    stories["completed_only"].story_id,
+                    "completed_story_id",
+                ),
             ),
         ]
     )
@@ -693,7 +717,10 @@ def test_fetch_sprint_candidates_excludes_stories_in_open_sprints(session: Sessi
     }
 
 
-def test_save_sprint_plan_rejects_out_of_scope_task_invariants(session: Session):
+def test_save_sprint_plan_rejects_out_of_scope_task_invariants(
+    session: Session,
+) -> None:
+    """Verify save sprint plan rejects out of scope task invariants."""
     product_id, team_id, story_ids = _seed_product_team_stories(session)
     sprint_plan = _build_sprint_plan(story_ids)
     sprint_plan["selected_stories"][0]["tasks"][0]["relevant_invariant_ids"] = [
@@ -719,7 +746,8 @@ def test_save_sprint_plan_rejects_out_of_scope_task_invariants(session: Session)
 
 def test_save_sprint_plan_rejects_checklist_items_copied_from_story_acceptance_criteria(
     session: Session,
-):
+) -> None:
+    """Verify save sprint plan rejects checklist items copied from story acceptance criteria."""  # noqa: E501
     product = Product(name="Checklist Product", vision="Vision", description="Desc")
     team = Team(name="Checklist Team")
     session.add(product)

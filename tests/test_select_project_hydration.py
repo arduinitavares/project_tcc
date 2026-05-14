@@ -1,21 +1,42 @@
 """Tests for select_project hydration of session state."""
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 
 from sqlmodel import Session
 
 from agile_sqlmodel import Product, SpecRegistry
+from tests.typing_helpers import require_id
 from tools.orchestrator_tools import get_project_details, select_project
+
+JsonDict = dict[str, Any]
+
+if TYPE_CHECKING:
+    from google.adk.tools import ToolContext
 
 
 class MockToolContext:
     """Minimal ToolContext stub with state dict."""
 
-    def __init__(self, state):
+    def __init__(self, state: JsonDict) -> None:
+        """Initialize the test helper."""
         self.state = state
 
 
-def _create_product(session: Session, **kwargs) -> Product:
+class ProductOverrides(TypedDict, total=False):
+    """Optional product fields used by test fixtures."""
+
+    name: str
+    vision: str | None
+    description: str | None
+    roadmap: str | None
+    technical_spec: str | None
+    compiled_authority_json: str | None
+    spec_file_path: str | None
+    spec_loaded_at: datetime | None
+
+
+def _create_product(session: Session, **kwargs: Unpack[ProductOverrides]) -> Product:
     product = Product(
         name=kwargs.get("name", "Hydration Project"),
         vision=kwargs.get("vision", "Vision"),
@@ -49,6 +70,7 @@ def _create_approved_spec(session: Session, product_id: int) -> SpecRegistry:
 
 
 def test_select_project_hydrates_spec_and_authority(session: Session) -> None:
+    """Verify select project hydrates spec and authority."""
     spec_loaded_at = datetime.now(UTC)
     product = _create_product(
         session,
@@ -58,9 +80,9 @@ def test_select_project_hydrates_spec_and_authority(session: Session) -> None:
         spec_loaded_at=spec_loaded_at,
         description="Desc",
     )
-    spec = _create_approved_spec(session, product.product_id)
+    spec = _create_approved_spec(session, require_id(product.product_id, "product_id"))
 
-    state = {
+    state: JsonDict = {
         "pending_spec_content": "OLD",
         "pending_spec_path": "OLD",
         "compiled_authority_cached": "OLD",
@@ -68,13 +90,17 @@ def test_select_project_hydrates_spec_and_authority(session: Session) -> None:
     }
     context = MockToolContext(state)
 
-    result = select_project(product.product_id, context)
+    result = select_project(
+        require_id(product.product_id, "product_id"), cast("ToolContext", context)
+    )
 
     assert result["success"] is True
     assert context.state["pending_spec_content"] == "Spec body"
     assert context.state["pending_spec_path"] == "specs/spec.md"
     assert context.state["compiled_authority_cached"] == '{"compiled":true}'
-    assert context.state["latest_spec_version_id"] == spec.spec_version_id
+    assert context.state["latest_spec_version_id"] == require_id(
+        spec.spec_version_id, "spec_version_id"
+    )
     assert context.state["current_project_name"] == product.name
 
     active_project = context.state["active_project"]
@@ -87,9 +113,10 @@ def test_select_project_hydrates_spec_and_authority(session: Session) -> None:
 
 
 def test_select_project_clears_missing_spec_state(session: Session) -> None:
+    """Verify select project clears missing spec state."""
     product = _create_product(session)
 
-    state = {
+    state: JsonDict = {
         "pending_spec_content": "OLD",
         "pending_spec_path": "OLD",
         "compiled_authority_cached": "OLD",
@@ -97,7 +124,9 @@ def test_select_project_clears_missing_spec_state(session: Session) -> None:
     }
     context = MockToolContext(state)
 
-    result = select_project(product.product_id, context)
+    result = select_project(
+        require_id(product.product_id, "product_id"), cast("ToolContext", context)
+    )
 
     assert result["success"] is True
     assert "pending_spec_content" not in context.state
@@ -107,6 +136,7 @@ def test_select_project_clears_missing_spec_state(session: Session) -> None:
 
 
 def test_get_project_details_includes_spec_fields(session: Session) -> None:
+    """Verify get project details includes spec fields."""
     spec_loaded_at = datetime.now(UTC)
     product = _create_product(
         session,
@@ -116,9 +146,9 @@ def test_get_project_details_includes_spec_fields(session: Session) -> None:
         spec_loaded_at=spec_loaded_at,
         description="Desc",
     )
-    spec = _create_approved_spec(session, product.product_id)
+    spec = _create_approved_spec(session, require_id(product.product_id, "product_id"))
 
-    result = get_project_details(product.product_id)
+    result = get_project_details(require_id(product.product_id, "product_id"))
 
     assert result["success"] is True
     details = result["product"]
@@ -127,4 +157,6 @@ def test_get_project_details_includes_spec_fields(session: Session) -> None:
     assert details["spec_file_path"] == "specs/spec.md"
     expected_loaded_at = spec_loaded_at.replace(tzinfo=None).isoformat()
     assert details["spec_loaded_at"] == expected_loaded_at
-    assert details["latest_spec_version_id"] == spec.spec_version_id
+    assert details["latest_spec_version_id"] == require_id(
+        spec.spec_version_id, "spec_version_id"
+    )

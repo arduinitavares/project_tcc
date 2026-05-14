@@ -10,11 +10,13 @@ class TestFSMStoryTransitions:
     """Tests for story-phase state transitions in the FSM controller."""
 
     def setup_method(self) -> None:
+        """Return setup method."""
         self.ctrl = FSMController()
 
     # --- ROUTING -> STORY ---
 
     def test_routing_to_story_interview_on_incomplete(self) -> None:
+        """Verify routing to story interview on incomplete."""
         next_state = self.ctrl.determine_next_state(
             current_state=OrchestratorState.SETUP_REQUIRED,
             tool_name="user_story_writer_tool",
@@ -24,6 +26,7 @@ class TestFSMStoryTransitions:
         assert next_state == OrchestratorState.STORY_INTERVIEW
 
     def test_routing_to_story_review_on_complete(self) -> None:
+        """Verify routing to story review on complete."""
         next_state = self.ctrl.determine_next_state(
             current_state=OrchestratorState.SETUP_REQUIRED,
             tool_name="user_story_writer_tool",
@@ -35,6 +38,7 @@ class TestFSMStoryTransitions:
     # --- ROADMAP_PERSISTENCE -> STORY ---
 
     def test_roadmap_persistence_to_story_interview(self) -> None:
+        """Verify roadmap persistence to story interview."""
         next_state = self.ctrl.determine_next_state(
             current_state=OrchestratorState.ROADMAP_PERSISTENCE,
             tool_name="user_story_writer_tool",
@@ -44,6 +48,7 @@ class TestFSMStoryTransitions:
         assert next_state == OrchestratorState.STORY_INTERVIEW
 
     def test_roadmap_persistence_to_story_review(self) -> None:
+        """Verify roadmap persistence to story review."""
         next_state = self.ctrl.determine_next_state(
             current_state=OrchestratorState.ROADMAP_PERSISTENCE,
             tool_name="user_story_writer_tool",
@@ -55,6 +60,7 @@ class TestFSMStoryTransitions:
     # --- STORY_INTERVIEW ---
 
     def test_story_interview_stays_on_incomplete(self) -> None:
+        """Verify story interview stays on incomplete."""
         next_state = self.ctrl.determine_next_state(
             current_state=OrchestratorState.STORY_INTERVIEW,
             tool_name="user_story_writer_tool",
@@ -64,6 +70,7 @@ class TestFSMStoryTransitions:
         assert next_state == OrchestratorState.STORY_INTERVIEW
 
     def test_story_interview_to_review_on_complete(self) -> None:
+        """Verify story interview to review on complete."""
         next_state = self.ctrl.determine_next_state(
             current_state=OrchestratorState.STORY_INTERVIEW,
             tool_name="user_story_writer_tool",
@@ -75,6 +82,7 @@ class TestFSMStoryTransitions:
     # --- STORY_REVIEW ---
 
     def test_story_review_back_to_interview_on_incomplete(self) -> None:
+        """Verify story review back to interview on incomplete."""
         next_state = self.ctrl.determine_next_state(
             current_state=OrchestratorState.STORY_REVIEW,
             tool_name="user_story_writer_tool",
@@ -84,6 +92,7 @@ class TestFSMStoryTransitions:
         assert next_state == OrchestratorState.STORY_INTERVIEW
 
     def test_story_review_to_persistence_on_save(self) -> None:
+        """Verify story review to persistence on save."""
         next_state = self.ctrl.determine_next_state(
             current_state=OrchestratorState.STORY_REVIEW,
             tool_name="save_stories_tool",
@@ -93,6 +102,7 @@ class TestFSMStoryTransitions:
         assert next_state == OrchestratorState.STORY_PERSISTENCE
 
     def test_story_review_stays_on_failed_save(self) -> None:
+        """Verify story review stays on failed save."""
         next_state = self.ctrl.determine_next_state(
             current_state=OrchestratorState.STORY_REVIEW,
             tool_name="save_stories_tool",
@@ -104,6 +114,7 @@ class TestFSMStoryTransitions:
     # --- STORY_PERSISTENCE ---
 
     def test_story_persistence_to_interview_for_next_requirement(self) -> None:
+        """Verify story persistence to interview for next requirement."""
         next_state = self.ctrl.determine_next_state(
             current_state=OrchestratorState.STORY_PERSISTENCE,
             tool_name="user_story_writer_tool",
@@ -113,6 +124,7 @@ class TestFSMStoryTransitions:
         assert next_state == OrchestratorState.STORY_INTERVIEW
 
     def test_story_persistence_to_review_for_next_complete(self) -> None:
+        """Verify story persistence to review for next complete."""
         next_state = self.ctrl.determine_next_state(
             current_state=OrchestratorState.STORY_PERSISTENCE,
             tool_name="user_story_writer_tool",
@@ -122,6 +134,7 @@ class TestFSMStoryTransitions:
         assert next_state == OrchestratorState.STORY_REVIEW
 
     def test_story_persistence_stays_without_tool(self) -> None:
+        """Verify story persistence stays without tool."""
         next_state = self.ctrl.determine_next_state(
             current_state=OrchestratorState.STORY_PERSISTENCE,
             tool_name=None,
@@ -131,6 +144,7 @@ class TestFSMStoryTransitions:
         assert next_state == OrchestratorState.STORY_PERSISTENCE
 
     def test_story_persistence_to_sprint_draft(self) -> None:
+        """Verify story persistence to sprint draft."""
         next_state = self.ctrl.determine_next_state(
             current_state=OrchestratorState.STORY_PERSISTENCE,
             tool_name="sprint_planner_tool",
@@ -144,30 +158,36 @@ class TestFSMStoryStateDefinitions:
     """Validate that story states exist in the registry with correct properties."""
 
     def setup_method(self) -> None:
+        """Return setup method."""
         self.ctrl = FSMController()
 
     def test_story_interview_in_registry(self) -> None:
+        """Verify story interview in registry."""
         defn = self.ctrl.get_state_definition(OrchestratorState.STORY_INTERVIEW)
         assert defn.name == OrchestratorState.STORY_INTERVIEW
         assert OrchestratorState.STORY_REVIEW in defn.allowed_transitions
 
     def test_story_review_in_registry(self) -> None:
+        """Verify story review in registry."""
         defn = self.ctrl.get_state_definition(OrchestratorState.STORY_REVIEW)
         assert defn.name == OrchestratorState.STORY_REVIEW
         assert OrchestratorState.STORY_PERSISTENCE in defn.allowed_transitions
         assert OrchestratorState.STORY_INTERVIEW in defn.allowed_transitions
 
     def test_story_persistence_in_registry(self) -> None:
+        """Verify story persistence in registry."""
         defn = self.ctrl.get_state_definition(OrchestratorState.STORY_PERSISTENCE)
         assert defn.name == OrchestratorState.STORY_PERSISTENCE
         assert OrchestratorState.STORY_INTERVIEW in defn.allowed_transitions
         assert OrchestratorState.SPRINT_DRAFT in defn.allowed_transitions
 
     def test_roadmap_persistence_allows_story_interview(self) -> None:
+        """Verify roadmap persistence allows story interview."""
         defn = self.ctrl.get_state_definition(OrchestratorState.ROADMAP_PERSISTENCE)
         assert OrchestratorState.STORY_INTERVIEW in defn.allowed_transitions
 
     def test_routing_allows_story_transitions(self) -> None:
+        """Verify routing allows story transitions."""
         defn = self.ctrl.get_state_definition(OrchestratorState.SETUP_REQUIRED)
         assert OrchestratorState.STORY_INTERVIEW in defn.allowed_transitions
         assert OrchestratorState.STORY_REVIEW in defn.allowed_transitions

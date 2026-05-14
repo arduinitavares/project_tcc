@@ -1,10 +1,14 @@
+"""Tests for reconcile product refinement."""
+
+import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from agile_sqlmodel import Product, UserStory
 from scripts.reconcile_product_refinement import reconcile_product
 
 
-def test_reconcile_marks_duplicates_superseded(monkeypatch):
+def test_reconcile_marks_duplicates_superseded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify reconcile marks duplicates superseded."""
     engine = create_engine("sqlite://", echo=False)
     SQLModel.metadata.create_all(engine)
     monkeypatch.setattr(
@@ -39,13 +43,16 @@ def test_reconcile_marks_duplicates_superseded(monkeypatch):
     assert summary.superseded_story_ids
 
     with Session(engine) as session:
-        rows = session.exec(select(UserStory).where(UserStory.product_id == 11)).all()
+        rows = session.exec(select(UserStory).where(UserStory.product_id == 11)).all()  # noqa: PLR2004
         superseded = [r for r in rows if r.is_superseded]
         assert len(superseded) == 1
         assert superseded[0].superseded_by_story_id is not None
 
 
-def test_reconcile_reports_unresolved_placeholders(monkeypatch):
+def test_reconcile_reports_unresolved_placeholders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify reconcile reports unresolved placeholders."""
     engine = create_engine("sqlite://", echo=False)
     SQLModel.metadata.create_all(engine)
     monkeypatch.setattr(

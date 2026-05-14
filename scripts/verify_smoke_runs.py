@@ -5,33 +5,43 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from utils.cli_output import emit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
-from pydantic import ValidationError
+from pydantic import ValidationError  # noqa: E402
 
-from utils.smoke_schema import SmokeRunRecord, parse_smoke_run_record, terminal_status
+from utils.smoke_schema import (  # noqa: E402
+    SmokeRunRecord,
+    parse_smoke_run_record,
+    terminal_status,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 def _read_jsonl(path: Path) -> list[SmokeRunRecord]:
     records: list[SmokeRunRecord] = []
     with path.open("r", encoding="utf-8") as handle:
         for idx, line in enumerate(handle, start=1):
-            line = line.strip()
+            line = line.strip()  # noqa: PLW2901
             if not line:
                 continue
             try:
                 raw = json.loads(line)
                 records.append(parse_smoke_run_record(raw))
             except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSON on line {idx}") from exc
+                msg = f"Invalid JSON on line {idx}"
+                raise ValueError(msg) from exc
             except ValidationError as exc:
-                raise ValueError(f"Schema validation failed on line {idx}") from exc
+                msg = f"Schema validation failed on line {idx}"
+                raise ValueError(msg) from exc
     return records
 
 
@@ -50,7 +60,8 @@ def _invest_validation_expected(variant_dict: dict[str, Any]) -> bool:
     )
 
 
-def verify_records(records: Iterable[Any]) -> None:
+def verify_records(records: Iterable[Any]) -> None:  # noqa: C901, PLR0912
+    """Return verify records."""
     normalized: list[SmokeRunRecord] = []
     for record in records:
         if isinstance(record, SmokeRunRecord):
@@ -59,18 +70,20 @@ def verify_records(records: Iterable[Any]) -> None:
             normalized.append(parse_smoke_run_record(record))
 
     if not normalized:
-        raise AssertionError("No records provided")
+        msg = "No records provided"
+        raise AssertionError(msg)
 
     scenario1 = [r for r in normalized if int(r.SCENARIO_ID) == 1]
-    scenario2 = [r for r in normalized if int(r.SCENARIO_ID) == 2]
-    scenario3 = [r for r in normalized if int(r.SCENARIO_ID) == 3]
+    scenario2 = [r for r in normalized if int(r.SCENARIO_ID) == 2]  # noqa: PLR2004
+    scenario3 = [r for r in normalized if int(r.SCENARIO_ID) == 3]  # noqa: PLR2004
 
     if not scenario1 or not scenario2 or not scenario3:
-        raise AssertionError("Missing scenario records for 1, 2, or 3")
+        msg = "Missing scenario records for 1, 2, or 3"
+        raise AssertionError(msg)
 
     # --- Scenario 1: Happy path with strict per-variant rules ---
-    # INVEST validation expected (V110, V111): must be "success" - NOT unknown, NOT contract_failed
-    # INVEST validation NOT expected (V0xx, V10x): must be "unknown" - NOT contract_failed
+    # INVEST validation expected (V110, V111): must be "success" - NOT unknown, NOT contract_failed  # noqa: E501
+    # INVEST validation NOT expected (V0xx, V10x): must be "unknown" - NOT contract_failed  # noqa: E501
     scenario1_errors: list[str] = []
     for r in scenario1:
         variant = r.VARIANT.model_dump()
@@ -81,12 +94,12 @@ def verify_records(records: Iterable[Any]) -> None:
             # Validator enabled → must succeed (not unknown, not failed)
             if status != "success":
                 scenario1_errors.append(
-                    f"{label} (validator enabled) expected 'success', got '{status}' (RUN_ID={r.RUN_ID})"
+                    f"{label} (validator enabled) expected 'success', got '{status}' (RUN_ID={r.RUN_ID})"  # noqa: E501
                 )
         # Validator disabled → must be unknown (not failed)
         elif status == "contract_failed":
             scenario1_errors.append(
-                f"{label} (validator disabled) should NOT be 'contract_failed' (RUN_ID={r.RUN_ID})"
+                f"{label} (validator disabled) should NOT be 'contract_failed' (RUN_ID={r.RUN_ID})"  # noqa: E501
             )
         elif status not in {"success", "unknown"}:
             scenario1_errors.append(
@@ -104,14 +117,16 @@ def verify_records(records: Iterable[Any]) -> None:
         if r.METRICS.alignment_rejected is True or r.ALIGNMENT_REJECTED is True
     ]
     if not scenario2_alignment:
-        raise AssertionError("Scenario 2 has zero alignment_rejected")
+        msg = "Scenario 2 has zero alignment_rejected"
+        raise AssertionError(msg)
 
     # Alignment rejected runs must have pipeline_ms=None
     for r in scenario2_alignment:
         timing = r.TIMING_MS.model_dump()
         if timing.get("pipeline_ms") is not None:
+            msg = f"Scenario 2 alignment_rejected run has pipeline_ms != None (RUN_ID={r.RUN_ID})"  # noqa: E501
             raise AssertionError(
-                f"Scenario 2 alignment_rejected run has pipeline_ms != None (RUN_ID={r.RUN_ID})"
+                msg
             )
 
     # --- Scenario 3: Acceptance gate ---
@@ -122,20 +137,23 @@ def verify_records(records: Iterable[Any]) -> None:
         if r.METRICS.acceptance_blocked is True or r.ACCEPTANCE_GATE_BLOCKED is True
     ]
     if len(scenario3_blocked) != len(scenario3):
+        msg = f"Scenario 3 is not 100% acceptance_blocked ({len(scenario3_blocked)}/{len(scenario3)})"  # noqa: E501
         raise AssertionError(
-            f"Scenario 3 is not 100% acceptance_blocked ({len(scenario3_blocked)}/{len(scenario3)})"
+            msg
         )
 
     # Acceptance blocked runs must have pipeline_ms=None
     for r in scenario3_blocked:
         timing = r.TIMING_MS.model_dump()
         if timing.get("pipeline_ms") is not None:
+            msg = f"Scenario 3 acceptance_blocked run has pipeline_ms != None (RUN_ID={r.RUN_ID})"  # noqa: E501
             raise AssertionError(
-                f"Scenario 3 acceptance_blocked run has pipeline_ms != None (RUN_ID={r.RUN_ID})"
+                msg
             )
 
 
 def main() -> None:
+    """Return main."""
     parser = argparse.ArgumentParser(description="Verify smoke harness JSONL output")
     parser.add_argument("--jsonl", required=True, help="Path to smoke JSONL output")
     args = parser.parse_args()
@@ -143,12 +161,12 @@ def main() -> None:
     jsonl_path = Path(args.jsonl).resolve()
     records = _read_jsonl(jsonl_path)
     verify_records(records)
-    print("Smoke run verification passed.")
+    emit("Smoke run verification passed.")
 
 
 if __name__ == "__main__":
     try:
         main()
     except (AssertionError, ValueError) as exc:
-        print(f"Verification failed: {exc}")
+        emit(f"Verification failed: {exc}")
         sys.exit(1)

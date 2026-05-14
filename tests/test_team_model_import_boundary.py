@@ -33,6 +33,7 @@ def _module_level_imported_names_from(
 
 
 def test_selected_test_and_script_modules_import_team_from_models_core() -> None:
+    """Verify selected test and script modules import team from models core."""
     root = Path(__file__).resolve().parents[1]
     selected_modules = [
         Path("tests/test_orchestrator_query_service.py"),
@@ -63,6 +64,7 @@ def test_selected_test_and_script_modules_import_team_from_models_core() -> None
 
 
 def test_conftest_imports_team_models_from_models_core() -> None:
+    """Verify conftest imports team models from models core."""
     root = Path(__file__).resolve().parents[1]
     core_imports = _imported_names_from(root / "tests/conftest.py", "models.core")
     agile_imports = _imported_names_from(root / "tests/conftest.py", "agile_sqlmodel")

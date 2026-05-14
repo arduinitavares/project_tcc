@@ -9,8 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _imported_names_from(module_path: Path, import_source: str) -> set[str]:
-    source_text = module_path.read_text(encoding="utf-8")
-    tree = ast.parse(source_text, filename=str(module_path))
+    source_text: str = module_path.read_text(encoding="utf-8")
+    tree: ast.Module = ast.parse(source_text, filename=str(module_path))
     imported_names: set[str] = set()
 
     for node in ast.walk(tree):
@@ -21,8 +21,8 @@ def _imported_names_from(module_path: Path, import_source: str) -> set[str]:
 
 
 def _bound_import_names_from(module_path: Path, import_source: str) -> set[str]:
-    source_text = module_path.read_text(encoding="utf-8")
-    tree = ast.parse(source_text, filename=str(module_path))
+    source_text: str = module_path.read_text(encoding="utf-8")
+    tree: ast.Module = ast.parse(source_text, filename=str(module_path))
     imported_names: set[str] = set()
 
     for node in ast.walk(tree):
@@ -33,8 +33,9 @@ def _bound_import_names_from(module_path: Path, import_source: str) -> set[str]:
 
 
 def _module_import_aliases(module_path: Path, module_name: str) -> set[str]:
-    source_text = module_path.read_text(encoding="utf-8")
-    tree = ast.parse(source_text, filename=str(module_path))
+    """Check for any aliases used when importing a module."""
+    source_text: str = module_path.read_text(encoding="utf-8")
+    tree: ast.Module = ast.parse(source_text, filename=str(module_path))
     aliases: set[str] = set()
 
     for node in ast.walk(tree):
@@ -47,8 +48,9 @@ def _module_import_aliases(module_path: Path, module_name: str) -> set[str]:
 
 
 def _legacy_agile_imports(module_path: Path) -> set[str]:
-    source_text = module_path.read_text(encoding="utf-8")
-    tree = ast.parse(source_text, filename=str(module_path))
+    """Check for any imports from the legacy agile_sqlmodel package."""
+    source_text: str = module_path.read_text(encoding="utf-8")
+    tree: ast.Module = ast.parse(source_text, filename=str(module_path))
     legacy_imports: set[str] = set()
 
     for node in ast.walk(tree):
@@ -68,13 +70,14 @@ def _legacy_agile_imports(module_path: Path) -> set[str]:
 
 
 def test_api_import_boundary_for_moved_runtime_surfaces() -> None:
-    module_path = ROOT / "api.py"
+    """Verify that api.py imports required runtime surfaces from models.core and models.enums."""  # noqa: E501
+    module_path: Path = ROOT / "api.py"
 
-    core_imports = _imported_names_from(module_path, "models.core")
-    core_bound_imports = _bound_import_names_from(module_path, "models.core")
-    enum_imports = _imported_names_from(module_path, "models.enums")
-    enum_bound_imports = _bound_import_names_from(module_path, "models.enums")
-    legacy_agile_imports = _legacy_agile_imports(module_path)
+    core_imports: set[str] = _imported_names_from(module_path, "models.core")
+    core_bound_imports: set[str] = _bound_import_names_from(module_path, "models.core")
+    enum_imports: set[str] = _imported_names_from(module_path, "models.enums")
+    enum_bound_imports: set[str] = _bound_import_names_from(module_path, "models.enums")
+    legacy_agile_imports: set[str] = _legacy_agile_imports(module_path)
 
     assert {"Product", "Sprint", "SprintStory", "Task", "UserStory"} <= core_imports
     assert {

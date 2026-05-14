@@ -85,6 +85,7 @@ def _attribute_references_to_module(
 
 
 def test_db_tools_import_boundary() -> None:
+    """Verify db tools import boundary."""
     module_path = ROOT / "tools/db_tools.py"
 
     core_imports = _imported_names_from(module_path, "models.core")
@@ -111,6 +112,7 @@ def test_db_tools_import_boundary() -> None:
 
 
 def test_story_query_tools_import_boundary() -> None:
+    """Verify story query tools import boundary."""
     module_path = ROOT / "tools/story_query_tools.py"
 
     core_imports = _imported_names_from(module_path, "models.core")
@@ -137,6 +139,7 @@ def test_story_query_tools_import_boundary() -> None:
 
 
 def test_export_snapshot_import_boundary() -> None:
+    """Verify export snapshot import boundary."""
     module_path = ROOT / "tools/export_snapshot.py"
 
     core_imports = _imported_names_from(module_path, "models.core")

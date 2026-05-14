@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Apply spec-authority validation to refined stories for a product.
-"""
+"""Apply spec-authority validation to refined stories for a product."""
 
 from __future__ import annotations
 
@@ -15,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -61,10 +59,12 @@ class ValidationRunResult:
 
     @property
     def passed_count(self) -> int:
+        """Return passed count."""
         return sum(1 for outcome in self.outcomes if outcome.passed)
 
     @property
     def failed_count(self) -> int:
+        """Return failed count."""
         return sum(
             1
             for outcome in self.outcomes
@@ -73,6 +73,7 @@ class ValidationRunResult:
 
     @property
     def error_count(self) -> int:
+        """Return error count."""
         return sum(1 for outcome in self.outcomes if outcome.error_message)
 
 
@@ -108,7 +109,7 @@ def _load_invariant_map(spec_version_id: int) -> dict[str, dict]:
             for inv in invariants
             if isinstance(inv, dict) and isinstance(inv.get("id"), str)
         }
-    except Exception:  # pragma: no cover - defensive parsing fallback
+    except Exception:  # pragma: no cover - defensive parsing fallback  # noqa: BLE001
         return {}
 
 
@@ -116,7 +117,7 @@ def _extract_invariant_ids(*texts: str) -> list[str]:
     ids: list[str] = []
     for txt in texts:
         for match in re.findall(r"INV-[a-f0-9]{16}", txt or "", flags=re.IGNORECASE):
-            ids.append("INV-" + match[4:].lower())
+            ids.append("INV-" + match[4:].lower())  # noqa: PERF401
 
     seen = set()
     ordered: list[str] = []
@@ -128,7 +129,7 @@ def _extract_invariant_ids(*texts: str) -> list[str]:
     return ordered
 
 
-def _summarize_response(
+def _summarize_response(  # noqa: C901, PLR0912
     response: dict,
     *,
     invariant_map: dict[str, dict],
@@ -161,7 +162,7 @@ def _summarize_response(
                     messages.append(f"{inv_id} [{inv_type}] capability={capability}")
                 else:
                     messages.append(f"{inv_id} [{inv_type}]")
-        if len(failures) > 3:
+        if len(failures) > 3:  # noqa: PLR2004
             messages.append(f"... and {len(failures) - 3} more failure(s)")
 
     if alignment_failures:
@@ -173,7 +174,7 @@ def _summarize_response(
                 messages.append(f"{code} ({invariant}): {message}")
             else:
                 messages.append(f"{code}: {message}")
-        if len(alignment_failures) > 3:
+        if len(alignment_failures) > 3:  # noqa: PLR2004
             messages.append(
                 f"... and {len(alignment_failures) - 3} more alignment failure(s)"
             )
@@ -184,8 +185,16 @@ def _summarize_response(
     return messages
 
 
+def _require_spec_version_id(result: ValidationRunResult) -> int:
+    spec_version_id = result.spec_version_id
+    if spec_version_id is None:
+        msg = "Approved spec version id was lost before validation."
+        raise RuntimeError(msg)
+    return spec_version_id
+
+
 def apply_validation(product_id: int, mode: str | None = None) -> ValidationRunResult:
-    """Validate all canonical refined stories for a product and return structured results."""
+    """Validate all canonical refined stories for a product and return structured results."""  # noqa: E501
     active_mode = _effective_mode(mode)
     result = ValidationRunResult(product_id=product_id, mode=active_mode)
 
@@ -203,7 +212,7 @@ def apply_validation(product_id: int, mode: str | None = None) -> ValidationRunR
                 SpecRegistry.product_id == product_id,
                 SpecRegistry.status == "approved",
             )
-            .order_by(SpecRegistry.spec_version_id.desc())
+            .order_by(col(SpecRegistry.spec_version_id).desc())
         ).first()
 
         if not spec:
@@ -211,14 +220,20 @@ def apply_validation(product_id: int, mode: str | None = None) -> ValidationRunR
             result.message = f"No approved spec found for product {product_id}."
             return result
 
-        result.spec_version_id = spec.spec_version_id
-        invariant_map = _load_invariant_map(spec.spec_version_id)
+        spec_version_id = spec.spec_version_id
+        if spec_version_id is None:
+            result.status = "error"
+            result.message = f"Approved spec for product {product_id} has no ID."
+            return result
+
+        result.spec_version_id = spec_version_id
+        invariant_map = _load_invariant_map(spec_version_id)
         stories = session.exec(
             select(UserStory)
             .where(UserStory.product_id == product_id)
             .where(UserStory.is_refined == True)  # noqa: E712
             .where(UserStory.is_superseded == False)  # noqa: E712
-            .order_by(UserStory.story_id.asc())
+            .order_by(col(UserStory.story_id).asc())
         ).all()
 
     result.eligible_story_count = len(stories)
@@ -229,7 +244,7 @@ def apply_validation(product_id: int, mode: str | None = None) -> ValidationRunR
         )
         return result
 
-    assert result.spec_version_id is not None
+    spec_version_id = _require_spec_version_id(result)
     for story in stories:
         if story.story_id is None:
             continue
@@ -237,11 +252,11 @@ def apply_validation(product_id: int, mode: str | None = None) -> ValidationRunR
             response = validate_story_with_spec_authority(
                 {
                     "story_id": story.story_id,
-                    "spec_version_id": result.spec_version_id,
+                    "spec_version_id": spec_version_id,
                     "mode": active_mode,
                 }
             )
-        except Exception as exc:  # pragma: no cover - defensive runtime guard
+        except Exception as exc:  # pragma: no cover - defensive runtime guard  # noqa: BLE001, E501
             result.outcomes.append(
                 StoryValidationOutcome(
                     story_id=story.story_id,
@@ -291,7 +306,7 @@ def apply_validation(product_id: int, mode: str | None = None) -> ValidationRunR
     return result
 
 
-def _emit_run_logs(
+def _emit_run_logs(  # noqa: C901
     result: ValidationRunResult,
     *,
     verbose: bool,
@@ -338,6 +353,7 @@ def _emit_run_logs(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Return main."""
     parser = argparse.ArgumentParser(
         description="Apply spec-authority validation to all stories for a product."
     )
@@ -361,7 +377,7 @@ def main(argv: list[str] | None = None) -> int:
     output_group.add_argument(
         "--verbose",
         action="store_true",
-        help="Show per-story PASS/FAIL results and top validation reasons in console output.",
+        help="Show per-story PASS/FAIL results and top validation reasons in console output.",  # noqa: E501
     )
     output_group.add_argument(
         "--quiet",
@@ -376,7 +392,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.product_id is None:
         with Session(engine) as session:
             latest = session.exec(
-                select(Product).order_by(Product.product_id.desc())
+                select(Product).order_by(col(Product.product_id).desc())
             ).first()
         if not latest or latest.product_id is None:
             logger.error("No products found in DB.")

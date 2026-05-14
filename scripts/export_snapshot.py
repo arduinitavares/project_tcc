@@ -6,13 +6,18 @@ import argparse
 import sys
 from pathlib import Path
 
-from sqlalchemy.engine import Engine
+from utils.cli_output import emit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
-from tools.export_snapshot import export_project_snapshot_html
+from typing import TYPE_CHECKING  # noqa: E402
+
+from tools.export_snapshot import export_project_snapshot_html  # noqa: E402
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Engine
 
 
 def export_snapshot_command(
@@ -39,6 +44,7 @@ def export_snapshot_command(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Return main."""
     parser = argparse.ArgumentParser(description="Export project snapshot HTML")
     parser.add_argument("--product-id", type=int, required=True, help="Product ID")
     parser.add_argument(
@@ -53,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
         product_id=args.product_id,
         output_dir=Path(args.output_dir),
     )
-    print(f"Snapshot written: {output_path}")
+    emit(f"Snapshot written: {output_path}")
     return 0
 
 

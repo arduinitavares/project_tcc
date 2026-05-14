@@ -1,3 +1,5 @@
+"""Tests for story close service."""
+
 from types import SimpleNamespace
 
 import pytest
@@ -10,7 +12,8 @@ from services.story_close_service import (
 )
 
 
-def test_get_story_close_readiness_marks_done_story_ineligible():
+def test_get_story_close_readiness_marks_done_story_ineligible() -> None:
+    """Verify get story close readiness marks done story ineligible."""
     story = SimpleNamespace(
         story_id=7,
         status=StoryStatus.DONE,
@@ -27,9 +30,9 @@ def test_get_story_close_readiness_marks_done_story_ineligible():
         story_id=7,
         load_story=lambda: story,
         load_sprint=lambda: sprint,
-        load_sprint_story=lambda current_story: object(),
+        load_sprint_story=lambda current_story: object(),  # noqa: ARG005
         load_tasks=lambda: [object()],
-        task_progress=lambda tasks: (1, 1, 0, True),
+        task_progress=lambda tasks: (1, 1, 0, True),  # noqa: ARG005
     )
 
     assert payload["close_eligible"] is False
@@ -37,7 +40,8 @@ def test_get_story_close_readiness_marks_done_story_ineligible():
     assert payload["current_status"] == StoryStatus.DONE.value
 
 
-def test_get_story_close_readiness_reports_no_executable_tasks():
+def test_get_story_close_readiness_reports_no_executable_tasks() -> None:
+    """Verify get story close readiness reports no executable tasks."""
     story = SimpleNamespace(
         story_id=7,
         status=StoryStatus.TO_DO,
@@ -54,9 +58,9 @@ def test_get_story_close_readiness_reports_no_executable_tasks():
         story_id=7,
         load_story=lambda: story,
         load_sprint=lambda: sprint,
-        load_sprint_story=lambda current_story: object(),
+        load_sprint_story=lambda current_story: object(),  # noqa: ARG005
         load_tasks=list,
-        task_progress=lambda tasks: (0, 0, 0, False),
+        task_progress=lambda tasks: (0, 0, 0, False),  # noqa: ARG005
     )
 
     assert payload["close_eligible"] is False
@@ -64,7 +68,8 @@ def test_get_story_close_readiness_reports_no_executable_tasks():
     assert payload["readiness"].total_tasks == 0
 
 
-def test_close_story_rejects_incomplete_actionable_tasks():
+def test_close_story_rejects_incomplete_actionable_tasks() -> None:
+    """Verify close story rejects incomplete actionable tasks."""
     story = SimpleNamespace(
         story_id=7,
         status=StoryStatus.TO_DO,
@@ -89,19 +94,20 @@ def test_close_story_rejects_incomplete_actionable_tasks():
             now=lambda: "2026-04-04T12:00:00Z",
             load_story=lambda: story,
             load_sprint=lambda: sprint,
-            load_sprint_story=lambda current_story: object(),
+            load_sprint_story=lambda current_story: object(),  # noqa: ARG005
             load_tasks=lambda: [object()],
-            task_progress=lambda tasks: (1, 0, 0, False),
-            persist_story_close=lambda **kwargs: None,
+            task_progress=lambda tasks: (1, 0, 0, False),  # noqa: ARG005
+            persist_story_close=lambda **kwargs: None,  # noqa: ARG005
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert exc_info.value.detail == (
         "Cannot close a story unless all actionable tasks are Done or Cancelled."
     )
 
 
-def test_close_story_marks_story_done_and_returns_payload():
+def test_close_story_marks_story_done_and_returns_payload() -> None:
+    """Verify close story marks story done and returns payload."""
     story = SimpleNamespace(
         story_id=7,
         status=StoryStatus.TO_DO,
@@ -126,9 +132,9 @@ def test_close_story_marks_story_done_and_returns_payload():
         now=lambda: "2026-04-04T12:00:00Z",
         load_story=lambda: story,
         load_sprint=lambda: sprint,
-        load_sprint_story=lambda current_story: object(),
+        load_sprint_story=lambda current_story: object(),  # noqa: ARG005
         load_tasks=lambda: [object()],
-        task_progress=lambda tasks: (1, 1, 0, True),
+        task_progress=lambda tasks: (1, 1, 0, True),  # noqa: ARG005
         persist_story_close=lambda **kwargs: persisted.update(kwargs),
     )
 

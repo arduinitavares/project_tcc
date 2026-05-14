@@ -1,7 +1,11 @@
+"""Tests for backlog phase service."""
+
 from types import SimpleNamespace
+from typing import Any, Never
 
 import pytest
 
+from orchestrator_agent.agent_tools.backlog_primer.tools import SaveBacklogInput
 from services.phases.backlog_service import (
     BacklogPhaseError,
     backlog_state_from_complete,
@@ -13,14 +17,18 @@ from services.phases.backlog_service import (
     set_backlog_fsm_state,
 )
 
+JsonDict = dict[str, Any]
 
-def test_backlog_state_from_complete_maps_to_review_and_interview():
+
+def test_backlog_state_from_complete_maps_to_review_and_interview() -> None:
+    """Verify backlog state from complete maps to review and interview."""
     assert backlog_state_from_complete(True) == "BACKLOG_REVIEW"
     assert backlog_state_from_complete(False) == "BACKLOG_INTERVIEW"
 
 
-def test_record_backlog_attempt_updates_working_state():
-    state = {}
+def test_record_backlog_attempt_updates_working_state() -> None:
+    """Verify record backlog attempt updates working state."""
+    state: JsonDict = {}
 
     count = record_backlog_attempt(
         state,
@@ -44,8 +52,9 @@ def test_record_backlog_attempt_updates_working_state():
     assert state["backlog_attempts"][0]["failure_stage"] == "output_validation"
 
 
-def test_set_backlog_fsm_state_updates_state():
-    state = {}
+def test_set_backlog_fsm_state_updates_state() -> None:
+    """Verify set backlog fsm state updates state."""
+    state: JsonDict = {}
 
     next_state = set_backlog_fsm_state(
         state,
@@ -58,26 +67,30 @@ def test_set_backlog_fsm_state_updates_state():
     assert state["fsm_state_entered_at"] == "2026-04-04T00:00:00Z"
 
 
-def test_ensure_backlog_attempts_returns_existing_list():
+def test_ensure_backlog_attempts_returns_existing_list() -> None:
+    """Verify ensure backlog attempts returns existing list."""
     attempts = [{"created_at": "2026-04-04T00:00:00Z"}]
-    state = {"backlog_attempts": attempts}
+    state: JsonDict = {"backlog_attempts": attempts}
 
     assert ensure_backlog_attempts(state) is attempts
 
 
 @pytest.mark.asyncio
-async def test_generate_backlog_draft_allows_empty_input_on_first_attempt():
-    state = {"fsm_state": "VISION_PERSISTENCE"}
-    saved: dict[str, object] = {}
-    captured: dict[str, object] = {}
+async def test_generate_backlog_draft_allows_empty_input_on_first_attempt() -> None:
+    """Verify generate backlog draft allows empty input on first attempt."""
+    state: JsonDict = {"fsm_state": "VISION_PERSISTENCE"}
+    saved: JsonDict = {}
+    captured: JsonDict = {}
 
-    async def load_state() -> dict[str, object]:
+    async def load_state() -> JsonDict:
         return state
 
-    def save_state(updated: dict[str, object]) -> None:
+    def save_state(updated: JsonDict) -> None:
         saved["state"] = dict(updated)
 
-    async def fake_run_backlog_agent(state, *, project_id, user_input):
+    async def fake_run_backlog_agent(
+        state: object, *, project_id: int, user_input: str | None
+    ) -> JsonDict:
         captured["state"] = state
         captured["project_id"] = project_id
         captured["user_input"] = user_input
@@ -114,17 +127,19 @@ async def test_generate_backlog_draft_allows_empty_input_on_first_attempt():
 
 
 @pytest.mark.asyncio
-async def test_generate_backlog_draft_requires_feedback_after_first_attempt():
-    state = {
+async def test_generate_backlog_draft_requires_feedback_after_first_attempt() -> None:
+    """Verify generate backlog draft requires feedback after first attempt."""
+    state: JsonDict = {
         "fsm_state": "BACKLOG_INTERVIEW",
         "backlog_attempts": [{"created_at": "2026-04-03T00:00:00Z"}],
     }
 
-    async def load_state() -> dict[str, object]:
+    async def load_state() -> JsonDict:
         return state
 
-    async def fake_run_backlog_agent(**_kwargs):
-        raise AssertionError("runner should not be called")
+    async def fake_run_backlog_agent(**_kwargs: object) -> Never:
+        msg = "runner should not be called"
+        raise AssertionError(msg)
 
     with pytest.raises(BacklogPhaseError) as exc_info:
         await generate_backlog_draft(
@@ -136,19 +151,21 @@ async def test_generate_backlog_draft_requires_feedback_after_first_attempt():
             user_input="   ",
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert "Feedback is required" in exc_info.value.detail
 
 
 @pytest.mark.asyncio
-async def test_generate_backlog_draft_rejects_setup_required_state():
-    state = {"fsm_state": "SETUP_REQUIRED"}
+async def test_generate_backlog_draft_rejects_setup_required_state() -> None:
+    """Verify generate backlog draft rejects setup required state."""
+    state: JsonDict = {"fsm_state": "SETUP_REQUIRED"}
 
-    async def load_state() -> dict[str, object]:
+    async def load_state() -> JsonDict:
         return state
 
-    async def fake_run_backlog_agent(**_kwargs):
-        raise AssertionError("runner should not be called")
+    async def fake_run_backlog_agent(**_kwargs: object) -> Never:
+        msg = "runner should not be called"
+        raise AssertionError(msg)
 
     with pytest.raises(BacklogPhaseError) as exc_info:
         await generate_backlog_draft(
@@ -160,18 +177,22 @@ async def test_generate_backlog_draft_rejects_setup_required_state():
             user_input="input",
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert "Setup required before backlog" in exc_info.value.detail
 
 
 @pytest.mark.asyncio
-async def test_generate_backlog_draft_normalizes_legacy_fsm_state():
-    state = {"fsm_state": " backlog_interview "}
+async def test_generate_backlog_draft_normalizes_legacy_fsm_state() -> None:
+    """Verify generate backlog draft normalizes legacy fsm state."""
+    state: JsonDict = {"fsm_state": " backlog_interview "}
 
-    async def load_state() -> dict[str, object]:
+    async def load_state() -> JsonDict:
         return state
 
-    async def fake_run_backlog_agent(state, *, project_id, user_input):
+    async def fake_run_backlog_agent(
+        state: object, *, project_id: int, user_input: str | None
+    ) -> JsonDict:
+        del state, project_id
         return {
             "success": True,
             "input_context": {"user_input": user_input or ""},
@@ -201,8 +222,9 @@ async def test_generate_backlog_draft_normalizes_legacy_fsm_state():
 
 
 @pytest.mark.asyncio
-async def test_get_backlog_history_returns_count_and_items():
-    state = {
+async def test_get_backlog_history_returns_count_and_items() -> None:
+    """Verify get backlog history returns count and items."""
+    state: JsonDict = {
         "backlog_attempts": [
             {"created_at": "2026-04-03T00:00:00Z", "trigger": "manual_refine"}
         ]
@@ -215,15 +237,16 @@ async def test_get_backlog_history_returns_count_and_items():
 
 
 @pytest.mark.asyncio
-async def test_save_backlog_draft_requires_complete_assessment():
-    state = {
+async def test_save_backlog_draft_requires_complete_assessment() -> None:
+    """Verify save backlog draft requires complete assessment."""
+    state: JsonDict = {
         "product_backlog_assessment": {
             "backlog_items": [{"title": "Seed backlog item"}],
             "is_complete": False,
         }
     }
 
-    async def hydrate_context():
+    async def hydrate_context() -> object:
         return SimpleNamespace(state=dict(state))
 
     with pytest.raises(BacklogPhaseError) as exc_info:
@@ -237,20 +260,21 @@ async def test_save_backlog_draft_requires_complete_assessment():
             save_backlog_tool=_fake_save_backlog_tool,
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert "is_complete is true" in exc_info.value.detail
 
 
 @pytest.mark.asyncio
-async def test_save_backlog_draft_rejects_empty_items():
-    state = {
+async def test_save_backlog_draft_rejects_empty_items() -> None:
+    """Verify save backlog draft rejects empty items."""
+    state: JsonDict = {
         "product_backlog_assessment": {
             "backlog_items": [],
             "is_complete": True,
         }
     }
 
-    async def hydrate_context():
+    async def hydrate_context() -> object:
         return SimpleNamespace(state=dict(state))
 
     with pytest.raises(BacklogPhaseError) as exc_info:
@@ -264,12 +288,13 @@ async def test_save_backlog_draft_rejects_empty_items():
             save_backlog_tool=_fake_save_backlog_tool,
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert "Backlog items are empty" in exc_info.value.detail
 
 
 @pytest.mark.asyncio
-async def test_save_backlog_draft_persists_persistence_state():
+async def test_save_backlog_draft_persists_persistence_state() -> None:
+    """Verify save backlog draft persists persistence state."""
     state = {
         "product_backlog_assessment": {
             "backlog_items": [{"title": "Seed backlog item"}],
@@ -277,17 +302,19 @@ async def test_save_backlog_draft_persists_persistence_state():
         },
         "setup_status": "failed",
     }
-    saved: dict[str, object] = {}
-    captured: dict[str, object] = {}
+    saved: JsonDict = {}
+    captured: JsonDict = {}
 
-    async def hydrate_context():
-        context = SimpleNamespace(state=dict(state), session_id="7")
-        return context
+    async def hydrate_context() -> object:
+        return SimpleNamespace(state=dict(state), session_id="7")
 
-    def save_state(updated: dict[str, object]) -> None:
+    def save_state(updated: JsonDict) -> None:
         saved["state"] = dict(updated)
 
-    def fake_save_backlog_tool(backlog_input, tool_context):
+    def fake_save_backlog_tool(
+        backlog_input: SaveBacklogInput,
+        tool_context: object,
+    ) -> JsonDict:
         captured["backlog_input"] = backlog_input
         captured["tool_context"] = tool_context
         return {
@@ -308,14 +335,15 @@ async def test_save_backlog_draft_persists_persistence_state():
 
     assert payload["fsm_state"] == "BACKLOG_PERSISTENCE"
     assert payload["save_result"]["success"] is True
-    assert captured["backlog_input"].product_id == 7
+    assert captured["backlog_input"].product_id == 7  # noqa: PLR2004
     assert saved["state"]["fsm_state"] == "BACKLOG_PERSISTENCE"
     assert saved["state"]["backlog_saved_at"] == "2026-04-04T00:00:00Z"
 
 
-async def _async_value(value):
+async def _async_value(value: object) -> object:
     return value
 
 
-def _fake_save_backlog_tool(*_args, **_kwargs):
-    raise AssertionError("save_backlog_tool should not be called")
+def _fake_save_backlog_tool(*_args: object, **_kwargs: object) -> Never:
+    msg = "save_backlog_tool should not be called"
+    raise AssertionError(msg)

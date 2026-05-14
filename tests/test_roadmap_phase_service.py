@@ -1,7 +1,11 @@
+"""Tests for roadmap phase service."""
+
 from types import SimpleNamespace
+from typing import Any, Never
 
 import pytest
 
+from orchestrator_agent.agent_tools.roadmap_builder.tools import SaveRoadmapToolInput
 from services.phases.roadmap_service import (
     RoadmapPhaseError,
     ensure_roadmap_attempts,
@@ -13,9 +17,12 @@ from services.phases.roadmap_service import (
     set_roadmap_fsm_state,
 )
 
+JsonDict = dict[str, Any]
 
-def test_record_roadmap_attempt_updates_working_state():
-    state = {}
+
+def test_record_roadmap_attempt_updates_working_state() -> None:
+    """Verify record roadmap attempt updates working state."""
+    state: JsonDict = {}
 
     count = record_roadmap_attempt(
         state,
@@ -40,13 +47,15 @@ def test_record_roadmap_attempt_updates_working_state():
     assert state["roadmap_attempts"][0]["failure_stage"] == "output_validation"
 
 
-def test_roadmap_state_from_complete_maps_to_review_and_interview():
+def test_roadmap_state_from_complete_maps_to_review_and_interview() -> None:
+    """Verify roadmap state from complete maps to review and interview."""
     assert roadmap_state_from_complete(True) == "ROADMAP_REVIEW"
     assert roadmap_state_from_complete(False) == "ROADMAP_INTERVIEW"
 
 
-def test_set_roadmap_fsm_state_updates_state():
-    state = {}
+def test_set_roadmap_fsm_state_updates_state() -> None:
+    """Verify set roadmap fsm state updates state."""
+    state: JsonDict = {}
 
     next_state = set_roadmap_fsm_state(
         state,
@@ -59,8 +68,9 @@ def test_set_roadmap_fsm_state_updates_state():
     assert state["fsm_state_entered_at"] == "2026-04-04T00:00:00Z"
 
 
-def test_set_roadmap_fsm_state_preserves_story_phase_states():
-    state = {"fsm_state": " story_review "}
+def test_set_roadmap_fsm_state_preserves_story_phase_states() -> None:
+    """Verify set roadmap fsm state preserves story phase states."""
+    state: JsonDict = {"fsm_state": " story_review "}
 
     next_state = set_roadmap_fsm_state(
         state,
@@ -73,8 +83,9 @@ def test_set_roadmap_fsm_state_preserves_story_phase_states():
     assert "fsm_state_entered_at" not in state
 
 
-def test_set_roadmap_fsm_state_preserves_sprint_modify_state():
-    state = {"fsm_state": " sprint_modify "}
+def test_set_roadmap_fsm_state_preserves_sprint_modify_state() -> None:
+    """Verify set roadmap fsm state preserves sprint modify state."""
+    state: JsonDict = {"fsm_state": " sprint_modify "}
 
     next_state = set_roadmap_fsm_state(
         state,
@@ -87,26 +98,30 @@ def test_set_roadmap_fsm_state_preserves_sprint_modify_state():
     assert "fsm_state_entered_at" not in state
 
 
-def test_ensure_roadmap_attempts_returns_existing_list():
+def test_ensure_roadmap_attempts_returns_existing_list() -> None:
+    """Verify ensure roadmap attempts returns existing list."""
     attempts = [{"created_at": "2026-04-04T00:00:00Z"}]
-    state = {"roadmap_attempts": attempts}
+    state: JsonDict = {"roadmap_attempts": attempts}
 
     assert ensure_roadmap_attempts(state) is attempts
 
 
 @pytest.mark.asyncio
-async def test_generate_roadmap_draft_allows_empty_input_on_first_attempt():
-    state = {"fsm_state": "VISION_PERSISTENCE"}
-    saved: dict[str, object] = {}
-    captured: dict[str, object] = {}
+async def test_generate_roadmap_draft_allows_empty_input_on_first_attempt() -> None:
+    """Verify generate roadmap draft allows empty input on first attempt."""
+    state: JsonDict = {"fsm_state": "VISION_PERSISTENCE"}
+    saved: JsonDict = {}
+    captured: JsonDict = {}
 
-    async def load_state() -> dict[str, object]:
+    async def load_state() -> JsonDict:
         return state
 
-    def save_state(updated: dict[str, object]) -> None:
+    def save_state(updated: JsonDict) -> None:
         saved["state"] = dict(updated)
 
-    async def fake_run_roadmap_agent_from_state(state, *, project_id, user_input):
+    async def fake_run_roadmap_agent_from_state(
+        state: object, *, project_id: int, user_input: str | None
+    ) -> JsonDict:
         captured["state"] = state
         captured["project_id"] = project_id
         captured["user_input"] = user_input
@@ -145,17 +160,19 @@ async def test_generate_roadmap_draft_allows_empty_input_on_first_attempt():
 
 
 @pytest.mark.asyncio
-async def test_generate_roadmap_draft_requires_feedback_after_first_attempt():
-    state = {
+async def test_generate_roadmap_draft_requires_feedback_after_first_attempt() -> None:
+    """Verify generate roadmap draft requires feedback after first attempt."""
+    state: JsonDict = {
         "fsm_state": "ROADMAP_INTERVIEW",
         "roadmap_attempts": [{"created_at": "2026-04-03T00:00:00Z"}],
     }
 
-    async def load_state() -> dict[str, object]:
+    async def load_state() -> JsonDict:
         return state
 
-    async def fake_run_roadmap_agent_from_state(**_kwargs):
-        raise AssertionError("runner should not be called")
+    async def fake_run_roadmap_agent_from_state(**_kwargs: object) -> Never:
+        msg = "runner should not be called"
+        raise AssertionError(msg)
 
     with pytest.raises(RoadmapPhaseError) as exc_info:
         await generate_roadmap_draft(
@@ -167,20 +184,24 @@ async def test_generate_roadmap_draft_requires_feedback_after_first_attempt():
             user_input="   ",
         )
 
-    assert exc_info.value.status_code == 400
+    assert exc_info.value.status_code == 400  # noqa: PLR2004
     assert exc_info.value.detail == (
         "User input is required to refine an existing roadmap."
     )
 
 
 @pytest.mark.asyncio
-async def test_generate_roadmap_draft_failed_run_cannot_mark_complete():
-    state = {"fsm_state": "VISION_PERSISTENCE"}
+async def test_generate_roadmap_draft_failed_run_cannot_mark_complete() -> None:
+    """Verify generate roadmap draft failed run cannot mark complete."""
+    state: JsonDict = {"fsm_state": "VISION_PERSISTENCE"}
 
-    async def load_state() -> dict[str, object]:
+    async def load_state() -> JsonDict:
         return state
 
-    async def fake_run_roadmap_agent_from_state(state, *, project_id, user_input):
+    async def fake_run_roadmap_agent_from_state(
+        state: object, *, project_id: int, user_input: str | None
+    ) -> JsonDict:
+        del state, project_id
         return {
             "success": False,
             "input_context": {"user_input": user_input or ""},
@@ -214,8 +235,9 @@ async def test_generate_roadmap_draft_failed_run_cannot_mark_complete():
 
 
 @pytest.mark.asyncio
-async def test_get_roadmap_history_returns_count_and_items():
-    state = {
+async def test_get_roadmap_history_returns_count_and_items() -> None:
+    """Verify get roadmap history returns count and items."""
+    state: JsonDict = {
         "roadmap_attempts": [
             {"created_at": "2026-04-03T00:00:00Z", "trigger": "manual_refine"}
         ]
@@ -228,7 +250,8 @@ async def test_get_roadmap_history_returns_count_and_items():
 
 
 @pytest.mark.asyncio
-async def test_get_roadmap_history_defaults_to_empty_list():
+async def test_get_roadmap_history_defaults_to_empty_list() -> None:
+    """Verify get roadmap history defaults to empty list."""
     payload = await get_roadmap_history(load_state=lambda: _async_value({}))
 
     assert payload["count"] == 0
@@ -236,8 +259,10 @@ async def test_get_roadmap_history_defaults_to_empty_list():
 
 
 @pytest.mark.asyncio
-async def test_save_roadmap_draft_requires_assessment_dict():
-    async def hydrate_context():
+async def test_save_roadmap_draft_requires_assessment_dict() -> None:
+    """Verify save roadmap draft requires assessment dict."""
+
+    async def hydrate_context() -> object:
         return SimpleNamespace(state={})
 
     with pytest.raises(RoadmapPhaseError) as exc_info:
@@ -250,13 +275,14 @@ async def test_save_roadmap_draft_requires_assessment_dict():
             save_roadmap_tool=_fake_save_roadmap_tool,
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert exc_info.value.detail == "No roadmap draft available to save"
 
 
 @pytest.mark.asyncio
-async def test_save_roadmap_draft_requires_complete_assessment():
-    state = {
+async def test_save_roadmap_draft_requires_complete_assessment() -> None:
+    """Verify save roadmap draft requires complete assessment."""
+    state: JsonDict = {
         "product_roadmap_assessment": {
             "roadmap_releases": [{"release_name": "M1"}],
             "roadmap_summary": "Draft",
@@ -264,7 +290,7 @@ async def test_save_roadmap_draft_requires_complete_assessment():
         }
     }
 
-    async def hydrate_context():
+    async def hydrate_context() -> object:
         return SimpleNamespace(state=dict(state))
 
     with pytest.raises(RoadmapPhaseError) as exc_info:
@@ -277,22 +303,23 @@ async def test_save_roadmap_draft_requires_complete_assessment():
             save_roadmap_tool=_fake_save_roadmap_tool,
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert exc_info.value.detail == (
         "Roadmap cannot be saved until is_complete is true"
     )
 
 
 @pytest.mark.asyncio
-async def test_save_roadmap_draft_rejects_invalid_session_data():
-    state = {
+async def test_save_roadmap_draft_rejects_invalid_session_data() -> None:
+    """Verify save roadmap draft rejects invalid session data."""
+    state: JsonDict = {
         "product_roadmap_assessment": {
             "roadmap_summary": "Draft",
             "is_complete": True,
         }
     }
 
-    async def hydrate_context():
+    async def hydrate_context() -> object:
         return SimpleNamespace(state=dict(state))
 
     with pytest.raises(RoadmapPhaseError) as exc_info:
@@ -305,13 +332,14 @@ async def test_save_roadmap_draft_rejects_invalid_session_data():
             save_roadmap_tool=_fake_save_roadmap_tool,
         )
 
-    assert exc_info.value.status_code == 500
+    assert exc_info.value.status_code == 500  # noqa: PLR2004
     assert exc_info.value.detail.startswith("Invalid roadmap data in session: ")
 
 
 @pytest.mark.asyncio
-async def test_save_roadmap_draft_persists_persistence_state():
-    state = {
+async def test_save_roadmap_draft_persists_persistence_state() -> None:
+    """Verify save roadmap draft persists persistence state."""
+    state: JsonDict = {
         "product_roadmap_assessment": {
             "roadmap_releases": [
                 {
@@ -328,17 +356,19 @@ async def test_save_roadmap_draft_persists_persistence_state():
         },
         "fsm_state": "ROADMAP_REVIEW",
     }
-    saved: dict[str, object] = {}
-    captured: dict[str, object] = {}
+    saved: JsonDict = {}
+    captured: JsonDict = {}
 
-    async def hydrate_context():
-        context = SimpleNamespace(state=dict(state), session_id="7")
-        return context
+    async def hydrate_context() -> object:
+        return SimpleNamespace(state=dict(state), session_id="7")
 
-    def save_state(updated: dict[str, object]) -> None:
+    def save_state(updated: JsonDict) -> None:
         saved["state"] = dict(updated)
 
-    def fake_save_roadmap_tool(roadmap_input, tool_context):
+    def fake_save_roadmap_tool(
+        roadmap_input: SaveRoadmapToolInput,
+        tool_context: object,
+    ) -> JsonDict:
         captured["roadmap_input"] = roadmap_input
         captured["tool_context"] = tool_context
         return {
@@ -364,8 +394,9 @@ async def test_save_roadmap_draft_persists_persistence_state():
 
 
 @pytest.mark.asyncio
-async def test_save_roadmap_draft_translates_save_failure():
-    state = {
+async def test_save_roadmap_draft_translates_save_failure() -> None:
+    """Verify save roadmap draft translates save failure."""
+    state: JsonDict = {
         "product_roadmap_assessment": {
             "roadmap_releases": [
                 {
@@ -382,10 +413,13 @@ async def test_save_roadmap_draft_translates_save_failure():
         }
     }
 
-    async def hydrate_context():
+    async def hydrate_context() -> object:
         return SimpleNamespace(state=dict(state))
 
-    def fake_save_roadmap_tool(_roadmap_input, _tool_context):
+    def fake_save_roadmap_tool(
+        _roadmap_input: SaveRoadmapToolInput,
+        _tool_context: object,
+    ) -> JsonDict:
         return {"success": False, "error": "roadmap save failed"}
 
     with pytest.raises(RoadmapPhaseError) as exc_info:
@@ -398,13 +432,14 @@ async def test_save_roadmap_draft_translates_save_failure():
             save_roadmap_tool=fake_save_roadmap_tool,
         )
 
-    assert exc_info.value.status_code == 500
+    assert exc_info.value.status_code == 500  # noqa: PLR2004
     assert exc_info.value.detail == "roadmap save failed"
 
 
-async def _async_value(value):
+async def _async_value(value: object) -> object:
     return value
 
 
-def _fake_save_roadmap_tool(*_args, **_kwargs):
-    raise AssertionError("save_roadmap_tool should not be called")
+def _fake_save_roadmap_tool(*_args: object, **_kwargs: object) -> Never:
+    msg = "save_roadmap_tool should not be called"
+    raise AssertionError(msg)

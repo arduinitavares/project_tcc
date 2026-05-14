@@ -1,13 +1,27 @@
 """API tests for deterministic setup-first dashboard endpoints."""
 
 from dataclasses import dataclass
+from typing import Protocol, cast
 
+import pytest
 from fastapi.testclient import TestClient
 
 import api as api_module
 
+HTTP_OK = 200
+HTTP_TEMP_REDIRECT = 307
+HTTP_UNPROCESSABLE = 422
+HTTP_SERVER_ERROR = 500
 
-def test_api_uses_public_spec_lifecycle_wrapper():
+
+class _StateContext(Protocol):
+    """Minimal tool context shape used by dashboard route shims."""
+
+    state: dict[str, object]
+
+
+def test_api_uses_public_spec_lifecycle_wrapper() -> None:
+    """Confirm the API uses the public spec lifecycle wrapper."""
     assert (
         api_module.link_spec_to_product.__module__ == "services.specs.lifecycle_service"
     )
@@ -15,6 +29,8 @@ def test_api_uses_public_spec_lifecycle_wrapper():
 
 @dataclass
 class DummyProduct:
+    """Simple in-memory product used by dashboard API tests."""
+
     product_id: int
     name: str
     description: str | None = None
@@ -24,19 +40,29 @@ class DummyProduct:
 
 
 class DummyProductRepository:
+    """Tiny repository double for dashboard route tests."""
+
     def __init__(self) -> None:
+        """Initialize the in-memory product list."""
         self.products = []
 
-    def get_all(self):
+    def get_all(self) -> list[DummyProduct]:
+        """Return all known products."""
         return list(self.products)
 
-    def get_by_id(self, product_id: int):
+    def get_by_id(self, product_id: int) -> DummyProduct | None:
+        """Return the product matching the provided ID."""
         for product in self.products:
             if product.product_id == product_id:
                 return product
         return None
 
-    def create(self, name: str, description: str | None = None):
+    def create(
+        self,
+        name: str,
+        description: str | None = None,
+    ) -> DummyProduct:
+        """Create and store a new in-memory product."""
         product = DummyProduct(
             product_id=len(self.products) + 1,
             name=name,
@@ -47,21 +73,30 @@ class DummyProductRepository:
 
 
 class DummyWorkflowService:
+    """Workflow-state double used by dashboard route tests."""
+
     def __init__(self) -> None:
+        """Initialize the in-memory workflow state store."""
         self.states: dict[str, dict[str, object]] = {}
         self.single_calls: list[str] = []
         self.batch_calls: list[list[str]] = []
 
     async def initialize_session(self, session_id: str | None = None) -> str:
+        """Create a session with the setup-required FSM state."""
         sid = str(session_id or "generated")
         self.states[sid] = {"fsm_state": "SETUP_REQUIRED"}
         return sid
 
-    def get_session_status(self, session_id: str):
+    def get_session_status(self, session_id: str) -> dict[str, object]:
+        """Return a shallow copy of the stored session state."""
         self.single_calls.append(str(session_id))
         return dict(self.states.get(str(session_id), {}))
 
-    def get_session_statuses(self, session_ids: list[str]):
+    def get_session_statuses(
+        self,
+        session_ids: list[str],
+    ) -> dict[str, dict[str, object]]:
+        """Return state snapshots for the provided session IDs."""
         normalized = [str(session_id) for session_id in session_ids]
         self.batch_calls.append(normalized)
         return {
@@ -69,13 +104,19 @@ class DummyWorkflowService:
             for session_id in normalized
         }
 
-    def update_session_status(self, session_id: str, partial_update):
+    def update_session_status(
+        self,
+        session_id: str,
+        partial_update: dict[str, object],
+    ) -> None:
+        """Merge a partial state update into the stored session state."""
         sid = str(session_id)
         current = dict(self.states.get(sid, {}))
         current.update(partial_update)
         self.states[sid] = current
 
     def migrate_legacy_setup_state(self) -> int:
+        """Normalize legacy routing-mode sessions to setup-required."""
         migrated = 0
         for sid, payload in self.states.items():
             if payload.get("fsm_state") == "ROUTING_MODE":
@@ -84,14 +125,19 @@ class DummyWorkflowService:
         return migrated
 
 
-def _build_client(monkeypatch):
+def _build_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[TestClient, DummyProductRepository, DummyWorkflowService]:
     repo = DummyProductRepository()
     workflow = DummyWorkflowService()
 
     monkeypatch.setattr(api_module, "product_repo", repo)
     monkeypatch.setattr(api_module, "workflow_service", workflow)
 
-    def fake_select_project(product_id: int, context):
+    def fake_select_project(
+        product_id: int,
+        context: _StateContext,
+    ) -> dict[str, object]:
         product = repo.get_by_id(product_id)
         if not product:
             return {"success": False, "error": "missing"}
@@ -103,9 +149,16 @@ def _build_client(monkeypatch):
         }
         return {"success": True}
 
-    def fake_link_spec_to_product(params, tool_context=None):
-        product = repo.get_by_id(int(params["product_id"]))
+    def fake_link_spec_to_product(
+        params: dict[str, object],
+        tool_context: _StateContext | None = None,
+    ) -> dict[str, object]:
+        product_id = params["product_id"]
+        assert isinstance(product_id, int | str)
+        product = repo.get_by_id(int(product_id))
+        assert product is not None
         spec_path = params["spec_path"]
+        assert isinstance(spec_path, str)
 
         if "invalid" in spec_path.lower():
             if tool_context:
@@ -138,7 +191,13 @@ def _build_client(monkeypatch):
     monkeypatch.setattr(api_module, "select_project", fake_select_project)
     monkeypatch.setattr(api_module, "link_spec_to_product", fake_link_spec_to_product)
 
-    async def fake_run_vision_agent_from_state(state, *, project_id, user_input):
+    async def fake_run_vision_agent_from_state(
+        state: dict[str, object],
+        *,
+        project_id: int,
+        user_input: str | None,
+    ) -> dict[str, object]:
+        del project_id
         return {
             "success": True,
             "input_context": {
@@ -179,11 +238,14 @@ def _build_client(monkeypatch):
     return TestClient(api_module.app), repo, workflow
 
 
-def test_get_dashboard_config_returns_setup_state(monkeypatch):
+def test_get_dashboard_config_returns_setup_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Return the setup-first workflow state in dashboard config."""
     client, _, _ = _build_client(monkeypatch)
 
     response = client.get("/api/dashboard/config")
-    assert response.status_code == 200
+    assert response.status_code == HTTP_OK
 
     payload = response.json()
     assert payload["status"] == "success"
@@ -193,30 +255,39 @@ def test_get_dashboard_config_returns_setup_state(monkeypatch):
     assert steps[0]["states"] == ["SETUP_REQUIRED"]
 
 
-def test_root_redirects_to_dashboard(monkeypatch):
+def test_root_redirects_to_dashboard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Redirect the root endpoint to the dashboard."""
     client, _, _ = _build_client(monkeypatch)
 
     response = client.get("/", follow_redirects=False)
 
-    assert response.status_code == 307
+    assert response.status_code == HTTP_TEMP_REDIRECT
     assert response.headers["location"] == "/dashboard"
 
 
-def test_create_project_requires_spec_file_path(monkeypatch):
+def test_create_project_requires_spec_file_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject project creation without a specification file path."""
     client, _, _ = _build_client(monkeypatch)
 
     response = client.post("/api/projects", json={"name": "Alpha"})
-    assert response.status_code == 422
+    assert response.status_code == HTTP_UNPROCESSABLE
 
 
-def test_create_project_success_advances_to_vision(monkeypatch):
+def test_create_project_success_advances_to_vision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Advance to vision interviewing after successful project setup."""
     client, _, workflow = _build_client(monkeypatch)
 
     response = client.post(
         "/api/projects",
         json={"name": "Project Alpha", "spec_file_path": __file__},
     )
-    assert response.status_code == 200
+    assert response.status_code == HTTP_OK
 
     payload = response.json()
     assert payload["status"] == "success"
@@ -229,7 +300,10 @@ def test_create_project_success_advances_to_vision(monkeypatch):
     assert workflow.states["1"]["fsm_state"] == "VISION_INTERVIEW"
 
 
-def test_get_projects_uses_batch_session_lookup(monkeypatch):
+def test_get_projects_uses_batch_session_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Use batch workflow status lookup when listing projects."""
     client, repo, workflow = _build_client(monkeypatch)
 
     repo.products = [
@@ -248,7 +322,7 @@ def test_get_projects_uses_batch_session_lookup(monkeypatch):
 
     response = client.get("/api/projects")
 
-    assert response.status_code == 200
+    assert response.status_code == HTTP_OK
     payload = response.json()
     assert payload["status"] == "success"
     assert [item["id"] for item in payload["data"]] == [1, 2]
@@ -258,16 +332,33 @@ def test_get_projects_uses_batch_session_lookup(monkeypatch):
     assert workflow.single_calls == []
 
 
-def test_create_project_returns_500_when_repository_does_not_persist(monkeypatch):
+def test_create_project_returns_500_when_repository_does_not_persist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Return 500 when the repository returns a product without an ID."""
     client, repo, _workflow = _build_client(monkeypatch)
 
-    def create_without_id(name: str, description: str | None = None):
-        product = DummyProduct(
-            product_id=None,  # type: ignore[arg-type]
+    @dataclass
+    class BrokenDummyProduct:
+        """Broken product double that simulates a missing primary key."""
+
+        product_id: int | None
+        name: str
+        description: str | None = None
+        vision: str | None = None
+        spec_file_path: str | None = None
+        compiled_authority_json: str | None = None
+
+    def create_without_id(
+        name: str,
+        description: str | None = None,
+    ) -> BrokenDummyProduct:
+        product = BrokenDummyProduct(
+            product_id=None,
             name=name,
             description=description,
         )
-        repo.products.append(product)
+        repo.products.append(cast("DummyProduct", product))
         return product
 
     monkeypatch.setattr(repo, "create", create_without_id)
@@ -277,18 +368,21 @@ def test_create_project_returns_500_when_repository_does_not_persist(monkeypatch
         json={"name": "Broken Project", "spec_file_path": __file__},
     )
 
-    assert response.status_code == 500
+    assert response.status_code == HTTP_SERVER_ERROR
     assert response.json()["detail"] == "Failed to create project"
 
 
-def test_create_project_setup_fail_and_retry_same_project(monkeypatch):
-    client, repo, workflow = _build_client(monkeypatch)
+def test_create_project_setup_fail_and_retry_same_project(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retry setup on the same project after a setup-phase failure."""
+    client, repo, _workflow = _build_client(monkeypatch)
 
     create_response = client.post(
         "/api/projects",
         json={"name": "Project Retry", "spec_file_path": "invalid/path.md"},
     )
-    assert create_response.status_code == 200
+    assert create_response.status_code == HTTP_OK
 
     create_payload = create_response.json()
     assert create_payload["data"]["setup_status"] == "failed"
@@ -302,26 +396,29 @@ def test_create_project_setup_fail_and_retry_same_project(monkeypatch):
         f"/api/projects/{product.product_id}/setup/retry",
         json={"spec_file_path": __file__},
     )
-    assert retry_response.status_code == 200
+    assert retry_response.status_code == HTTP_OK
 
     retry_payload = retry_response.json()
     assert retry_payload["data"]["setup_status"] == "passed"
     assert retry_payload["data"]["fsm_state"] == "VISION_INTERVIEW"
 
 
-def test_get_project_state_preserves_specific_setup_error(monkeypatch):
-    client, repo, workflow = _build_client(monkeypatch)
+def test_get_project_state_preserves_specific_setup_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preserve setup failure metadata in the project-state endpoint."""
+    client, _repo, _workflow = _build_client(monkeypatch)
 
     create_response = client.post(
         "/api/projects",
         json={"name": "Project Retry", "spec_file_path": "invalid/path.md"},
     )
-    assert create_response.status_code == 200
+    assert create_response.status_code == HTTP_OK
 
     project_id = create_response.json()["data"]["id"]
 
     state_response = client.get(f"/api/projects/{project_id}/state")
-    assert state_response.status_code == 200
+    assert state_response.status_code == HTTP_OK
 
     payload = state_response.json()
     assert payload["data"]["setup_status"] == "failed"
@@ -331,7 +428,10 @@ def test_get_project_state_preserves_specific_setup_error(monkeypatch):
     assert payload["data"]["setup_has_full_artifact"] is True
 
 
-def test_state_forces_setup_required_when_product_missing_spec(monkeypatch):
+def test_state_forces_setup_required_when_product_missing_spec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Force setup-required when a stored product has no persisted spec."""
     client, repo, workflow = _build_client(monkeypatch)
 
     product = repo.create("Legacy")
@@ -341,7 +441,7 @@ def test_state_forces_setup_required_when_product_missing_spec(monkeypatch):
     }
 
     response = client.get(f"/api/projects/{product.product_id}/state")
-    assert response.status_code == 200
+    assert response.status_code == HTTP_OK
 
     payload = response.json()
     assert payload["status"] == "success"
@@ -349,10 +449,19 @@ def test_state_forces_setup_required_when_product_missing_spec(monkeypatch):
     assert payload["data"]["setup_status"] == "failed"
 
 
-def test_create_project_auto_vision_failure_is_recorded(monkeypatch):
+def test_create_project_auto_vision_failure_is_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Record vision auto-run failure metadata during project creation."""
     client, _, workflow = _build_client(monkeypatch)
 
-    async def failing_auto_vision(state, *, project_id, user_input):
+    async def failing_auto_vision(
+        state: dict[str, object],
+        *,
+        project_id: int,
+        user_input: str | None,
+    ) -> dict[str, object]:
+        del project_id
         return {
             "success": False,
             "input_context": {
@@ -384,7 +493,7 @@ def test_create_project_auto_vision_failure_is_recorded(monkeypatch):
         "/api/projects",
         json={"name": "Project Auto Fail", "spec_file_path": __file__},
     )
-    assert response.status_code == 200
+    assert response.status_code == HTTP_OK
 
     payload = response.json()
     assert payload["data"]["setup_status"] == "passed"
@@ -400,19 +509,25 @@ def test_create_project_auto_vision_failure_is_recorded(monkeypatch):
     history = workflow.states["1"]["vision_attempts"]
     assert isinstance(history, list)
     assert len(history) == 1
-    assert history[0]["trigger"] == "auto_setup_transition"
-    assert history[0]["is_complete"] is False
-    assert history[0]["failure_artifact_id"] == "vision-auto-failure"
+    first_attempt = history[0]
+    assert isinstance(first_attempt, dict)
+    first_attempt = cast("dict[str, object]", first_attempt)
+    assert first_attempt["trigger"] == "auto_setup_transition"
+    assert first_attempt["is_complete"] is False
+    assert first_attempt["failure_artifact_id"] == "vision-auto-failure"
 
 
-def test_create_project_setup_failure_exposes_failure_metadata(monkeypatch):
+def test_create_project_setup_failure_exposes_failure_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Expose setup failure metadata on the project-creation response."""
     client, _, workflow = _build_client(monkeypatch)
 
     response = client.post(
         "/api/projects",
         json={"name": "Project Retry", "spec_file_path": "invalid/path.md"},
     )
-    assert response.status_code == 200
+    assert response.status_code == HTTP_OK
 
     payload = response.json()
     assert payload["data"]["setup_status"] == "failed"

@@ -66,6 +66,7 @@ def _attribute_references_from_import(
 
 
 def test_orchestrator_query_service_import_boundary() -> None:
+    """Verify orchestrator query service import boundary."""
     module_path = ROOT / "services/orchestrator_query_service.py"
 
     core_imports = _imported_names_from(module_path, "models.core")
@@ -93,6 +94,7 @@ def test_orchestrator_query_service_import_boundary() -> None:
 
 
 def test_orchestrator_context_service_import_boundary() -> None:
+    """Verify orchestrator context service import boundary."""
     module_path = ROOT / "services/orchestrator_context_service.py"
 
     core_imports = _imported_names_from(module_path, "models.core")
@@ -116,6 +118,7 @@ def test_orchestrator_context_service_import_boundary() -> None:
 
 
 def test_orchestrator_tools_import_boundary() -> None:
+    """Verify orchestrator tools import boundary."""
     module_path = ROOT / "tools/orchestrator_tools.py"
 
     core_imports = _imported_names_from(module_path, "models.core")

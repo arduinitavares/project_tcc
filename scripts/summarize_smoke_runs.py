@@ -9,27 +9,35 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Iterable
 from pathlib import Path
 from statistics import median
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from utils.cli_output import emit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
-from pydantic import ValidationError
+from pydantic import ValidationError  # noqa: E402
 
-from utils.smoke_schema import SmokeRunRecord, parse_smoke_run_record, terminal_status
+from utils.smoke_schema import (  # noqa: E402
+    SmokeRunRecord,
+    parse_smoke_run_record,
+    terminal_status,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
-def _safe_int(value: Any) -> int | None:
+def _safe_int(value: Any) -> int | None:  # noqa: ANN401
     if isinstance(value, int):
         return value
     return None
 
 
-def _safe_float(value: Any) -> float | None:
+def _safe_float(value: Any) -> float | None:  # noqa: ANN401
     if isinstance(value, (int, float)):
         return float(value)
     return None
@@ -65,7 +73,7 @@ def _read_jsonl(path: Path, *, skip_invalid: bool) -> list[SmokeRunRecord]:
     records: list[SmokeRunRecord] = []
     with path.open("r", encoding="utf-8") as handle:
         for idx, line in enumerate(handle, start=1):
-            line = line.strip()
+            line = line.strip()  # noqa: PLW2901
             if not line:
                 continue
             try:
@@ -74,11 +82,13 @@ def _read_jsonl(path: Path, *, skip_invalid: bool) -> list[SmokeRunRecord]:
             except json.JSONDecodeError as exc:
                 if skip_invalid:
                     continue
-                raise ValueError(f"Invalid JSON on line {idx}") from exc
+                msg = f"Invalid JSON on line {idx}"
+                raise ValueError(msg) from exc
             except ValidationError as exc:
                 if skip_invalid:
                     continue
-                raise ValueError(f"Schema validation failed on line {idx}") from exc
+                msg = f"Schema validation failed on line {idx}"
+                raise ValueError(msg) from exc
     return records
 
 
@@ -106,7 +116,7 @@ def _format_int(value: int | None) -> str:
     return str(value)
 
 
-def _bool_summary(value: Any) -> str:
+def _bool_summary(value: Any) -> str:  # noqa: ANN401
     if value is True:
         return "true"
     if value is False:
@@ -124,7 +134,8 @@ def _normalize_records(records: Iterable[Any]) -> list[SmokeRunRecord]:
     return normalized
 
 
-def summarize(records: list[dict[str, Any]]) -> str:
+def summarize(records: Iterable[Any]) -> str:  # noqa: C901, PLR0912, PLR0915
+    """Return summarize."""
     normalized = _normalize_records(records)
     grouped: dict[tuple[int, str], list[SmokeRunRecord]] = {}
     for record in normalized:
@@ -132,8 +143,8 @@ def summarize(records: list[dict[str, Any]]) -> str:
 
     lines: list[str] = []
     lines.append(
-        "| Scenario | Variant | Runs | Completed | Crashed | Acceptance Block % | Alignment Reject % | "
-        "Success % | Median Total ms | Median Compile ms | Median Pipeline ms | Median Validation ms | Median AC Count |"
+        "| Scenario | Variant | Runs | Completed | Crashed | Acceptance Block % | Alignment Reject % | "  # noqa: E501
+        "Success % | Median Total ms | Median Compile ms | Median Pipeline ms | Median Validation ms | Median AC Count |"  # noqa: E501
     )
     lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 
@@ -253,14 +264,14 @@ def summarize(records: list[dict[str, Any]]) -> str:
             ):
                 alignment_any += 1
 
-        if scenario_id == 2 and alignment_any == 0:
+        if scenario_id == 2 and alignment_any == 0:  # noqa: PLR2004
             sanity_alignment_zero = True
 
         lines.append(f"### Scenario {scenario_id}")
         lines.append("| Status | Count |")
         lines.append("|---|---:|")
         for status in status_order:
-            lines.append(f"| {status} | {counts.get(status, 0)} |")
+            lines.append(f"| {status} | {counts.get(status, 0)} |")  # noqa: PERF401
 
         unknown_rows = [r for r in rows if terminal_status(r) == "unknown"]
         if unknown_rows:
@@ -277,7 +288,7 @@ def summarize(records: list[dict[str, Any]]) -> str:
                 lines.append(
                     f"- RUN_ID={run_id} METRICS={metrics_keys} TIMING_MS={timing_keys} "
                     f"ALIGNMENT_REJECTED={_bool_summary(row.ALIGNMENT_REJECTED)} "
-                    f"ACCEPTANCE_GATE_BLOCKED={_bool_summary(row.ACCEPTANCE_GATE_BLOCKED)} "
+                    f"ACCEPTANCE_GATE_BLOCKED={_bool_summary(row.ACCEPTANCE_GATE_BLOCKED)} "  # noqa: E501
                     f"DRAFT_AGENT_OUTPUT={_bool_summary(draft_present)} "
                     f"REFINER_OUTPUT={_bool_summary(refiner_present)}"
                 )
@@ -328,7 +339,7 @@ def summarize(records: list[dict[str, Any]]) -> str:
 
     if warnings:
         for warning in warnings:
-            lines.append(f"- {warning}")
+            lines.append(f"- {warning}")  # noqa: PERF401
     else:
         lines.append("- None")
 
@@ -336,6 +347,7 @@ def summarize(records: list[dict[str, Any]]) -> str:
 
 
 def main() -> None:
+    """Return main."""
     parser = argparse.ArgumentParser(description="Summarize smoke harness JSONL runs")
     parser.add_argument("--jsonl", required=True, help="Path to smoke JSONL output")
     parser.add_argument(
@@ -348,10 +360,10 @@ def main() -> None:
     jsonl_path = Path(args.jsonl).resolve()
     records = _read_jsonl(jsonl_path, skip_invalid=args.skip_invalid)
     if not records:
-        print("No valid JSONL records found.")
+        emit("No valid JSONL records found.")
         return
 
-    print(summarize(records))
+    emit(summarize(records))
 
 
 if __name__ == "__main__":

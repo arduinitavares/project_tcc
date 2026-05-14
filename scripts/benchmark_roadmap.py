@@ -1,10 +1,16 @@
+"""Script for benchmark roadmap."""
+
 import sys
 import time
 from pathlib import Path
+from sqlite3 import Connection
+from typing import Any
 
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine
+
+from utils.cli_output import emit
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -18,7 +24,10 @@ engine = create_engine(DB_URL, echo=False)
 
 
 @event.listens_for(Engine, "connect")
-def set_sqlite_pragma(dbapi_connection, _connection_record):
+def set_sqlite_pragma(
+    dbapi_connection: Connection, _connection_record: object
+) -> None:
+    """Return set sqlite pragma."""
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
@@ -27,11 +36,25 @@ def set_sqlite_pragma(dbapi_connection, _connection_record):
 SQLModel.metadata.create_all(engine)
 
 # Patch the engine in db_tools
-db_tools.engine = engine
+def _benchmark_engine() -> Engine:
+    return engine
 
 
-def generate_roadmap_data(num_themes=5, epics_per_theme=5, features_per_epic=5):
-    roadmap = []
+db_tools.__dict__["get_engine"] = _benchmark_engine
+
+
+def _require_id(value: int | None, name: str) -> int:
+    if value is None:
+        msg = f"{name} was not generated"
+        raise RuntimeError(msg)
+    return value
+
+
+def generate_roadmap_data(
+    num_themes: int = 5, epics_per_theme: int = 5, features_per_epic: int = 5
+) -> list[dict[str, Any]]:
+    """Return generate roadmap data."""
+    roadmap: list[dict[str, Any]] = []
     for t in range(num_themes):
         theme = {
             "quarter": "Q1",
@@ -56,14 +79,15 @@ def generate_roadmap_data(num_themes=5, epics_per_theme=5, features_per_epic=5):
     return roadmap
 
 
-def run_benchmark():
+def run_benchmark() -> float:
     # create product
+    """Return run benchmark."""
     with Session(engine) as session:
         product = Product(name="Benchmark Product", vision="Speed")
         session.add(product)
         session.commit()
         session.refresh(product)
-        product_id = product.product_id
+        product_id = _require_id(product.product_id, "Product ID")
 
     # generate data
     # Increase load to make the difference obvious
@@ -72,8 +96,8 @@ def run_benchmark():
         num_themes=10, epics_per_theme=10, features_per_epic=10
     )
 
-    print(
-        f"Benchmarking persist_roadmap with {len(data)} themes, {len(data) * 10} epics, {len(data) * 10 * 10} features..."
+    emit(
+        f"Benchmarking persist_roadmap with {len(data)} themes, {len(data) * 10} epics, {len(data) * 10 * 10} features..."  # noqa: E501
     )
 
     start_time = time.time()
@@ -83,10 +107,10 @@ def run_benchmark():
     duration = end_time - start_time
 
     if result["success"]:
-        print(f"Success! Duration: {duration:.4f} seconds")
-        print(result["message"])
+        emit(f"Success! Duration: {duration:.4f} seconds")
+        emit(result["message"])
     else:
-        print(f"Failed: {result}")
+        emit(f"Failed: {result}")
 
     return duration
 

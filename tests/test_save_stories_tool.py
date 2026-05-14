@@ -49,7 +49,7 @@ def _valid_story() -> dict:
 
 
 def _story_missing_so_that() -> dict:
-    """Return a story whose statement is missing 'so that' – triggers model validator."""
+    """Return a story whose statement is missing 'so that' – triggers model validator."""  # noqa: E501, RUF002
     return {
         "story_title": "Prevent storing confirmations with snapshots",
         "statement": (
@@ -72,8 +72,9 @@ def _story_missing_so_that() -> dict:
 class TestSaveStoriesTool:
     """Validation and persistence tests for save_stories_tool."""
 
-    def test_model_validator_empty_loc_does_not_crash(self, session: Session):
-        """Regression: model-level validator errors have loc=() which caused
+    def test_model_validator_empty_loc_does_not_crash(self, session: Session) -> None:
+        """Regression: model-level validator errors have loc=() which caused.
+
         IndexError when formatting the error message.
         """
         _seed_product(session)
@@ -93,8 +94,9 @@ class TestSaveStoriesTool:
             or "validation" in result["error"].lower()
         )
 
-    def test_mixed_valid_and_invalid_stories(self, session: Session):
-        """When some stories pass and some fail model validation,
+    def test_mixed_valid_and_invalid_stories(self, session: Session) -> None:
+        """When some stories pass and some fail model validation,.
+
         the tool must report failure without crashing.
         """
         _seed_product(session)
@@ -110,7 +112,7 @@ class TestSaveStoriesTool:
         assert result["valid_count"] == 1
         assert result["invalid_count"] == 1
 
-    def test_valid_stories_are_saved(self, session: Session):
+    def test_valid_stories_are_saved(self, session: Session) -> None:
         """Happy path: valid stories are persisted and IDs returned."""
         _seed_product(session)
 
@@ -121,12 +123,13 @@ class TestSaveStoriesTool:
         )
         result = save_stories_tool(input_data=payload, tool_context=None)
 
-        assert result["success"] == True, result.get("error")
+        assert result["success"], result.get("error")
         assert result["saved_count"] == 1
         assert len(result["story_ids"]) == 1
 
-    def test_nonexistent_product_returns_error(self, session: Session):
+    def test_nonexistent_product_returns_error(self, session: Session) -> None:
         """Calling with a product_id that does not exist returns structured error."""
+        del session
         payload = SaveStoriesInput(
             product_id=999,
             parent_requirement="N/A",
@@ -137,8 +140,8 @@ class TestSaveStoriesTool:
         assert result["success"] is False
         assert "not found" in result["error"].lower()
 
-    def test_extra_field_rejected(self, session: Session):
-        """UserStoryItem has extra='forbid'; story with unknown keys must fail validation."""
+    def test_extra_field_rejected(self, session: Session) -> None:
+        """UserStoryItem has extra='forbid'; story with unknown keys must fail validation."""  # noqa: E501
         _seed_product(session)
 
         story = _valid_story()
@@ -154,7 +157,7 @@ class TestSaveStoriesTool:
         assert result["success"] is False
         assert "error" in result
 
-    def test_empty_stories_list_handled(self, session: Session):
+    def test_empty_stories_list_handled(self, session: Session) -> None:
         """An empty story list should fail gracefully (no crash)."""
         _seed_product(session)
 
@@ -170,7 +173,8 @@ class TestSaveStoriesTool:
         assert isinstance(result, dict)
         assert "success" in result
 
-    def test_refinement_updates_seed_rows_by_linkage(self, session: Session):
+    def test_refinement_updates_seed_rows_by_linkage(self, session: Session) -> None:
+        """Verify refinement updates seed rows by linkage."""
         _seed_product(session)
         seed = UserStory(
             product_id=1,
@@ -195,7 +199,7 @@ class TestSaveStoriesTool:
         )
         result = save_stories_tool(input_data=payload, tool_context=None)
 
-        assert result["success"] == True, result.get("error")
+        assert result["success"], result.get("error")
         assert result["updated_count"] == 1
         assert result["created_count"] == 0
         assert result["updated_story_ids"] == [seed_id]
@@ -207,7 +211,10 @@ class TestSaveStoriesTool:
         assert (refreshed.acceptance_criteria or "").strip().startswith("- Verify")
         assert refreshed.story_origin == "refined"
 
-    def test_refinement_repeat_is_idempotent_no_new_rows(self, session: Session):
+    def test_refinement_repeat_is_idempotent_no_new_rows(
+        self, session: Session
+    ) -> None:
+        """Verify refinement repeat is idempotent no new rows."""
         _seed_product(session)
         seed = UserStory(
             product_id=1,
@@ -239,7 +246,10 @@ class TestSaveStoriesTool:
         rows = session.exec(select(UserStory).where(UserStory.product_id == 1)).all()
         assert len(rows) == 1
 
-    def test_source_requirement_normalization_matches_rows(self, session: Session):
+    def test_source_requirement_normalization_matches_rows(
+        self, session: Session
+    ) -> None:
+        """Verify source requirement normalization matches rows."""
         _seed_product(session)
         seed = UserStory(
             product_id=1,
@@ -262,5 +272,5 @@ class TestSaveStoriesTool:
             stories=[_valid_story()],
         )
         result = save_stories_tool(input_data=payload, tool_context=None)
-        assert result["success"] == True, result.get("error")
+        assert result["success"], result.get("error")
         assert result["updated_story_ids"] == [seed.story_id]

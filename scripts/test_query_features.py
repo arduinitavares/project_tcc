@@ -1,11 +1,11 @@
-"""
-Quick test to verify query_features_for_stories returns validated Pydantic schema with theme/epic.
-"""
+# ruff: noqa: E501
+"""Quick test to verify query_features_for_stories returns validated Pydantic schema with theme/epic."""
 
 from tools.story_query_tools import (
     QueryFeaturesInput,
     query_features_for_stories,
 )
+from utils.cli_output import emit
 
 
 def main() -> None:
@@ -16,23 +16,23 @@ def main() -> None:
     # Test with product ID 3 (from the logs)
     result = query_features_for_stories(QueryFeaturesInput(product_id=3))
 
-    print("Query Result Type:", type(result))
-    print("Result is dict:", isinstance(result, dict))
+    emit("Query Result Type:", type(result))
+    emit("Result is dict:", isinstance(result, dict))
 
     if result["success"]:
-        print(f"\n✅ Success: {result['message']}")
-        print(f"Product: {result['product_name']} (ID: {result['product_id']})")
-        print(f"Total Features: {result['total_features']}")
+        emit(f"\n✅ Success: {result['message']}")
+        emit(f"Product: {result['product_name']} (ID: {result['product_id']})")
+        emit(f"Total Features: {result['total_features']}")
 
-        print(f"\n{'=' * 60}")
-        print("SCHEMA VALIDATION TEST - Features with Theme/Epic:")
-        print(f"{'=' * 60}")
+        emit(f"\n{'=' * 60}")
+        emit("SCHEMA VALIDATION TEST - Features with Theme/Epic:")
+        emit(f"{'=' * 60}")
 
         for i, feat in enumerate(result["features_flat"][:5], 1):  # Show first 5
-            print(f"\n{i}. {feat['feature_title'][:60]}")
-            print(f"   Theme: '{feat['theme']}' (type: {type(feat['theme']).__name__})")
-            print(f"   Epic: '{feat['epic']}' (type: {type(feat['epic']).__name__})")
-            print(f"   Feature ID: {feat['feature_id']}")
+            emit(f"\n{i}. {feat['feature_title'][:60]}")
+            emit(f"   Theme: '{feat['theme']}' (type: {type(feat['theme']).__name__})")
+            emit(f"   Epic: '{feat['epic']}' (type: {type(feat['epic']).__name__})")
+            emit(f"   Feature ID: {feat['feature_id']}")
 
             # Verify required fields are NOT None or "Unknown"
             assert feat["theme"], (
@@ -46,15 +46,15 @@ def main() -> None:
                 f"FAIL: Epic is 'Unknown' for feature {feat['feature_id']}"
             )
 
-        print(f"\n{'=' * 60}")
-        print("✅ ALL SCHEMA VALIDATIONS PASSED!")
-        print(f"{'=' * 60}")
-        print("\nPydantic enforces (internally):")
-        print("  - theme: str (min_length=1, REQUIRED)")
-        print("  - epic: str (min_length=1, REQUIRED)")
-        print("  - No None or empty strings allowed")
+        emit(f"\n{'=' * 60}")
+        emit("✅ ALL SCHEMA VALIDATIONS PASSED!")
+        emit(f"{'=' * 60}")
+        emit("\nPydantic enforces (internally):")
+        emit("  - theme: str (min_length=1, REQUIRED)")
+        emit("  - epic: str (min_length=1, REQUIRED)")
+        emit("  - No None or empty strings allowed")
     else:
-        print(f"❌ Query failed: {result.get('error', result)}")
+        emit(f"❌ Query failed: {result.get('error', result)}")
 
 
 if __name__ == "__main__":

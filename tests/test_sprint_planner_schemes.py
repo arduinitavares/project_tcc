@@ -63,7 +63,7 @@ def _build_output_payload() -> dict[str, Any]:
     }
 
 
-def test_output_schema_round_trip():
+def test_output_schema_round_trip() -> None:
     """Ensure output schema supports JSON round-trip validation."""
     payload = _build_output_payload()
     model = SprintPlannerOutput.model_validate(payload)
@@ -76,19 +76,20 @@ def test_output_schema_round_trip():
     ]
 
 
-def test_output_schema_rejects_extra_fields():
+def test_output_schema_rejects_extra_fields() -> None:
     """Ensure extra keys are rejected in output schema."""
     payload = _build_output_payload()
     payload["extra"] = "not allowed"
     try:
         SprintPlannerOutput.model_validate(payload)
     except ValidationError as exc:
-        assert "extra" in str(exc)
+        assert "extra" in str(exc)  # noqa: PT017
     else:
-        raise AssertionError("Expected ValidationError for extra fields")
+        msg = "Expected ValidationError for extra fields"
+        raise AssertionError(msg)
 
 
-def test_input_schema_accepts_optional_fields():
+def test_input_schema_accepts_optional_fields() -> None:
     """Ensure input schema accepts optional capacity and task flags."""
     input_payload: dict[str, Any] = {
         "available_stories": [
@@ -112,11 +113,11 @@ def test_input_schema_accepts_optional_fields():
         "include_task_decomposition": False,
     }
     model = SprintPlannerInput.model_validate(input_payload)
-    assert model.max_story_points == 8
+    assert model.max_story_points == 8  # noqa: PLR2004
     assert model.include_task_decomposition is False
 
 
-def test_input_schema_requires_duration_days():
+def test_input_schema_requires_duration_days() -> None:
     """Ensure sprint duration is required in input schema."""
     input_payload: dict[str, Any] = {
         "available_stories": [
@@ -141,14 +142,15 @@ def test_input_schema_requires_duration_days():
     try:
         SprintPlannerInput.model_validate(input_payload)
     except ValidationError as exc:
-        assert "sprint_duration_days" in str(exc)
+        assert "sprint_duration_days" in str(exc)  # noqa: PT017
     else:
+        msg = "Expected ValidationError for missing sprint_duration_days"
         raise AssertionError(
-            "Expected ValidationError for missing sprint_duration_days"
+            msg
         )
 
 
-def test_selected_story_requires_reason():
+def test_selected_story_requires_reason() -> None:
     """Ensure selected stories include a reason for selection."""
     payload: dict[str, Any] = {
         "story_id": 201,
@@ -165,10 +167,11 @@ def test_selected_story_requires_reason():
         "reason_for_selection": "Critical to account access",
     }
     model = SprintPlannerSelectedStory.model_validate(payload)
-    assert model.story_id == 201
+    assert model.story_id == 201  # noqa: PLR2004
 
 
-def test_selected_story_rejects_legacy_string_tasks():
+def test_selected_story_rejects_legacy_string_tasks() -> None:
+    """Verify selected story rejects legacy string tasks."""
     payload: dict[str, Any] = {
         "story_id": 201,
         "story_title": "Password reset",
@@ -178,12 +181,14 @@ def test_selected_story_rejects_legacy_string_tasks():
     try:
         SprintPlannerSelectedStory.model_validate(payload)
     except ValidationError as exc:
-        assert "tasks" in str(exc)
+        assert "tasks" in str(exc)  # noqa: PT017
     else:
-        raise AssertionError("Expected ValidationError for legacy string tasks")
+        msg = "Expected ValidationError for legacy string tasks"
+        raise AssertionError(msg)
 
 
-def test_validate_task_invariant_bindings_rejects_out_of_scope_ids():
+def test_validate_task_invariant_bindings_rejects_out_of_scope_ids() -> None:
+    """Verify validate task invariant bindings rejects out of scope ids."""
     model = SprintPlannerOutput.model_validate(_build_output_payload())
     errors = validate_task_invariant_bindings(
         model,
@@ -194,7 +199,10 @@ def test_validate_task_invariant_bindings_rejects_out_of_scope_ids():
     ]
 
 
-def test_validate_task_decomposition_quality_rejects_story_acceptance_criteria_copy():
+def test_validate_task_decomposition_quality_rejects_story_acceptance_criteria_copy() -> (  # noqa: E501
+    None
+):
+    """Verify validate task decomposition quality rejects story acceptance criteria copy."""  # noqa: E501
     model = SprintPlannerOutput.model_validate(_build_output_payload())
     errors = validate_task_decomposition_quality(
         model,
@@ -202,11 +210,14 @@ def test_validate_task_decomposition_quality_rejects_story_acceptance_criteria_c
         acceptance_criteria_items_by_story={101: ["Define the auth table columns"]},
     )
     assert errors == [
-        "Story 101 task 'Create auth table': checklist item 'Define the auth table columns' duplicates story acceptance criteria."
+        "Story 101 task 'Create auth table': checklist item 'Define the auth table columns' duplicates story acceptance criteria."  # noqa: E501
     ]
 
 
-def test_validate_task_decomposition_quality_rejects_broad_story_completion_phrase():
+def test_validate_task_decomposition_quality_rejects_broad_story_completion_phrase() -> (  # noqa: E501
+    None
+):
+    """Verify validate task decomposition quality rejects broad story completion phrase."""  # noqa: E501
     payload = _build_output_payload()
     payload["selected_stories"][0]["tasks"][0]["checklist_items"] = [
         "Complete the story",
@@ -219,11 +230,11 @@ def test_validate_task_decomposition_quality_rejects_broad_story_completion_phra
         acceptance_criteria_items_by_story={101: ["Define the auth table columns"]},
     )
     assert errors == [
-        "Story 101 task 'Create auth table': checklist item 'Complete the story' is too story-level; use task-local completion criteria instead."
+        "Story 101 task 'Create auth table': checklist item 'Complete the story' is too story-level; use task-local completion criteria instead."  # noqa: E501
     ]
 
 
-def test_capacity_analysis_requires_commitment_note():
+def test_capacity_analysis_requires_commitment_note() -> None:
     """Ensure capacity analysis includes commitment note."""
     payload: dict[str, Any] = {
         "velocity_assumption": "High",
@@ -235,4 +246,4 @@ def test_capacity_analysis_requires_commitment_note():
         "reasoning": "Capacity fits the high band.",
     }
     model = SprintPlannerCapacityAnalysis.model_validate(payload)
-    assert model.selected_count == 6
+    assert model.selected_count == 6  # noqa: PLR2004

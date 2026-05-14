@@ -1,9 +1,16 @@
+"""Tests for failure artifacts."""
+
+from pathlib import Path
+
+import pytest
+
 from utils import failure_artifacts
 
 
 def test_write_and_read_failure_artifact_preserves_full_raw_output(
-    monkeypatch, tmp_path
-):
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify write and read failure artifact preserves full raw output."""
     monkeypatch.setattr(failure_artifacts, "LOGS_DIR", tmp_path / "logs")
     monkeypatch.setattr(
         failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures"
@@ -32,6 +39,6 @@ def test_write_and_read_failure_artifact_preserves_full_raw_output(
     assert loaded is not None
     assert loaded["artifact_id"] == artifact_id
     assert loaded["phase"] == "story"
-    assert loaded["project_id"] == 17
+    assert loaded["project_id"] == 17  # noqa: PLR2004
     assert loaded["raw_output"] == raw_output
     assert loaded["raw_output_length"] == len(raw_output)

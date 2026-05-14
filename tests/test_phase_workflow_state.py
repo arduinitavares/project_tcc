@@ -1,8 +1,17 @@
+"""Tests for phase workflow state."""
+
+from typing import Any, cast
+
+import pytest
+
 from orchestrator_agent.fsm.states import OrchestratorState
 from services.phases import workflow_state
 
+JsonDict = dict[str, Any]
 
-def test_failure_meta_uses_fallback_summary_when_source_summary_missing():
+
+def test_failure_meta_uses_fallback_summary_when_source_summary_missing() -> None:
+    """Verify failure meta uses fallback summary when source summary missing."""
     payload = workflow_state.failure_meta(
         {
             "failure_artifact_id": "artifact-1",
@@ -22,12 +31,16 @@ def test_failure_meta_uses_fallback_summary_when_source_summary_missing():
     }
 
 
-def test_sprint_state_helpers_delegate_to_shared_workflow_state(monkeypatch):
-    from services.phases import sprint_service
+def test_sprint_state_helpers_delegate_to_shared_workflow_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify sprint state helpers delegate to shared workflow state."""
+    from services.phases import sprint_service  # noqa: PLC0415
 
-    called: dict[str, object] = {}
+    called: JsonDict = {}
 
-    def fake_set_phase_fsm_state(state, **kwargs):
+    def fake_set_phase_fsm_state(state: JsonDict, **kwargs: object) -> object:
+        kwargs = cast("JsonDict", kwargs)
         called["kwargs"] = kwargs
         next_state = (
             kwargs["review_state"]
@@ -49,7 +62,7 @@ def test_sprint_state_helpers_delegate_to_shared_workflow_state(monkeypatch):
         == OrchestratorState.SPRINT_SETUP.value
     )
 
-    state: dict[str, object] = {}
+    state: JsonDict = {}
     next_state = workflow_state.set_sprint_fsm_state(
         state,
         is_complete=False,
@@ -64,8 +77,9 @@ def test_sprint_state_helpers_delegate_to_shared_workflow_state(monkeypatch):
     assert sprint_service.ensure_sprint_attempts({}) == []
 
 
-def test_record_phase_attempt_mirrors_output_and_updates_state():
-    state: dict[str, object] = {}
+def test_record_phase_attempt_mirrors_output_and_updates_state() -> None:
+    """Verify record phase attempt mirrors output and updates state."""
+    state: JsonDict = {}
 
     count = workflow_state.record_phase_attempt(
         state,
@@ -102,19 +116,24 @@ def test_record_phase_attempt_mirrors_output_and_updates_state():
     )
 
 
-def test_sprint_attempt_helpers_delegate_to_shared_workflow_state(monkeypatch):
-    from services.phases import sprint_service
+def test_sprint_attempt_helpers_delegate_to_shared_workflow_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify sprint attempt helpers delegate to shared workflow state."""
+    from services.phases import sprint_service  # noqa: PLC0415
 
-    ensure_called: dict[str, object] = {}
-    record_called: dict[str, object] = {}
+    ensure_called: JsonDict = {}
+    record_called: JsonDict = {}
     attempts = [{"created_at": "2026-04-04T00:00:00Z"}]
 
-    def fake_ensure_phase_attempts(state, **kwargs):
+    def fake_ensure_phase_attempts(state: JsonDict, **kwargs: object) -> object:
+        kwargs = cast("JsonDict", kwargs)
         ensure_called["kwargs"] = kwargs
         state[kwargs["attempts_key"]] = attempts
         return attempts
 
-    def fake_record_phase_attempt(state, **kwargs):
+    def fake_record_phase_attempt(state: JsonDict, **kwargs: object) -> int:
+        kwargs = cast("JsonDict", kwargs)
         record_called["kwargs"] = kwargs
         state[kwargs["attempts_key"]] = [{"created_at": kwargs["created_at"]}]
         state[kwargs["last_input_context_key"]] = kwargs["input_context"]
@@ -128,7 +147,7 @@ def test_sprint_attempt_helpers_delegate_to_shared_workflow_state(monkeypatch):
         workflow_state, "record_phase_attempt", fake_record_phase_attempt
     )
 
-    state: dict[str, object] = {}
+    state: JsonDict = {}
     assert sprint_service.ensure_sprint_attempts(state) is attempts
     assert ensure_called["kwargs"] == {"attempts_key": "sprint_attempts"}
 
@@ -151,12 +170,13 @@ def test_sprint_attempt_helpers_delegate_to_shared_workflow_state(monkeypatch):
     assert count == 1
     assert record_called["kwargs"]["attempts_key"] == "sprint_attempts"
     assert record_called["kwargs"]["output_artifact"]["validation_errors"] == [
-        "Unsupported task_kind 'other'. Use one of: analysis, design, implementation, testing, documentation, refactor."
+        "Unsupported task_kind 'other'. Use one of: analysis, design, implementation, testing, documentation, refactor."  # noqa: E501
     ]
 
 
-def test_set_phase_fsm_state_preserves_normalized_current_state():
-    state = {"fsm_state": " story_review "}
+def test_set_phase_fsm_state_preserves_normalized_current_state() -> None:
+    """Verify set phase fsm state preserves normalized current state."""
+    state: JsonDict = {"fsm_state": " story_review "}
 
     next_state = workflow_state.set_phase_fsm_state(
         state,
@@ -178,13 +198,15 @@ def test_set_phase_fsm_state_preserves_normalized_current_state():
 
 
 def test_vision_attempt_helpers_delegate_to_shared_workflow_state(
-    monkeypatch,
-):
-    from services.phases import vision_service
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify vision attempt helpers delegate to shared workflow state."""
+    from services.phases import vision_service  # noqa: PLC0415
 
-    called: dict[str, object] = {}
+    called: JsonDict = {}
 
-    def fake_record_phase_attempt(state, **kwargs):
+    def fake_record_phase_attempt(state: JsonDict, **kwargs: object) -> int:
+        kwargs = cast("JsonDict", kwargs)
         called["kwargs"] = kwargs
         state[kwargs["attempts_key"]] = [{"created_at": kwargs["created_at"]}]
         state[kwargs["last_input_context_key"]] = kwargs["input_context"]
@@ -198,7 +220,7 @@ def test_vision_attempt_helpers_delegate_to_shared_workflow_state(
         workflow_state, "record_phase_attempt", fake_record_phase_attempt
     )
 
-    state: dict[str, object] = {}
+    state: JsonDict = {}
     count = vision_service.record_vision_attempt(
         state,
         trigger="manual_refine",
@@ -222,13 +244,15 @@ def test_vision_attempt_helpers_delegate_to_shared_workflow_state(
 
 
 def test_backlog_attempt_helpers_delegate_to_shared_workflow_state(
-    monkeypatch,
-):
-    from services.phases import backlog_service
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify backlog attempt helpers delegate to shared workflow state."""
+    from services.phases import backlog_service  # noqa: PLC0415
 
-    called: dict[str, object] = {}
+    called: JsonDict = {}
 
-    def fake_record_phase_attempt(state, **kwargs):
+    def fake_record_phase_attempt(state: JsonDict, **kwargs: object) -> int:
+        kwargs = cast("JsonDict", kwargs)
         called["kwargs"] = kwargs
         state[kwargs["attempts_key"]] = [{"created_at": kwargs["created_at"]}]
         state[kwargs["last_input_context_key"]] = kwargs["input_context"]
@@ -242,7 +266,7 @@ def test_backlog_attempt_helpers_delegate_to_shared_workflow_state(
         workflow_state, "record_phase_attempt", fake_record_phase_attempt
     )
 
-    state: dict[str, object] = {}
+    state: JsonDict = {}
     count = backlog_service.record_backlog_attempt(
         state,
         trigger="manual_refine",
@@ -262,13 +286,15 @@ def test_backlog_attempt_helpers_delegate_to_shared_workflow_state(
 
 
 def test_roadmap_attempt_helpers_delegate_to_shared_workflow_state(
-    monkeypatch,
-):
-    from services.phases import roadmap_service
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify roadmap attempt helpers delegate to shared workflow state."""
+    from services.phases import roadmap_service  # noqa: PLC0415
 
-    called: dict[str, object] = {}
+    called: JsonDict = {}
 
-    def fake_record_phase_attempt(state, **kwargs):
+    def fake_record_phase_attempt(state: JsonDict, **kwargs: object) -> int:
+        kwargs = cast("JsonDict", kwargs)
         called["kwargs"] = kwargs
         state[kwargs["attempts_key"]] = [{"created_at": kwargs["created_at"]}]
         state[kwargs["last_input_context_key"]] = kwargs["input_context"]
@@ -282,7 +308,7 @@ def test_roadmap_attempt_helpers_delegate_to_shared_workflow_state(
         workflow_state, "record_phase_attempt", fake_record_phase_attempt
     )
 
-    state: dict[str, object] = {}
+    state: JsonDict = {}
     count = roadmap_service.record_roadmap_attempt(
         state,
         trigger="manual_refine",

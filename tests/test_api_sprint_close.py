@@ -1,23 +1,32 @@
+"""API tests for sprint close readiness and persistence flows."""
+
 from datetime import UTC, datetime
 
-from sqlmodel import select
+import pytest
+from sqlmodel import Session, select
 
+import api as api_module
 from agile_sqlmodel import (
     Sprint,
     SprintStatus,
     StoryStatus,
+    Task,
+    TaskStatus,
     UserStory,
     WorkflowEvent,
     WorkflowEventType,
 )
+from tests.test_api_sprint_flow import _build_client, _seed_saved_sprint
+
+HTTP_OK = 200
 
 
-def test_build_sprint_close_readiness_handles_unsaved_story_ids():
-    import api as api_module
-
+def test_build_sprint_close_readiness_handles_unsaved_story_ids() -> None:
+    """Treat unsaved stories as open work without adding fake unfinished IDs."""
     readiness = api_module._build_sprint_close_readiness(
         [
             UserStory(
+                product_id=1,
                 title="Draft story",
                 status=StoryStatus.TO_DO,
             )
@@ -30,10 +39,8 @@ def test_build_sprint_close_readiness_handles_unsaved_story_ids():
     assert readiness.stories[0].story_id == 0
 
 
-def test_story_task_progress_accepts_task_sequences():
-    import api as api_module
-    from agile_sqlmodel import Task, TaskStatus
-
+def test_story_task_progress_accepts_task_sequences() -> None:
+    """Accept tuple-based task sequences when computing actionable progress."""
     total, done, cancelled, all_done = api_module._story_task_progress(
         (
             Task(
@@ -51,9 +58,11 @@ def test_story_task_progress_accepts_task_sequences():
     assert all_done is False
 
 
-def test_get_sprint_close_returns_guidance_for_non_active_sprint(session, monkeypatch):
-    from tests.test_api_sprint_flow import _build_client, _seed_saved_sprint
-
+def test_get_sprint_close_returns_guidance_for_non_active_sprint(
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Return close guidance for planned sprints without allowing completion."""
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id = _seed_saved_sprint(
         session,
@@ -64,16 +73,18 @@ def test_get_sprint_close_returns_guidance_for_non_active_sprint(session, monkey
 
     response = client.get(f"/api/projects/{project_id}/sprints/{sprint_id}/close")
 
-    assert response.status_code == 200
+    assert response.status_code == HTTP_OK
     payload = response.json()
     assert payload["close_eligible"] is False
     assert payload["ineligible_reason"] == "Only active sprints can be closed."
     assert payload["history_fidelity"] == "derived"
 
 
-def test_post_sprint_close_persists_snapshot_and_completion_event(session, monkeypatch):
-    from tests.test_api_sprint_flow import _build_client, _seed_saved_sprint
-
+def test_post_sprint_close_persists_snapshot_and_completion_event(
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Persist the close snapshot and emit the sprint-completed workflow event."""
     client, repo, _workflow = _build_client(monkeypatch)
     project_id, sprint_id = _seed_saved_sprint(
         session,
@@ -99,7 +110,7 @@ def test_post_sprint_close_persists_snapshot_and_completion_event(session, monke
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == HTTP_OK
     payload = response.json()
     assert payload["current_status"] == SprintStatus.COMPLETED.value
     assert payload["close_eligible"] is False
@@ -125,7 +136,7 @@ def test_post_sprint_close_persists_snapshot_and_completion_event(session, monke
     assert event is not None
 
     detail_response = client.get(f"/api/projects/{project_id}/sprints/{sprint_id}")
-    assert detail_response.status_code == 200
+    assert detail_response.status_code == HTTP_OK
     detail_payload = detail_response.json()["data"]["sprint"]
     assert detail_payload["history_fidelity"] == "snapshotted"
     assert (

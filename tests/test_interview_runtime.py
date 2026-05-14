@@ -1,9 +1,12 @@
+"""Tests for interview runtime."""
+
 from __future__ import annotations
 
 from services import interview_runtime
 
 
 def test_ensure_interview_subject_initializes_empty_projection() -> None:
+    """Verify ensure interview subject initializes empty projection."""
     state: dict[str, object] = {}
 
     runtime = interview_runtime.ensure_interview_subject(
@@ -31,6 +34,7 @@ def test_ensure_interview_subject_initializes_empty_projection() -> None:
 
 
 def test_ensure_interview_subject_normalizes_partial_nested_structures() -> None:
+    """Verify ensure interview subject normalizes partial nested structures."""
     state: dict[str, object] = {
         "interview_runtime": {
             "story": {
@@ -64,6 +68,7 @@ def test_ensure_interview_subject_normalizes_partial_nested_structures() -> None
 
 
 def test_append_feedback_and_mark_absorbed() -> None:
+    """Verify append feedback and mark absorbed."""
     state: dict[str, object] = {}
     runtime = interview_runtime.ensure_interview_subject(
         state,
@@ -103,6 +108,7 @@ def test_append_feedback_and_mark_absorbed() -> None:
 
 
 def test_append_feedback_ids_remain_unique_across_reset() -> None:
+    """Verify append feedback ids remain unique across reset."""
     state: dict[str, object] = {}
     runtime = interview_runtime.ensure_interview_subject(
         state,
@@ -132,6 +138,7 @@ def test_append_feedback_ids_remain_unique_across_reset() -> None:
 
 
 def test_append_feedback_uses_max_existing_suffix_on_migrated_state() -> None:
+    """Verify append feedback uses max existing suffix on migrated state."""
     runtime = {
         "attempt_history": [],
         "draft_projection": {},
@@ -170,12 +177,13 @@ def test_append_feedback_uses_max_existing_suffix_on_migrated_state() -> None:
     )
 
     assert entry["feedback_id"] == "feedback-8"
-    assert runtime["feedback_projection"]["next_feedback_sequence"] == 8
+    assert runtime["feedback_projection"]["next_feedback_sequence"] == 8  # noqa: PLR2004
 
 
-def test_hydrate_story_runtime_from_legacy_attempts_promotes_latest_reusable_artifact() -> (
+def test_hydrate_story_runtime_from_legacy_attempts_promotes_latest_reusable_artifact() -> (  # noqa: E501
     None
 ):
+    """Verify hydrate story runtime from legacy attempts promotes latest reusable artifact."""  # noqa: E501
     state: dict[str, object] = {
         "story_attempts": {
             "req-1": [
@@ -277,7 +285,7 @@ def test_hydrate_story_runtime_from_legacy_attempts_promotes_latest_reusable_art
         parent_requirement="req-1",
     )
     assert hydrated_again is runtime
-    assert len(runtime["attempt_history"]) == 4
+    assert len(runtime["attempt_history"]) == 4  # noqa: PLR2004
 
     empty_state: dict[str, object] = {}
     empty_runtime = interview_runtime.ensure_interview_subject(
@@ -294,6 +302,7 @@ def test_hydrate_story_runtime_from_legacy_attempts_promotes_latest_reusable_art
 
 
 def test_hydrate_story_runtime_normalizes_existing_runtime_before_skip() -> None:
+    """Verify hydrate story runtime normalizes existing runtime before skip."""
     state: dict[str, object] = {
         "interview_runtime": {
             "story": {
@@ -356,6 +365,7 @@ def test_hydrate_story_runtime_normalizes_existing_runtime_before_skip() -> None
 
 
 def test_reset_subject_working_set_clears_projections_and_keeps_audit_marker() -> None:
+    """Verify reset subject working set clears projections and keeps audit marker."""
     state: dict[str, object] = {}
     runtime = interview_runtime.ensure_interview_subject(
         state,
@@ -422,6 +432,7 @@ def test_reset_subject_working_set_clears_projections_and_keeps_audit_marker() -
 
 
 def test_append_attempt_and_promote_reusable_draft() -> None:
+    """Verify append attempt and promote reusable draft."""
     runtime = {
         "attempt_history": [],
         "draft_projection": {},

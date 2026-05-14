@@ -1,4 +1,7 @@
+"""Tests for orchestrator tools unittest."""
+
 import unittest
+from sqlite3 import Connection
 
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
@@ -6,6 +9,7 @@ from sqlmodel import SQLModel, create_engine
 
 # Import the modules to be tested
 import tools.orchestrator_tools as orch_tools
+from tests.typing_helpers import make_tool_context
 from tools import db_tools
 from tools.db_tools import (
     CreateOrGetProductInput,
@@ -16,19 +20,16 @@ from tools.db_tools import (
 )
 
 
-class MockToolContext:
-    """Mock ToolContext for testing."""
-
-    def __init__(self, state):
-        self.state = state
-
-
 class TestOrchestratorTools(unittest.TestCase):
-    def setUp(self):
+    """Test helper for test orchestrator tools."""
+
+    def setUp(self) -> None:
         """Create a fresh in-memory database for each test."""
 
         @event.listens_for(Engine, "connect")
-        def set_sqlite_pragma(dbapi_connection, _connection_record):
+        def set_sqlite_pragma(
+            dbapi_connection: Connection, _connection_record: object
+        ) -> None:
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()
@@ -37,24 +38,27 @@ class TestOrchestratorTools(unittest.TestCase):
 
         SQLModel.metadata.create_all(self.engine)
 
-        # Inject the test engine into the modules
-        orch_tools.engine = self.engine
-        db_tools.engine = self.engine
+        self._previous_orchestrator_get_engine = orch_tools.get_engine
+        self._previous_db_get_engine = db_tools.get_engine
+        orch_tools.__dict__["get_engine"] = lambda: self.engine
+        db_tools.__dict__["get_engine"] = lambda: self.engine
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         """Cleanup the database after each test."""
+        orch_tools.__dict__["get_engine"] = self._previous_orchestrator_get_engine
+        db_tools.__dict__["get_engine"] = self._previous_db_get_engine
         SQLModel.metadata.drop_all(self.engine)
 
-    def test_count_projects_empty(self):
+    def test_count_projects_empty(self) -> None:
         """Test counting projects when database is empty."""
         state = {}
-        context = MockToolContext(state)
+        context = make_tool_context(state)
         result = orch_tools.count_projects({}, context)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["count"], 0)
-        self.assertIn("0 project", result["message"])
+        assert result["success"]
+        assert result["count"] == 0
+        assert "0 project" in result["message"]
 
-    def test_count_projects_with_data(self):
+    def test_count_projects_with_data(self) -> None:
         """Test counting projects when products exist."""
         create_or_get_product(
             CreateOrGetProductInput(
@@ -72,12 +76,12 @@ class TestOrchestratorTools(unittest.TestCase):
             )
         )
         state = {}
-        context = MockToolContext(state)
+        context = make_tool_context(state)
         result = orch_tools.count_projects({}, context)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["count"], 3)
+        assert result["success"]
+        assert result["count"] == 3  # noqa: PLR2004
 
-    def test_get_story_details_tool(self):
+    def test_get_story_details_tool(self) -> None:
         """Test fetching story details via db_tools."""
         product_result = create_or_get_product(
             CreateOrGetProductInput(
@@ -115,7 +119,7 @@ class TestOrchestratorTools(unittest.TestCase):
                 product_id=product_id,
                 feature_id=feature_id,
                 title="Integration Story",
-                description="As a user, I want to fetch story details so that I can inspect them.",
+                description="As a user, I want to fetch story details so that I can inspect them.",  # noqa: E501
                 story_points=2,
                 acceptance_criteria="- Details can be retrieved",
             )
@@ -124,31 +128,31 @@ class TestOrchestratorTools(unittest.TestCase):
 
         result = db_tools.get_story_details(story_id)
 
-        self.assertTrue(result["success"])
-        self.assertEqual(result["story_id"], story_id)
-        self.assertEqual(result["title"], "Integration Story")
-        self.assertEqual(result["feature_id"], feature_id)
-        self.assertEqual(result["product_id"], product_id)
+        assert result["success"]
+        assert result["story_id"] == story_id
+        assert result["title"] == "Integration Story"
+        assert result["feature_id"] == feature_id
+        assert result["product_id"] == product_id
 
-    def test_list_projects_empty(self):
+    def test_list_projects_empty(self) -> None:
         """Test listing projects when database is empty."""
         state = {}
-        context = MockToolContext(state)
+        context = make_tool_context(state)
         result = orch_tools.list_projects({}, context)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["count"], 0)
-        self.assertEqual(len(result["projects"]), 0)
+        assert result["success"]
+        assert result["count"] == 0
+        assert len(result["projects"]) == 0
 
-    def test_list_projects_with_wrapped_params_string(self):
+    def test_list_projects_with_wrapped_params_string(self) -> None:
         """Test listing projects when params are wrapped as a JSON string."""
         state = {}
-        context = MockToolContext(state)
+        context = make_tool_context(state)
         result = orch_tools.list_projects({"params": "{}"}, context)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["count"], 0)
-        self.assertEqual(len(result["projects"]), 0)
+        assert result["success"]
+        assert result["count"] == 0
+        assert len(result["projects"]) == 0
 
-    def test_list_projects_with_data(self):
+    def test_list_projects_with_data(self) -> None:
         """Test listing projects with summary data."""
         prod_result = create_or_get_product(
             CreateOrGetProductInput(
@@ -185,32 +189,32 @@ class TestOrchestratorTools(unittest.TestCase):
             )
         )
         state = {}
-        context = MockToolContext(state)
+        context = make_tool_context(state)
         result = orch_tools.list_projects({}, context)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["count"], 1)
-        self.assertEqual(len(result["projects"]), 1)
+        assert result["success"]
+        assert result["count"] == 1
+        assert len(result["projects"]) == 1
         project = result["projects"][0]
-        self.assertEqual(project["product_id"], product_id)
-        self.assertEqual(project["name"], "Test Project")
-        self.assertEqual(project["vision"], "Test vision")
-        self.assertEqual(project["user_stories_count"], 1)
+        assert project["product_id"] == product_id
+        assert project["name"] == "Test Project"
+        assert project["vision"] == "Test vision"
+        assert project["user_stories_count"] == 1
 
-    def test_count_projects_with_wrapped_params_string(self):
+    def test_count_projects_with_wrapped_params_string(self) -> None:
         """Test counting projects when params are wrapped as a JSON string."""
         state = {}
-        context = MockToolContext(state)
+        context = make_tool_context(state)
         result = orch_tools.count_projects({"params": "{}"}, context)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["count"], 0)
+        assert result["success"]
+        assert result["count"] == 0
 
-    def test_get_project_details_not_found(self):
+    def test_get_project_details_not_found(self) -> None:
         """Test getting details for non-existent project."""
         result = orch_tools.get_project_details(999)
-        self.assertFalse(result["success"])
-        self.assertIn("not found", result["error"].lower())
+        assert not result["success"]
+        assert "not found" in result["error"].lower()
 
-    def test_get_project_details_with_structure(self):
+    def test_get_project_details_with_structure(self) -> None:
         """Test getting detailed structure of a project."""
         prod_result = create_or_get_product(
             CreateOrGetProductInput(
@@ -255,20 +259,20 @@ class TestOrchestratorTools(unittest.TestCase):
                 )
             )
         result = orch_tools.get_project_details(product_id)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["product"]["name"], "Full Project")
-        self.assertEqual(result["structure"]["themes"], 1)
-        self.assertEqual(result["structure"]["epics"], 2)
-        self.assertEqual(result["structure"]["features"], 3)
-        self.assertEqual(result["structure"]["user_stories"], 3)
+        assert result["success"]
+        assert result["product"]["name"] == "Full Project"
+        assert result["structure"]["themes"] == 1
+        assert result["structure"]["epics"] == 2  # noqa: PLR2004
+        assert result["structure"]["features"] == 3  # noqa: PLR2004
+        assert result["structure"]["user_stories"] == 3  # noqa: PLR2004
 
-    def test_get_project_by_name_not_found(self):
+    def test_get_project_by_name_not_found(self) -> None:
         """Test finding project by name when it doesn't exist."""
         result = orch_tools.get_project_by_name("Non Existent Project")
-        self.assertFalse(result["success"])
-        self.assertIn("not found", result["error"].lower())
+        assert not result["success"]
+        assert "not found" in result["error"].lower()
 
-    def test_get_project_by_name_found(self):
+    def test_get_project_by_name_found(self) -> None:
         """Test finding project by name successfully."""
         prod_result = create_or_get_product(
             CreateOrGetProductInput(
@@ -277,9 +281,9 @@ class TestOrchestratorTools(unittest.TestCase):
         )
         product_id = prod_result["product_id"]
         result = orch_tools.get_project_by_name("Findable Project")
-        self.assertTrue(result["success"])
-        self.assertEqual(result["product_id"], product_id)
-        self.assertEqual(result["product_name"], "Findable Project")
+        assert result["success"]
+        assert result["product_id"] == product_id
+        assert result["product_name"] == "Findable Project"
 
 
 if __name__ == "__main__":

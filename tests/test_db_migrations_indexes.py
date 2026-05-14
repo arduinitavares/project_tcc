@@ -1,11 +1,14 @@
+"""Tests for db migrations indexes."""
+
 import pytest
 from sqlalchemy import inspect, text
+from sqlalchemy.engine import Engine
 from sqlmodel import create_engine
 
 from db.migrations import migrate_performance_indexes
 
 
-def _create_min_user_stories_schema(engine) -> None:
+def _create_min_user_stories_schema(engine: Engine) -> None:
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -21,6 +24,7 @@ def _create_min_user_stories_schema(engine) -> None:
 
 
 def test_migrate_performance_indexes_creates_canonical_index() -> None:
+    """Verify migrate performance indexes creates canonical index."""
     engine = create_engine("sqlite:///:memory:")
     _create_min_user_stories_schema(engine)
 
@@ -32,6 +36,7 @@ def test_migrate_performance_indexes_creates_canonical_index() -> None:
 
 
 def test_migrate_performance_indexes_is_idempotent_with_canonical_index() -> None:
+    """Verify migrate performance indexes is idempotent with canonical index."""
     engine = create_engine("sqlite:///:memory:")
     _create_min_user_stories_schema(engine)
     migrate_performance_indexes(engine)
@@ -48,12 +53,13 @@ def test_migrate_performance_indexes_is_idempotent_with_canonical_index() -> Non
 
 
 def test_migrate_performance_indexes_fails_on_non_canonical_equivalent_index() -> None:
+    """Verify migrate performance indexes fails on non canonical equivalent index."""
     engine = create_engine("sqlite:///:memory:")
     _create_min_user_stories_schema(engine)
     with engine.begin() as conn:
         conn.execute(
             text(
-                "CREATE INDEX legacy_user_stories_product_id ON user_stories (product_id)"
+                "CREATE INDEX legacy_user_stories_product_id ON user_stories (product_id)"  # noqa: E501
             )
         )
 

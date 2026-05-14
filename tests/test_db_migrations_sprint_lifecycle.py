@@ -1,10 +1,13 @@
+"""Tests for db migrations sprint lifecycle."""
+
 from sqlalchemy import inspect, text
+from sqlalchemy.engine import Engine
 from sqlmodel import create_engine
 
 from db.migrations import migrate_sprint_lifecycle
 
 
-def _create_min_sprints_schema(engine) -> None:
+def _create_min_sprints_schema(engine: Engine) -> None:
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -25,7 +28,7 @@ def _create_min_sprints_schema(engine) -> None:
         )
 
 
-def _create_min_sprints_schema_with_started_at(engine) -> None:
+def _create_min_sprints_schema_with_started_at(engine: Engine) -> None:
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -48,6 +51,7 @@ def _create_min_sprints_schema_with_started_at(engine) -> None:
 
 
 def test_migrate_sprint_lifecycle_adds_lifecycle_columns() -> None:
+    """Verify migrate sprint lifecycle adds lifecycle columns."""
     engine = create_engine("sqlite:///:memory:")
     _create_min_sprints_schema(engine)
 
@@ -63,6 +67,7 @@ def test_migrate_sprint_lifecycle_adds_lifecycle_columns() -> None:
 
 
 def test_migrate_sprint_lifecycle_only_adds_missing_partial_schema_columns() -> None:
+    """Verify migrate sprint lifecycle only adds missing partial schema columns."""
     engine = create_engine("sqlite:///:memory:")
     _create_min_sprints_schema_with_started_at(engine)
 
@@ -75,6 +80,7 @@ def test_migrate_sprint_lifecycle_only_adds_missing_partial_schema_columns() -> 
 
 
 def test_migrate_sprint_lifecycle_is_idempotent() -> None:
+    """Verify migrate sprint lifecycle is idempotent."""
     engine = create_engine("sqlite:///:memory:")
     _create_min_sprints_schema(engine)
     migrate_sprint_lifecycle(engine)

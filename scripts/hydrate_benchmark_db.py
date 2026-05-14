@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Initialize and Hydrate Database for Benchmark.
+
 Creates products, specs, compiled authorities, AND user stories.
 """
 
@@ -9,15 +10,18 @@ import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypedDict
 
 from sqlmodel import Session, select
+
+from utils.cli_output import emit
 
 # Add repo root to path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
-from agile_sqlmodel import (
+from agile_sqlmodel import (  # noqa: E402
     CompiledSpecAuthority,
     Product,
     SpecAuthorityAcceptance,
@@ -28,10 +32,27 @@ from agile_sqlmodel import (
     get_engine,
 )
 
+
+class MockInvariant(TypedDict):
+    """Seed invariant shape used by benchmark spec fixtures."""
+
+    type: str
+    parameters: dict[str, str | int]
+
+
+class SpecSeed(TypedDict):
+    """Benchmark product/spec fixture shape."""
+
+    name: str
+    content: str
+    spec_version_id: int
+    mock_invariants: list[MockInvariant]
+
+
 # Define specifications
-SPECS = {
+SPECS: dict[int, SpecSeed] = {
     7: {
-        "name": "Project Quadra",  # Using existing name/domain from p7-v8 in cases.jsonl
+        "name": "Project Quadra",  # Using existing name/domain from p7-v8 in cases.jsonl  # noqa: E501
         "content": """# Project Quadra Specification
 
 ## Vision
@@ -257,7 +278,7 @@ A centralized hub for managing smart home devices locally.
 }
 
 
-def _render_invariant_str(inv):
+def _render_invariant_str(inv: MockInvariant) -> str:
     t = inv["type"]
     p = inv["parameters"]
     if t == "FORBIDDEN_CAPABILITY":
@@ -269,10 +290,13 @@ def _render_invariant_str(inv):
     return f"INVARIANT:{t}"
 
 
-def create_mock_authority(session, spec_version_id, mock_invariants):
-    print(f"Creating mock authority for spec {spec_version_id}...")
+def create_mock_authority(
+    session: Session, spec_version_id: int, mock_invariants: list[MockInvariant]
+) -> None:
+    """Return create mock authority."""
+    emit(f"Creating mock authority for spec {spec_version_id}...")
 
-    invariants_list = []
+    invariants_list: list[dict[str, object]] = []
     for i, inv in enumerate(mock_invariants):
         invariants_list.append(
             {
@@ -287,8 +311,9 @@ def create_mock_authority(session, spec_version_id, mock_invariants):
     # Render string summaries for column
     invariant_strs = [_render_invariant_str(inv) for inv in mock_invariants]
 
+    scope_themes = ["Mock Theme 1", "Mock Theme 2"]
     artifact = {
-        "scope_themes": ["Mock Theme 1", "Mock Theme 2"],
+        "scope_themes": scope_themes,
         "invariants": invariants_list,
         "gaps": [],
     }
@@ -299,7 +324,7 @@ def create_mock_authority(session, spec_version_id, mock_invariants):
         prompt_hash="mock-hash",
         compiled_at=datetime.now(UTC),
         compiled_artifact_json=json.dumps(artifact),
-        scope_themes=json.dumps(artifact["scope_themes"]),
+        scope_themes=json.dumps(scope_themes),
         invariants=json.dumps(invariant_strs),
         eligible_feature_ids=json.dumps([]),
         rejected_features=json.dumps([]),
@@ -308,11 +333,16 @@ def create_mock_authority(session, spec_version_id, mock_invariants):
     session.add(authority)
     session.commit()
     session.refresh(authority)
-    print(f"Mock authority created: {authority.authority_id}")
+    emit(f"Mock authority created: {authority.authority_id}")
 
     # Auto-accept
+    spec = session.get(SpecRegistry, spec_version_id)
+    if spec is None:
+        msg = f"Spec {spec_version_id} not found after authority creation"
+        raise ValueError(msg)
+
     acceptance = SpecAuthorityAcceptance(
-        product_id=session.get(SpecRegistry, spec_version_id).product_id,
+        product_id=spec.product_id,
         spec_version_id=spec_version_id,
         status="accepted",
         policy="auto",
@@ -325,18 +355,19 @@ def create_mock_authority(session, spec_version_id, mock_invariants):
     )
     session.add(acceptance)
     session.commit()
-    print("Mock authority accepted.")
+    emit("Mock authority accepted.")
 
 
-def hydrate_db():
-    print("Creating tables...")
+def hydrate_db() -> None:
+    """Return hydrate db."""
+    emit("Creating tables...")
     create_db_and_tables()
     engine = get_engine()
 
     with Session(engine) as session:
         # 1. Products, Specs, Authorities
         for pid, spec_data in SPECS.items():
-            print(f"Hydrating Product {pid}: {spec_data['name']}")
+            emit(f"Hydrating Product {pid}: {spec_data['name']}")
 
             # Product
             product = session.get(Product, pid)
@@ -374,21 +405,21 @@ def hydrate_db():
             ).first()
 
             if existing_auth:
-                print(f"Authority already exists: {existing_auth.authority_id}")
+                emit(f"Authority already exists: {existing_auth.authority_id}")
             else:
                 try:
                     # Attempt mock first to save time/tokens if API is flaky
                     create_mock_authority(
                         session, spec_version_id, spec_data["mock_invariants"]
                     )
-                except Exception as e:
-                    print(f"Error creating authority: {e}")
+                except Exception as e:  # noqa: BLE001
+                    emit(f"Error creating authority: {e}")
 
         # 2. Stories
         stories_file = Path("artifacts/validation_benchmark/synthetic_stories.jsonl")
         if stories_file.exists():
-            print("Hydrating user stories from synthetic_stories.jsonl...")
-            with open(stories_file) as f:
+            emit("Hydrating user stories from synthetic_stories.jsonl...")
+            with open(stories_file) as f:  # noqa: PTH123
                 for line in f:
                     if not line.strip():
                         continue
@@ -413,11 +444,11 @@ def hydrate_db():
                         )
                         session.add(story)
             session.commit()
-            print("Stories hydrated.")
+            emit("Stories hydrated.")
         else:
-            print("Warning: synthetic_stories.jsonl not found.")
+            emit("Warning: synthetic_stories.jsonl not found.")
 
-    print("Hydration complete.")
+    emit("Hydration complete.")
 
 
 if __name__ == "__main__":

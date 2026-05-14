@@ -1,3 +1,6 @@
+# ruff: noqa: E501
+"""Tests for smoke schema and summarizer."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -8,6 +11,8 @@ from pydantic import ValidationError
 
 from scripts.summarize_smoke_runs import summarize
 from utils.smoke_schema import compute_success, parse_smoke_run_record, terminal_status
+
+RAW_SPEC_FORWARDING_FIELD = "pass_raw_spec_text"
 
 
 def _record(
@@ -21,7 +26,7 @@ def _record(
         variant = {
             "enable_refiner": False,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         }
     if metrics is None:
         metrics = {}
@@ -64,7 +69,8 @@ def _summary_row(markdown: str, scenario_id: int, variant_label: str) -> list[st
     for line in markdown.splitlines():
         if line.startswith(target):
             return [part.strip() for part in line.strip("|").split("|")]
-    raise AssertionError("Summary row not found")
+    msg = "Summary row not found"
+    raise AssertionError(msg)
 
 
 def _status_counts(markdown: str, scenario_id: int) -> dict[str, int]:
@@ -81,11 +87,12 @@ def _status_counts(markdown: str, scenario_id: int) -> dict[str, int]:
 
 
 def test_refiner_disabled_stub_does_not_count_as_refiner_ran() -> None:
+    """Verify refiner disabled stub does not count as refiner ran."""
     record = _record(
         variant={
             "enable_refiner": False,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         },
         metrics={
             "contract_passed": True,
@@ -107,11 +114,12 @@ def test_refiner_disabled_stub_does_not_count_as_refiner_ran() -> None:
 
 
 def test_refiner_disabled_but_refiner_ran_true_is_rejected() -> None:
+    """Verify refiner disabled but refiner ran true is rejected."""
     record = _record(
         variant={
             "enable_refiner": False,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         },
         metrics={
             "contract_passed": True,
@@ -132,6 +140,7 @@ def test_refiner_disabled_but_refiner_ran_true_is_rejected() -> None:
 
 
 def test_alignment_rejected_requires_pipeline_ms_none() -> None:
+    """Verify alignment rejected requires pipeline ms none."""
     record = _record(
         metrics={
             "alignment_rejected": True,
@@ -145,6 +154,7 @@ def test_alignment_rejected_requires_pipeline_ms_none() -> None:
 
 
 def test_summarizer_uses_terminal_status_and_success_consistently() -> None:
+    """Verify summarizer uses terminal status and success consistently."""
     records = [
         _record(
             metrics={
@@ -263,7 +273,7 @@ def test_alignment_issues_count_matches_valid() -> None:
         },
     )
     parsed = parse_smoke_run_record(record)
-    assert parsed.METRICS.alignment_issues_count == 2
+    assert parsed.METRICS.alignment_issues_count == 2  # noqa: PLR2004
 
 
 def test_refiner_enabled_final_story_mismatch_rejected() -> None:
@@ -272,7 +282,7 @@ def test_refiner_enabled_final_story_mismatch_rejected() -> None:
         variant={
             "enable_refiner": True,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         },
         metrics={
             "draft_present": True,
@@ -290,7 +300,7 @@ def test_refiner_disabled_final_story_mismatch_rejected() -> None:
         variant={
             "enable_refiner": False,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         },
         metrics={
             "draft_present": False,
@@ -308,7 +318,7 @@ def test_refiner_disabled_with_real_output_rejected() -> None:
         variant={
             "enable_refiner": False,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         },
         metrics={
             "draft_present": True,
@@ -324,46 +334,47 @@ def test_refiner_disabled_with_real_output_rejected() -> None:
 
 
 def test_scenario_1_happy_path_success_for_all_variants() -> None:
+    """Verify scenario 1 happy path success for all variants."""
     variants = [
         {
             "enable_refiner": False,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         },
         {
             "enable_refiner": False,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": True,
+            RAW_SPEC_FORWARDING_FIELD: True,
         },
         {
             "enable_refiner": False,
             "enable_spec_validator": True,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         },
         {
             "enable_refiner": False,
             "enable_spec_validator": True,
-            "pass_raw_spec_text": True,
+            RAW_SPEC_FORWARDING_FIELD: True,
         },
         {
             "enable_refiner": True,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         },
         {
             "enable_refiner": True,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": True,
+            RAW_SPEC_FORWARDING_FIELD: True,
         },
         {
             "enable_refiner": True,
             "enable_spec_validator": True,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         },
         {
             "enable_refiner": True,
             "enable_spec_validator": True,
-            "pass_raw_spec_text": True,
+            RAW_SPEC_FORWARDING_FIELD: True,
         },
     ]
 
@@ -394,6 +405,7 @@ def test_scenario_1_happy_path_success_for_all_variants() -> None:
 
 
 def test_contract_failed_reason_breakdown() -> None:
+    """Verify contract failed reason breakdown."""
     contract_failed = _record(
         metrics={
             "contract_passed": False,
@@ -464,7 +476,7 @@ def test_contract_passed_none_returns_unknown_status() -> None:
         variant={
             "enable_refiner": True,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         },
         metrics={
             "contract_passed": None,  # INVEST validation was skipped
@@ -501,7 +513,7 @@ def test_spec_validator_disabled_does_not_produce_contract_failed() -> None:
         variant={
             "enable_refiner": True,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         },
         metrics={
             "contract_passed": None,  # Validation skipped
@@ -540,7 +552,7 @@ def test_spec_validator_enabled_missing_validation_is_contract_failed() -> None:
         variant={
             "enable_refiner": True,
             "enable_spec_validator": True,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         },
         metrics={
             "contract_passed": False,  # Contract failed (e.g., INVEST_RESULT_MISSING)

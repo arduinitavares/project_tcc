@@ -1,15 +1,14 @@
-"""
-Test that story_points post-processing strips points when include_story_points=False.
-"""
+"""Test that story_points post-processing strips points when include_story_points=False."""  # noqa: E501
 
 
-def test_story_points_stripped_in_draft():
+def test_story_points_stripped_in_draft() -> None:
     """
-    Verify that if LLM generates story_points despite include_story_points=False,
+    Verify that if LLM generates story_points despite include_story_points=False,.
+
     the post-processing step strips them before final validation.
     """
     # Simulate LLM output with story_points (non-compliant)
-    draft_data = {
+    draft_data: dict[str, str | int | None] = {
         "title": "Test story",
         "description": "As an automation engineer, I want to test so that it works.",
         "acceptance_criteria": "- Test passes",
@@ -26,11 +25,9 @@ def test_story_points_stripped_in_draft():
     assert draft_data["story_points"] is None
 
 
-def test_story_points_preserved_when_enabled():
-    """
-    Verify that if include_story_points=True, points are preserved.
-    """
-    draft_data = {
+def test_story_points_preserved_when_enabled() -> None:
+    """Verify that if include_story_points=True, points are preserved."""
+    draft_data: dict[str, str | int | None] = {
         "title": "Test story",
         "description": "As an automation engineer, I want to test so that it works.",
         "acceptance_criteria": "- Test passes",
@@ -44,14 +41,12 @@ def test_story_points_preserved_when_enabled():
         draft_data["story_points"] = None
 
     # Points should be preserved
-    assert draft_data["story_points"] == 5
+    assert draft_data["story_points"] == 5  # noqa: PLR2004
 
 
-def test_story_points_null_not_overwritten():
-    """
-    Verify that NULL story_points stay NULL when include_story_points=False.
-    """
-    draft_data = {
+def test_story_points_null_not_overwritten() -> None:
+    """Verify that NULL story_points stay NULL when include_story_points=False."""
+    draft_data: dict[str, str | int | None] = {
         "title": "Test story",
         "description": "As an automation engineer, I want to test so that it works.",
         "acceptance_criteria": "- Test passes",

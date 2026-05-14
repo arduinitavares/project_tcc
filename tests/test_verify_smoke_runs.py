@@ -1,3 +1,5 @@
+"""Tests for verify smoke runs."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -7,7 +9,7 @@ import pytest
 from scripts.verify_smoke_runs import verify_records
 
 
-def _base_record(
+def _base_record(  # noqa: PLR0913
     *,
     scenario_id: int,
     stage: str,
@@ -82,7 +84,7 @@ def test_verify_records_happy_path_validator_enabled() -> None:
 
 
 def test_verify_records_validator_disabled_unknown_is_acceptable() -> None:
-    """V000 (validator disabled) with contract_passed=None -> 'unknown' is acceptable."""
+    """V000 (validator disabled) with contract_passed=None -> 'unknown' is acceptable."""  # noqa: E501
     records = [
         _base_record(
             scenario_id=1,
@@ -110,7 +112,7 @@ def test_verify_records_validator_disabled_unknown_is_acceptable() -> None:
 
 
 def test_verify_records_validator_enabled_unknown_fails() -> None:
-    """V110 (validator enabled) with contract_passed=None -> must fail (should be success)."""
+    """V110 (validator enabled) with contract_passed=None -> must fail (should be success)."""  # noqa: E501
     records = [
         _base_record(
             scenario_id=1,
@@ -133,7 +135,7 @@ def test_verify_records_validator_enabled_unknown_fails() -> None:
         ),
     ]
 
-    with pytest.raises(AssertionError, match="validator enabled.*expected 'success'"):
+    with pytest.raises(AssertionError, match="validator enabled.*expected 'success'"):  # noqa: RUF043
         verify_records(records)
 
 
@@ -162,12 +164,13 @@ def test_verify_records_validator_disabled_contract_failed_fails() -> None:
     ]
 
     with pytest.raises(
-        AssertionError, match="validator disabled.*should NOT be 'contract_failed'"
+        AssertionError, match="validator disabled.*should NOT be 'contract_failed'"  # noqa: RUF043
     ):
         verify_records(records)
 
 
 def test_verify_records_fails_on_missing_alignment_reject() -> None:
+    """Verify verify records fails on missing alignment reject."""
     records = [
         _base_record(
             scenario_id=1,
@@ -197,6 +200,7 @@ def test_verify_records_fails_on_missing_alignment_reject() -> None:
 
 
 def test_verify_records_fails_on_scenario_3_not_all_blocked() -> None:
+    """Verify verify records fails on scenario 3 not all blocked."""
     records = [
         _base_record(
             scenario_id=1,

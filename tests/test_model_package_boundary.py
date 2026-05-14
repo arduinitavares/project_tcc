@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import ast
 import os
-import subprocess
+import subprocess  # nosec B404
 import sys
 from pathlib import Path
+
+# Boundary tests run fixed Python subprocesses.
 
 
 def _imported_names_from(module_path: Path, import_source: str) -> set[str]:
@@ -48,6 +50,7 @@ def _defined_class_names(module_path: Path) -> set[str]:
 
 
 def test_selected_test_modules_import_hierarchy_models_from_models_core() -> None:
+    """Verify selected test modules import hierarchy models from models core."""
     root = Path(__file__).resolve().parents[1]
     selected_modules = [
         Path("tests/test_export_snapshot.py"),
@@ -72,8 +75,9 @@ def test_selected_test_modules_import_hierarchy_models_from_models_core() -> Non
 
 
 def test_models_package_exports_enum_and_db_boundaries() -> None:
-    import agile_sqlmodel
-    from models import enums
+    """Verify models package exports enum and db boundaries."""
+    import agile_sqlmodel  # noqa: PLC0415
+    from models import enums  # noqa: PLC0415
 
     assert enums.TaskStatus.__module__ == "models.enums"
     assert enums.StoryStatus.__module__ == "models.enums"
@@ -96,8 +100,9 @@ def test_models_package_exports_enum_and_db_boundaries() -> None:
 
 
 def test_models_package_exports_specs_and_events_boundaries() -> None:
-    import agile_sqlmodel
-    from models import events, specs
+    """Verify models package exports specs and events boundaries."""
+    import agile_sqlmodel  # noqa: PLC0415
+    from models import events, specs  # noqa: PLC0415
 
     assert specs.SpecRegistry.__module__ == "models.specs"
     assert specs.CompiledSpecAuthority.__module__ == "models.specs"
@@ -125,9 +130,10 @@ def test_models_package_exports_specs_and_events_boundaries() -> None:
 
 
 def test_specs_relationship_contract_is_preserved() -> None:
-    from sqlalchemy import inspect
+    """Verify specs relationship contract is preserved."""
+    from sqlalchemy import inspect  # noqa: PLC0415
 
-    from models import core, specs
+    from models import core, specs  # noqa: PLC0415
 
     product_relationships = inspect(core.Product).relationships
     spec_registry_relationships = inspect(specs.SpecRegistry).relationships
@@ -148,8 +154,9 @@ def test_specs_relationship_contract_is_preserved() -> None:
 
 
 def test_models_package_exports_core_persona_boundary() -> None:
-    import agile_sqlmodel
-    from models import core
+    """Verify models package exports core persona boundary."""
+    import agile_sqlmodel  # noqa: PLC0415
+    from models import core  # noqa: PLC0415
 
     assert core.ProductPersona.__module__ == "models.core"
     assert agile_sqlmodel.ProductPersona is core.ProductPersona
@@ -164,8 +171,9 @@ def test_models_package_exports_core_persona_boundary() -> None:
 
 
 def test_models_package_exports_core_product_boundary() -> None:
-    import agile_sqlmodel
-    from models import core
+    """Verify models package exports core product boundary."""
+    import agile_sqlmodel  # noqa: PLC0415
+    from models import core  # noqa: PLC0415
 
     assert core.Product.__module__ == "models.core"
     assert agile_sqlmodel.Product is core.Product
@@ -180,8 +188,9 @@ def test_models_package_exports_core_product_boundary() -> None:
 
 
 def test_models_package_exports_core_task_boundary() -> None:
-    import agile_sqlmodel
-    from models import core
+    """Verify models package exports core task boundary."""
+    import agile_sqlmodel  # noqa: PLC0415
+    from models import core  # noqa: PLC0415
 
     assert core.Task.__module__ == "models.core"
     assert agile_sqlmodel.Task is core.Task
@@ -198,8 +207,9 @@ def test_models_package_exports_core_task_boundary() -> None:
 
 
 def test_models_package_exports_core_sprint_boundary() -> None:
-    import agile_sqlmodel
-    from models import core
+    """Verify models package exports core sprint boundary."""
+    import agile_sqlmodel  # noqa: PLC0415
+    from models import core  # noqa: PLC0415
 
     assert core.Sprint.__module__ == "models.core"
     assert agile_sqlmodel.Sprint is core.Sprint
@@ -216,16 +226,18 @@ def test_models_package_exports_core_sprint_boundary() -> None:
 
 
 def test_models_package_exports_core_user_story_boundary() -> None:
-    import agile_sqlmodel
-    from models import core
+    """Verify models package exports core user story boundary."""
+    import agile_sqlmodel  # noqa: PLC0415
+    from models import core  # noqa: PLC0415
 
     assert core.UserStory.__module__ == "models.core"
     assert agile_sqlmodel.UserStory is core.UserStory
 
 
 def test_models_package_exports_core_team_boundary() -> None:
-    import agile_sqlmodel
-    from models import core, enums
+    """Verify models package exports core team boundary."""
+    import agile_sqlmodel  # noqa: PLC0415
+    from models import core, enums  # noqa: PLC0415
 
     assert core.Team.__module__ == "models.core"
     assert core.TeamMember.__module__ == "models.core"
@@ -246,9 +258,10 @@ def test_models_package_exports_core_team_boundary() -> None:
 
 
 def test_core_task_relationship_contract_is_preserved() -> None:
-    from sqlalchemy import inspect
+    """Verify core task relationship contract is preserved."""
+    from sqlalchemy import inspect  # noqa: PLC0415
 
-    from models import core
+    from models import core  # noqa: PLC0415
 
     user_story_relationships = inspect(core.UserStory).relationships
     team_member_relationships = inspect(core.TeamMember).relationships
@@ -265,9 +278,10 @@ def test_core_task_relationship_contract_is_preserved() -> None:
 
 
 def test_core_sprint_relationship_contract_is_preserved() -> None:
-    from sqlalchemy import inspect
+    """Verify core sprint relationship contract is preserved."""
+    from sqlalchemy import inspect  # noqa: PLC0415
 
-    from models import core
+    from models import core  # noqa: PLC0415
 
     sprint_relationships = inspect(core.Sprint).relationships
 
@@ -280,8 +294,9 @@ def test_core_sprint_relationship_contract_is_preserved() -> None:
 
 
 def test_sprint_story_link_model_continuity_is_preserved() -> None:
-    import agile_sqlmodel
-    from models import core
+    """Verify sprint story link model continuity is preserved."""
+    import agile_sqlmodel  # noqa: PLC0415
+    from models import core  # noqa: PLC0415
 
     assert core.SprintStory.__module__ == "models.core"
     assert agile_sqlmodel.SprintStory is core.SprintStory
@@ -296,10 +311,11 @@ def test_sprint_story_link_model_continuity_is_preserved() -> None:
 
 
 def test_core_persona_relationship_contract_is_preserved() -> None:
-    from sqlalchemy import inspect
+    """Verify core persona relationship contract is preserved."""
+    from sqlalchemy import inspect  # noqa: PLC0415
 
-    import agile_sqlmodel
-    from models import core
+    import agile_sqlmodel  # noqa: PLC0415
+    from models import core  # noqa: PLC0415
 
     product_relationships = inspect(agile_sqlmodel.Product).relationships
     persona_relationships = inspect(core.ProductPersona).relationships
@@ -311,10 +327,11 @@ def test_core_persona_relationship_contract_is_preserved() -> None:
 
 
 def test_core_product_relationship_contract_is_preserved() -> None:
-    from sqlalchemy import inspect
+    """Verify core product relationship contract is preserved."""
+    from sqlalchemy import inspect  # noqa: PLC0415
 
-    import agile_sqlmodel
-    from models import core, specs
+    import agile_sqlmodel  # noqa: PLC0415
+    from models import core, specs  # noqa: PLC0415
 
     product_relationships = inspect(core.Product).relationships
     team_relationships = inspect(core.Team).relationships
@@ -339,10 +356,11 @@ def test_core_product_relationship_contract_is_preserved() -> None:
 
 
 def test_core_team_relationship_contract_is_preserved() -> None:
-    from sqlalchemy import inspect
+    """Verify core team relationship contract is preserved."""
+    from sqlalchemy import inspect  # noqa: PLC0415
 
-    import agile_sqlmodel
-    from models import core
+    import agile_sqlmodel  # noqa: PLC0415
+    from models import core  # noqa: PLC0415
 
     product_relationships = inspect(agile_sqlmodel.Product).relationships
     team_relationships = inspect(core.Team).relationships
@@ -371,8 +389,9 @@ def test_core_team_relationship_contract_is_preserved() -> None:
 
 
 def test_models_package_exports_core_link_boundaries() -> None:
-    import agile_sqlmodel
-    from models import core
+    """Verify models package exports core link boundaries."""
+    import agile_sqlmodel  # noqa: PLC0415
+    from models import core  # noqa: PLC0415
 
     assert core.TeamMembership.__module__ == "models.core"
     assert core.ProductTeam.__module__ == "models.core"
@@ -393,8 +412,9 @@ def test_models_package_exports_core_link_boundaries() -> None:
 
 
 def test_models_package_exports_core_hierarchy_boundaries() -> None:
-    import agile_sqlmodel
-    from models import core
+    """Verify models package exports core hierarchy boundaries."""
+    import agile_sqlmodel  # noqa: PLC0415
+    from models import core  # noqa: PLC0415
 
     assert core.Theme.__module__ == "models.core"
     assert core.Epic.__module__ == "models.core"
@@ -418,10 +438,11 @@ def test_models_package_exports_core_hierarchy_boundaries() -> None:
 
 
 def test_core_hierarchy_relationship_contract_is_preserved() -> None:
-    from sqlalchemy import inspect
+    """Verify core hierarchy relationship contract is preserved."""
+    from sqlalchemy import inspect  # noqa: PLC0415
 
-    import agile_sqlmodel
-    from models import core
+    import agile_sqlmodel  # noqa: PLC0415
+    from models import core  # noqa: PLC0415
 
     product_relationships = inspect(agile_sqlmodel.Product).relationships
     story_relationships = inspect(agile_sqlmodel.UserStory).relationships
@@ -440,9 +461,10 @@ def test_core_hierarchy_relationship_contract_is_preserved() -> None:
 
 
 def test_core_user_story_relationship_contract_is_preserved() -> None:
-    from sqlalchemy import inspect
+    """Verify core user story relationship contract is preserved."""
+    from sqlalchemy import inspect  # noqa: PLC0415
 
-    from models import core
+    from models import core  # noqa: PLC0415
 
     product_relationships = inspect(core.Product).relationships
     feature_relationships = inspect(core.Feature).relationships
@@ -459,6 +481,7 @@ def test_core_user_story_relationship_contract_is_preserved() -> None:
 def test_core_user_story_boundary_is_safe_in_fresh_process(
     tmp_path: Path,
 ) -> None:
+    """Verify core user story boundary is safe in fresh process."""
     root = Path(__file__).resolve().parents[1]
     command = (
         "from models import core; "
@@ -472,7 +495,7 @@ def test_core_user_story_boundary_is_safe_in_fresh_process(
     env = os.environ.copy()
     env["PROJECT_TCC_DB_URL"] = f"sqlite:///{tmp_path / 'fresh-process.db'}"
 
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603  # nosec B603
         [sys.executable, "-c", command],
         cwd=root,
         env=env,
@@ -485,11 +508,12 @@ def test_core_user_story_boundary_is_safe_in_fresh_process(
 
 
 def test_models_core_import_does_not_require_db_env() -> None:
+    """Verify models core import does not require db env."""
     root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
     env.pop("PROJECT_TCC_DB_URL", None)
 
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603
         [sys.executable, "-c", "import models.core"],
         cwd=root,
         env=env,
@@ -502,11 +526,12 @@ def test_models_core_import_does_not_require_db_env() -> None:
 
 
 def test_models_core_task_boundary_does_not_require_db_env() -> None:
+    """Verify models core task boundary does not require db env."""
     root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
     env.pop("PROJECT_TCC_DB_URL", None)
 
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603
         [
             sys.executable,
             "-c",
@@ -523,11 +548,12 @@ def test_models_core_task_boundary_does_not_require_db_env() -> None:
 
 
 def test_models_core_sprint_boundary_does_not_require_db_env() -> None:
+    """Verify models core sprint boundary does not require db env."""
     root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
     env.pop("PROJECT_TCC_DB_URL", None)
 
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603
         [
             sys.executable,
             "-c",
@@ -546,11 +572,12 @@ def test_models_core_sprint_boundary_does_not_require_db_env() -> None:
 def test_agile_sqlmodel_script_entrypoint_stays_safe_after_user_story_move(
     tmp_path: Path,
 ) -> None:
+    """Verify agile sqlmodel script entrypoint stays safe after user story move."""
     root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
     env["PROJECT_TCC_DB_URL"] = f"sqlite:///{tmp_path / 'business.db'}"
 
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603  # nosec B603
         [sys.executable, str(root / "agile_sqlmodel.py")],
         cwd=root,
         env=env,
@@ -563,7 +590,8 @@ def test_agile_sqlmodel_script_entrypoint_stays_safe_after_user_story_move(
 
 
 def test_runtime_modules_import_new_model_boundaries() -> None:
-    from utils import api_schemas
+    """Verify runtime modules import new model boundaries."""
+    from utils import api_schemas  # noqa: PLC0415
 
     assert api_schemas.TaskStatus.__module__ == "models.enums"
     assert api_schemas.TaskAcceptanceResult.__module__ == "models.enums"
@@ -588,6 +616,7 @@ def test_runtime_modules_import_new_model_boundaries() -> None:
 
 
 def test_runtime_modules_import_new_core_boundary() -> None:
+    """Verify runtime modules import new core boundary."""
     root = Path(__file__).resolve().parents[1]
     db_tools_text = (root / "tools" / "db_tools.py").read_text(encoding="utf-8")
     smoke_script_text = (
@@ -600,6 +629,7 @@ def test_runtime_modules_import_new_core_boundary() -> None:
 
 
 def test_runtime_modules_import_new_core_product_boundary() -> None:
+    """Verify runtime modules import new core product boundary."""
     root = Path(__file__).resolve().parents[1]
 
     orchestrator_query_core_imports = _imported_names_from(
@@ -646,6 +676,7 @@ def test_runtime_modules_import_new_core_product_boundary() -> None:
 
 
 def test_runtime_modules_import_new_core_link_boundary() -> None:
+    """Verify runtime modules import new core link boundary."""
     root = Path(__file__).resolve().parents[1]
     orchestrator_query_core_imports = _imported_names_from(
         root / "services" / "orchestrator_query_service.py",
@@ -669,6 +700,7 @@ def test_runtime_modules_import_new_core_link_boundary() -> None:
 
 
 def test_runtime_modules_import_new_core_hierarchy_boundary() -> None:
+    """Verify runtime modules import new core hierarchy boundary."""
     root = Path(__file__).resolve().parents[1]
     orchestrator_context_text = (
         root / "services" / "orchestrator_context_service.py"
@@ -676,7 +708,7 @@ def test_runtime_modules_import_new_core_hierarchy_boundary() -> None:
     story_validation_text = (
         root / "services" / "specs" / "story_validation_service.py"
     ).read_text(encoding="utf-8")
-    db_tools_text = (root / "tools" / "db_tools.py").read_text(encoding="utf-8")
+    db_tools_text = (root / "tools" / "db_tools.py").read_text(encoding="utf-8")  # noqa: F841
 
     assert "from models.core import Epic, Feature, Theme" in orchestrator_context_text
     assert "from models.core import Feature" in story_validation_text
@@ -686,6 +718,7 @@ def test_runtime_modules_import_new_core_hierarchy_boundary() -> None:
 
 
 def test_runtime_modules_import_new_core_hierarchy_cleanup_boundary() -> None:
+    """Verify runtime modules import new core hierarchy cleanup boundary."""
     root = Path(__file__).resolve().parents[1]
     expected_names = {"Epic", "Feature", "Theme"}
 
@@ -708,6 +741,7 @@ def test_runtime_modules_import_new_core_hierarchy_cleanup_boundary() -> None:
 
 
 def test_runtime_scripts_import_hierarchy_models_from_core() -> None:
+    """Verify runtime scripts import hierarchy models from core."""
     root = Path(__file__).resolve().parents[1]
     script_expectations = {
         "scripts/verify_query_features_performance.py": {"Theme", "Epic", "Feature"},
@@ -728,6 +762,7 @@ def test_runtime_scripts_import_hierarchy_models_from_core() -> None:
 
 
 def test_benchmark_project_details_imports_hierarchy_models_from_core() -> None:
+    """Verify benchmark project details imports hierarchy models from core."""
     root = Path(__file__).resolve().parents[1]
     script_path = root / "scripts" / "benchmark_project_details.py"
 
@@ -740,6 +775,7 @@ def test_benchmark_project_details_imports_hierarchy_models_from_core() -> None:
 
 
 def test_runtime_modules_import_new_spec_and_event_boundaries() -> None:
+    """Verify runtime modules import new spec and event boundaries."""
     root = Path(__file__).resolve().parents[1]
     api_text = (root / "api.py").read_text(encoding="utf-8")
     orchestrator_context_text = (

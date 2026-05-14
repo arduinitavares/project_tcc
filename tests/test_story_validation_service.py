@@ -1,7 +1,13 @@
+"""Tests for story validation service."""
+
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import pytest
+from sqlmodel import Session
+
 from agile_sqlmodel import CompiledSpecAuthority, Product, SpecRegistry, UserStory
+from tests.typing_helpers import require_id
 from utils.spec_schemas import (
     Invariant,
     InvariantType,
@@ -13,9 +19,10 @@ from utils.spec_schemas import (
 )
 
 
-def test_services_package_exports_validate_story_with_spec_authority():
-    from services import specs
-    from services.specs import story_validation_service
+def test_services_package_exports_validate_story_with_spec_authority() -> None:
+    """Verify services package exports validate story with spec authority."""
+    from services import specs  # noqa: PLC0415
+    from services.specs import story_validation_service  # noqa: PLC0415
 
     assert (
         specs.validate_story_with_spec_authority
@@ -28,14 +35,15 @@ def test_services_package_exports_validate_story_with_spec_authority():
 
 
 def test_validate_story_with_spec_authority_returns_missing_story_error(
-    session, monkeypatch
-):
-    from services.specs import story_validation_service
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify validate story with spec authority returns missing story error."""
+    from services.specs import story_validation_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         story_validation_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
 
     result = story_validation_service.validate_story_with_spec_authority(
@@ -49,9 +57,12 @@ def test_validate_story_with_spec_authority_returns_missing_story_error(
     }
 
 
-def test_resolve_engine_honors_legacy_spec_tools_engine(monkeypatch):
-    from services.specs import story_validation_service
-    from tools import spec_tools
+def test_resolve_engine_honors_legacy_spec_tools_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify resolve engine honors legacy spec tools engine."""
+    from services.specs import story_validation_service  # noqa: PLC0415
+    from tools import spec_tools  # noqa: PLC0415
 
     sentinel_engine = object()
     monkeypatch.setattr(spec_tools, "engine", sentinel_engine, raising=False)
@@ -66,8 +77,9 @@ def test_resolve_engine_honors_legacy_spec_tools_engine(monkeypatch):
     assert resolved is sentinel_engine
 
 
-def test_compute_story_input_hash_is_stable_for_same_story_content():
-    from services.specs.story_validation_service import (
+def test_compute_story_input_hash_is_stable_for_same_story_content() -> None:
+    """Verify compute story input hash is stable for same story content."""
+    from services.specs.story_validation_service import (  # noqa: PLC0415
         compute_story_input_hash,
     )
 
@@ -85,8 +97,9 @@ def test_compute_story_input_hash_is_stable_for_same_story_content():
     assert compute_story_input_hash(story_a) == compute_story_input_hash(story_b)
 
 
-def test_compute_story_input_hash_changes_when_story_content_changes():
-    from services.specs.story_validation_service import (
+def test_compute_story_input_hash_changes_when_story_content_changes() -> None:
+    """Verify compute story input hash changes when story content changes."""
+    from services.specs.story_validation_service import (  # noqa: PLC0415
         compute_story_input_hash,
     )
 
@@ -104,8 +117,11 @@ def test_compute_story_input_hash_changes_when_story_content_changes():
     assert compute_story_input_hash(story_a) != compute_story_input_hash(story_b)
 
 
-def test_render_invariant_summary_formats_required_field():
-    from services.specs.story_validation_service import render_invariant_summary
+def test_render_invariant_summary_formats_required_field() -> None:
+    """Verify render invariant summary formats required field."""
+    from services.specs.story_validation_service import (  # noqa: PLC0415
+        render_invariant_summary,
+    )
 
     invariant = Invariant(
         id="INV-0000000000000001",
@@ -116,8 +132,11 @@ def test_render_invariant_summary_formats_required_field():
     assert render_invariant_summary(invariant) == "REQUIRED_FIELD:user_id"
 
 
-def test_parse_llm_validator_response_parses_compliant_payload():
-    from services.specs.story_validation_service import parse_llm_validator_response
+def test_parse_llm_validator_response_parses_compliant_payload() -> None:
+    """Verify parse llm validator response parses compliant payload."""
+    from services.specs.story_validation_service import (  # noqa: PLC0415
+        parse_llm_validator_response,
+    )
 
     result = parse_llm_validator_response(
         """
@@ -135,16 +154,19 @@ def test_parse_llm_validator_response_parses_compliant_payload():
     }
 
 
-def test_run_llm_spec_validation_uses_injected_helpers():
-    from services.specs.story_validation_service import run_llm_spec_validation
+def test_run_llm_spec_validation_uses_injected_helpers() -> None:
+    """Verify run llm spec validation uses injected helpers."""
+    from services.specs.story_validation_service import (  # noqa: PLC0415
+        run_llm_spec_validation,
+    )
 
     captured = {}
 
     async def fake_invoke(payload_text: str) -> str:
         captured["payload"] = payload_text
-        return '{"is_compliant": true, "issues": [], "suggestions": [], "verdict": "Compliant"}'
+        return '{"is_compliant": true, "issues": [], "suggestions": [], "verdict": "Compliant"}'  # noqa: E501
 
-    def fake_parse(raw_text: str):
+    def fake_parse(raw_text: str) -> object:
         captured["raw_text"] = raw_text
         return {
             "passed": True,
@@ -154,13 +176,19 @@ def test_run_llm_spec_validation_uses_injected_helpers():
             "critical_gaps": [],
         }
 
-    story = SimpleNamespace(
+    story = UserStory(
+        product_id=1,
         title="As a user, I want exports",
         story_description="Export data for audit.",
         acceptance_criteria="Given reports, when exported, then CSV is generated.",
     )
-    authority = SimpleNamespace(
+    authority = CompiledSpecAuthority(
         spec_version_id=42,
+        compiler_version="1.0.0",
+        prompt_hash="0" * 64,
+        scope_themes="[]",
+        invariants="[]",
+        eligible_feature_ids="[]",
         compiled_artifact_json='{"compiled": true}',
     )
     artifact = SimpleNamespace(
@@ -184,8 +212,11 @@ def test_run_llm_spec_validation_uses_injected_helpers():
     assert captured["raw_text"].startswith('{"is_compliant": true')
 
 
-def test_resolve_default_validation_mode_uses_environment(monkeypatch):
-    from services.specs.story_validation_service import (
+def test_resolve_default_validation_mode_uses_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify resolve default validation mode uses environment."""
+    from services.specs.story_validation_service import (  # noqa: PLC0415
         resolve_default_validation_mode,
     )
 
@@ -194,8 +225,11 @@ def test_resolve_default_validation_mode_uses_environment(monkeypatch):
     assert resolve_default_validation_mode() == "hybrid"
 
 
-def test_persist_validation_evidence_updates_story_and_acceptance(session):
-    from services.specs.story_validation_service import (
+def test_persist_validation_evidence_updates_story_and_acceptance(
+    session: Session,
+) -> None:
+    """Verify persist validation evidence updates story and acceptance."""
+    from services.specs.story_validation_service import (  # noqa: PLC0415
         persist_validation_evidence,
     )
 
@@ -203,9 +237,10 @@ def test_persist_validation_evidence_updates_story_and_acceptance(session):
     session.add(product)
     session.commit()
     session.refresh(product)
+    product_id = require_id(product.product_id, "product_id")
 
     story = UserStory(
-        product_id=product.product_id,
+        product_id=product_id,
         title="Story",
         story_description="Description",
         acceptance_criteria="Criteria",
@@ -215,11 +250,10 @@ def test_persist_validation_evidence_updates_story_and_acceptance(session):
     session.refresh(story)
 
     spec_version = SpecRegistry(
-        product_id=product.product_id,
+        product_id=product_id,
         content="# Spec",
         content_ref=None,
         spec_hash="a" * 64,
-        version_number=1,
         status="approved",
         approved_at=datetime.now(UTC),
         approved_by="tester",
@@ -228,9 +262,10 @@ def test_persist_validation_evidence_updates_story_and_acceptance(session):
     session.add(spec_version)
     session.commit()
     session.refresh(spec_version)
+    spec_version_id = require_id(spec_version.spec_version_id, "spec_version_id")
 
     evidence = ValidationEvidence(
-        spec_version_id=spec_version.spec_version_id,
+        spec_version_id=spec_version_id,
         validated_at=datetime.now(UTC),
         passed=True,
         rules_checked=["SPEC_VERSION_EXISTS"],
@@ -242,24 +277,27 @@ def test_persist_validation_evidence_updates_story_and_acceptance(session):
     persist_validation_evidence(session, story, evidence, passed=True)
 
     session.expire(story)
-    updated = session.get(UserStory, story.story_id)
+    updated = session.get(UserStory, require_id(story.story_id, "story_id"))
 
+    assert updated is not None
     assert updated.validation_evidence == evidence.model_dump_json()
-    assert updated.accepted_spec_version_id == spec_version.spec_version_id
+    assert updated.accepted_spec_version_id == spec_version_id
 
 
 def test_validate_story_with_spec_authority_uses_service_owned_defaults(
-    session, monkeypatch
-):
-    from services.specs import story_validation_service
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify validate story with spec authority uses service owned defaults."""
+    from services.specs import story_validation_service  # noqa: PLC0415
 
     product = Product(name="Validation Product", vision="Test")
     session.add(product)
     session.commit()
     session.refresh(product)
+    product_id = require_id(product.product_id, "product_id")
 
     story = UserStory(
-        product_id=product.product_id,
+        product_id=product_id,
         title="Story",
         story_description="Description",
         acceptance_criteria="Criteria",
@@ -269,11 +307,10 @@ def test_validate_story_with_spec_authority_uses_service_owned_defaults(
     session.refresh(story)
 
     spec_version = SpecRegistry(
-        product_id=product.product_id,
+        product_id=product_id,
         content="# Spec",
         content_ref=None,
         spec_hash="b" * 64,
-        version_number=1,
         status="approved",
         approved_at=datetime.now(UTC),
         approved_by="tester",
@@ -282,6 +319,7 @@ def test_validate_story_with_spec_authority_uses_service_owned_defaults(
     session.add(spec_version)
     session.commit()
     session.refresh(spec_version)
+    spec_version_id = require_id(spec_version.spec_version_id, "spec_version_id")
 
     authority_artifact = SpecAuthorityCompilationSuccess(
         scope_themes=["core"],
@@ -300,7 +338,7 @@ def test_validate_story_with_spec_authority_uses_service_owned_defaults(
         prompt_hash="0" * 64,
     )
     authority = CompiledSpecAuthority(
-        spec_version_id=spec_version.spec_version_id,
+        spec_version_id=spec_version_id,
         compiler_version="1.0.0",
         prompt_hash="0" * 64,
         scope_themes='["core"]',
@@ -318,7 +356,7 @@ def test_validate_story_with_spec_authority_uses_service_owned_defaults(
     monkeypatch.setattr(
         story_validation_service,
         "_resolve_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
 
     monkeypatch.setattr(
@@ -329,7 +367,12 @@ def test_validate_story_with_spec_authority_uses_service_owned_defaults(
 
     llm_calls = {}
 
-    def fake_run_llm_validation(story_arg, authority_arg, artifact_arg, feature=None):
+    def fake_run_llm_validation(
+        story_arg: UserStory,
+        authority_arg: CompiledSpecAuthority,
+        artifact_arg: object,
+        feature: object = None,
+    ) -> dict[str, object]:
         llm_calls["story_id"] = story_arg.story_id
         llm_calls["authority_id"] = authority_arg.authority_id
         llm_calls["artifact"] = artifact_arg
@@ -350,7 +393,9 @@ def test_validate_story_with_spec_authority_uses_service_owned_defaults(
 
     persisted = {}
 
-    def fake_persist(session_arg, story_arg, evidence_arg, passed):
+    def fake_persist(
+        session_arg: object, story_arg: object, evidence_arg: object, passed: object
+    ) -> None:
         persisted["session"] = session_arg
         persisted["story"] = story_arg
         persisted["evidence"] = evidence_arg
@@ -363,7 +408,10 @@ def test_validate_story_with_spec_authority_uses_service_owned_defaults(
     )
 
     result = story_validation_service.validate_story_with_spec_authority(
-        {"story_id": story.story_id, "spec_version_id": spec_version.spec_version_id},
+        {
+            "story_id": require_id(story.story_id, "story_id"),
+            "spec_version_id": spec_version_id,
+        },
         tool_context=None,
     )
 
@@ -373,4 +421,4 @@ def test_validate_story_with_spec_authority_uses_service_owned_defaults(
     assert llm_calls["story_id"] == story.story_id
     assert persisted["story"].story_id == story.story_id
     assert persisted["passed"] is True
-    assert persisted["evidence"].spec_version_id == spec_version.spec_version_id
+    assert persisted["evidence"].spec_version_id == spec_version_id

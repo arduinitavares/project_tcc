@@ -17,6 +17,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from utils.cli_output import emit
+
 # =============================================================================
 # Phase 1 — Compiled Authority (output of human / LLM interpretation)
 # =============================================================================
@@ -132,10 +134,23 @@ def validate_against_invariants(
         else:
             # This is intentional:
             # New rule types require explicit implementation.
-            raise ValueError(f"Unknown invariant type: {inv_type}")
+            msg = f"Unknown invariant type: {inv_type}"
+            raise ValueError(msg)
 
     passed = all(f.severity != "FAIL" for f in findings)
     return ValidationResult(passed=passed, findings=tuple(findings))
+
+
+def _expect_failure_code(result: ValidationResult, expected_code: str) -> None:
+    if result.passed is not False:
+        msg = "Expected deterministic validation to fail."
+        raise AssertionError(msg)
+    if not result.findings:
+        msg = f"Expected finding {expected_code}, got no findings."
+        raise AssertionError(msg)
+    if result.findings[0].code != expected_code:
+        msg = f"Expected finding {expected_code}, got {result.findings[0].code}."
+        raise AssertionError(msg)
 
 
 # =============================================================================
@@ -164,8 +179,7 @@ def test_software_story_fails_deterministically() -> None:
         invariants=COMPILED_INVARIANTS_SOFTWARE,
     )
 
-    assert result.passed is False
-    assert result.findings[0].code == "INV-002"
+    _expect_failure_code(result, "INV-002")
 
 
 def test_construction_plan_fails_for_same_reason_shape() -> None:
@@ -186,8 +200,7 @@ def test_construction_plan_fails_for_same_reason_shape() -> None:
         invariants=COMPILED_INVARIANTS_CONSTRUCTION,
     )
 
-    assert result.passed is False
-    assert result.findings[0].code == "INV-901"
+    _expect_failure_code(result, "INV-901")
 
 
 def test_required_field_is_domain_agnostic() -> None:
@@ -208,8 +221,7 @@ def test_required_field_is_domain_agnostic() -> None:
         invariants=COMPILED_INVARIANTS_CONSTRUCTION,
     )
 
-    assert result.passed is False
-    assert result.findings[0].code == "INV-902"
+    _expect_failure_code(result, "INV-902")
 
 
 def build_demo_artifacts() -> dict[str, Any]:
@@ -285,9 +297,9 @@ def main() -> None:
     """Run the deterministic gate demo and write artifacts to disk."""
     output_dir = Path(__file__).resolve().parents[1] / "artifacts" / "generate_example"
     written = save_artifacts(output_dir)
-    print(f"Wrote {len(written)} artifacts to: {output_dir}")
+    emit(f"Wrote {len(written)} artifacts to: {output_dir}")
     for path in written:
-        print(f"- {path.name}")
+        emit(f"- {path.name}")
 
 
 if __name__ == "__main__":

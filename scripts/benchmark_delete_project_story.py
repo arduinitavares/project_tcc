@@ -1,3 +1,5 @@
+"""Script for benchmark delete project story."""
+
 import asyncio
 import os
 import sys
@@ -6,12 +8,20 @@ import time
 import uuid
 from datetime import UTC, datetime
 
+from utils.cli_output import emit
+
 # Ensure we can import from the root of the project
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))  # noqa: PTH100, PTH118, PTH120
 
 # Set isolated DB targets before imports that might initialize them
-temp_db_path = tempfile.mktemp(suffix=".db")
-temp_session_db_path = tempfile.mktemp(suffix="_session.db")
+def _new_temp_db_path(suffix: str) -> str:
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
+    return path
+
+
+temp_db_path = _new_temp_db_path(suffix=".db")
+temp_session_db_path = _new_temp_db_path(suffix="_session.db")
 os.environ["PROJECT_TCC_DB_URL"] = f"sqlite:///{temp_db_path}"
 os.environ["PROJECT_TCC_SESSION_DB_URL"] = f"sqlite:///{temp_session_db_path}"
 
@@ -31,29 +41,45 @@ from agile_sqlmodel import (  # noqa: E402
     UserStory,
     get_engine,
 )
-from models.core import Team
+from models.core import Team  # noqa: E402
 
 
-def setup_data(session, num_stories=100, num_sprints=5, num_logs=3, num_tasks=5):
+def _require_id(value: int | None, name: str) -> int:
+    if value is None:
+        msg = f"{name} was not generated"
+        raise RuntimeError(msg)
+    return value
+
+
+def setup_data(  # noqa: C901
+    session: Session,
+    num_stories: int = 100,
+    num_sprints: int = 5,
+    num_logs: int = 3,
+    num_tasks: int = 5,
+) -> tuple[int, str]:
     # Create product
+    """Return setup data."""
     product = Product(name=f"Bench Product {uuid.uuid4()}", description="Bench")
     session.add(product)
     session.commit()
     session.refresh(product)
+    product_id = _require_id(product.product_id, "Product ID")
 
     # Create unique team
     team = Team(name=f"Bench Team {uuid.uuid4()}")
     session.add(team)
     session.commit()
     session.refresh(team)
+    team_id = _require_id(team.team_id, "Team ID")
 
     # Create Sprints
-    sprints = []
+    sprints: list[Sprint] = []
     now = datetime.now(UTC)
     for _ in range(num_sprints):
         s = Sprint(
-            product_id=product.product_id,
-            team_id=team.team_id,
+            product_id=product_id,
+            team_id=team_id,
             start_date=now,
             end_date=now,
             status=SprintStatus.PLANNED,
@@ -63,19 +89,23 @@ def setup_data(session, num_stories=100, num_sprints=5, num_logs=3, num_tasks=5)
     session.commit()
     for s in sprints:
         session.refresh(s)
+    sprint_ids = [
+        _require_id(sprint.sprint_id, f"Sprint {index} ID")
+        for index, sprint in enumerate(sprints)
+    ]
 
     parent_req = f"bench-req-{uuid.uuid4()}"
 
-    stories = []
-    sprint_mappings = []
-    logs = []
-    tasks = []
-    task_execution_logs = []
+    stories: list[UserStory] = []
+    sprint_mappings: list[SprintStory] = []
+    logs: list[StoryCompletionLog] = []
+    tasks: list[Task] = []
+    task_execution_logs: list[TaskExecutionLog] = []
 
     # Create Stories
     for i in range(num_stories):
         story = UserStory(
-            product_id=product.product_id,
+            product_id=product_id,
             title=f"Story {i}",
             source_requirement=parent_req,
             status=StoryStatus.TO_DO,
@@ -89,13 +119,14 @@ def setup_data(session, num_stories=100, num_sprints=5, num_logs=3, num_tasks=5)
 
     # Create Mappings, Logs, Tasks, and Task Execution Logs
     for story in stories:
-        for s in sprints[:2]:  # add to 2 sprints
-            sm = SprintStory(sprint_id=s.sprint_id, story_id=story.story_id)
+        story_id = _require_id(story.story_id, "Story ID")
+        for sprint_id in sprint_ids[:2]:  # add to 2 sprints
+            sm = SprintStory(sprint_id=sprint_id, story_id=story_id)
             sprint_mappings.append(sm)
 
         for _ in range(num_logs):
             log = StoryCompletionLog(
-                story_id=story.story_id,
+                story_id=story_id,
                 old_status=StoryStatus.TO_DO,
                 new_status=StoryStatus.IN_PROGRESS,
             )
@@ -103,7 +134,7 @@ def setup_data(session, num_stories=100, num_sprints=5, num_logs=3, num_tasks=5)
 
         for _ in range(num_tasks):
             t = Task(
-                story_id=story.story_id,
+                story_id=story_id,
                 description="Task",
                 status=TaskStatus.TO_DO,
             )
@@ -117,10 +148,11 @@ def setup_data(session, num_stories=100, num_sprints=5, num_logs=3, num_tasks=5)
         session.refresh(t)
 
     # Add Task Execution Logs for tasks
+    first_sprint_id = sprint_ids[0]
     for t in tasks:
         t_log = TaskExecutionLog(
-            task_id=t.task_id,
-            sprint_id=sprints[0].sprint_id,
+            task_id=_require_id(t.task_id, "Task ID"),
+            sprint_id=first_sprint_id,
             new_status=TaskStatus.IN_PROGRESS,
         )
         task_execution_logs.append(t_log)
@@ -128,10 +160,11 @@ def setup_data(session, num_stories=100, num_sprints=5, num_logs=3, num_tasks=5)
     session.add_all(task_execution_logs)
     session.commit()
 
-    return product.product_id, parent_req
+    return product_id, parent_req
 
 
-async def run_benchmark():
+async def run_benchmark() -> None:
+    """Return run benchmark."""
     engine = get_engine()
     SQLModel.metadata.create_all(engine)
 
@@ -140,26 +173,26 @@ async def run_benchmark():
             session, num_stories=500, num_sprints=2, num_logs=2, num_tasks=5
         )
 
-    print(f"Set up benchmark data. Product ID: {product_id}, Requirement: {parent_req}")
+    emit(f"Set up benchmark data. Product ID: {product_id}, Requirement: {parent_req}")
 
     start_time = time.time()
     await api.delete_project_story(product_id, parent_req)
     end_time = time.time()
 
     duration = end_time - start_time
-    print(f"Deletion took {duration:.4f} seconds")
+    emit(f"Deletion took {duration:.4f} seconds")
 
     with Session(engine) as session:
         remaining_stories = session.exec(
             select(UserStory).where(UserStory.product_id == product_id)
         ).all()
-        print(f"Remaining stories: {len(remaining_stories)}")
+        emit(f"Remaining stories: {len(remaining_stories)}")
 
     # Clean up temp databases
-    if os.path.exists(temp_db_path):
-        os.remove(temp_db_path)
-    if os.path.exists(temp_session_db_path):
-        os.remove(temp_session_db_path)
+    if os.path.exists(temp_db_path):  # noqa: ASYNC240, PTH110
+        os.remove(temp_db_path)  # noqa: PTH107
+    if os.path.exists(temp_session_db_path):  # noqa: ASYNC240, PTH110
+        os.remove(temp_session_db_path)  # noqa: PTH107
 
 
 if __name__ == "__main__":

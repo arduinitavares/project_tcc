@@ -73,6 +73,7 @@ def _dotted_attribute_references(module_path: Path) -> set[str]:
 
 
 def test_sprint_runtime_consumers_import_sprint_from_models_core_only() -> None:
+    """Verify sprint runtime consumers import sprint from models core only."""
     module_names = [
         "api",
         "services.orchestrator_query_service",

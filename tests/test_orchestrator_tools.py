@@ -1,11 +1,13 @@
 """
 Test suite for orchestrator decision-making tools.
+
 Tests the query tools used by the orchestrator agent.
 """
 
 from sqlmodel import Session
 
 from agile_sqlmodel import Product, StoryStatus, UserStory
+from tests.typing_helpers import make_tool_context
 from tools.orchestrator_tools import (
     count_projects,
     fetch_product_backlog,
@@ -16,19 +18,9 @@ from tools.orchestrator_tools import (
 )
 
 
-class MockToolContext:
-    def __init__(self, state):
-        self.state = state
-
-
-def test_count_projects_empty(engine):
+def test_count_projects_empty() -> None:
     """Test counting projects when database is empty."""
-    import tools.orchestrator_tools as orch_tools
-
-    orch_tools.engine = engine
-
-    state = {}
-    context = MockToolContext(state)
+    context = make_tool_context()
     result = count_projects({}, context)
 
     assert result["success"] is True
@@ -36,16 +28,12 @@ def test_count_projects_empty(engine):
     assert "0 project" in result["message"]
 
 
-def test_count_projects_with_data(engine):
+def test_count_projects_with_data() -> None:
     """Test counting projects when products exist."""
-    import tools.orchestrator_tools as orch_tools
-
-    orch_tools.engine = engine
-
-    from tools import db_tools
-    from tools.db_tools import CreateOrGetProductInput, create_or_get_product
-
-    db_tools.engine = engine
+    from tools.db_tools import (  # noqa: PLC0415
+        CreateOrGetProductInput,
+        create_or_get_product,
+    )
 
     # Create 3 products
     create_or_get_product(
@@ -58,23 +46,17 @@ def test_count_projects_with_data(engine):
         CreateOrGetProductInput(product_name="Project C", vision=None, description=None)
     )
 
-    state = {}
-    context = MockToolContext(state)
+    context = make_tool_context()
     result = count_projects({}, context)
 
     assert result["success"] is True
-    assert result["count"] == 3
+    assert result["count"] == 3  # noqa: PLR2004
     assert "3 project" in result["message"]
 
 
-def test_list_projects_empty(engine):
+def test_list_projects_empty() -> None:
     """Test listing projects when database is empty."""
-    import tools.orchestrator_tools as orch_tools
-
-    orch_tools.engine = engine
-
-    state = {}
-    context = MockToolContext(state)
+    context = make_tool_context()
     result = list_projects({}, context)
 
     assert result["success"] is True
@@ -82,22 +64,15 @@ def test_list_projects_empty(engine):
     assert len(result["projects"]) == 0
 
 
-def test_list_projects_with_data(engine):
+def test_list_projects_with_data() -> None:
     """Test listing projects with summary data."""
-    import tools.orchestrator_tools as orch_tools
-
-    orch_tools.engine = engine
-
-    from tools import db_tools
-    from tools.db_tools import (
+    from tools.db_tools import (  # noqa: PLC0415
         CreateOrGetProductInput,
         CreateUserStoryInput,
         create_or_get_product,
         create_user_story,
         persist_roadmap,
     )
-
-    db_tools.engine = engine
 
     # Create a product with structure
     prod_result = create_or_get_product(
@@ -140,8 +115,7 @@ def test_list_projects_with_data(engine):
     )
 
     # Now list projects
-    state = {}
-    context = MockToolContext(state)
+    context = make_tool_context()
     result = list_projects({}, context)
 
     assert result["success"] is True
@@ -155,34 +129,23 @@ def test_list_projects_with_data(engine):
     assert project["user_stories_count"] == 1
 
 
-def test_get_project_details_not_found(engine):
+def test_get_project_details_not_found() -> None:
     """Test getting details for non-existent project."""
-    import tools.orchestrator_tools as orch_tools
-
-    orch_tools.engine = engine
-
     result = get_project_details(999)
 
     assert result["success"] is False
     assert "not found" in result["error"].lower()
 
 
-def test_get_project_details_with_structure(engine):
+def test_get_project_details_with_structure() -> None:
     """Test getting detailed structure of a project."""
-    import tools.orchestrator_tools as orch_tools
-
-    orch_tools.engine = engine
-
-    from tools import db_tools
-    from tools.db_tools import (
+    from tools.db_tools import (  # noqa: PLC0415
         CreateOrGetProductInput,
         CreateUserStoryInput,
         create_or_get_product,
         create_user_story,
         persist_roadmap,
     )
-
-    db_tools.engine = engine
 
     # Create a complete project structure
     prod_result = create_or_get_product(
@@ -237,33 +200,25 @@ def test_get_project_details_with_structure(engine):
     assert result["success"] is True
     assert result["product"]["name"] == "Full Project"
     assert result["structure"]["themes"] == 1
-    assert result["structure"]["epics"] == 2
-    assert result["structure"]["features"] == 3
-    assert result["structure"]["user_stories"] == 3
+    assert result["structure"]["epics"] == 2  # noqa: PLR2004
+    assert result["structure"]["features"] == 3  # noqa: PLR2004
+    assert result["structure"]["user_stories"] == 3  # noqa: PLR2004
 
 
-def test_get_project_by_name_not_found(engine):
+def test_get_project_by_name_not_found() -> None:
     """Test finding project by name when it doesn't exist."""
-    import tools.orchestrator_tools as orch_tools
-
-    orch_tools.engine = engine
-
     result = get_project_by_name("Non Existent Project")
 
     assert result["success"] is False
     assert "not found" in result["error"].lower()
 
 
-def test_get_project_by_name_found(engine):
+def test_get_project_by_name_found() -> None:
     """Test finding project by name successfully."""
-    import tools.orchestrator_tools as orch_tools
-
-    orch_tools.engine = engine
-
-    from tools import db_tools
-    from tools.db_tools import CreateOrGetProductInput, create_or_get_product
-
-    db_tools.engine = engine
+    from tools.db_tools import (  # noqa: PLC0415
+        CreateOrGetProductInput,
+        create_or_get_product,
+    )
 
     # Create product
     prod_result = create_or_get_product(
@@ -344,7 +299,7 @@ def test_fetch_sprint_candidates_only_refined_todo(session: Session) -> None:
         "open_sprint": 0,
     }
     assert result["stories"][0]["story_title"] == "Refined Story"
-    assert result["stories"][0]["priority"] == 2
+    assert result["stories"][0]["priority"] == 2  # noqa: PLR2004
     assert result["stories"][0]["persona"] == "Document Reviewer"
 
 
@@ -381,7 +336,7 @@ def test_fetch_product_backlog_exposes_refinement_flags(session: Session) -> Non
 
     result = fetch_product_backlog(31)
     assert result["success"] is True
-    assert result["count"] == 2
+    assert result["count"] == 2  # noqa: PLR2004
 
     by_title = {story["title"]: story for story in result["stories"]}
     assert by_title["Seed Story"]["is_refined"] is False

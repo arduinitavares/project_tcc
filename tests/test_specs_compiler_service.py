@@ -1,10 +1,12 @@
+"""Tests for specs compiler service."""
+
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from sqlmodel import select
+from sqlmodel import Session, select
 
 from agile_sqlmodel import (
     CompiledSpecAuthority,
@@ -13,6 +15,7 @@ from agile_sqlmodel import (
     SpecAuthorityStatus,
     SpecRegistry,
 )
+from tests.typing_helpers import make_tool_context, require_id
 from utils import failure_artifacts
 from utils.failure_artifacts import AgentInvocationError
 from utils.spec_schemas import (
@@ -29,6 +32,7 @@ from utils.spec_schemas import (
 def _compiled_success_json() -> str:
     success = SpecAuthorityCompilationSuccess(
         scope_themes=["Payments"],
+        domain=None,
         invariants=[
             Invariant(
                 id="INV-0123456789abcdef",
@@ -58,6 +62,7 @@ def _compiled_failure_json() -> str:
 def _raw_compiler_output_json() -> str:
     success = SpecAuthorityCompilationSuccess(
         scope_themes=["Payments"],
+        domain=None,
         invariants=[
             Invariant(
                 id="INV-0123456789abcdef",
@@ -91,7 +96,7 @@ def _raw_compiler_failure_json() -> str:
 
 
 def _create_spec_version(
-    session,
+    session: Session,
     *,
     product_id: int,
     content: str = "Spec A",
@@ -113,7 +118,7 @@ def _create_spec_version(
 
 
 def _create_compiled_authority(
-    session,
+    session: Session,
     *,
     spec_version_id: int,
     artifact_json: str,
@@ -136,8 +141,9 @@ def _create_compiled_authority(
     return authority
 
 
-def test_load_compiled_artifact_returns_success_payload():
-    from services.specs.compiler_service import load_compiled_artifact
+def test_load_compiled_artifact_returns_success_payload() -> None:
+    """Verify load compiled artifact returns success payload."""
+    from services.specs.compiler_service import load_compiled_artifact  # noqa: PLC0415
 
     authority = SimpleNamespace(compiled_artifact_json=_compiled_success_json())
 
@@ -148,8 +154,9 @@ def test_load_compiled_artifact_returns_success_payload():
     assert artifact.invariants[0].id == "INV-0123456789abcdef"
 
 
-def test_load_compiled_artifact_returns_none_for_failure_or_invalid_json():
-    from services.specs.compiler_service import load_compiled_artifact
+def test_load_compiled_artifact_returns_none_for_failure_or_invalid_json() -> None:
+    """Verify load compiled artifact returns none for failure or invalid json."""
+    from services.specs.compiler_service import load_compiled_artifact  # noqa: PLC0415
 
     failure = SpecAuthorityCompilationFailure(
         error="COMPILATION_FAILED",
@@ -168,9 +175,10 @@ def test_load_compiled_artifact_returns_none_for_failure_or_invalid_json():
     )
 
 
-def test_services_package_exports_ensure_accepted_spec_authority():
-    from services import specs
-    from services.specs import compiler_service
+def test_services_package_exports_ensure_accepted_spec_authority() -> None:
+    """Verify services package exports ensure accepted spec authority."""
+    from services import specs  # noqa: PLC0415
+    from services.specs import compiler_service  # noqa: PLC0415
 
     assert (
         specs.ensure_accepted_spec_authority
@@ -179,22 +187,25 @@ def test_services_package_exports_ensure_accepted_spec_authority():
 
 
 def test_ensure_accepted_spec_authority_reuses_existing_accepted_version(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
-    from tools import spec_tools
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify ensure accepted spec authority reuses existing accepted version."""
+    from services.specs import compiler_service  # noqa: PLC0415
+    from tools import spec_tools  # noqa: PLC0415
 
     monkeypatch.setattr(spec_tools, "engine", session.get_bind(), raising=False)
 
-    spec_row = _create_spec_version(session, product_id=sample_product.product_id)
+    spec_row = _create_spec_version(
+        session, product_id=require_id(sample_product.product_id, "product_id")
+    )
     authority = _create_compiled_authority(
         session,
-        spec_version_id=spec_row.spec_version_id,
+        spec_version_id=require_id(spec_row.spec_version_id, "spec_version_id"),
         artifact_json=_compiled_success_json(),
     )
     acceptance = SpecAuthorityAcceptance(
-        product_id=sample_product.product_id,
-        spec_version_id=spec_row.spec_version_id,
+        product_id=require_id(sample_product.product_id, "product_id"),
+        spec_version_id=require_id(spec_row.spec_version_id, "spec_version_id"),
         status="accepted",
         policy="auto",
         decided_by="system",
@@ -208,30 +219,31 @@ def test_ensure_accepted_spec_authority_reuses_existing_accepted_version(
     session.commit()
 
     result = compiler_service.ensure_accepted_spec_authority(
-        product_id=sample_product.product_id,
+        product_id=require_id(sample_product.product_id, "product_id"),
     )
 
-    assert result == spec_row.spec_version_id
+    assert result == require_id(spec_row.spec_version_id, "spec_version_id")
 
 
 def test_ensure_accepted_spec_authority_honors_legacy_tool_update_monkeypatch(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
-    from tools import spec_tools
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify ensure accepted spec authority honors legacy tool update monkeypatch."""
+    from services.specs import compiler_service  # noqa: PLC0415
+    from tools import spec_tools  # noqa: PLC0415
 
     monkeypatch.setattr(spec_tools, "engine", session.get_bind(), raising=False)
 
     captured: dict[str, object] = {}
 
-    def fake_update(params, tool_context=None):
+    def fake_update(params: object, tool_context: object = None) -> object:
         captured["params"] = params
         captured["tool_context"] = tool_context
         return {
             "success": True,
             "accepted": True,
             "spec_version_id": 777,
-            "product_id": sample_product.product_id,
+            "product_id": require_id(sample_product.product_id, "product_id"),
         }
 
     monkeypatch.setattr(
@@ -242,14 +254,14 @@ def test_ensure_accepted_spec_authority_honors_legacy_tool_update_monkeypatch(
     )
 
     result = compiler_service.ensure_accepted_spec_authority(
-        product_id=sample_product.product_id,
+        product_id=require_id(sample_product.product_id, "product_id"),
         spec_content="# Spec",
         recompile=True,
     )
 
-    assert result == 777
+    assert result == 777  # noqa: PLR2004
     assert captured["params"] == {
-        "product_id": sample_product.product_id,
+        "product_id": require_id(sample_product.product_id, "product_id"),
         "recompile": True,
         "spec_content": "# Spec",
     }
@@ -257,33 +269,38 @@ def test_ensure_accepted_spec_authority_honors_legacy_tool_update_monkeypatch(
 
 
 def test_ensure_spec_authority_accepted_inserts_new_acceptance(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify ensure spec authority accepted inserts new acceptance."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
 
-    spec_row = _create_spec_version(session, product_id=sample_product.product_id)
+    spec_row = _create_spec_version(
+        session, product_id=require_id(sample_product.product_id, "product_id")
+    )
     authority = _create_compiled_authority(
         session,
-        spec_version_id=spec_row.spec_version_id,
+        spec_version_id=require_id(spec_row.spec_version_id, "spec_version_id"),
         artifact_json=_compiled_success_json(),
     )
 
     acceptance = compiler_service.ensure_spec_authority_accepted(
-        product_id=sample_product.product_id,
-        spec_version_id=spec_row.spec_version_id,
+        product_id=require_id(sample_product.product_id, "product_id"),
+        spec_version_id=require_id(spec_row.spec_version_id, "spec_version_id"),
         policy="auto",
         decided_by="system",
         rationale="Auto-accepted on compile success",
     )
 
-    assert acceptance.spec_version_id == spec_row.spec_version_id
-    assert acceptance.product_id == sample_product.product_id
+    assert acceptance.spec_version_id == require_id(
+        spec_row.spec_version_id, "spec_version_id"
+    )
+    assert acceptance.product_id == require_id(sample_product.product_id, "product_id")
     assert acceptance.status == "accepted"
     assert acceptance.policy == "auto"
     assert acceptance.decided_by == "system"
@@ -293,26 +310,29 @@ def test_ensure_spec_authority_accepted_inserts_new_acceptance(
 
 
 def test_ensure_spec_authority_accepted_returns_existing_acceptance(
-    session, sample_product: Product, monkeypatch
-):
-    from agile_sqlmodel import SpecAuthorityAcceptance
-    from services.specs import compiler_service
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify ensure spec authority accepted returns existing acceptance."""
+    from agile_sqlmodel import SpecAuthorityAcceptance  # noqa: PLC0415
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
 
-    spec_row = _create_spec_version(session, product_id=sample_product.product_id)
+    spec_row = _create_spec_version(
+        session, product_id=require_id(sample_product.product_id, "product_id")
+    )
     authority = _create_compiled_authority(
         session,
-        spec_version_id=spec_row.spec_version_id,
+        spec_version_id=require_id(spec_row.spec_version_id, "spec_version_id"),
         artifact_json=_compiled_success_json(),
     )
     existing = SpecAuthorityAcceptance(
-        product_id=sample_product.product_id,
-        spec_version_id=spec_row.spec_version_id,
+        product_id=require_id(sample_product.product_id, "product_id"),
+        spec_version_id=require_id(spec_row.spec_version_id, "spec_version_id"),
         status="accepted",
         policy="human",
         decided_by="reviewer",
@@ -327,8 +347,8 @@ def test_ensure_spec_authority_accepted_returns_existing_acceptance(
     session.refresh(existing)
 
     acceptance = compiler_service.ensure_spec_authority_accepted(
-        product_id=sample_product.product_id,
-        spec_version_id=spec_row.spec_version_id,
+        product_id=require_id(sample_product.product_id, "product_id"),
+        spec_version_id=require_id(spec_row.spec_version_id, "spec_version_id"),
         policy="auto",
         decided_by="system",
         rationale="Should be ignored",
@@ -340,20 +360,23 @@ def test_ensure_spec_authority_accepted_returns_existing_acceptance(
 
 
 def test_ensure_spec_authority_accepted_rejects_failure_artifact(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify ensure spec authority accepted rejects failure artifact."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
 
-    spec_row = _create_spec_version(session, product_id=sample_product.product_id)
+    spec_row = _create_spec_version(
+        session, product_id=require_id(sample_product.product_id, "product_id")
+    )
     _create_compiled_authority(
         session,
-        spec_version_id=spec_row.spec_version_id,
+        spec_version_id=require_id(spec_row.spec_version_id, "spec_version_id"),
         artifact_json=_compiled_failure_json(),
     )
 
@@ -362,19 +385,20 @@ def test_ensure_spec_authority_accepted_rejects_failure_artifact(
         match="compiled artifact invalid",
     ):
         compiler_service.ensure_spec_authority_accepted(
-            product_id=sample_product.product_id,
-            spec_version_id=spec_row.spec_version_id,
+            product_id=require_id(sample_product.product_id, "product_id"),
+            spec_version_id=require_id(spec_row.spec_version_id, "spec_version_id"),
             policy="auto",
             decided_by="system",
         )
 
 
 def test_preview_spec_authority_returns_success_and_updates_cache(
-    monkeypatch,
-):
-    from services.specs import compiler_service
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify preview spec authority returns success and updates cache."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
-    tool_context = SimpleNamespace(state={})
+    tool_context = make_tool_context()
     monkeypatch.setattr(
         compiler_service,
         "_invoke_spec_authority_compiler",
@@ -393,8 +417,11 @@ def test_preview_spec_authority_returns_success_and_updates_cache(
     )
 
 
-def test_preview_spec_authority_returns_failure_envelope(monkeypatch):
-    from services.specs import compiler_service
+def test_preview_spec_authority_returns_failure_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify preview spec authority returns failure envelope."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
@@ -404,7 +431,7 @@ def test_preview_spec_authority_returns_failure_envelope(monkeypatch):
 
     result = compiler_service.preview_spec_authority(
         {"content": "# Spec\n\n## Invariants\n- Missing scope."},
-        tool_context=SimpleNamespace(state={}),
+        tool_context=make_tool_context(),
     )
 
     assert result["success"] is False
@@ -413,8 +440,9 @@ def test_preview_spec_authority_returns_failure_envelope(monkeypatch):
     assert result["details"]["reason"] == "Missing scope"
 
 
-def test_preview_spec_authority_returns_invalid_input_envelope():
-    from services.specs import compiler_service
+def test_preview_spec_authority_returns_invalid_input_envelope() -> None:
+    """Verify preview spec authority returns invalid input envelope."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     result = compiler_service.preview_spec_authority({}, tool_context=None)
 
@@ -422,8 +450,11 @@ def test_preview_spec_authority_returns_invalid_input_envelope():
     assert result["error"].startswith("Invalid input: ")
 
 
-def test_preview_spec_authority_returns_unexpected_exception_error(monkeypatch, caplog):
-    from services.specs import compiler_service
+def test_preview_spec_authority_returns_unexpected_exception_error(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verify preview spec authority returns unexpected exception error."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
@@ -434,7 +465,7 @@ def test_preview_spec_authority_returns_unexpected_exception_error(monkeypatch, 
     with caplog.at_level("ERROR"):
         result = compiler_service.preview_spec_authority(
             {"content": "# Spec"},
-            tool_context=SimpleNamespace(state={}),
+            tool_context=make_tool_context(),
         )
 
     assert result == {"success": False, "error": "preview boom"}
@@ -446,12 +477,13 @@ def test_preview_spec_authority_returns_unexpected_exception_error(monkeypatch, 
 
 
 def test_preview_spec_authority_honors_legacy_tool_compiler_monkeypatch(
-    monkeypatch,
-):
-    from services.specs import compiler_service
-    from tools import spec_tools
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify preview spec authority honors legacy tool compiler monkeypatch."""
+    from services.specs import compiler_service  # noqa: PLC0415
+    from tools import spec_tools  # noqa: PLC0415
 
-    tool_context = SimpleNamespace(state={})
+    tool_context = make_tool_context()
     monkeypatch.setattr(
         spec_tools,
         "_invoke_spec_authority_compiler",
@@ -469,9 +501,12 @@ def test_preview_spec_authority_honors_legacy_tool_compiler_monkeypatch(
     )
 
 
-def test_resolve_engine_honors_legacy_spec_tools_engine(monkeypatch):
-    from services.specs import compiler_service
-    from tools import spec_tools
+def test_resolve_engine_honors_legacy_spec_tools_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify resolve engine honors legacy spec tools engine."""
+    from services.specs import compiler_service  # noqa: PLC0415
+    from tools import spec_tools  # noqa: PLC0415
 
     sentinel_engine = object()
     monkeypatch.setattr(spec_tools, "engine", sentinel_engine, raising=False)
@@ -487,10 +522,11 @@ def test_resolve_engine_honors_legacy_spec_tools_engine(monkeypatch):
 
 
 def test_resolve_engine_prefers_patched_spec_tools_get_engine_over_stale_engine(
-    monkeypatch,
-):
-    from services.specs import compiler_service
-    from tools import spec_tools
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify resolve engine prefers patched spec tools get engine over stale engine."""
+    from services.specs import compiler_service  # noqa: PLC0415
+    from tools import spec_tools  # noqa: PLC0415
 
     stale_engine = object()
     preferred_engine = object()
@@ -503,14 +539,15 @@ def test_resolve_engine_prefers_patched_spec_tools_get_engine_over_stale_engine(
 
 
 def test_compile_spec_authority_for_version_persists_authority(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify compile spec authority for version persists authority."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
     monkeypatch.setattr(
         compiler_service,
@@ -518,18 +555,22 @@ def test_compile_spec_authority_for_version_persists_authority(
         lambda **_: _raw_compiler_output_json(),
     )
 
-    spec_row = _create_spec_version(session, product_id=sample_product.product_id)
-    tool_context = SimpleNamespace(state={})
+    spec_row = _create_spec_version(
+        session, product_id=require_id(sample_product.product_id, "product_id")
+    )
+    tool_context = make_tool_context()
 
     result = compiler_service.compile_spec_authority_for_version(
-        {"spec_version_id": spec_row.spec_version_id},
+        {"spec_version_id": require_id(spec_row.spec_version_id, "spec_version_id")},
         tool_context=tool_context,
     )
 
     assert result["success"] is True
     assert result["cached"] is False
     assert result["recompiled"] is False
-    assert result["spec_version_id"] == spec_row.spec_version_id
+    assert result["spec_version_id"] == require_id(
+        spec_row.spec_version_id, "spec_version_id"
+    )
     assert result["content_source"] == "content"
     assert result["compiler_version"] is not None
     assert sample_product.compiled_authority_json is not None
@@ -537,7 +578,8 @@ def test_compile_spec_authority_for_version_persists_authority(
 
     authority = session.exec(
         select(CompiledSpecAuthority).where(
-            CompiledSpecAuthority.spec_version_id == spec_row.spec_version_id
+            CompiledSpecAuthority.spec_version_id
+            == require_id(spec_row.spec_version_id, "spec_version_id")
         )
     ).first()
     assert authority is not None
@@ -545,14 +587,15 @@ def test_compile_spec_authority_for_version_persists_authority(
 
 
 def test_compile_spec_authority_persists_authority_with_legacy_envelope(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify compile spec authority persists authority with legacy envelope."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
     monkeypatch.setattr(
         compiler_service,
@@ -560,11 +603,13 @@ def test_compile_spec_authority_persists_authority_with_legacy_envelope(
         lambda **_: _raw_compiler_output_json(),
     )
 
-    spec_row = _create_spec_version(session, product_id=sample_product.product_id)
-    tool_context = SimpleNamespace(state={})
+    spec_row = _create_spec_version(
+        session, product_id=require_id(sample_product.product_id, "product_id")
+    )
+    tool_context = make_tool_context()
 
     result = compiler_service.compile_spec_authority(
-        {"spec_version_id": spec_row.spec_version_id},
+        {"spec_version_id": require_id(spec_row.spec_version_id, "spec_version_id")},
         tool_context=tool_context,
     )
 
@@ -579,27 +624,31 @@ def test_compile_spec_authority_persists_authority_with_legacy_envelope(
         "invariants_count",
         "message",
     }
-    assert result["spec_version_id"] == spec_row.spec_version_id
-    assert len(result["prompt_hash"]) == 8
+    assert result["spec_version_id"] == require_id(
+        spec_row.spec_version_id, "spec_version_id"
+    )
+    assert len(result["prompt_hash"]) == 8  # noqa: PLR2004
     assert "compiled_authority_cached" not in tool_context.state
 
     authority = session.exec(
         select(CompiledSpecAuthority).where(
-            CompiledSpecAuthority.spec_version_id == spec_row.spec_version_id
+            CompiledSpecAuthority.spec_version_id
+            == require_id(spec_row.spec_version_id, "spec_version_id")
         )
     ).first()
     assert authority is not None
 
 
 def test_compile_spec_authority_returns_error_when_already_compiled(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify compile spec authority returns error when already compiled."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
     monkeypatch.setattr(
         compiler_service,
@@ -609,34 +658,39 @@ def test_compile_spec_authority_returns_error_when_already_compiled(
         ),
     )
 
-    spec_row = _create_spec_version(session, product_id=sample_product.product_id)
+    spec_row = _create_spec_version(
+        session, product_id=require_id(sample_product.product_id, "product_id")
+    )
     authority = _create_compiled_authority(
         session,
-        spec_version_id=spec_row.spec_version_id,
+        spec_version_id=require_id(spec_row.spec_version_id, "spec_version_id"),
         artifact_json=_compiled_success_json(),
     )
 
     result = compiler_service.compile_spec_authority(
-        {"spec_version_id": spec_row.spec_version_id},
-        tool_context=SimpleNamespace(state={}),
+        {"spec_version_id": require_id(spec_row.spec_version_id, "spec_version_id")},
+        tool_context=make_tool_context(),
     )
 
+    spec_version_id = require_id(spec_row.spec_version_id, "spec_version_id")
+    authority_id = require_id(authority.authority_id, "authority_id")
     assert result["success"] is False
     assert result["error"] == (
-        f"Spec version {spec_row.spec_version_id} is already compiled "
-        f"(authority_id: {authority.authority_id})"
+        f"Spec version {spec_version_id} is already compiled "
+        f"(authority_id: {authority_id})"
     )
 
 
 def test_compile_spec_authority_for_version_returns_cached_authority(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify compile spec authority for version returns cached authority."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
     monkeypatch.setattr(
         compiler_service,
@@ -644,23 +698,25 @@ def test_compile_spec_authority_for_version_returns_cached_authority(
         lambda **_: (_ for _ in ()).throw(AssertionError("compiler should not run")),
     )
 
-    spec_row = _create_spec_version(session, product_id=sample_product.product_id)
+    spec_row = _create_spec_version(
+        session, product_id=require_id(sample_product.product_id, "product_id")
+    )
     existing = _create_compiled_authority(
         session,
-        spec_version_id=spec_row.spec_version_id,
+        spec_version_id=require_id(spec_row.spec_version_id, "spec_version_id"),
         artifact_json=_compiled_success_json(),
     )
-    tool_context = SimpleNamespace(state={})
+    tool_context = make_tool_context()
 
     result = compiler_service.compile_spec_authority_for_version(
-        {"spec_version_id": spec_row.spec_version_id},
+        {"spec_version_id": require_id(spec_row.spec_version_id, "spec_version_id")},
         tool_context=tool_context,
     )
 
     assert result["success"] is True
     assert result["cached"] is True
     assert "recompiled" not in result
-    assert result["authority_id"] == existing.authority_id
+    assert result["authority_id"] == require_id(existing.authority_id, "authority_id")
     assert result["content_source"] == "content"
     assert (
         tool_context.state["compiled_authority_cached"]
@@ -671,14 +727,18 @@ def test_compile_spec_authority_for_version_returns_cached_authority(
 
 
 def test_compile_spec_authority_for_version_uses_content_ref_when_content_empty(
-    session, sample_product: Product, tmp_path: Path, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session,
+    sample_product: Product,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify compile spec authority for version uses content ref when content empty."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
     monkeypatch.setattr(
         compiler_service,
@@ -690,7 +750,7 @@ def test_compile_spec_authority_for_version_uses_content_ref_when_content_empty(
     spec_path.write_text("Spec from file", encoding="utf-8")
     spec_row = _create_spec_version(
         session,
-        product_id=sample_product.product_id,
+        product_id=require_id(sample_product.product_id, "product_id"),
         content="",
     )
     spec_row.content_ref = str(spec_path)
@@ -699,8 +759,8 @@ def test_compile_spec_authority_for_version_uses_content_ref_when_content_empty(
     session.refresh(spec_row)
 
     result = compiler_service.compile_spec_authority_for_version(
-        {"spec_version_id": spec_row.spec_version_id},
-        tool_context=SimpleNamespace(state={}),
+        {"spec_version_id": require_id(spec_row.spec_version_id, "spec_version_id")},
+        tool_context=make_tool_context(),
     )
 
     assert result["success"] is True
@@ -708,14 +768,18 @@ def test_compile_spec_authority_for_version_uses_content_ref_when_content_empty(
 
 
 def test_compile_spec_authority_for_version_persists_invocation_failure_artifact(
-    session, sample_product: Product, tmp_path: Path, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session,
+    sample_product: Product,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify compile spec authority for version persists invocation failure artifact."""  # noqa: E501
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
     monkeypatch.setattr(failure_artifacts, "LOGS_DIR", tmp_path / "logs")
     monkeypatch.setattr(
@@ -735,11 +799,13 @@ def test_compile_spec_authority_for_version_persists_invocation_failure_artifact
         ),
     )
 
-    spec_row = _create_spec_version(session, product_id=sample_product.product_id)
+    spec_row = _create_spec_version(
+        session, product_id=require_id(sample_product.product_id, "product_id")
+    )
 
     result = compiler_service.compile_spec_authority_for_version(
-        {"spec_version_id": spec_row.spec_version_id},
-        tool_context=SimpleNamespace(state={}),
+        {"spec_version_id": require_id(spec_row.spec_version_id, "spec_version_id")},
+        tool_context=make_tool_context(),
     )
 
     assert result["success"] is False
@@ -752,18 +818,19 @@ def test_compile_spec_authority_for_version_persists_invocation_failure_artifact
 
 
 def test_check_spec_authority_status_returns_not_compiled_when_no_spec_versions(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify check spec authority status returns not compiled when no spec versions."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
 
     result = compiler_service.check_spec_authority_status(
-        {"product_id": sample_product.product_id},
+        {"product_id": require_id(sample_product.product_id, "product_id")},
         tool_context=None,
     )
 
@@ -776,29 +843,30 @@ def test_check_spec_authority_status_returns_not_compiled_when_no_spec_versions(
 
 
 def test_check_spec_authority_status_prefers_pending_review_over_stale(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify check spec authority status prefers pending review over stale."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
 
     approved_spec = _create_spec_version(
         session,
-        product_id=sample_product.product_id,
+        product_id=require_id(sample_product.product_id, "product_id"),
         content="Approved Spec",
     )
     _create_compiled_authority(
         session,
-        spec_version_id=approved_spec.spec_version_id,
+        spec_version_id=require_id(approved_spec.spec_version_id, "spec_version_id"),
         artifact_json=_compiled_success_json(),
     )
 
     draft_spec = SpecRegistry(
-        product_id=sample_product.product_id,
+        product_id=require_id(sample_product.product_id, "product_id"),
         spec_hash="d" * 64,
         content="Draft Spec",
         content_ref=None,
@@ -812,50 +880,56 @@ def test_check_spec_authority_status_prefers_pending_review_over_stale(
     session.refresh(draft_spec)
 
     result = compiler_service.check_spec_authority_status(
-        {"product_id": sample_product.product_id},
+        {"product_id": require_id(sample_product.product_id, "product_id")},
         tool_context=None,
     )
 
+    draft_spec_version_id = require_id(draft_spec.spec_version_id, "spec_version_id")
     assert result == {
         "success": True,
         "status": SpecAuthorityStatus.PENDING_REVIEW.value,
         "status_details": (
-            f"Latest spec version {draft_spec.spec_version_id} is {draft_spec.status}"
+            f"Latest spec version {draft_spec_version_id} is {draft_spec.status}"
         ),
-        "latest_spec_version_id": draft_spec.spec_version_id,
+        "latest_spec_version_id": draft_spec_version_id,
         "message": "Status: PENDING_REVIEW (latest spec not approved)",
     }
 
 
 def test_get_compiled_authority_by_version_returns_expected_envelope(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify get compiled authority by version returns expected envelope."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
 
-    spec_row = _create_spec_version(session, product_id=sample_product.product_id)
+    spec_row = _create_spec_version(
+        session, product_id=require_id(sample_product.product_id, "product_id")
+    )
     authority = _create_compiled_authority(
         session,
-        spec_version_id=spec_row.spec_version_id,
+        spec_version_id=require_id(spec_row.spec_version_id, "spec_version_id"),
         artifact_json=_compiled_success_json(),
     )
 
     result = compiler_service.get_compiled_authority_by_version(
         {
-            "product_id": sample_product.product_id,
-            "spec_version_id": spec_row.spec_version_id,
+            "product_id": require_id(sample_product.product_id, "product_id"),
+            "spec_version_id": require_id(spec_row.spec_version_id, "spec_version_id"),
         },
         tool_context=None,
     )
 
     assert result["success"] is True
-    assert result["spec_version_id"] == spec_row.spec_version_id
-    assert result["authority_id"] == authority.authority_id
+    assert result["spec_version_id"] == require_id(
+        spec_row.spec_version_id, "spec_version_id"
+    )
+    assert result["authority_id"] == require_id(authority.authority_id, "authority_id")
     assert result["compiler_version"] == authority.compiler_version
     assert result["compiled_at"] == authority.compiled_at.isoformat()
     assert result["scope_themes"] == ["Payments"]
@@ -864,26 +938,29 @@ def test_get_compiled_authority_by_version_returns_expected_envelope(
     assert result["rejected_features"] == []
     assert result["spec_gaps"] == []
     assert result["compiled_artifact_json"] == authority.compiled_artifact_json
-    assert (
-        result["message"]
-        == f"Retrieved compiled authority for spec version {spec_row.spec_version_id}"
+    spec_version_id = require_id(spec_row.spec_version_id, "spec_version_id")
+    assert result["message"] == (
+        f"Retrieved compiled authority for spec version {spec_version_id}"
     )
 
 
 def test_get_compiled_authority_by_version_falls_back_to_legacy_columns(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify get compiled authority by version falls back to legacy columns."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
 
-    spec_row = _create_spec_version(session, product_id=sample_product.product_id)
+    spec_row = _create_spec_version(
+        session, product_id=require_id(sample_product.product_id, "product_id")
+    )
     authority = CompiledSpecAuthority(
-        spec_version_id=spec_row.spec_version_id,
+        spec_version_id=require_id(spec_row.spec_version_id, "spec_version_id"),
         compiler_version="9.9.9",
         prompt_hash="f" * 64,
         compiled_at=datetime.now(UTC),
@@ -900,8 +977,8 @@ def test_get_compiled_authority_by_version_falls_back_to_legacy_columns(
 
     result = compiler_service.get_compiled_authority_by_version(
         {
-            "product_id": sample_product.product_id,
-            "spec_version_id": spec_row.spec_version_id,
+            "product_id": require_id(sample_product.product_id, "product_id"),
+            "spec_version_id": require_id(spec_row.spec_version_id, "spec_version_id"),
         },
         tool_context=None,
     )
@@ -915,23 +992,29 @@ def test_get_compiled_authority_by_version_falls_back_to_legacy_columns(
 
 
 def test_get_compiled_authority_by_version_returns_existing_error_messages(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify get compiled authority by version returns existing error messages."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
 
     not_found = compiler_service.get_compiled_authority_by_version(
-        {"product_id": sample_product.product_id, "spec_version_id": 999999},
+        {
+            "product_id": require_id(sample_product.product_id, "product_id"),
+            "spec_version_id": 999999,
+        },
         tool_context=None,
     )
     assert not_found == {"success": False, "error": "Spec version 999999 not found"}
 
-    spec_row = _create_spec_version(session, product_id=sample_product.product_id)
+    spec_row = _create_spec_version(
+        session, product_id=require_id(sample_product.product_id, "product_id")
+    )
     other_product = Product(
         name="Other Product",
         description="Other",
@@ -943,37 +1026,40 @@ def test_get_compiled_authority_by_version_returns_existing_error_messages(
 
     mismatch = compiler_service.get_compiled_authority_by_version(
         {
-            "product_id": other_product.product_id,
-            "spec_version_id": spec_row.spec_version_id,
+            "product_id": require_id(other_product.product_id, "product_id"),
+            "spec_version_id": require_id(spec_row.spec_version_id, "spec_version_id"),
         },
         tool_context=None,
     )
+    spec_version_id = require_id(spec_row.spec_version_id, "spec_version_id")
+    other_product_id = require_id(other_product.product_id, "product_id")
     assert mismatch == {
         "success": False,
         "error": (
-            f"Spec version {spec_row.spec_version_id} does not belong to "
-            f"product {other_product.product_id} (mismatch)"
+            f"Spec version {spec_version_id} does not belong to "
+            f"product {other_product_id} (mismatch)"
         ),
     }
 
     not_compiled = compiler_service.get_compiled_authority_by_version(
         {
-            "product_id": sample_product.product_id,
-            "spec_version_id": spec_row.spec_version_id,
+            "product_id": require_id(sample_product.product_id, "product_id"),
+            "spec_version_id": require_id(spec_row.spec_version_id, "spec_version_id"),
         },
         tool_context=None,
     )
     assert not_compiled == {
         "success": False,
         "error": (
-            f"Spec version {spec_row.spec_version_id} is not compiled. "
+            f"Spec version {spec_version_id} is not compiled. "
             "Use compile_spec_authority to compile it."
         ),
     }
 
 
 @pytest.fixture
-def sample_product(session) -> Product:
+def sample_product(session: Session) -> Product:
+    """Return product."""
     product = Product(
         name="Compiler Service Product",
         description="Product for compiler service tests",
@@ -986,20 +1072,23 @@ def sample_product(session) -> Product:
 
 
 def test_update_spec_and_compile_authority_creates_spec_and_delegates_compile(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify update spec and compile authority creates spec and delegates compile."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
 
     compile_calls: dict[str, object] = {}
     acceptance_calls: dict[str, object] = {}
 
-    def fake_compile(*, spec_version_id: int, force_recompile: bool, tool_context):
+    def fake_compile(
+        *, spec_version_id: int, force_recompile: bool, tool_context: object
+    ) -> object:
         compile_calls["spec_version_id"] = spec_version_id
         compile_calls["force_recompile"] = force_recompile
         compile_calls["tool_context"] = tool_context
@@ -1023,7 +1112,7 @@ def test_update_spec_and_compile_authority_creates_spec_and_delegates_compile(
         return {
             "success": True,
             "cached": False,
-            "authority_id": authority.authority_id,
+            "authority_id": require_id(authority.authority_id, "authority_id"),
         }
 
     def fake_accept(
@@ -1033,7 +1122,7 @@ def test_update_spec_and_compile_authority_creates_spec_and_delegates_compile(
         policy: str,
         decided_by: str,
         rationale: str | None = None,
-    ):
+    ) -> object:
         acceptance_calls["product_id"] = product_id
         acceptance_calls["spec_version_id"] = spec_version_id
         acceptance_calls["policy"] = policy
@@ -1061,18 +1150,20 @@ def test_update_spec_and_compile_authority_creates_spec_and_delegates_compile(
 
     result = compiler_service.update_spec_and_compile_authority(
         {
-            "product_id": sample_product.product_id,
+            "product_id": require_id(sample_product.product_id, "product_id"),
             "spec_content": "Spec A",
         },
         tool_context=None,
     )
 
     assert result["success"] is True
-    assert result["product_id"] == sample_product.product_id
+    assert result["product_id"] == require_id(sample_product.product_id, "product_id")
     assert result["cache_hit"] is False
     assert result["accepted"] is True
     assert compile_calls["force_recompile"] is False
-    assert acceptance_calls["product_id"] == sample_product.product_id
+    assert acceptance_calls["product_id"] == require_id(
+        sample_product.product_id, "product_id"
+    )
 
     spec_row = session.get(SpecRegistry, result["spec_version_id"])
     assert spec_row is not None
@@ -1082,15 +1173,16 @@ def test_update_spec_and_compile_authority_creates_spec_and_delegates_compile(
 
 
 def test_update_spec_and_compile_authority_honors_tool_compile_override(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
-    from tools import spec_tools
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify update spec and compile authority honors tool compile override."""
+    from services.specs import compiler_service  # noqa: PLC0415
+    from tools import spec_tools  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
     monkeypatch.setattr(
         compiler_service,
@@ -1100,12 +1192,15 @@ def test_update_spec_and_compile_authority_honors_tool_compile_override(
         ),
     )
 
-    compile_calls: dict[str, object] = {}
+    compile_params: dict[str, object] = {}
 
-    def fake_tool_compile(params, tool_context=None):
-        compile_calls["params"] = params
-        compile_calls["tool_context"] = tool_context
+    def fake_tool_compile(
+        params: dict[str, object], tool_context: object = None
+    ) -> dict[str, object]:
+        del tool_context
+        compile_params.update(params)
         spec_version_id = params["spec_version_id"]
+        assert isinstance(spec_version_id, int)
         authority = CompiledSpecAuthority(
             spec_version_id=spec_version_id,
             compiler_version="1.2.3",
@@ -1124,7 +1219,7 @@ def test_update_spec_and_compile_authority_honors_tool_compile_override(
         return {
             "success": True,
             "cached": False,
-            "authority_id": authority.authority_id,
+            "authority_id": require_id(authority.authority_id, "authority_id"),
         }
 
     monkeypatch.setattr(
@@ -1146,27 +1241,28 @@ def test_update_spec_and_compile_authority_honors_tool_compile_override(
 
     result = compiler_service.update_spec_and_compile_authority(
         {
-            "product_id": sample_product.product_id,
+            "product_id": require_id(sample_product.product_id, "product_id"),
             "spec_content": "Spec A",
         },
         tool_context=None,
     )
 
     assert result["success"] is True
-    assert compile_calls["params"]["spec_version_id"] == result["spec_version_id"]
-    assert compile_calls["params"]["force_recompile"] is False
+    assert compile_params["spec_version_id"] == result["spec_version_id"]
+    assert compile_params["force_recompile"] is False
 
 
 def test_update_spec_and_compile_authority_honors_tool_acceptance_override(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
-    from tools import spec_tools
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify update spec and compile authority honors tool acceptance override."""
+    from services.specs import compiler_service  # noqa: PLC0415
+    from tools import spec_tools  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
     monkeypatch.setattr(
         compiler_service,
@@ -1176,7 +1272,10 @@ def test_update_spec_and_compile_authority_honors_tool_acceptance_override(
         ),
     )
 
-    def fake_compile(*, spec_version_id: int, force_recompile: bool, tool_context):
+    def fake_compile(
+        *, spec_version_id: int, force_recompile: bool, tool_context: object
+    ) -> object:
+        del force_recompile, tool_context
         authority = CompiledSpecAuthority(
             spec_version_id=spec_version_id,
             compiler_version="1.2.3",
@@ -1195,7 +1294,7 @@ def test_update_spec_and_compile_authority_honors_tool_acceptance_override(
         return {
             "success": True,
             "cached": False,
-            "authority_id": authority.authority_id,
+            "authority_id": require_id(authority.authority_id, "authority_id"),
         }
 
     acceptance_calls: dict[str, object] = {}
@@ -1207,7 +1306,7 @@ def test_update_spec_and_compile_authority_honors_tool_acceptance_override(
         policy: str,
         decided_by: str,
         rationale: str | None = None,
-    ):
+    ) -> object:
         acceptance_calls["product_id"] = product_id
         acceptance_calls["spec_version_id"] = spec_version_id
         acceptance_calls["policy"] = policy
@@ -1233,33 +1332,42 @@ def test_update_spec_and_compile_authority_honors_tool_acceptance_override(
 
     result = compiler_service.update_spec_and_compile_authority(
         {
-            "product_id": sample_product.product_id,
+            "product_id": require_id(sample_product.product_id, "product_id"),
             "spec_content": "Spec A",
         },
         tool_context=None,
     )
 
     assert result["success"] is True
-    assert acceptance_calls["product_id"] == sample_product.product_id
+    assert acceptance_calls["product_id"] == require_id(
+        sample_product.product_id, "product_id"
+    )
     assert acceptance_calls["spec_version_id"] == result["spec_version_id"]
     assert acceptance_calls["policy"] == "auto"
 
 
 def test_update_spec_and_compile_authority_loads_content_ref(
-    session, sample_product: Product, tmp_path: Path, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session,
+    sample_product: Product,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify update spec and compile authority loads content ref."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
 
     spec_path = tmp_path / "service_spec.md"
     spec_path.write_text("Spec from file", encoding="utf-8")
 
-    def fake_compile(*, spec_version_id: int, force_recompile: bool, tool_context):
+    def fake_compile(
+        *, spec_version_id: int, force_recompile: bool, tool_context: object
+    ) -> object:
+        del force_recompile, tool_context
         authority = CompiledSpecAuthority(
             spec_version_id=spec_version_id,
             compiler_version="1.2.3",
@@ -1278,7 +1386,7 @@ def test_update_spec_and_compile_authority_loads_content_ref(
         return {
             "success": True,
             "cached": False,
-            "authority_id": authority.authority_id,
+            "authority_id": require_id(authority.authority_id, "authority_id"),
         }
 
     monkeypatch.setattr(
@@ -1301,7 +1409,7 @@ def test_update_spec_and_compile_authority_loads_content_ref(
 
     result = compiler_service.update_spec_and_compile_authority(
         {
-            "product_id": sample_product.product_id,
+            "product_id": require_id(sample_product.product_id, "product_id"),
             "content_ref": str(spec_path),
         },
         tool_context=None,
@@ -1316,20 +1424,24 @@ def test_update_spec_and_compile_authority_loads_content_ref(
 
 
 def test_update_spec_and_compile_authority_reuses_existing_version_for_same_hash(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify update spec and compile authority reuses existing version for same hash."""  # noqa: E501
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
 
     compile_calls: list[dict[str, object]] = []
     authority_counter = {"value": 0}
 
-    def fake_compile(*, spec_version_id: int, force_recompile: bool, tool_context):
+    def fake_compile(
+        *, spec_version_id: int, force_recompile: bool, tool_context: object
+    ) -> object:
+        del tool_context
         compile_calls.append(
             {
                 "spec_version_id": spec_version_id,
@@ -1358,9 +1470,9 @@ def test_update_spec_and_compile_authority_reuses_existing_version_for_same_hash
             session.add(authority)
             session.commit()
             session.refresh(authority)
-            authority_id = authority.authority_id
+            authority_id = require_id(authority.authority_id, "authority_id")
         else:
-            authority_id = existing.authority_id
+            authority_id = require_id(existing.authority_id, "authority_id")
         return {
             "success": True,
             "cached": True,
@@ -1387,14 +1499,14 @@ def test_update_spec_and_compile_authority_reuses_existing_version_for_same_hash
 
     first = compiler_service.update_spec_and_compile_authority(
         {
-            "product_id": sample_product.product_id,
+            "product_id": require_id(sample_product.product_id, "product_id"),
             "spec_content": "Spec A",
         },
         tool_context=None,
     )
     second = compiler_service.update_spec_and_compile_authority(
         {
-            "product_id": sample_product.product_id,
+            "product_id": require_id(sample_product.product_id, "product_id"),
             "spec_content": "Spec A",
         },
         tool_context=None,
@@ -1404,12 +1516,13 @@ def test_update_spec_and_compile_authority_reuses_existing_version_for_same_hash
     assert second["success"] is True
     assert first["spec_version_id"] == second["spec_version_id"]
     assert second["cache_hit"] is True
-    assert len(compile_calls) == 2
+    assert len(compile_calls) == 2  # noqa: PLR2004
     assert (
         len(
             session.exec(
                 select(SpecRegistry).where(
-                    SpecRegistry.product_id == sample_product.product_id
+                    SpecRegistry.product_id
+                    == require_id(sample_product.product_id, "product_id")
                 )
             ).all()
         )
@@ -1418,19 +1531,23 @@ def test_update_spec_and_compile_authority_reuses_existing_version_for_same_hash
 
 
 def test_update_spec_and_compile_authority_treats_recompile_none_as_false(
-    session, sample_product: Product, monkeypatch
-):
-    from services.specs import compiler_service
+    session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify update spec and compile authority treats recompile none as false."""
+    from services.specs import compiler_service  # noqa: PLC0415
 
     monkeypatch.setattr(
         compiler_service,
         "get_engine",
-        lambda: session.get_bind(),
+        session.get_bind,
     )
 
     compile_calls: dict[str, object] = {}
 
-    def fake_compile(*, spec_version_id: int, force_recompile: bool, tool_context):
+    def fake_compile(
+        *, spec_version_id: int, force_recompile: bool, tool_context: object
+    ) -> object:
+        del tool_context
         compile_calls["force_recompile"] = force_recompile
         authority = CompiledSpecAuthority(
             spec_version_id=spec_version_id,
@@ -1450,7 +1567,7 @@ def test_update_spec_and_compile_authority_treats_recompile_none_as_false(
         return {
             "success": True,
             "cached": False,
-            "authority_id": authority.authority_id,
+            "authority_id": require_id(authority.authority_id, "authority_id"),
         }
 
     monkeypatch.setattr(
@@ -1473,7 +1590,7 @@ def test_update_spec_and_compile_authority_treats_recompile_none_as_false(
 
     result = compiler_service.update_spec_and_compile_authority(
         {
-            "product_id": sample_product.product_id,
+            "product_id": require_id(sample_product.product_id, "product_id"),
             "spec_content": "Spec A",
             "recompile": None,
         },

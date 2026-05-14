@@ -13,16 +13,21 @@ Run with: pytest tests/test_link_spec_to_product.py -v
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol, cast
 
 import pytest
+from sqlmodel import Session
 
 from agile_sqlmodel import Product
+from tests.typing_helpers import make_tool_context, require_id
+from tools.spec_tools import link_spec_to_product
 
-# Red-phase: These imports will fail until tool is created
-try:
-    from tools.spec_tools import link_spec_to_product
-except ImportError:
-    link_spec_to_product = None
+
+class CompileParams(Protocol):
+    """Captured compile params used by the test stub."""
+
+    product_id: int
+    content_ref: str | None
 
 
 # ============================================================================
@@ -31,7 +36,7 @@ except ImportError:
 
 
 @pytest.fixture
-def sample_product(session):
+def sample_product(session: Session) -> Product:
     """Create a test product WITHOUT specification."""
     product = Product(
         name="Test Link Product",
@@ -44,7 +49,7 @@ def sample_product(session):
 
 
 @pytest.fixture
-def sample_product_with_spec(session):
+def sample_product_with_spec(session: Session) -> Product:
     """Create a test product that already has a spec linked."""
     product = Product(
         name="Already Linked Product",
@@ -59,11 +64,12 @@ def sample_product_with_spec(session):
 
 
 @pytest.fixture
-def compile_stub(monkeypatch):
+def compile_stub(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     """Stub authority compilation to avoid LLM calls."""
     calls = {}
 
-    def _stub(params, tool_context=None):
+    def _stub(params: object, tool_context: object = None) -> dict[str, object]:
+        del tool_context
         calls["params"] = params
         return {
             "success": True,
@@ -81,7 +87,8 @@ def compile_stub(monkeypatch):
 class MockToolContext:
     """Mock Google ADK ToolContext for testing."""
 
-    def __init__(self, state: dict):
+    def __init__(self, state: dict) -> None:
+        """Initialize the test helper."""
         self.state = state
 
 
@@ -94,18 +101,20 @@ class TestLinkSpecToProduct:
     """Test suite for the link_spec_to_product tool."""
 
     def test_links_existing_file_to_product(
-        self, session, sample_product, compile_stub
-    ):
+        self, session: Session, sample_product: Product, compile_stub: dict[str, object]
+    ) -> None:
         """
-        GIVEN: A product exists and a valid spec file path
+        GIVEN: A product exists and a valid spec file path.
+
         WHEN: link_spec_to_product is called
         THEN:
             - product.spec_file_path is set to the given path
             - product.spec_loaded_at is populated
             - product.technical_spec is NOT written (file is source of truth)
             - Authority compilation is triggered with content_ref
-            - Returns success
+            - Returns success.
         """
+        del compile_stub
         if not link_spec_to_product:
             pytest.fail("Tool not implemented yet")
 
@@ -117,35 +126,45 @@ class TestLinkSpecToProduct:
             p.write_text("# Test Spec\n\n## Features\n- F1", encoding="utf-8")
 
         result = link_spec_to_product(
-            {"product_id": sample_product.product_id, "spec_path": spec_path},
+            {
+                "product_id": require_id(sample_product.product_id, "product_id"),
+                "spec_path": spec_path,
+            },
             tool_context=None,
         )
 
         assert result["success"] is True
         assert result["spec_path"] == spec_path
         assert result["compile_success"] is True
-        assert result["authority_id"] == 99
+        assert result["authority_id"] == 99  # noqa: PLR2004
 
         # Verify DB state
         session.expire_all()
-        product = session.get(Product, sample_product.product_id)
+        product = session.get(
+            Product, require_id(sample_product.product_id, "product_id")
+        )
+        assert product is not None
         assert product.spec_file_path == spec_path
         assert product.spec_loaded_at is not None
         # Key assertion: technical_spec is NOT populated
         assert product.technical_spec is None
 
-    def test_rejects_missing_file(self, session, sample_product, compile_stub):
+    def test_rejects_missing_file(
+        self, session: Session, sample_product: Product, compile_stub: dict[str, object]
+    ) -> None:
         """
-        GIVEN: A path to a file that does not exist
+        GIVEN: A path to a file that does not exist.
+
         WHEN: link_spec_to_product is called
-        THEN: Returns error, does not modify product
+        THEN: Returns error, does not modify product.
         """
+        del session, compile_stub
         if not link_spec_to_product:
             pytest.fail("Tool not implemented yet")
 
         result = link_spec_to_product(
             {
-                "product_id": sample_product.product_id,
+                "product_id": require_id(sample_product.product_id, "product_id"),
                 "spec_path": "nonexistent/fake_spec.md",
             },
             tool_context=None,
@@ -154,12 +173,16 @@ class TestLinkSpecToProduct:
         assert result["success"] is False
         assert "not found" in result["error"].lower()
 
-    def test_rejects_missing_product(self, session, compile_stub):
+    def test_rejects_missing_product(
+        self, session: Session, compile_stub: dict[str, object]
+    ) -> None:
         """
-        GIVEN: A product_id that does not exist
+        GIVEN: A product_id that does not exist.
+
         WHEN: link_spec_to_product is called
-        THEN: Returns error
+        THEN: Returns error.
         """
+        del session, compile_stub
         if not link_spec_to_product:
             pytest.fail("Tool not implemented yet")
 
@@ -172,16 +195,21 @@ class TestLinkSpecToProduct:
         assert "not found" in result["error"].lower()
 
     def test_updates_existing_spec_link(
-        self, session, sample_product_with_spec, compile_stub
-    ):
+        self,
+        session: Session,
+        sample_product_with_spec: Product,
+        compile_stub: dict[str, object],
+    ) -> None:
         """
-        GIVEN: A product that already has a spec linked
+        GIVEN: A product that already has a spec linked.
+
         WHEN: link_spec_to_product is called with a new path
         THEN:
             - spec_file_path is updated
             - spec_loaded_at is refreshed
-            - Returns success with updated metadata
+            - Returns success with updated metadata.
         """
+        del compile_stub
         if not link_spec_to_product:
             pytest.fail("Tool not implemented yet")
 
@@ -192,10 +220,13 @@ class TestLinkSpecToProduct:
             p.write_text("# New Spec\n", encoding="utf-8")
 
         old_loaded_at = sample_product_with_spec.spec_loaded_at
+        assert old_loaded_at is not None
 
         result = link_spec_to_product(
             {
-                "product_id": sample_product_with_spec.product_id,
+                "product_id": require_id(
+                    sample_product_with_spec.product_id, "product_id"
+                ),
                 "spec_path": new_path,
             },
             tool_context=None,
@@ -204,16 +235,24 @@ class TestLinkSpecToProduct:
         assert result["success"] is True
 
         session.expire_all()
-        product = session.get(Product, sample_product_with_spec.product_id)
+        product = session.get(
+            Product, require_id(sample_product_with_spec.product_id, "product_id")
+        )
+        assert product is not None
         assert product.spec_file_path == new_path
+        assert product.spec_loaded_at is not None
         assert product.spec_loaded_at > old_loaded_at
 
-    def test_sets_spec_persisted_in_state(self, session, sample_product, compile_stub):
+    def test_sets_spec_persisted_in_state(
+        self, session: Session, sample_product: Product, compile_stub: dict[str, object]
+    ) -> None:
         """
-        GIVEN: A valid tool_context with mutable state
+        GIVEN: A valid tool_context with mutable state.
+
         WHEN: link_spec_to_product succeeds
-        THEN: tool_context.state["spec_persisted"] is set to True
+        THEN: tool_context.state["spec_persisted"] is set to True.
         """
+        del session, compile_stub
         if not link_spec_to_product:
             pytest.fail("Tool not implemented yet")
 
@@ -223,10 +262,13 @@ class TestLinkSpecToProduct:
         if not p.exists():
             p.write_text("# Test\n", encoding="utf-8")
 
-        ctx = MockToolContext(state={"spec_persisted": False})
+        ctx = make_tool_context(state={"spec_persisted": False})
 
         result = link_spec_to_product(
-            {"product_id": sample_product.product_id, "spec_path": spec_path},
+            {
+                "product_id": require_id(sample_product.product_id, "product_id"),
+                "spec_path": spec_path,
+            },
             tool_context=ctx,
         )
 
@@ -234,14 +276,16 @@ class TestLinkSpecToProduct:
         assert ctx.state["spec_persisted"] is True
 
     def test_delegates_to_compile_authority(
-        self, session, sample_product, compile_stub
-    ):
+        self, session: Session, sample_product: Product, compile_stub: dict[str, object]
+    ) -> None:
         """
-        GIVEN: A valid product and spec file
+        GIVEN: A valid product and spec file.
+
         WHEN: link_spec_to_product is called
         THEN: update_spec_and_compile_authority is called with
-              (product_id, content_ref=spec_path)
+              (product_id, content_ref=spec_path).
         """
+        del session
         if not link_spec_to_product:
             pytest.fail("Tool not implemented yet")
 
@@ -252,23 +296,32 @@ class TestLinkSpecToProduct:
             p.write_text("# Test\n", encoding="utf-8")
 
         result = link_spec_to_product(
-            {"product_id": sample_product.product_id, "spec_path": spec_path},
+            {
+                "product_id": require_id(sample_product.product_id, "product_id"),
+                "spec_path": spec_path,
+            },
             tool_context=None,
         )
 
         assert result["success"] is True
         assert "params" in compile_stub
 
-        compile_params = compile_stub["params"]
-        assert compile_params.product_id == sample_product.product_id
+        compile_params = cast("CompileParams", compile_stub["params"])
+        assert compile_params.product_id == require_id(
+            sample_product.product_id, "product_id"
+        )
         assert compile_params.content_ref == spec_path
 
-    def test_no_backup_file_created(self, session, sample_product, compile_stub):
+    def test_no_backup_file_created(
+        self, session: Session, sample_product: Product, compile_stub: dict[str, object]
+    ) -> None:
         """
-        GIVEN: A valid spec file
+        GIVEN: A valid spec file.
+
         WHEN: link_spec_to_product is called
-        THEN: No backup file is created (unlike save_project_specification)
+        THEN: No backup file is created (unlike save_project_specification).
         """
+        del session, compile_stub
         if not link_spec_to_product:
             pytest.fail("Tool not implemented yet")
 
@@ -279,19 +332,26 @@ class TestLinkSpecToProduct:
             p.write_text("# Test\n", encoding="utf-8")
 
         result = link_spec_to_product(
-            {"product_id": sample_product.product_id, "spec_path": spec_path},
+            {
+                "product_id": require_id(sample_product.product_id, "product_id"),
+                "spec_path": spec_path,
+            },
             tool_context=None,
         )
 
         assert result["success"] is True
         assert result.get("file_created") is False
 
-    def test_rejects_oversized_file(self, session, sample_product, tmp_path):
+    def test_rejects_oversized_file(
+        self, session: Session, sample_product: Product, tmp_path: Path
+    ) -> None:
         """
-        GIVEN: A spec file larger than 100KB
+        GIVEN: A spec file larger than 100KB.
+
         WHEN: link_spec_to_product is called
-        THEN: Returns error without modifying product
+        THEN: Returns error without modifying product.
         """
+        del session
         if not link_spec_to_product:
             pytest.fail("Tool not implemented yet")
 
@@ -300,7 +360,7 @@ class TestLinkSpecToProduct:
 
         result = link_spec_to_product(
             {
-                "product_id": sample_product.product_id,
+                "product_id": require_id(sample_product.product_id, "product_id"),
                 "spec_path": str(big_file),
             },
             tool_context=None,
@@ -310,20 +370,22 @@ class TestLinkSpecToProduct:
         assert "too large" in result["error"].lower()
 
     def test_handles_compile_failure_gracefully(
-        self, session, sample_product, monkeypatch
-    ):
+        self, session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """
-        GIVEN: Authority compilation fails
+        GIVEN: Authority compilation fails.
+
         WHEN: link_spec_to_product is called
         THEN:
             - spec_file_path is still set (link succeeded)
             - compile_success is False
-            - Overall success is True (link itself worked)
+            - Overall success is True (link itself worked).
         """
         if not link_spec_to_product:
             pytest.fail("Tool not implemented yet")
 
-        def _fail_compile(params, tool_context=None):
+        def _fail_compile(params: object, tool_context: object = None) -> object:
+            del params, tool_context
             return {"success": False, "error": "Compilation error"}
 
         monkeypatch.setattr(
@@ -338,7 +400,10 @@ class TestLinkSpecToProduct:
             p.write_text("# Test\n", encoding="utf-8")
 
         result = link_spec_to_product(
-            {"product_id": sample_product.product_id, "spec_path": spec_path},
+            {
+                "product_id": require_id(sample_product.product_id, "product_id"),
+                "spec_path": spec_path,
+            },
             tool_context=None,
         )
 
@@ -347,5 +412,8 @@ class TestLinkSpecToProduct:
         assert "compile_error" in result
 
         session.expire_all()
-        product = session.get(Product, sample_product.product_id)
+        product = session.get(
+            Product, require_id(sample_product.product_id, "product_id")
+        )
+        assert product is not None
         assert product.spec_file_path == spec_path

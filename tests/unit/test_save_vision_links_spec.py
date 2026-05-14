@@ -1,5 +1,6 @@
 """
-TDD: save_vision_tool must link the spec file and trigger authority
+TDD: save_vision_tool must link the spec file and trigger authority.
+
 compilation when pending_spec_path is in state, so that VISION_PERSISTENCE
 does not need to do any spec work.
 
@@ -30,8 +31,9 @@ def _make_context(state: dict) -> MagicMock:
     return ctx
 
 
-def _stub_compile_success(params, tool_context=None):
+def _stub_compile_success(params: object, tool_context: object = None) -> object:
     """Stub returning a successful compilation."""
+    del params, tool_context
     return {
         "success": True,
         "spec_version_id": 42,
@@ -39,8 +41,9 @@ def _stub_compile_success(params, tool_context=None):
     }
 
 
-def _stub_compile_failure(params, tool_context=None):
+def _stub_compile_failure(params: object, tool_context: object = None) -> object:
     """Stub returning a failed compilation."""
+    del params, tool_context
     return {"success": False, "error": "LLM unavailable"}
 
 
@@ -50,18 +53,20 @@ def _stub_compile_failure(params, tool_context=None):
 
 
 class TestSaveVisionLinksSpec:
-    """save_vision_tool must link spec + compile authority when
+    """save_vision_tool must link spec + compile authority when.
+
     pending_spec_path is present in state.
     """
 
-    def test_links_spec_when_pending_spec_path_in_state(self, engine: Engine):
+    def test_links_spec_when_pending_spec_path_in_state(self, engine: Engine) -> None:
         """
-        GIVEN: pending_spec_path is in tool_context.state
+        GIVEN: pending_spec_path is in tool_context.state.
+
         WHEN: save_vision_tool creates a new product
         THEN:
             - product.spec_file_path is set
             - product.spec_loaded_at is populated
-            - state["spec_persisted"] is True
+            - state["spec_persisted"] is True.
         """
         spec_path = "test_specs/test_quadra.md"
         p = Path(spec_path)
@@ -112,14 +117,15 @@ class TestSaveVisionLinksSpec:
         assert call_args[0][0].product_id == product_id
         assert call_args[0][0].content_ref == spec_path
 
-    def test_no_spec_link_when_no_pending_path(self, engine: Engine):
+    def test_no_spec_link_when_no_pending_path(self, engine: Engine) -> None:
         """
-        GIVEN: no pending_spec_path in state
+        GIVEN: no pending_spec_path in state.
+
         WHEN: save_vision_tool creates a product
         THEN:
             - product.spec_file_path is NOT set
             - No compilation is triggered
-            - spec_persisted is NOT set
+            - spec_persisted is NOT set.
         """
         ctx = _make_context({})
 
@@ -151,15 +157,16 @@ class TestSaveVisionLinksSpec:
         assert "spec_persisted" not in ctx.state
         compile_mock.assert_not_called()
 
-    def test_compile_failure_still_links_spec(self, engine: Engine):
+    def test_compile_failure_still_links_spec(self, engine: Engine) -> None:
         """
-        GIVEN: pending_spec_path is in state, but authority compile fails
+        GIVEN: pending_spec_path is in state, but authority compile fails.
+
         WHEN: save_vision_tool creates a product
         THEN:
             - product.spec_file_path IS set (link succeeded)
             - spec_persisted is True (file link done)
             - Result still reports overall success (vision saved)
-            - Result includes compile_error info
+            - Result includes compile_error info.
         """
         spec_path = "test_specs/test_quadra.md"
         p = Path(spec_path)
@@ -201,11 +208,12 @@ class TestSaveVisionLinksSpec:
 
         assert ctx.state.get("spec_persisted") is True
 
-    def test_update_mode_also_links_spec(self, engine: Engine):
+    def test_update_mode_also_links_spec(self, engine: Engine) -> None:
         """
-        GIVEN: An existing product (update mode), pending_spec_path in state
+        GIVEN: An existing product (update mode), pending_spec_path in state.
+
         WHEN: save_vision_tool updates the product
-        THEN: spec is linked and authority compiled
+        THEN: spec is linked and authority compiled.
         """
         # Pre-create product
         with Session(engine) as session:

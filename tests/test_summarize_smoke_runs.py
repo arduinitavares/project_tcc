@@ -1,9 +1,13 @@
+"""Tests for summarize smoke runs."""
+
 from __future__ import annotations
 
 from typing import Any
 from uuid import uuid4
 
 from scripts.summarize_smoke_runs import summarize
+
+RAW_SPEC_FORWARDING_FIELD = "pass_raw_spec_text"
 
 
 def _record(
@@ -18,7 +22,7 @@ def _record(
         variant = {
             "enable_refiner": False,
             "enable_spec_validator": False,
-            "pass_raw_spec_text": False,
+            RAW_SPEC_FORWARDING_FIELD: False,
         }
     if metrics is None:
         metrics = {}
@@ -60,14 +64,15 @@ def _scenario_status_counts(markdown: str, scenario_id: int) -> dict[str, int]:
     lines = markdown.splitlines()
     header = f"### Scenario {scenario_id}"
     if header not in lines:
-        raise AssertionError(f"Missing scenario section: {header}")
+        msg = f"Missing scenario section: {header}"
+        raise AssertionError(msg)
     start = lines.index(header) + 3
     counts: dict[str, int] = {}
     for line in lines[start:]:
         if not line.startswith("| "):
             break
         parts = [part.strip() for part in line.strip("|").split("|")]
-        if len(parts) >= 2:
+        if len(parts) >= 2:  # noqa: PLR2004
             status = parts[0]
             count = int(parts[1])
             counts[status] = count
@@ -79,10 +84,12 @@ def _find_summary_row(markdown: str, scenario_id: int, variant_label: str) -> li
     for line in markdown.splitlines():
         if line.startswith(target):
             return [part.strip() for part in line.strip("|").split("|")]
-    raise AssertionError(f"Missing summary row for {scenario_id} {variant_label}")
+    msg = f"Missing summary row for {scenario_id} {variant_label}"
+    raise AssertionError(msg)
 
 
 def test_terminal_status_priority_order() -> None:
+    """Verify terminal status priority order."""
     records = [
         _record(
             metrics={"acceptance_blocked": True, "stage": "acceptance_blocked"},
@@ -141,10 +148,11 @@ def test_terminal_status_priority_order() -> None:
 
 
 def test_alignment_reject_percentage_computation() -> None:
+    """Verify alignment reject percentage computation."""
     variant = {
         "enable_refiner": True,
         "enable_spec_validator": True,
-        "pass_raw_spec_text": True,
+        RAW_SPEC_FORWARDING_FIELD: True,
     }
     records = [
         _record(
@@ -179,6 +187,7 @@ def test_alignment_reject_percentage_computation() -> None:
 
 
 def test_completed_and_crashed_counts() -> None:
+    """Verify completed and crashed counts."""
     records = [
         _record(
             metrics={"contract_passed": True},
@@ -208,6 +217,7 @@ def test_completed_and_crashed_counts() -> None:
 
 
 def test_median_ignores_none() -> None:
+    """Verify median ignores none."""
     records = [
         _record(
             metrics={"contract_passed": True},
@@ -231,12 +241,13 @@ def test_median_ignores_none() -> None:
 
 
 def test_variant_labeling() -> None:
+    """Verify variant labeling."""
     records = [
         _record(
             variant={
                 "enable_refiner": True,
                 "enable_spec_validator": False,
-                "pass_raw_spec_text": True,
+                RAW_SPEC_FORWARDING_FIELD: True,
             },
             metrics={"contract_passed": True},
             timing={"total_ms": 1.0, "pipeline_ms": 1.0},
@@ -248,6 +259,7 @@ def test_variant_labeling() -> None:
 
 
 def test_success_gate_requires_final_story_present() -> None:
+    """Verify success gate requires final story present."""
     records = [
         _record(
             metrics={

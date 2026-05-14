@@ -79,38 +79,30 @@ class ValidationEvidence(BaseModel):
         list[str],
         Field(description="List of invariant IDs/strings checked"),
     ]
-    evaluated_invariant_ids: Annotated[
-        list[str],
-        Field(
-            default_factory=list,
-            description="IDs of invariants whose validation logic actually ran",
-        ),
-    ]
-    finding_invariant_ids: Annotated[
-        list[str],
-        Field(
-            default_factory=list,
-            description=(
-                "IDs of invariants referenced in alignment warnings or failures"
-            ),
-        ),
-    ]
-    failures: Annotated[
-        list[ValidationFailure],
-        Field(default_factory=list, description="List of failures"),
-    ]
-    warnings: Annotated[
-        list[str],
-        Field(default_factory=list, description="Non-blocking warnings"),
-    ]
-    alignment_warnings: Annotated[
-        list[AlignmentFinding],
-        Field(default_factory=list, description="Alignment warnings"),
-    ]
-    alignment_failures: Annotated[
-        list[AlignmentFinding],
-        Field(default_factory=list, description="Alignment failures"),
-    ]
+    evaluated_invariant_ids: list[str] = Field(
+        default_factory=list,
+        description="IDs of invariants whose validation logic actually ran",
+    )
+    finding_invariant_ids: list[str] = Field(
+        default_factory=list,
+        description="IDs of invariants referenced in alignment warnings or failures",
+    )
+    failures: list[ValidationFailure] = Field(
+        default_factory=list,
+        description="List of failures",
+    )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="Non-blocking warnings",
+    )
+    alignment_warnings: list[AlignmentFinding] = Field(
+        default_factory=list,
+        description="Alignment warnings",
+    )
+    alignment_failures: list[AlignmentFinding] = Field(
+        default_factory=list,
+        description="Alignment failures",
+    )
     validator_version: Annotated[
         str,
         Field(description="Version of validator logic used"),
@@ -335,13 +327,10 @@ class SpecAuthorityCompilationSuccess(BaseModel):
         list[str],
         Field(description="Top-level scope themes extracted from the spec."),
     ]
-    domain: Annotated[
-        str | None,
-        Field(
-            default=None,
-            description="Optional primary domain for spec (e.g., training, review).",
-        ),
-    ]
+    domain: str | None = Field(
+        default=None,
+        description="Optional primary domain for spec (e.g., training, review).",
+    )
     invariants: Annotated[
         list[Invariant],
         Field(description="Structured invariants extracted from the spec."),

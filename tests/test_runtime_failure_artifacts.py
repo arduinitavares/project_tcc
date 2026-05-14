@@ -1,6 +1,9 @@
+"""Tests for runtime failure artifacts."""
+
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path  # noqa: TC003
+from typing import Any, Never
 
 import pytest
 
@@ -102,7 +105,7 @@ RUNTIME_CASES: list[RuntimeCase] = [
 ]
 
 
-def _patch_failure_dir(monkeypatch, tmp_path) -> None:
+def _patch_failure_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(failure_artifacts, "LOGS_DIR", tmp_path / "logs")
     monkeypatch.setattr(
         failure_artifacts, "FAILURES_DIR", tmp_path / "logs" / "failures"
@@ -112,11 +115,12 @@ def _patch_failure_dir(monkeypatch, tmp_path) -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("case", RUNTIME_CASES, ids=lambda case: case["phase"])
 async def test_runtime_invalid_json_writes_full_failure_artifact(
-    monkeypatch, tmp_path, case: RuntimeCase
-):
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, case: RuntimeCase
+) -> None:
+    """Verify runtime invalid json writes full failure artifact."""
     _patch_failure_dir(monkeypatch, tmp_path)
 
-    async def fake_invoke(_payload):
+    async def fake_invoke(_payload: object) -> str:
         return '{"broken": '
 
     monkeypatch.setattr(case["module"], case["invoke_name"], fake_invoke)
@@ -136,11 +140,12 @@ async def test_runtime_invalid_json_writes_full_failure_artifact(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("case", RUNTIME_CASES, ids=lambda case: case["phase"])
 async def test_runtime_output_validation_writes_full_failure_artifact(
-    monkeypatch, tmp_path, case: RuntimeCase
-):
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, case: RuntimeCase
+) -> None:
+    """Verify runtime output validation writes full failure artifact."""
     _patch_failure_dir(monkeypatch, tmp_path)
 
-    async def fake_invoke(_payload):
+    async def fake_invoke(_payload: object) -> str:
         return "{}"
 
     monkeypatch.setattr(case["module"], case["invoke_name"], fake_invoke)
@@ -160,13 +165,15 @@ async def test_runtime_output_validation_writes_full_failure_artifact(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("case", RUNTIME_CASES, ids=lambda case: case["phase"])
 async def test_runtime_invocation_exception_persists_partial_output(
-    monkeypatch, tmp_path, case: RuntimeCase
-):
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, case: RuntimeCase
+) -> None:
+    """Verify runtime invocation exception persists partial output."""
     _patch_failure_dir(monkeypatch, tmp_path)
 
-    async def fake_invoke(_payload):
+    async def fake_invoke(_payload: object) -> Never:
+        msg = "provider timeout"
         raise AgentInvocationError(
-            "provider timeout",
+            msg,
             partial_output='{"partial": true}',
             event_count=2,
         )
@@ -187,12 +194,13 @@ async def test_runtime_invocation_exception_persists_partial_output(
 
 @pytest.mark.asyncio
 async def test_sprint_failure_artifact_keeps_structured_validation_details(
-    monkeypatch, tmp_path
-):
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify sprint failure artifact keeps structured validation details."""
     _patch_failure_dir(monkeypatch, tmp_path)
 
-    def fake_fetch_sprint_candidates(*, product_id):
-        assert product_id == 7
+    def fake_fetch_sprint_candidates(*, product_id: int) -> object:
+        assert product_id == 7  # noqa: PLR2004
         return {
             "success": True,
             "count": 1,
@@ -207,9 +215,10 @@ async def test_sprint_failure_artifact_keeps_structured_validation_details(
             ],
         }
 
-    async def fake_invoke(_payload):
+    async def fake_invoke(_payload: object) -> Never:
+        msg = "ADK validation failed"
         raise AgentInvocationError(
-            "ADK validation failed",
+            msg,
             validation_errors=[
                 {
                     "type": "literal_error",
@@ -239,7 +248,7 @@ async def test_sprint_failure_artifact_keeps_structured_validation_details(
     assert result["success"] is False
     assert result["failure_stage"] == "invocation_exception"
     assert result["output_artifact"]["validation_errors"] == [
-        "Unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor."
+        "Unsupported task_kind 'approval'. Use one of: analysis, design, implementation, testing, documentation, refactor."  # noqa: E501
     ]
 
     artifact = failure_artifacts.read_failure_artifact(result["failure_artifact_id"])

@@ -134,6 +134,12 @@ convention = "pep257"
 "tests/**/*.py" = ["S101"]
 "**/test_*.py" = ["S101"]
 
+[tool.bandit]
+exclude_dirs = [".venv", "notebooks"]
+
+[tool.bandit.assert_used]
+skips = ["*_test.py", "*test_*.py"]
+
 [tool.ty.environment]
 python-version = "3.12"
 python-platform = "all"
@@ -158,6 +164,7 @@ error-on-warning = true
 
 [dependency-groups]
 dev = [
+    "bandit>=1.9.4",
     "pytest-cov>=7.0.0",
     "ty>=0.0.26",
 ]

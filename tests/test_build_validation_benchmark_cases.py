@@ -1,12 +1,16 @@
+"""Tests for build validation benchmark cases."""
+
 from __future__ import annotations
 
-from types import SimpleNamespace
+import pytest  # noqa: TC002
 
+from agile_sqlmodel import UserStory
 from scripts import build_validation_benchmark_cases as builder
 
 
-def _story(title: str, description: str, acceptance_criteria: str):
-    return SimpleNamespace(
+def _story(title: str, description: str, acceptance_criteria: str) -> UserStory:
+    return UserStory(
+        product_id=1,
         title=title,
         story_description=description,
         acceptance_criteria=acceptance_criteria,
@@ -14,6 +18,7 @@ def _story(title: str, description: str, acceptance_criteria: str):
 
 
 def test_compute_content_hash_changes_with_story_text() -> None:
+    """Verify compute content hash changes with story text."""
     s1 = _story("A", "B", "C")
     s2 = _story("A", "B changed", "C")
     h1 = builder._compute_content_hash(s1)  # pylint: disable=protected-access
@@ -22,6 +27,7 @@ def test_compute_content_hash_changes_with_story_text() -> None:
 
 
 def test_apply_no_evidence_labels_clears_labels() -> None:
+    """Verify apply no evidence labels clears labels."""
     expected_pass, reasons = builder._apply_no_evidence_labels(  # pylint: disable=protected-access
         True,
         ["RULE_X"],
@@ -33,6 +39,7 @@ def test_apply_no_evidence_labels_clears_labels() -> None:
 
 
 def test_apply_no_evidence_labels_keeps_non_evidence() -> None:
+    """Verify apply no evidence labels keeps non evidence."""
     expected_pass, reasons = builder._apply_no_evidence_labels(  # pylint: disable=protected-access
         False,
         ["RULE_X"],
@@ -43,7 +50,10 @@ def test_apply_no_evidence_labels_keeps_non_evidence() -> None:
     assert reasons == ["RULE_X"]
 
 
-def test_warn_when_all_cases_are_validation_evidence(capsys) -> None:
+def test_warn_when_all_cases_are_validation_evidence(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify warn when all cases are validation evidence."""
     rows = [
         {"label_source": "validation_evidence"},
         {"label_source": "validation_evidence"},

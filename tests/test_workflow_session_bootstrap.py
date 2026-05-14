@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Regression tests for fresh session-store bootstrap behavior."""
 
 from __future__ import annotations
@@ -5,14 +6,18 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from pathlib import Path
+from typing import TYPE_CHECKING
 
+import pytest  # noqa: TC002
 from fastapi.testclient import TestClient
 
 import api as api_module
 from repositories.session import WorkflowSessionRepository
 from services.workflow import WorkflowService
 from utils.runtime_config import resolve_database_target
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _session_repo(db_path: Path) -> WorkflowSessionRepository:
@@ -73,8 +78,9 @@ def _workflow_service(db_path: Path) -> WorkflowService:
 
 def test_get_session_state_returns_empty_when_sessions_table_missing(
     tmp_path: Path,
-    caplog,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """Verify get session state returns empty when sessions table missing."""
     repo = _session_repo(tmp_path / "fresh_sessions.db")
 
     with caplog.at_level(logging.ERROR, logger="repositories.session"):
@@ -85,6 +91,7 @@ def test_get_session_state_returns_empty_when_sessions_table_missing(
 
 
 def test_get_session_state_returns_existing_row(tmp_path: Path) -> None:
+    """Verify get session state returns existing row."""
     db_path = tmp_path / "existing_sessions.db"
     repo = _session_repo(db_path)
     _create_sessions_table(db_path)
@@ -102,6 +109,7 @@ def test_get_session_state_returns_existing_row(tmp_path: Path) -> None:
 
 
 def test_get_session_states_batch_returns_matching_rows(tmp_path: Path) -> None:
+    """Verify get session states batch returns matching rows."""
     db_path = tmp_path / "batch_sessions.db"
     repo = _session_repo(db_path)
     _create_sessions_table(db_path)
@@ -134,8 +142,9 @@ def test_get_session_states_batch_returns_matching_rows(tmp_path: Path) -> None:
 
 def test_migrate_legacy_setup_state_returns_zero_when_sessions_table_missing(
     tmp_path: Path,
-    caplog,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """Verify migrate legacy setup state returns zero when sessions table missing."""
     service = _workflow_service(tmp_path / "missing_sessions.db")
 
     with caplog.at_level(logging.ERROR, logger="services.workflow"):
@@ -148,6 +157,7 @@ def test_migrate_legacy_setup_state_returns_zero_when_sessions_table_missing(
 def test_migrate_legacy_setup_state_returns_zero_when_sessions_table_exists_without_rows(
     tmp_path: Path,
 ) -> None:
+    """Verify migrate legacy setup state returns zero when sessions table exists without rows."""
     db_path = tmp_path / "no_rows_sessions.db"
     _create_sessions_table(db_path)
     service = _workflow_service(db_path)
@@ -156,6 +166,7 @@ def test_migrate_legacy_setup_state_returns_zero_when_sessions_table_exists_with
 
 
 def test_migrate_legacy_setup_state_updates_routing_mode_rows(tmp_path: Path) -> None:
+    """Verify migrate legacy setup state updates routing mode rows."""
     db_path = tmp_path / "routing_mode_sessions.db"
     _create_sessions_table(db_path)
     service = _workflow_service(db_path)
@@ -190,6 +201,7 @@ def test_migrate_legacy_setup_state_updates_routing_mode_rows(tmp_path: Path) ->
 
 
 def test_migrate_legacy_setup_state_skips_malformed_json_rows(tmp_path: Path) -> None:
+    """Verify migrate legacy setup state skips malformed json rows."""
     db_path = tmp_path / "malformed_sessions.db"
     _create_sessions_table(db_path)
     service = _workflow_service(db_path)
@@ -233,9 +245,10 @@ def test_migrate_legacy_setup_state_skips_malformed_json_rows(tmp_path: Path) ->
 
 def test_api_startup_skips_missing_sessions_table_error(
     tmp_path: Path,
-    monkeypatch,
-    caplog,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """Verify api startup skips missing sessions table error."""
     workflow_service = _workflow_service(tmp_path / "startup_sessions.db")
     monkeypatch.setattr(api_module, "workflow_service", workflow_service)
 

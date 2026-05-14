@@ -6,9 +6,9 @@ import io
 import logging
 import os
 from contextlib import redirect_stderr
+from typing import TYPE_CHECKING
 
 import pytest
-from sqlmodel import Session
 
 from agile_sqlmodel import Product, SpecRegistry, UserStory
 
@@ -16,6 +16,12 @@ os.environ.setdefault("ALLOW_PROD_DB_IN_TEST", "1")
 
 from scripts import apply_story_validation as validation_script
 from utils.runtime_config import clear_runtime_config_cache
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from sqlalchemy.engine import Engine
+    from sqlmodel import Session
 
 
 def _remove_console_handlers() -> None:
@@ -31,7 +37,10 @@ def _remove_console_handlers() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _reset_console_logging(monkeypatch: pytest.MonkeyPatch, engine) -> None:  # pylint: disable=redefined-outer-name
+def _reset_console_logging(
+    monkeypatch: pytest.MonkeyPatch,
+    engine: Engine,
+) -> Iterator[None]:
     monkeypatch.setattr(validation_script, "engine", engine)
     _remove_console_handlers()
     clear_runtime_config_cache()
@@ -69,7 +78,7 @@ def _seed_product_with_stories(
             product_id=product.product_id,
             title=f"Story {idx + 1}",
             story_description="As a user, I want concise validation logs.",
-            acceptance_criteria="- Given a story\n- When validation runs\n- Then evidence is stored",
+            acceptance_criteria="- Given a story\n- When validation runs\n- Then evidence is stored",  # noqa: E501
             is_refined=True,
             is_superseded=False,
         )
@@ -98,9 +107,10 @@ def test_default_cli_output_is_concise(
     monkeypatch: pytest.MonkeyPatch,
     session: Session,
 ) -> None:
+    """Verify default cli output is concise."""
     product_id, story_ids = _seed_product_with_stories(session, include_unrefined=True)
 
-    def fake_validate(payload):
+    def fake_validate(payload: dict[str, object]) -> dict[str, object]:
         if payload["story_id"] == story_ids[0]:
             return {
                 "success": True,
@@ -155,9 +165,10 @@ def test_verbose_cli_output_includes_story_details(
     monkeypatch: pytest.MonkeyPatch,
     session: Session,
 ) -> None:
+    """Verify verbose cli output includes story details."""
     product_id, story_ids = _seed_product_with_stories(session)
 
-    def fake_validate(payload):
+    def fake_validate(payload: dict[str, object]) -> dict[str, object]:
         if payload["story_id"] == story_ids[0]:
             return {
                 "success": True,
@@ -203,7 +214,7 @@ def test_verbose_cli_output_includes_story_details(
         in output
     )
     assert (
-        "FORBIDDEN_CAPABILITY (INV-1234567890abcdef): Story references forbidden capability"
+        "FORBIDDEN_CAPABILITY (INV-1234567890abcdef): Story references forbidden capability"  # noqa: E501
         in output
     )
 
@@ -212,12 +223,13 @@ def test_quiet_cli_output_suppresses_routine_progress(
     monkeypatch: pytest.MonkeyPatch,
     session: Session,
 ) -> None:
+    """Verify quiet cli output suppresses routine progress."""
     product_id, _story_ids = _seed_product_with_stories(session)
 
     monkeypatch.setattr(
         validation_script,
         "validate_story_with_spec_authority",
-        lambda payload: {
+        lambda payload: {  # noqa: ARG005
             "success": True,
             "passed": True,
             "failures": [],
@@ -239,6 +251,7 @@ def test_quiet_cli_output_suppresses_routine_progress(
 
 
 def test_no_refined_stories_is_a_clear_noop(session: Session) -> None:
+    """Verify no refined stories is a clear noop."""
     product_id, _story_ids = _seed_product_with_stories(
         session,
         refined_story_count=0,
@@ -257,6 +270,7 @@ def test_no_refined_stories_is_a_clear_noop(session: Session) -> None:
 
 
 def test_missing_approved_spec_returns_non_zero(session: Session) -> None:
+    """Verify missing approved spec returns non zero."""
     product_id, _story_ids = _seed_product_with_stories(session, include_spec=False)
 
     stream = io.StringIO()

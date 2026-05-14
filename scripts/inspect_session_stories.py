@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 
+from utils.cli_output import emit
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlmodel import Session, select
@@ -10,8 +12,8 @@ from sqlmodel import Session, select
 from agile_sqlmodel import UserStory, get_engine
 
 
-def inspect_session_stories():
-    """Find all stories with 'Story from session' or 'session state fallback' in them."""
+def inspect_session_stories() -> None:
+    """Find all stories with 'Story from session' or 'session state fallback' in them."""  # noqa: E501
     with Session(get_engine()) as session:
         # Find stories with the placeholder text
         all_stories = session.exec(select(UserStory)).all()
@@ -23,22 +25,22 @@ def inspect_session_stories():
                 or "session state fallback" in (story.story_description or "")
                 or "AC from session" in (story.acceptance_criteria or "")
             ):
-                session_stories.append(story)
+                session_stories.append(story)  # noqa: PERF401
 
         if not session_stories:
-            print("✓ No 'session' placeholder stories found")
+            emit("✓ No 'session' placeholder stories found")
             return
 
-        print(f"\n⚠️  Found {len(session_stories)} placeholder stories:\n")
+        emit(f"\n⚠️  Found {len(session_stories)} placeholder stories:\n")
         for story in session_stories:
-            print(f"Story #{story.story_id}")
-            print(f"  Title: {story.title}")
-            print(f"  Description: {story.story_description[:100]}...")
-            print(f"  Product ID: {story.product_id}")
-            print(f"  Feature ID: {story.feature_id}")
-            print(f"  Status: {story.status}")
-            print(f"  Story Points: {story.story_points}")
-            print()
+            emit(f"Story #{story.story_id}")
+            emit(f"  Title: {story.title}")
+            emit(f"  Description: {story.story_description[:100]}...")
+            emit(f"  Product ID: {story.product_id}")
+            emit(f"  Feature ID: {story.feature_id}")
+            emit(f"  Status: {story.status}")
+            emit(f"  Story Points: {story.story_points}")
+            emit()
 
 
 if __name__ == "__main__":

@@ -11,19 +11,23 @@ class TestExtractPersona:
     """Tests for the _extract_persona helper."""
 
     def test_extracts_simple_role(self) -> None:
+        """Verify extracts simple role."""
         statement = (
             "As a data engineer, I want to upload files, so that data is ingested."
         )
         assert _extract_persona(statement) == "data engineer"
 
     def test_extracts_role_with_article_an(self) -> None:
+        """Verify extracts role with article an."""
         statement = "As an admin, I want to manage users, so that access is controlled."
         assert _extract_persona(statement) == "admin"
 
     def test_returns_none_for_invalid_format(self) -> None:
+        """Verify returns none for invalid format."""
         assert _extract_persona("The user wants to log in.") is None
 
     def test_extracts_multi_word_role(self) -> None:
+        """Verify extracts multi word role."""
         statement = (
             "As a compliance officer, I want to review audit logs, "
             "so that we meet regulations."
@@ -31,6 +35,7 @@ class TestExtractPersona:
         assert _extract_persona(statement) == "compliance officer"
 
     def test_extracts_role_with_adjective(self) -> None:
+        """Verify extracts role with adjective."""
         statement = (
             "As a frequent traveler, I want to save preferences, "
             "so that booking is faster."
@@ -38,4 +43,5 @@ class TestExtractPersona:
         assert _extract_persona(statement) == "frequent traveler"
 
     def test_returns_none_for_empty_string(self) -> None:
+        """Verify returns none for empty string."""
         assert _extract_persona("") is None

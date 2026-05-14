@@ -1,17 +1,19 @@
+"""Tests for export import labels."""
+
 from __future__ import annotations
 
 import csv
 import json
 from datetime import UTC, datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
-from sqlmodel import Session
 
 from agile_sqlmodel import CompiledSpecAuthority, Product, SpecRegistry, UserStory
 from models.core import Epic, Feature, Theme
 from scripts import export_benchmark_for_labeling as exporter
 from scripts import import_human_labels as importer
+from tests.typing_helpers import require_id
 from utils.spec_schemas import (
     Invariant,
     InvariantType,
@@ -21,29 +23,42 @@ from utils.spec_schemas import (
     SpecAuthorityCompilerOutput,
 )
 
+EXPECTED_OUTCOME_FIELD = "expected_pass"
+REVIEW_OUTCOME_FIELD = exporter.REVIEW_OUTCOME_FIELD
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from sqlalchemy.engine import Engine
+    from sqlmodel import Session
+
 
 def _seed_case_data(session: Session) -> tuple[int, int]:
     product = Product(name="Label Product", vision="Labeling")
     session.add(product)
     session.commit()
     session.refresh(product)
+    product_id = require_id(product.product_id, "product_id")
 
-    theme = Theme(product_id=product.product_id, title="Theme", description="")
+    theme = Theme(product_id=product_id, title="Theme", description="")
     session.add(theme)
     session.commit()
     session.refresh(theme)
-    epic = Epic(theme_id=theme.theme_id, title="Epic", description="")
+    theme_id = require_id(theme.theme_id, "theme_id")
+    epic = Epic(theme_id=theme_id, title="Epic", summary="")
     session.add(epic)
     session.commit()
     session.refresh(epic)
-    feature = Feature(epic_id=epic.epic_id, title="Feature", description="")
+    epic_id = require_id(epic.epic_id, "epic_id")
+    feature = Feature(epic_id=epic_id, title="Feature", description="")
     session.add(feature)
     session.commit()
     session.refresh(feature)
+    feature_id = require_id(feature.feature_id, "feature_id")
 
     story = UserStory(
-        product_id=product.product_id,
-        feature_id=feature.feature_id,
+        product_id=product_id,
+        feature_id=feature_id,
         title="As a user, I want exports",
         story_description="As a user, I want exports for reporting.",
         acceptance_criteria="Given data, When export, Then CSV.",
@@ -51,13 +66,13 @@ def _seed_case_data(session: Session) -> tuple[int, int]:
     session.add(story)
     session.commit()
     session.refresh(story)
+    story_id = require_id(story.story_id, "story_id")
 
     spec = SpecRegistry(
-        product_id=product.product_id,
+        product_id=product_id,
         content="# Spec",
         content_ref=None,
         spec_hash="a" * 64,
-        version_number=1,
         status="approved",
         approved_at=datetime.now(UTC),
         approved_by="tester",
@@ -66,6 +81,7 @@ def _seed_case_data(session: Session) -> tuple[int, int]:
     session.add(spec)
     session.commit()
     session.refresh(spec)
+    spec_version_id = require_id(spec.spec_version_id, "spec_version_id")
 
     invariant = Invariant(
         id="INV-0000000000000001",
@@ -90,7 +106,7 @@ def _seed_case_data(session: Session) -> tuple[int, int]:
         prompt_hash="0" * 64,
     )
     compiled = CompiledSpecAuthority(
-        spec_version_id=spec.spec_version_id,
+        spec_version_id=spec_version_id,
         compiler_version="1.0.0",
         prompt_hash="0" * 64,
         compiled_at=datetime.now(UTC),
@@ -106,12 +122,13 @@ def _seed_case_data(session: Session) -> tuple[int, int]:
     session.add(compiled)
     session.commit()
 
-    return story.story_id, spec.spec_version_id
+    return story_id, spec_version_id
 
 
 def test_export_labeling_rows_contains_context(
-    engine, session: Session, monkeypatch: pytest.MonkeyPatch
-):
+    engine: Engine, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify export labeling rows contains context."""
     story_id, spec_version_id = _seed_case_data(session)
     monkeypatch.setattr(exporter, "get_engine", lambda: engine)
 
@@ -128,11 +145,12 @@ def test_export_labeling_rows_contains_context(
     row = rows[0]
     assert row["case_id"] == "c1"
     assert "As a user" in row["story_title"]
-    assert row["rater_pass"] == ""
+    assert row[REVIEW_OUTCOME_FIELD] == ""
     assert "invariants" in row["spec_authority_summary"]
 
 
-def test_import_merge_human_labels_roundtrip(tmp_path: Path):
+def test_import_merge_human_labels_roundtrip(tmp_path: Path) -> None:
+    """Verify import merge human labels roundtrip."""
     cases_path = tmp_path / "cases.jsonl"
     labels_path = tmp_path / "labels.csv"
 
@@ -140,7 +158,7 @@ def test_import_merge_human_labels_roundtrip(tmp_path: Path):
         "case_id": "c1",
         "story_id": 1,
         "spec_version_id": 2,
-        "expected_pass": None,
+        EXPECTED_OUTCOME_FIELD: None,
         "expected_fail_reasons": [],
         "label_source": "validation_evidence",
     }
@@ -151,7 +169,7 @@ def test_import_merge_human_labels_roundtrip(tmp_path: Path):
             handle,
             fieldnames=[
                 "case_id",
-                "rater_pass",
+                REVIEW_OUTCOME_FIELD,
                 "rater_fail_reasons",
                 "rater_confidence",
                 "rater_notes",
@@ -162,7 +180,7 @@ def test_import_merge_human_labels_roundtrip(tmp_path: Path):
         writer.writerow(
             {
                 "case_id": "c1",
-                "rater_pass": "false",
+                REVIEW_OUTCOME_FIELD: "false",
                 "rater_fail_reasons": "RULE_ACCEPTANCE_CRITERIA_REQUIRED",
                 "rater_confidence": "high",
                 "rater_notes": "AC missing",
@@ -178,14 +196,15 @@ def test_import_merge_human_labels_roundtrip(tmp_path: Path):
         allow_unknown_reasons=False,
     )
     assert updated == 1
-    assert merged[0]["expected_pass"] is False
+    assert merged[0][EXPECTED_OUTCOME_FIELD] is False
     assert merged[0]["expected_fail_reasons"] == ["RULE_ACCEPTANCE_CRITERIA_REQUIRED"]
     assert merged[0]["label_source"] == "human_review"
     assert merged[0]["rater_id"] == "reviewer-1"
     assert merged[0]["labeled_at"]
 
 
-def test_import_merge_human_labels_from_jsonl(tmp_path: Path):
+def test_import_merge_human_labels_from_jsonl(tmp_path: Path) -> None:
+    """Verify import merge human labels from jsonl."""
     cases_path = tmp_path / "cases.jsonl"
     labels_path = tmp_path / "labels.jsonl"
 
@@ -193,7 +212,7 @@ def test_import_merge_human_labels_from_jsonl(tmp_path: Path):
         "case_id": "c1",
         "story_id": 1,
         "spec_version_id": 2,
-        "expected_pass": None,
+        EXPECTED_OUTCOME_FIELD: None,
         "expected_fail_reasons": [],
         "label_source": "validation_evidence",
     }
@@ -202,7 +221,7 @@ def test_import_merge_human_labels_from_jsonl(tmp_path: Path):
         json.dumps(
             {
                 "case_id": "c1",
-                "rater_pass": "true",
+                REVIEW_OUTCOME_FIELD: "true",
                 "rater_fail_reasons": "",
                 "rater_confidence": "medium",
                 "rater_notes": "Looks compliant",
@@ -220,25 +239,27 @@ def test_import_merge_human_labels_from_jsonl(tmp_path: Path):
         allow_unknown_reasons=False,
     )
     assert updated == 1
-    assert merged[0]["expected_pass"] is True
+    assert merged[0][EXPECTED_OUTCOME_FIELD] is True
     assert merged[0]["expected_fail_reasons"] == []
     assert merged[0]["label_source"] == "human_review"
     assert merged[0]["rater_id"] == "reviewer-jsonl"
 
 
-def test_import_rejects_unknown_reason_code(tmp_path: Path):
+def test_import_rejects_unknown_reason_code(tmp_path: Path) -> None:
+    """Verify import rejects unknown reason code."""
+    del tmp_path
     case = {
         "case_id": "c1",
         "story_id": 1,
         "spec_version_id": 2,
     }
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError):  # noqa: PT011
         importer.merge_human_labels(
             [case],
             {
                 "c1": {
                     "case_id": "c1",
-                    "rater_pass": "false",
+                    REVIEW_OUTCOME_FIELD: "false",
                     "rater_fail_reasons": "UNKNOWN_REASON_CODE",
                     "rater_id": "r1",
                 }

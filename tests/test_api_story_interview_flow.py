@@ -1,3 +1,5 @@
+"""API tests for story interview generation, retry, history, and merge flows."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,7 +12,7 @@ import api as api_module
 
 
 @dataclass
-class DummyProduct:
+class DummyProduct:  # noqa: D101
     product_id: int
     name: str
     description: str | None = None
@@ -18,17 +20,17 @@ class DummyProduct:
     compiled_authority_json: str | None = None
 
 
-class DummyProductRepository:
-    def __init__(self) -> None:
+class DummyProductRepository:  # noqa: D101
+    def __init__(self) -> None:  # noqa: D107
         self.products = []
 
-    def get_by_id(self, product_id: int):
+    def get_by_id(self, product_id: int):  # noqa: ANN201, D102
         for product in self.products:
             if product.product_id == product_id:
                 return product
         return None
 
-    def create(self, name: str) -> DummyProduct:
+    def create(self, name: str) -> DummyProduct:  # noqa: D102
         product = DummyProduct(
             product_id=len(self.products) + 1,
             name=name,
@@ -37,24 +39,24 @@ class DummyProductRepository:
         return product
 
 
-class DummyWorkflowService:
-    def __init__(self) -> None:
+class DummyWorkflowService:  # noqa: D101
+    def __init__(self) -> None:  # noqa: D107
         self.states: dict[str, dict[str, Any]] = {}
 
-    async def initialize_session(self, session_id: str | None = None) -> str:
+    async def initialize_session(self, session_id: str | None = None) -> str:  # noqa: D102
         sid = str(session_id or "generated")
         self.states[sid] = {"fsm_state": "STORY_INTERVIEW"}
         return sid
 
-    def get_session_status(self, session_id: str):
+    def get_session_status(self, session_id: str):  # noqa: ANN201, D102
         return dict(self.states.get(str(session_id), {}))
 
-    def update_session_status(self, session_id: str, partial_update):
+    def update_session_status(self, session_id: str, partial_update):  # noqa: ANN001, ANN201, D102
         current = dict(self.states.get(str(session_id), {}))
         current.update(partial_update)
         self.states[str(session_id)] = current
 
-    def migrate_legacy_setup_state(self) -> int:
+    def migrate_legacy_setup_state(self) -> int:  # noqa: D102
         return 0
 
 
@@ -66,7 +68,7 @@ def _story_artifact(
         "user_stories": [
             {
                 "story_title": title,
-                "statement": "As a developer, I want projection-aware drafts, so that retries and saves stay stable.",
+                "statement": "As a developer, I want projection-aware drafts, so that retries and saves stay stable.",  # noqa: E501
                 "acceptance_criteria": [
                     "Verify the API reads the reusable projection."
                 ],
@@ -91,9 +93,9 @@ def _merge_recommended_artifact(parent_requirement: str) -> dict[str, Any]:
         "execution_evidence_validation_report"
     ]
     artifact["user_stories"][0]["acceptance_criteria"] = [
-        "Verify that execution evidence exists and is captured as screenshots or a short video as specified in project rubric.",
-        "Ensure that evidence demonstrates at least three core parking workflows: vehicle entry, payment processing, and exit.",
-        "Confirm visual evidence is clear, legible, and demonstrates Python 3 compatibility in the execution environment.",
+        "Verify that execution evidence exists and is captured as screenshots or a short video as specified in project rubric.",  # noqa: E501
+        "Ensure that evidence demonstrates at least three core parking workflows: vehicle entry, payment processing, and exit.",  # noqa: E501
+        "Confirm visual evidence is clear, legible, and demonstrates Python 3 compatibility in the execution environment.",  # noqa: E501
         "Validate that evidence shows no errors or crashes during demonstration.",
     ]
     artifact["user_stories"][0]["decomposition_warning"] = (
@@ -121,11 +123,11 @@ def _merge_recommended_complete_artifact(parent_requirement: str) -> dict[str, A
                     "behavioral parity and avoid submission rejection."
                 ),
                 "acceptance_criteria": [
-                    "Verify that execution evidence exists in the required format (screenshots or short video) as specified in the submission guidelines",
-                    "Ensure evidence demonstrates at least three core parking workflows: vehicle entry with ticket issuance, payment processing, and vehicle exit with barrier control",
-                    "Confirm visual evidence clearly shows Python 3.x execution environment and command-line or GUI interactions are legible at 1080p resolution",
-                    "Validate that evidence presentation shows zero runtime errors, crashes, or unhandled exceptions during demonstration",
-                    "Document validation results in a checklist format indicating pass/fail status for each submission criterion",
+                    "Verify that execution evidence exists in the required format (screenshots or short video) as specified in the submission guidelines",  # noqa: E501
+                    "Ensure evidence demonstrates at least three core parking workflows: vehicle entry with ticket issuance, payment processing, and vehicle exit with barrier control",  # noqa: E501
+                    "Confirm visual evidence clearly shows Python 3.x execution environment and command-line or GUI interactions are legible at 1080p resolution",  # noqa: E501
+                    "Validate that evidence presentation shows zero runtime errors, crashes, or unhandled exceptions during demonstration",  # noqa: E501
+                    "Document validation results in a checklist format indicating pass/fail status for each submission criterion",  # noqa: E501
                 ],
                 "invest_score": "Low",
                 "estimated_effort": "S",
@@ -136,7 +138,7 @@ def _merge_recommended_complete_artifact(parent_requirement: str) -> dict[str, A
                 "decomposition_warning": (
                     "This story produces validation artifacts for "
                     "'application_execution_evidence' which is owned by "
-                    "'Updated Source Code Package (refactored prototype for submission)' "
+                    "'Updated Source Code Package (refactored prototype for submission)' "  # noqa: E501
                     "requirement. This creates cross-requirement dependency and "
                     "fragmented responsibility. The validation activity should be "
                     "consolidated into the evidence creation story within the owning "
@@ -150,7 +152,7 @@ def _merge_recommended_complete_artifact(parent_requirement: str) -> dict[str, A
     }
 
 
-def _build_client(monkeypatch):
+def _build_client(monkeypatch):  # noqa: ANN001, ANN202
     repo = DummyProductRepository()
     workflow = DummyWorkflowService()
     monkeypatch.setattr(api_module, "product_repo", repo)
@@ -158,8 +160,8 @@ def _build_client(monkeypatch):
     return TestClient(api_module.app), repo, workflow
 
 
-def test_story_generate_promotes_reusable_draft_records_request_projection_and_absorbs_feedback(
-    monkeypatch,
+def test_story_generate_promotes_reusable_draft_records_request_projection_and_absorbs_feedback(  # noqa: ANN201, D103, E501
+    monkeypatch,  # noqa: ANN001
 ):
     client, repo, workflow = _build_client(monkeypatch)
     product = repo.create("Story Project")
@@ -203,12 +205,12 @@ def test_story_generate_promotes_reusable_draft_records_request_projection_and_a
         "artifact_registry": {},
     }
 
-    async def fake_run_story_agent_from_state(
-        state,
+    async def fake_run_story_agent_from_state(  # noqa: ANN202
+        state,  # noqa: ANN001
         *,
-        project_id,
-        parent_requirement,
-        user_input,
+        project_id,  # noqa: ANN001
+        parent_requirement,  # noqa: ANN001
+        user_input,  # noqa: ANN001
     ):
         assert project_id == product.product_id
         assert parent_requirement == "Requirement A"
@@ -258,7 +260,7 @@ def test_story_generate_promotes_reusable_draft_records_request_projection_and_a
         json={"user_input": "Please keep this to one milestone."},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()["data"]
     assert payload["output_artifact"]["user_stories"][0]["story_title"] == "Story A"
     assert payload["current_draft"] == {
@@ -316,8 +318,8 @@ def test_story_generate_promotes_reusable_draft_records_request_projection_and_a
     assert len(state["story_attempts"]["Requirement A"]) == 1
 
 
-def test_story_retry_replays_frozen_request_and_preserves_prior_good_draft_when_retry_fails(
-    monkeypatch,
+def test_story_retry_replays_frozen_request_and_preserves_prior_good_draft_when_retry_fails(  # noqa: ANN201, D103, E501
+    monkeypatch,  # noqa: ANN001
 ):
     client, repo, workflow = _build_client(monkeypatch)
     product = repo.create("Story Project")
@@ -402,7 +404,7 @@ def test_story_retry_replays_frozen_request_and_preserves_prior_good_draft_when_
         },
     }
 
-    async def fake_retry(request_payload, *, project_id, parent_requirement):
+    async def fake_retry(request_payload, *, project_id, parent_requirement):  # noqa: ANN001, ANN202
         assert request_payload["requirement_context"] == "frozen"
         assert project_id == product.product_id
         assert parent_requirement == "Requirement A"
@@ -433,7 +435,7 @@ def test_story_retry_replays_frozen_request_and_preserves_prior_good_draft_when_
         params={"parent_requirement": "Requirement A"},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()["data"]
     assert payload["retry"] == {
         "available": True,
@@ -455,8 +457,8 @@ def test_story_retry_replays_frozen_request_and_preserves_prior_good_draft_when_
     assert runtime["attempt_history"][-1]["request_snapshot_id"] == "request-2"
 
 
-def test_story_retry_promotes_reusable_draft_and_absorbs_frozen_feedback_ids(
-    monkeypatch,
+def test_story_retry_promotes_reusable_draft_and_absorbs_frozen_feedback_ids(  # noqa: ANN201, D103
+    monkeypatch,  # noqa: ANN001
 ):
     client, repo, workflow = _build_client(monkeypatch)
     product = repo.create("Story Project")
@@ -552,7 +554,7 @@ def test_story_retry_promotes_reusable_draft_and_absorbs_frozen_feedback_ids(
         },
     }
 
-    async def fake_retry(request_payload, *, project_id, parent_requirement):
+    async def fake_retry(request_payload, *, project_id, parent_requirement):  # noqa: ANN001, ANN202
         assert request_payload["requirement_context"] == "frozen"
         assert project_id == product.product_id
         assert parent_requirement == "Requirement A"
@@ -580,7 +582,7 @@ def test_story_retry_promotes_reusable_draft_and_absorbs_frozen_feedback_ids(
         params={"parent_requirement": "Requirement A"},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()["data"]
     assert payload["current_draft"] == {
         "attempt_id": "attempt-3",
@@ -621,8 +623,8 @@ def test_story_retry_promotes_reusable_draft_and_absorbs_frozen_feedback_ids(
     )
 
 
-def test_story_retry_rejects_when_latest_attempt_is_not_retryable_even_with_frozen_payload(
-    monkeypatch,
+def test_story_retry_rejects_when_latest_attempt_is_not_retryable_even_with_frozen_payload(  # noqa: ANN201, D103, E501
+    monkeypatch,  # noqa: ANN001
 ):
     client, repo, workflow = _build_client(monkeypatch)
     product = repo.create("Story Project")
@@ -684,9 +686,9 @@ def test_story_retry_rejects_when_latest_attempt_is_not_retryable_even_with_froz
         },
     }
 
-    async def fail_if_called(*args, **kwargs):
-        raise AssertionError(
-            "retry should be rejected before invoking the story runtime"
+    async def fail_if_called(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202, ARG001
+        raise AssertionError(  # noqa: TRY003
+            "retry should be rejected before invoking the story runtime"  # noqa: EM101
         )
 
     monkeypatch.setattr(api_module, "run_story_agent_request", fail_if_called)
@@ -696,15 +698,15 @@ def test_story_retry_rejects_when_latest_attempt_is_not_retryable_even_with_froz
         params={"parent_requirement": "Requirement A"},
     )
 
-    assert response.status_code == 409
+    assert response.status_code == 409  # noqa: PLR2004
     assert (
         response.json()["detail"]
         == "The latest story attempt is not eligible for retry."
     )
 
 
-def test_story_save_uses_complete_reusable_draft_projection_not_latest_failed_attempt(
-    monkeypatch,
+def test_story_save_uses_complete_reusable_draft_projection_not_latest_failed_attempt(  # noqa: ANN201, D103
+    monkeypatch,  # noqa: ANN001
 ):
     client, repo, workflow = _build_client(monkeypatch)
     product = repo.create("Story Project")
@@ -758,7 +760,7 @@ def test_story_save_uses_complete_reusable_draft_projection_not_latest_failed_at
             session_id=session_id,
         )
 
-    def fake_save_stories_tool(save_input, _context):
+    def fake_save_stories_tool(save_input, _context):  # noqa: ANN001, ANN202
         assert save_input.parent_requirement == "Requirement A"
         assert save_input.stories == reusable_artifact["user_stories"]
         return {"success": True, "saved_count": 1}
@@ -771,7 +773,7 @@ def test_story_save_uses_complete_reusable_draft_projection_not_latest_failed_at
         params={"parent_requirement": "Requirement A"},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()
     assert payload["status"] == "success"
     assert (
@@ -779,7 +781,7 @@ def test_story_save_uses_complete_reusable_draft_projection_not_latest_failed_at
     )
 
 
-def test_story_save_returns_409_without_complete_reusable_draft_projection(monkeypatch):
+def test_story_save_returns_409_without_complete_reusable_draft_projection(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     product = repo.create("Story Project")
     workflow.states[str(product.product_id)] = {
@@ -803,11 +805,11 @@ def test_story_save_returns_409_without_complete_reusable_draft_projection(monke
         params={"parent_requirement": "Requirement A"},
     )
 
-    assert response.status_code == 409
+    assert response.status_code == 409  # noqa: PLR2004
     assert response.json()["detail"] == "No story draft available for 'Requirement A'"
 
 
-def test_story_history_returns_projection_attempt_history_and_summary(monkeypatch):
+def test_story_history_returns_projection_attempt_history_and_summary(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     product = repo.create("Story Project")
     workflow.states[str(product.product_id)] = {
@@ -862,10 +864,10 @@ def test_story_history_returns_projection_attempt_history_and_summary(monkeypatc
         params={"parent_requirement": "  Requirement A  "},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     assert response.json()["parent_requirement"] == "Requirement A"
     payload = response.json()["data"]
-    assert payload["count"] == 2
+    assert payload["count"] == 2  # noqa: PLR2004
     assert payload["items"][0]["attempt_id"] == "attempt-1"
     assert payload["items"][1]["attempt_id"] == "attempt-2"
     assert payload["current_draft"] == {
@@ -880,7 +882,7 @@ def test_story_history_returns_projection_attempt_history_and_summary(monkeypatc
     assert payload["save"] == {"available": True}
 
 
-def test_story_history_surfaces_merge_recommendation_for_incomplete_draft(monkeypatch):
+def test_story_history_surfaces_merge_recommendation_for_incomplete_draft(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     product = repo.create("Story Project")
     merge_artifact = _merge_recommended_artifact("Requirement A")
@@ -918,14 +920,14 @@ def test_story_history_surfaces_merge_recommendation_for_incomplete_draft(monkey
         params={"parent_requirement": "Requirement A"},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()["data"]
     assert payload["save"] == {"available": False}
     assert payload["resolution"]["available"] is True
     assert payload["resolution"]["current"] is None
     assert payload["resolution"]["recommendation"] == {
         "action": "merge_into_requirement",
-        "owner_requirement": "Updated Source Code Package (refactored prototype for submission)",
+        "owner_requirement": "Updated Source Code Package (refactored prototype for submission)",  # noqa: E501
         "reason": merge_artifact["user_stories"][0]["decomposition_warning"],
         "acceptance_criteria_to_move": merge_artifact["user_stories"][0][
             "acceptance_criteria"
@@ -933,7 +935,7 @@ def test_story_history_surfaces_merge_recommendation_for_incomplete_draft(monkey
     }
 
 
-def test_story_history_translates_story_phase_error(monkeypatch):
+def test_story_history_translates_story_phase_error(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     product = repo.create("Story Project")
     workflow.states[str(product.product_id)] = {
@@ -941,9 +943,9 @@ def test_story_history_translates_story_phase_error(monkeypatch):
         "interview_runtime": {"story": {}},
     }
 
-    async def fake_get_story_history_service(*, parent_requirement, load_state):
-        raise api_module.StoryPhaseError(
-            f"Requirement '{parent_requirement}' not found in saved story state.",
+    async def fake_get_story_history_service(*, parent_requirement, load_state):  # noqa: ANN001, ANN202, ARG001
+        raise api_module.StoryPhaseError(  # noqa: TRY003
+            f"Requirement '{parent_requirement}' not found in saved story state.",  # noqa: EM102
             status_code=400,
         )
 
@@ -956,13 +958,13 @@ def test_story_history_translates_story_phase_error(monkeypatch):
         params={"parent_requirement": "  Requirement A  "},
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 400  # noqa: PLR2004
     assert response.json()["detail"] == (
         "Requirement '  Requirement A  ' not found in saved story state."
     )
 
 
-def test_story_merge_accepts_recommendation_and_marks_requirement_resolved(monkeypatch):
+def test_story_merge_accepts_recommendation_and_marks_requirement_resolved(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     product = repo.create("Story Project")
     merge_artifact = _merge_recommended_artifact("Requirement A")
@@ -1001,12 +1003,12 @@ def test_story_merge_accepts_recommendation_and_marks_requirement_resolved(monke
         params={"parent_requirement": "Requirement A"},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()["data"]
     assert payload["resolution"]["available"] is False
     assert payload["resolution"]["current"] == {
         "status": "merged",
-        "owner_requirement": "Updated Source Code Package (refactored prototype for submission)",
+        "owner_requirement": "Updated Source Code Package (refactored prototype for submission)",  # noqa: E501
         "reason": merge_artifact["user_stories"][0]["decomposition_warning"],
         "acceptance_criteria_to_move": merge_artifact["user_stories"][0][
             "acceptance_criteria"
@@ -1020,12 +1022,12 @@ def test_story_merge_accepts_recommendation_and_marks_requirement_resolved(monke
     assert runtime["resolution_projection"] == payload["resolution"]["current"]
 
     pending = client.get(f"/api/projects/{product.product_id}/story/pending")
-    assert pending.status_code == 200
+    assert pending.status_code == 200  # noqa: PLR2004
     requirement = pending.json()["data"]["grouped_items"][0]["requirements"][0]
     assert requirement["status"] == "Merged"
 
 
-def test_story_history_offers_merge_for_complete_low_invest_duplicate(monkeypatch):
+def test_story_history_offers_merge_for_complete_low_invest_duplicate(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     product = repo.create("Story Project")
     merge_artifact = _merge_recommended_complete_artifact("Requirement A")
@@ -1063,13 +1065,13 @@ def test_story_history_offers_merge_for_complete_low_invest_duplicate(monkeypatc
         params={"parent_requirement": "Requirement A"},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()["data"]
     assert payload["save"] == {"available": False}
     assert payload["resolution"]["available"] is True
     assert payload["resolution"]["recommendation"] == {
         "action": "merge_into_requirement",
-        "owner_requirement": "Updated Source Code Package (refactored prototype for submission)",
+        "owner_requirement": "Updated Source Code Package (refactored prototype for submission)",  # noqa: E501
         "reason": merge_artifact["user_stories"][0]["decomposition_warning"],
         "acceptance_criteria_to_move": merge_artifact["user_stories"][0][
             "acceptance_criteria"
@@ -1077,8 +1079,8 @@ def test_story_history_offers_merge_for_complete_low_invest_duplicate(monkeypatc
     }
 
 
-def test_story_generate_allows_fresh_run_after_reset_without_manual_refinement_input(
-    monkeypatch,
+def test_story_generate_allows_fresh_run_after_reset_without_manual_refinement_input(  # noqa: ANN201, D103
+    monkeypatch,  # noqa: ANN001
 ):
     client, repo, workflow = _build_client(monkeypatch)
     product = repo.create("Story Project")
@@ -1141,12 +1143,12 @@ def test_story_generate_allows_fresh_run_after_reset_without_manual_refinement_i
         },
     }
 
-    async def fake_run_story_agent_from_state(
-        state,
+    async def fake_run_story_agent_from_state(  # noqa: ANN202
+        state,  # noqa: ANN001, ARG001
         *,
-        project_id,
-        parent_requirement,
-        user_input,
+        project_id,  # noqa: ANN001
+        parent_requirement,  # noqa: ANN001
+        user_input,  # noqa: ANN001
     ):
         assert project_id == product.product_id
         assert parent_requirement == "Requirement A"
@@ -1178,7 +1180,7 @@ def test_story_generate_allows_fresh_run_after_reset_without_manual_refinement_i
         json={},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()["data"]
     assert payload["current_draft"] == {
         "attempt_id": "attempt-3",
@@ -1193,7 +1195,7 @@ def test_story_generate_allows_fresh_run_after_reset_without_manual_refinement_i
     assert runtime["request_projection"]["included_feedback_ids"] == []
 
 
-def test_story_pending_returns_pending_after_reset_clears_working_state(monkeypatch):
+def test_story_pending_returns_pending_after_reset_clears_working_state(monkeypatch):  # noqa: ANN001, ANN201, D103
     client, repo, workflow = _build_client(monkeypatch)
     product = repo.create("Story Project")
     workflow.states[str(product.product_id)] = {
@@ -1252,7 +1254,7 @@ def test_story_pending_returns_pending_after_reset_clears_working_state(monkeypa
 
     response = client.get(f"/api/projects/{product.product_id}/story/pending")
 
-    assert response.status_code == 200
+    assert response.status_code == 200  # noqa: PLR2004
     payload = response.json()["data"]
     requirement = payload["grouped_items"][0]["requirements"][0]
     assert requirement["requirement"] == "Requirement A"

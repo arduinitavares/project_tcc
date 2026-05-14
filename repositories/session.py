@@ -71,13 +71,17 @@ class WorkflowSessionRepository:
             cursor = conn.cursor()
             for start in range(0, len(normalized_ids), chunk_size):
                 chunk = normalized_ids[start : start + chunk_size]
-                placeholders = ",".join("?" for _ in chunk)
-                cursor.execute(
-                    f"SELECT id, state FROM sessions WHERE app_name=? AND user_id=? AND id IN ({placeholders})",
-                    (app_name, user_id, *chunk),
-                )
+                rows: list[tuple[str, str]] = []
+                for session_id in chunk:
+                    cursor.execute(
+                        "SELECT id, state FROM sessions WHERE app_name=? AND user_id=? AND id=?",
+                        (app_name, user_id, session_id),
+                    )
+                    row = cursor.fetchone()
+                    if row is not None:
+                        rows.append(row)
 
-                for row_session_id, state_json in cursor.fetchall():
+                for row_session_id, state_json in rows:
                     try:
                         state_map[str(row_session_id)] = json.loads(state_json or "{}")
                     except json.JSONDecodeError:

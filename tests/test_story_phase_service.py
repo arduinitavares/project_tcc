@@ -1,4 +1,7 @@
+"""Tests for story phase service."""
+
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -14,14 +17,18 @@ from services.phases.story_service import (
     save_story_draft,
 )
 
+JsonDict = dict[str, Any]
 
-def _story_artifact(parent_requirement: str, title: str, *, is_complete: bool = True):
+
+def _story_artifact(
+    parent_requirement: str, title: str, *, is_complete: bool = True
+) -> JsonDict:
     return {
         "parent_requirement": parent_requirement,
         "user_stories": [
             {
                 "story_title": title,
-                "statement": "As a developer, I want projection-aware drafts, so that retries and saves stay stable.",
+                "statement": "As a developer, I want projection-aware drafts, so that retries and saves stay stable.",  # noqa: E501
                 "acceptance_criteria": [
                     "Verify the service reads the reusable projection."
                 ],
@@ -35,7 +42,7 @@ def _story_artifact(parent_requirement: str, title: str, *, is_complete: bool = 
     }
 
 
-def _merge_recommended_artifact(parent_requirement: str):
+def _merge_recommended_artifact(parent_requirement: str) -> JsonDict:
     artifact = _story_artifact(
         parent_requirement,
         "Validate execution evidence meets submission standards",
@@ -49,12 +56,12 @@ def _merge_recommended_artifact(parent_requirement: str):
         "Artifact 'application_execution_evidence' is owned by "
         "'Updated Source Code Package (refactored prototype for submission)' "
         "which already has a creation story. Recommend consolidating: merge this "
-        "validation into the evidence creation story and retire this separate requirement."
+        "validation into the evidence creation story and retire this separate requirement."  # noqa: E501
     )
     return artifact
 
 
-def _pending_state():
+def _pending_state() -> JsonDict:
     return {
         "roadmap_releases": [
             {
@@ -154,8 +161,9 @@ def _pending_state():
 
 
 @pytest.mark.asyncio
-async def test_get_story_history_returns_attempts_and_projection_summary():
-    state = {
+async def test_get_story_history_returns_attempts_and_projection_summary() -> None:
+    """Verify get story history returns attempts and projection summary."""
+    state: JsonDict = {
         "interview_runtime": {
             "story": {
                 "Requirement A": {
@@ -206,7 +214,7 @@ async def test_get_story_history_returns_attempts_and_projection_summary():
 
     assert payload["parent_requirement"] == "Requirement A"
     data = payload["data"]
-    assert data["count"] == 2
+    assert data["count"] == 2  # noqa: PLR2004
     assert data["items"][0]["attempt_id"] == "attempt-1"
     assert data["current_draft"] == {
         "attempt_id": "attempt-1",
@@ -221,12 +229,13 @@ async def test_get_story_history_returns_attempts_and_projection_summary():
 
 
 @pytest.mark.asyncio
-async def test_get_story_pending_groups_requirements_by_status():
+async def test_get_story_pending_groups_requirements_by_status() -> None:
+    """Verify get story pending groups requirements by status."""
     state = _pending_state()
 
     payload = await get_story_pending(load_state=lambda: _async_value(state))
 
-    assert payload["total_count"] == 2
+    assert payload["total_count"] == 2  # noqa: PLR2004
     assert payload["saved_count"] == 1
     assert payload["grouped_items"] == [
         {
@@ -250,8 +259,11 @@ async def test_get_story_pending_groups_requirements_by_status():
 
 
 @pytest.mark.asyncio
-async def test_generate_story_draft_normalizes_requirement_and_persists_reusable_output():
-    state = {
+async def test_generate_story_draft_normalizes_requirement_and_persists_reusable_output() -> (  # noqa: E501
+    None
+):
+    """Verify generate story draft normalizes requirement and persists reusable output."""  # noqa: E501
+    state: JsonDict = {
         "roadmap_releases": [
             {
                 "items": ["Requirement A"],
@@ -281,17 +293,17 @@ async def test_generate_story_draft_normalizes_requirement_and_persists_reusable
             }
         },
     }
-    saved_states: list[dict[str, object]] = []
-    captured: dict[str, object] = {}
+    saved_states: list[JsonDict] = []
+    captured: JsonDict = {}
 
     async def fake_run_story_agent_from_state(
-        state_arg,
+        state_arg: JsonDict,
         *,
-        project_id,
-        parent_requirement,
-        user_input,
-    ):
-        assert project_id == 7
+        project_id: int,
+        parent_requirement: str,
+        user_input: str | None,
+    ) -> JsonDict:
+        assert project_id == 7  # noqa: PLR2004
         assert parent_requirement == "Requirement A"
         assert user_input is None
         captured["feedback"] = state_arg["interview_runtime"]["story"]["Requirement A"][
@@ -326,7 +338,7 @@ async def test_generate_story_draft_normalizes_requirement_and_persists_reusable
             "feedback_projection"
         ]["items"].append(
             {
-                "feedback_id": f"feedback-{len(runtime['feedback_projection']['items']) + 1}",
+                "feedback_id": f"feedback-{len(runtime['feedback_projection']['items']) + 1}",  # noqa: E501
                 "text": text,
                 "created_at": created_at,
                 "status": "unabsorbed",
@@ -355,7 +367,7 @@ async def test_generate_story_draft_normalizes_requirement_and_persists_reusable
             for item in runtime["feedback_projection"]["items"]
             if item["feedback_id"] in set(feedback_ids)
         ],
-        failure_meta=lambda story_result, fallback_summary: {},
+        failure_meta=lambda story_result, fallback_summary: {},  # noqa: ARG005
     )
 
     assert payload["parent_requirement"] == "Requirement A"
@@ -380,8 +392,11 @@ async def test_generate_story_draft_normalizes_requirement_and_persists_reusable
 
 
 @pytest.mark.asyncio
-async def test_retry_story_draft_replays_request_projection_and_promotes_reusable_output():
-    state = {
+async def test_retry_story_draft_replays_request_projection_and_promotes_reusable_output() -> (  # noqa: E501
+    None
+):
+    """Verify retry story draft replays request projection and promotes reusable output."""  # noqa: E501
+    state: JsonDict = {
         "interview_runtime": {
             "story": {
                 "Requirement A": {
@@ -430,12 +445,12 @@ async def test_retry_story_draft_replays_request_projection_and_promotes_reusabl
             }
         }
     }
-    saved_states: list[dict[str, object]] = []
+    saved_states: list[JsonDict] = []
 
     async def fake_run_story_agent_request(
-        request_payload, *, project_id, parent_requirement
-    ):
-        assert project_id == 7
+        request_payload: JsonDict, *, project_id: int, parent_requirement: str
+    ) -> JsonDict:
+        assert project_id == 7  # noqa: PLR2004
         assert parent_requirement == "Requirement A"
         assert request_payload == {"parent_requirement": "Requirement A"}
         return {
@@ -475,8 +490,8 @@ async def test_retry_story_draft_replays_request_projection_and_promotes_reusabl
                 "updated_at": kwargs["updated_at"],
             }
         ),
-        mark_feedback_absorbed=lambda runtime, *, feedback_ids, attempt_id: None,
-        failure_meta=lambda story_result, fallback_summary: {},
+        mark_feedback_absorbed=lambda runtime, *, feedback_ids, attempt_id: None,  # noqa: ARG005
+        failure_meta=lambda story_result, fallback_summary: {},  # noqa: ARG005
     )
 
     assert payload["parent_requirement"] == "Requirement A"
@@ -496,9 +511,10 @@ async def test_retry_story_draft_replays_request_projection_and_promotes_reusabl
 
 
 @pytest.mark.asyncio
-async def test_save_story_draft_marks_requirement_saved_and_persists_state():
+async def test_save_story_draft_marks_requirement_saved_and_persists_state() -> None:
+    """Verify save story draft marks requirement saved and persists state."""
     artifact = _story_artifact("Requirement A", "Saved draft")
-    state = {
+    state: JsonDict = {
         "interview_runtime": {
             "story": {
                 "Requirement A": {
@@ -526,18 +542,19 @@ async def test_save_story_draft_marks_requirement_saved_and_persists_state():
         }
     }
     hydrated = SimpleNamespace(state=state, session_id="7")
-    saved_states: list[dict[str, object]] = []
-    captured: dict[str, object] = {}
+    saved_states: list[JsonDict] = []
+    captured: JsonDict = {}
 
-    def save_state(updated: dict[str, object]) -> None:
+    def save_state(updated: JsonDict) -> None:
         saved_states.append(dict(updated))
 
-    async def hydrate_context(session_id: str, project_id: int):
+    async def hydrate_context(session_id: str, project_id: int) -> SimpleNamespace:
         assert session_id == "7"
-        assert project_id == 7
+        assert project_id == 7  # noqa: PLR2004
         return hydrated
 
-    def fake_save_stories_tool(save_input, _context):
+    def fake_save_stories_tool(save_input: object, _context: object) -> JsonDict:
+        assert hasattr(save_input, "stories")
         captured["stories"] = save_input.stories
         return {"success": True, "saved_count": 1}
 
@@ -563,9 +580,10 @@ async def test_save_story_draft_marks_requirement_saved_and_persists_state():
 
 
 @pytest.mark.asyncio
-async def test_merge_story_resolution_normalizes_requirement_name():
+async def test_merge_story_resolution_normalizes_requirement_name() -> None:
+    """Verify merge story resolution normalizes requirement name."""
     merge_artifact = _merge_recommended_artifact("Requirement A")
-    state = {
+    state: JsonDict = {
         "roadmap_releases": [{"items": ["Requirement A"]}],
         "interview_runtime": {
             "story": {
@@ -593,7 +611,7 @@ async def test_merge_story_resolution_normalizes_requirement_name():
             }
         },
     }
-    saved_states: list[dict[str, object]] = []
+    saved_states: list[JsonDict] = []
 
     payload = await merge_story_resolution(
         parent_requirement="  Requirement A  ",
@@ -616,9 +634,10 @@ async def test_merge_story_resolution_normalizes_requirement_name():
 
 
 @pytest.mark.asyncio
-async def test_delete_story_requirement_normalizes_requirement_name():
+async def test_delete_story_requirement_normalizes_requirement_name() -> None:
+    """Verify delete story requirement normalizes requirement name."""
     parent_requirement = "Requirement A"
-    state = {
+    state: JsonDict = {
         "story_saved": {parent_requirement: True},
         "story_outputs": {parent_requirement: {"data": "some artifact"}},
         "story_attempts": {
@@ -697,14 +716,14 @@ async def test_delete_story_requirement_normalizes_requirement_name():
         },
         "another_req": "should not be touched",
     }
-    saved_states: list[dict[str, object]] = []
+    saved_states: list[JsonDict] = []
 
     payload = await delete_story_requirement(
         parent_requirement="  Requirement A  ",
         load_state=lambda: _async_value(state),
         save_state=lambda updated: saved_states.append(dict(updated)),
         now_iso=lambda: "2026-04-04T12:00:00Z",
-        delete_requirement_stories=lambda normalized_requirement: 3,
+        delete_requirement_stories=lambda normalized_requirement: 3,  # noqa: ARG005
         reset_subject_working_set=_reset_subject_working_set,
     )
 
@@ -721,9 +740,10 @@ async def test_delete_story_requirement_normalizes_requirement_name():
 
 
 @pytest.mark.asyncio
-async def test_merge_story_resolution_persists_merged_projection():
+async def test_merge_story_resolution_persists_merged_projection() -> None:
+    """Verify merge story resolution persists merged projection."""
     merge_artifact = _merge_recommended_artifact("Requirement A")
-    state = {
+    state: JsonDict = {
         "roadmap_releases": [{"items": ["Requirement A"]}],
         "interview_runtime": {
             "story": {
@@ -751,7 +771,7 @@ async def test_merge_story_resolution_persists_merged_projection():
             }
         },
     }
-    saved_states: list[dict[str, object]] = []
+    saved_states: list[JsonDict] = []
 
     payload = await merge_story_resolution(
         parent_requirement="Requirement A",
@@ -776,13 +796,14 @@ async def test_merge_story_resolution_persists_merged_projection():
 
 
 @pytest.mark.asyncio
-async def test_complete_story_phase_moves_to_sprint_setup_once_story_is_saved():
-    state = {
+async def test_complete_story_phase_moves_to_sprint_setup_once_story_is_saved() -> None:
+    """Verify complete story phase moves to sprint setup once story is saved."""
+    state: JsonDict = {
         "fsm_state": "STORY_PERSISTENCE",
         "roadmap_releases": [{"items": ["Enable login"]}],
         "story_saved": {"Enable login": True},
     }
-    saved_states: list[dict[str, object]] = []
+    saved_states: list[JsonDict] = []
 
     payload = await complete_story_phase(
         load_state=lambda: _async_value(state),
@@ -797,8 +818,9 @@ async def test_complete_story_phase_moves_to_sprint_setup_once_story_is_saved():
 
 
 @pytest.mark.asyncio
-async def test_complete_story_phase_rejects_when_nothing_is_saved():
-    state = {
+async def test_complete_story_phase_rejects_when_nothing_is_saved() -> None:
+    """Verify complete story phase rejects when nothing is saved."""
+    state: JsonDict = {
         "fsm_state": "STORY_PERSISTENCE",
         "roadmap_releases": [{"items": ["Enable login"]}],
         "story_saved": {},
@@ -807,20 +829,23 @@ async def test_complete_story_phase_rejects_when_nothing_is_saved():
     with pytest.raises(StoryPhaseError) as exc_info:
         await complete_story_phase(
             load_state=lambda: _async_value(state),
-            save_state=lambda updated: None,
+            save_state=lambda updated: None,  # noqa: ARG005
             now_iso=lambda: "2026-04-04T12:00:00Z",
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 409  # noqa: PLR2004
     assert exc_info.value.detail == (
         "Cannot complete phase. No requirements have saved stories."
     )
 
 
 @pytest.mark.asyncio
-async def test_delete_story_requirement_resets_runtime_and_clears_saved_projection():
+async def test_delete_story_requirement_resets_runtime_and_clears_saved_projection() -> (  # noqa: E501
+    None
+):
+    """Verify delete story requirement resets runtime and clears saved projection."""
     parent_requirement = "Requirement A"
-    state = {
+    state: JsonDict = {
         "story_saved": {parent_requirement: True},
         "story_outputs": {parent_requirement: {"data": "some artifact"}},
         "story_attempts": {
@@ -899,14 +924,14 @@ async def test_delete_story_requirement_resets_runtime_and_clears_saved_projecti
         },
         "another_req": "should not be touched",
     }
-    saved_states: list[dict[str, object]] = []
+    saved_states: list[JsonDict] = []
 
     payload = await delete_story_requirement(
         parent_requirement=parent_requirement,
         load_state=lambda: _async_value(state),
         save_state=lambda updated: saved_states.append(dict(updated)),
         now_iso=lambda: "2026-04-04T12:00:00Z",
-        delete_requirement_stories=lambda normalized_requirement: 3,
+        delete_requirement_stories=lambda normalized_requirement: 3,  # noqa: ARG005
         reset_subject_working_set=_reset_subject_working_set,
     )
 
@@ -922,20 +947,32 @@ async def test_delete_story_requirement_resets_runtime_and_clears_saved_projecti
     assert len(state["story_attempts"][parent_requirement]) == 1
     assert state["story_attempts"][parent_requirement][0]["trigger"] == "manual_refine"
     runtime = state["interview_runtime"]["story"][parent_requirement]
+    assert isinstance(runtime, dict)
+    feedback_projection = runtime["feedback_projection"]
+    assert isinstance(feedback_projection, dict)
+    attempt_history = runtime["attempt_history"]
+    assert isinstance(attempt_history, list)
+    last_attempt = attempt_history[-1]
+    assert isinstance(last_attempt, dict)
+    summary = last_attempt["summary"]
+    assert isinstance(summary, str)
     assert runtime["draft_projection"] == {}
     assert runtime["request_projection"] == {}
-    assert runtime["feedback_projection"]["items"] == []
-    assert len(runtime["attempt_history"]) == 2
-    assert runtime["attempt_history"][-1]["trigger"] == "reset"
-    assert runtime["attempt_history"][-1]["classification"] == "reset_marker"
-    assert "state reset by user" in runtime["attempt_history"][-1]["summary"]
+    assert feedback_projection["items"] == []
+    assert len(attempt_history) == 2  # noqa: PLR2004
+    assert last_attempt["trigger"] == "reset"
+    assert last_attempt["classification"] == "reset_marker"
+    assert "state reset by user" in summary
     assert state["another_req"] == "should not be touched"
     assert len(saved_states) == 1
 
 
 @pytest.mark.asyncio
-async def test_delete_story_requirement_rejects_unknown_requirement_before_repo_delete():
-    state = {
+async def test_delete_story_requirement_rejects_unknown_requirement_before_repo_delete() -> (  # noqa: E501
+    None
+):
+    """Verify delete story requirement rejects unknown requirement before repo delete."""  # noqa: E501
+    state: JsonDict = {
         "story_saved": {"Requirement A": True},
         "story_outputs": {"Requirement A": {"data": "some artifact"}},
         "story_attempts": {"Requirement A": []},
@@ -952,17 +989,19 @@ async def test_delete_story_requirement_rejects_unknown_requirement_before_repo_
         await delete_story_requirement(
             parent_requirement="  Missing Requirement  ",
             load_state=lambda: _async_value(state),
-            save_state=lambda updated: None,
+            save_state=lambda updated: None,  # noqa: ARG005
             now_iso=lambda: "2026-04-04T12:00:00Z",
             delete_requirement_stories=delete_requirement_stories,
             reset_subject_working_set=_reset_subject_working_set,
         )
 
-    assert exc_info.value.status_code == 400
+    assert exc_info.value.status_code == 400  # noqa: PLR2004
     assert delete_called is False
 
 
-def _reset_subject_working_set(runtime, *, created_at: str, summary: str):
+def _reset_subject_working_set(
+    runtime: JsonDict, *, created_at: str, summary: str
+) -> JsonDict:
     runtime["draft_projection"] = {}
     runtime["request_projection"] = {}
     runtime["feedback_projection"] = {"items": [], "next_feedback_sequence": 0}
@@ -980,7 +1019,8 @@ def _reset_subject_working_set(runtime, *, created_at: str, summary: str):
         }
     )
     runtime["attempt_history"] = attempts
+    return runtime
 
 
-async def _async_value(value):
+async def _async_value[T](value: T) -> T:
     return value

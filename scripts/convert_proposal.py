@@ -1,19 +1,35 @@
+"""Script for convert proposal."""
+
+import importlib
 import sys
 from pathlib import Path
+from typing import Any
 
-import docx
+from utils.cli_output import emit
 
 
-def convert_to_md(docx_file: Path) -> Path:
+def _load_docx() -> Any:  # noqa: ANN401
+    try:
+        return importlib.import_module("docx")
+    except ModuleNotFoundError as exc:
+        msg = "python-docx is required to convert DOCX proposals."
+        raise RuntimeError(msg) from exc
+
+
+docx = _load_docx()
+
+
+def convert_to_md(docx_file: Path) -> Path:  # noqa: C901, PLR0912
+    """Return convert to md."""
     if not docx_file.exists():
-        print(f"Error: File {docx_file} not found.")
+        emit(f"Error: File {docx_file} not found.")
         sys.exit(1)
 
-    print(f"Reading {docx_file}...")
+    emit(f"Reading {docx_file}...")
     try:
         doc = docx.Document(docx_file)
-    except Exception as e:
-        print(f"Failed to open document: {e}")
+    except Exception as e:  # noqa: BLE001
+        emit(f"Failed to open document: {e}")
         sys.exit(1)
 
     md_lines = []
@@ -50,11 +66,11 @@ def convert_to_md(docx_file: Path) -> Path:
 
     output_file = docx_file.with_suffix(".md")
 
-    print(f"Writing to {output_file}...")
-    with open(output_file, "w", encoding="utf-8") as f:
+    emit(f"Writing to {output_file}...")
+    with open(output_file, "w", encoding="utf-8") as f:  # noqa: PTH123
         f.write("\n\n".join(md_lines))
 
-    print("Done.")
+    emit("Done.")
     return output_file
 
 

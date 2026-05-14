@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import event
-from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from agile_sqlmodel import (
@@ -24,7 +23,15 @@ from agile_sqlmodel import (
 )
 from models.core import Epic, Feature, Team, Theme
 from scripts.delete_project import delete_project, resolve_db_path
+from tests.typing_helpers import require_id
 from utils.runtime_config import RuntimeConfigError, clear_runtime_config_cache
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from pathlib import Path
+    from sqlite3 import Connection
+
+    from sqlalchemy.engine import Engine
 
 
 def _create_sqlite_engine(db_path: Path) -> Engine:
@@ -32,7 +39,9 @@ def _create_sqlite_engine(db_path: Path) -> Engine:
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
 
     @event.listens_for(engine, "connect")
-    def _set_sqlite_pragma(dbapi_connection, _connection_record):
+    def _set_sqlite_pragma(
+        dbapi_connection: Connection, _connection_record: object
+    ) -> None:
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
@@ -42,7 +51,7 @@ def _create_sqlite_engine(db_path: Path) -> Engine:
 
 
 @pytest.fixture(autouse=True)
-def _clear_runtime_cache() -> None:
+def _clear_runtime_cache() -> Iterator[None]:
     clear_runtime_config_cache()
     yield
     clear_runtime_config_cache()
@@ -59,46 +68,52 @@ def test_delete_project_removes_sprints_and_story_logs(tmp_path: Path) -> None:
         session.add(product)
         session.add(team)
         session.flush()
-        product_id = product.product_id
+        product_id = require_id(product.product_id, "product_id")
+        team_id = require_id(team.team_id, "team_id")
 
-        session.add(ProductTeam(product_id=product.product_id, team_id=team.team_id))
+        session.add(ProductTeam(product_id=product_id, team_id=team_id))
 
-        theme = Theme(title="Theme", product_id=product.product_id)
+        theme = Theme(title="Theme", product_id=product_id)
         session.add(theme)
         session.flush()
+        theme_id = require_id(theme.theme_id, "theme_id")
 
-        epic = Epic(title="Epic", theme_id=theme.theme_id)
+        epic = Epic(title="Epic", theme_id=theme_id)
         session.add(epic)
         session.flush()
+        epic_id = require_id(epic.epic_id, "epic_id")
 
-        feature = Feature(title="Feature", epic_id=epic.epic_id)
+        feature = Feature(title="Feature", epic_id=epic_id)
         session.add(feature)
         session.flush()
+        feature_id = require_id(feature.feature_id, "feature_id")
 
         story = UserStory(
             title="Story",
-            product_id=product.product_id,
-            feature_id=feature.feature_id,
+            product_id=product_id,
+            feature_id=feature_id,
         )
         session.add(story)
         session.flush()
+        story_id = require_id(story.story_id, "story_id")
 
-        session.add(Task(description="Task", story_id=story.story_id))
+        session.add(Task(description="Task", story_id=story_id))
 
         sprint = Sprint(
             goal="Goal",
-            start_date=date.today(),
-            end_date=date.today() + timedelta(days=7),
-            product_id=product.product_id,
-            team_id=team.team_id,
+            start_date=date.today(),  # noqa: DTZ011
+            end_date=date.today() + timedelta(days=7),  # noqa: DTZ011
+            product_id=product_id,
+            team_id=team_id,
         )
         session.add(sprint)
         session.flush()
+        sprint_id = require_id(sprint.sprint_id, "sprint_id")
 
-        session.add(SprintStory(sprint_id=sprint.sprint_id, story_id=story.story_id))
+        session.add(SprintStory(sprint_id=sprint_id, story_id=story_id))
         session.add(
             StoryCompletionLog(
-                story_id=story.story_id,
+                story_id=story_id,
                 old_status=StoryStatus.TO_DO,
                 new_status=StoryStatus.DONE,
             )
@@ -133,7 +148,7 @@ def test_delete_project_removes_compiled_spec_authority(tmp_path: Path) -> None:
         product = Product(name="Spec Product")
         session.add(product)
         session.flush()
-        product_id = product.product_id
+        product_id = require_id(product.product_id, "product_id")
 
         spec = SpecRegistry(
             product_id=product_id,
@@ -143,10 +158,11 @@ def test_delete_project_removes_compiled_spec_authority(tmp_path: Path) -> None:
         )
         session.add(spec)
         session.flush()
+        spec_version_id = require_id(spec.spec_version_id, "spec_version_id")
 
         session.add(
             CompiledSpecAuthority(
-                spec_version_id=spec.spec_version_id,
+                spec_version_id=spec_version_id,
                 compiler_version="1.0.0",
                 prompt_hash="prompt-hash",
                 scope_themes="[]",
@@ -165,15 +181,19 @@ def test_delete_project_removes_compiled_spec_authority(tmp_path: Path) -> None:
 
 def test_resolve_db_path_prefers_explicit_argument(
     tmp_path: Path,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify resolve db path prefers explicit argument."""
     explicit_path = tmp_path / "explicit.db"
     monkeypatch.setenv("PROJECT_TCC_DB_URL", "sqlite:///./db/from-env.db")
     resolved = resolve_db_path(str(explicit_path))
     assert resolved == str(explicit_path.resolve())
 
 
-def test_resolve_db_path_requires_config_when_missing(monkeypatch) -> None:
+def test_resolve_db_path_requires_config_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify resolve db path requires config when missing."""
     monkeypatch.delenv("PROJECT_TCC_DB_URL", raising=False)
     with pytest.raises(RuntimeConfigError, match="PROJECT_TCC_DB_URL"):
         resolve_db_path(None)

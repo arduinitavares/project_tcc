@@ -1,18 +1,19 @@
 # tests/test_db_tools.py
 """
 Test suite for db_tools module using TDD approach.
-Run with: pytest tests/test_db_tools.py -v
+
+Run with: pytest tests/test_db_tools.py -v.
 """
 
 # Monkey-patch the engine for tests
 import sys
 from pathlib import Path
 
+from sqlalchemy.engine import Engine
 from sqlmodel import Session, select
 
 from agile_sqlmodel import Product, Task, UserStory
 from models.core import Epic, Feature, Theme
-from tools import db_tools
 from tools.db_tools import (
     CreateOrGetProductInput,
     CreateTaskInput,
@@ -27,14 +28,9 @@ from tools.db_tools import (
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-def test_create_product_new(engine):
+def test_create_product_new(engine: Engine) -> None:
     """Test creating a new product."""
-    # Patch db_tools to use test engine
-    from tools import db_tools
-
-    db_tools.engine = engine
-
-    from tools.db_tools import CreateOrGetProductInput, create_or_get_product
+    del engine
 
     result = create_or_get_product(
         CreateOrGetProductInput(
@@ -50,10 +46,8 @@ def test_create_product_new(engine):
     assert "Test Project" in result["message"]
 
 
-def test_create_product_existing(engine):
+def test_create_product_existing(engine: Engine) -> None:
     """Test getting an existing product without duplication."""
-    db_tools.engine = engine
-
     # Create first product
     result1 = create_or_get_product(
         CreateOrGetProductInput(
@@ -77,10 +71,8 @@ def test_create_product_existing(engine):
         assert len(products) == 1
 
 
-def test_persist_roadmap(engine):
+def test_persist_roadmap(engine: Engine) -> None:
     """Test persisting a roadmap hierarchy."""
-    db_tools.engine = engine
-
     # Create product first
     prod_result = create_or_get_product(
         CreateOrGetProductInput(
@@ -114,7 +106,7 @@ def test_persist_roadmap(engine):
     assert result["success"] is True
     assert result["created"]["themes"][0]["id"] == 1
     assert len(result["created"]["epics"]) == 1
-    assert len(result["created"]["features"]) == 2
+    assert len(result["created"]["features"]) == 2  # noqa: PLR2004
 
     # Verify hierarchy in database
     with Session(engine) as session:
@@ -127,13 +119,11 @@ def test_persist_roadmap(engine):
         assert epics[0].theme_id == themes[0].theme_id
 
         features = session.exec(select(Feature)).all()
-        assert len(features) == 2
+        assert len(features) == 2  # noqa: PLR2004
 
 
-def test_create_user_story(engine):
+def test_create_user_story(engine: Engine) -> None:
     """Test creating a user story under a feature."""
-    db_tools.engine = engine
-
     # Setup hierarchy
     prod_result = create_or_get_product(
         CreateOrGetProductInput(
@@ -182,13 +172,11 @@ def test_create_user_story(engine):
     with Session(engine) as session:
         stories = session.exec(select(UserStory)).all()
         assert len(stories) == 1
-        assert stories[0].story_points == 5
+        assert stories[0].story_points == 5  # noqa: PLR2004
 
 
-def test_create_task(engine):
+def test_create_task(engine: Engine) -> None:
     """Test creating a task under a story."""
-    db_tools.engine = engine
-
     # Setup full hierarchy
     prod_result = create_or_get_product(
         CreateOrGetProductInput(
@@ -247,13 +235,11 @@ def test_create_task(engine):
         assert len(tasks) == 1
 
 
-def test_query_product_structure(engine):
+def test_query_product_structure(engine: Engine) -> None:
     """Test querying full product structure."""
-    from tools import db_tools
+    del engine
 
-    db_tools.engine = engine
-
-    from tools.db_tools import (
+    from tools.db_tools import (  # noqa: PLC0415
         CreateOrGetProductInput,
         CreateUserStoryInput,
         create_or_get_product,
@@ -317,10 +303,9 @@ def test_query_product_structure(engine):
     )
 
 
-def test_get_story_details(engine):
+def test_get_story_details(engine: Engine) -> None:
     """Test fetching details for a specific story by ID."""
-    # Patch db_tools to use test engine
-    db_tools.engine = engine
+    del engine
 
     # Arrange: Create a product and story
     product_result = create_or_get_product(
@@ -361,15 +346,15 @@ def test_get_story_details(engine):
             product_id=product_id,
             feature_id=feature_id,
             title="Test Story for Details",
-            description="As a tester, I want to retrieve story details so that I can verify the functionality.",
+            description="As a tester, I want to retrieve story details so that I can verify the functionality.",  # noqa: E501
             story_points=3,
-            acceptance_criteria="- Story details can be fetched\n- All fields are returned correctly",
+            acceptance_criteria="- Story details can be fetched\n- All fields are returned correctly",  # noqa: E501
         )
     )
     story_id = story_result["story_id"]
 
     # Act: Call the get_story_details function
-    from tools.db_tools import get_story_details
+    from tools.db_tools import get_story_details  # noqa: PLC0415
 
     result = get_story_details(story_id)
 
@@ -379,31 +364,30 @@ def test_get_story_details(engine):
     assert result["title"] == "Test Story for Details"
     assert (
         result["description"]
-        == "As a tester, I want to retrieve story details so that I can verify the functionality."
+        == "As a tester, I want to retrieve story details so that I can verify the functionality."  # noqa: E501
     )
     assert (
         result["acceptance_criteria"]
         == "- Story details can be fetched\n- All fields are returned correctly"
     )
     assert result["status"] == "To Do"  # StoryStatus enum value
-    assert result["story_points"] == 3
+    assert result["story_points"] == 3  # noqa: PLR2004
     assert result["feature_id"] == feature_id
     assert result["product_id"] == product_id
     assert "created_at" in result
     assert "updated_at" in result
 
 
-def test_get_story_details_not_found(engine):
+def test_get_story_details_not_found(engine: Engine) -> None:
     """Test fetching details for a non-existent story."""
-    # Patch db_tools to use test engine
-    db_tools.engine = engine
+    del engine
 
     # Act: Try to fetch a story that doesn't exist
-    from tools.db_tools import get_story_details
+    from tools.db_tools import get_story_details  # noqa: PLC0415
 
     result = get_story_details(999999)
 
     # Assert: Verify the error message
     assert result["success"] is False
     assert "not found" in result["message"].lower()
-    assert result["story_id"] == 999999
+    assert result["story_id"] == 999999  # noqa: PLR2004
