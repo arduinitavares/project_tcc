@@ -74,12 +74,14 @@ Agents still lack one coherent shell interface. That creates several hazards:
 
 ### 1. CLI And API Share One Application Boundary
 
-FastAPI and the CLI must be peers over a shared application facade.
+FastAPI and the CLI must be peers over a shared application facade, but the
+facade is introduced by implemented use case, not by moving the whole API at
+once.
 
 ```text
 CLI / FastAPI
-    -> WorkflowApplication
-        -> Read projections
+    -> AgentWorkbenchApplication
+        -> ReadProjectionService
         -> Authority service
         -> Phase services
         -> Execution services
@@ -88,13 +90,22 @@ CLI / FastAPI
 
 The CLI must not import router handlers or recompose workflow orchestration from
 `api.py`. If orchestration currently exists only in `api.py`, move it into the
-application facade first, then call it from both transports.
+application facade for that specific command first, then call it from both
+transports when the matching API path is in scope.
+
+Phase 1 facade parity is limited to the read projections, authority projection,
+context pack, and first task-log use case. Moving all orchestration out of
+`api.py` is not part of Phase 1.
 
 ### 2. Read Commands Stay Read-Only
 
 `tcc query ...`, `tcc project show`, `tcc authority status`, and
 `tcc context pack` must not compile specs, repair cached authority, hydrate
 workflow sessions with side effects, or write to session state.
+
+All read commands must go through `ReadProjectionService`. That service opens
+read-only business/session access and is forbidden from calling active-project
+hydration, compile, backfill, repair, or migration helpers.
 
 If a read detects stale or missing data, it reports that state and returns the
 next valid command. It does not silently fix it.
@@ -122,12 +133,19 @@ Mutating commands must check:
 
 - current FSM state
 - required prior artifact
-- authority freshness
 - session revision or equivalent freshness token
 - relevant draft or attempt id
 - entity-specific preconditions, such as active sprint status for task logs
 
 If any check fails, the command exits non-zero with structured JSON.
+
+Authority checks are split by mutation class:
+
+- generation and planning mutations require current accepted project authority
+- execution mutations require the story/sprint/task execution artifact's pinned
+  authority to be present and internally consistent
+- project-level spec drift is a warning during execution unless the execution
+  artifact has no valid pin or references missing authority
 
 ### 5. Context Packs Are Projections
 
@@ -157,6 +175,16 @@ tcc story show --story-id 42
 tcc sprint candidates --project-id 1
 ```
 
+`tcc status --project-id` is the cheap orientation command. Its payload includes
+project identity, DB/session reachability, FSM state, setup status, active or
+planned sprint summary, Spec Authority status, disk spec sync status, and
+implemented CLI capability groups.
+
+`tcc workflow next --project-id` returns only commands that are both valid for
+the current workflow state and implemented in the installed CLI. It considers
+FSM state, setup blockers, authority gates, current drafts, active sprint state,
+and installed command capability metadata.
+
 ### Authority Commands
 
 ```bash
@@ -170,6 +198,11 @@ tcc authority accept --project-id 1 --spec-version-id 3 --policy human --decided
 
 `compile` must not imply `accept`. Acceptance is a distinct command and policy
 decision.
+
+`authority invariants --project-id` reads the current accepted authority by
+default. If multiple compiled versions exist and no authority is accepted, it
+returns `ok: false` with remediation to pass `--spec-version-id` or accept an
+authority version first.
 
 ### Context Commands
 
@@ -208,7 +241,7 @@ tcc sprint start --project-id 1 --sprint-id 1
 tcc story packet --project-id 1 --sprint-id 1 --story-id 7 --flavor agent
 tcc task packet --project-id 1 --sprint-id 1 --task-id 9 --flavor agent
 tcc task history --project-id 1 --sprint-id 1 --task-id 9
-tcc task log --project-id 1 --sprint-id 1 --task-id 9 --status "In Progress" --changed-by agent
+tcc task log --project-id 1 --sprint-id 1 --task-id 9 --expected-status "To Do" --status "In Progress" --changed-by agent
 tcc story close-readiness --project-id 1 --sprint-id 1 --story-id 7
 tcc story close --project-id 1 --sprint-id 1 --story-id 7 --changed-by agent
 tcc sprint close-readiness --project-id 1 --sprint-id 1
@@ -239,6 +272,30 @@ Every command must return one stable JSON envelope:
 Error responses use the same envelope with `ok: false`. Python tracebacks are
 debug output only and must not replace the JSON error shape.
 
+Each `errors[]` item uses this schema:
+
+```json
+{
+  "code": "AUTHORITY_STALE",
+  "message": "Spec file changed after the accepted authority was compiled.",
+  "details": {},
+  "remediation": ["tcc authority status --project-id 1"],
+  "exit_code": 4,
+  "retryable": false
+}
+```
+
+Each `warnings[]` item uses this schema:
+
+```json
+{
+  "code": "PROJECT_SPEC_DRIFT",
+  "message": "Project spec changed after this task's pinned authority.",
+  "details": {},
+  "remediation": ["Finish or replan execution against updated authority."]
+}
+```
+
 ## Exit Codes
 
 - `0`: success
@@ -262,12 +319,28 @@ A context pack must include:
 - `spec_authority` summary
 - `warnings`
 - `next_valid_commands`
+- `blocked_future_commands`
 - `included_sections`
 - `omitted_sections`
 - `truncation` markers when any list/text is shortened
 
 Default packs must avoid raw spec text, full compiled authority payloads, and
-large historical blobs. Full authority or raw spec inclusion must be opt-in.
+large historical blobs. Full authority inclusion requires `--include authority-full`.
+Raw spec inclusion requires `--include raw-spec`; it may appear on stdout only
+inside the JSON envelope and must be omitted from text output.
+
+`next_valid_commands` is the intersection of workflow-valid commands and
+currently installed CLI capabilities. Commands that are valid in the domain but
+not implemented in the current phase go in `blocked_future_commands`.
+
+`source_fingerprint` is a SHA-256 hash over canonical JSON containing the command
+name, normalized command arguments, project id, included section names, relevant
+business row ids and update timestamps, workflow session revision if available,
+and `authority_fingerprint`.
+
+`authority_fingerprint` is a SHA-256 hash over canonical JSON containing
+accepted spec version id, authority id, source spec hash, compiled artifact JSON
+hash, compiler version, prompt hash, and authority acceptance decision metadata.
 
 Example:
 
@@ -287,7 +360,9 @@ Example:
   },
   "warnings": [],
   "next_valid_commands": [
-    "tcc sprint candidates --project-id 1",
+    "tcc sprint candidates --project-id 1"
+  ],
+  "blocked_future_commands": [
     "tcc sprint generate --project-id 1 --selected-story-ids ..."
   ],
   "included_sections": ["project", "workflow", "authority", "sprint_candidates"],
@@ -298,7 +373,7 @@ Example:
 
 ## Concurrency And Session Safety
 
-The CLI and dashboard should share the canonical project workflow session for
+The CLI and dashboard must share the canonical project workflow session for
 mutating commands. A separate CLI session would avoid some collisions but would
 create a worse split-brain problem where dashboard and CLI disagree about
 current phase and drafts.
@@ -306,18 +381,24 @@ current phase and drafts.
 Mutation safety requires:
 
 - per-project mutation lock
-- session revision or compare-and-swap check
+- `--expected-session-revision` or command-specific stale-write token once
+  session revision support exists
 - stale context rejection for commands that take a freshness token
 - attempt id checks for draft saves
-- SQLite write timeout and WAL-mode review before concurrent usage expands
+- concrete SQLite WAL and write-timeout settings before Phase 2 writes ship
 
-Read commands should tolerate concurrent writes by returning a fresh projection
-or a structured stale/conflict warning.
+Read commands open a read snapshot. If the projection detects inconsistent row
+versions while composing a multi-section response, it retries once; if the second
+read is still inconsistent, it returns a structured `READ_SNAPSHOT_CONFLICT`
+warning or error instead of silently merging two states.
+
+Phase 2 cannot start until the project lock mechanism, expected-status check for
+task logging, and session-revision or stale-write token strategy are specified.
 
 ## Spec Authority Gates
 
-Before any mutating command that changes generated artifacts or execution state,
-the application facade must evaluate an authority gate.
+Before any mutating command, the application facade must evaluate the authority
+gate for that mutation class.
 
 The gate reports:
 
@@ -331,9 +412,22 @@ The gate reports:
 - `stale_reason`
 - `allowed_commands`
 
-If a spec file on disk differs from the accepted authority source, generation and
-planning mutations fail with exit code `4` and instruct the agent to run the
-appropriate authority command.
+For generation and planning mutations, a disk spec hash that differs from the
+accepted authority source fails with exit code `4` before any write.
+
+For execution mutations, the gate validates the story/sprint/task packet's
+pinned authority. Project-level disk drift is returned as a warning, not a
+blocker, unless the execution artifact has no pin, references an unavailable
+authority, or the pinned authority cannot be matched to the execution context.
+
+### Spec Path Resolution
+
+Spec path hashing never depends on process cwd. Relative `Product.spec_file_path`
+and `SpecRegistry.content_ref` values resolve from the repository root. If a
+future spec registration records an absolute provenance root, relative paths for
+that version resolve from that stored root. Missing or unreadable files produce
+structured authority warnings or errors with the resolved path included in
+`details`.
 
 ## Phased Delivery
 
@@ -361,11 +455,12 @@ No workflow mutations. No LLM-backed generation.
 Implement task execution logging:
 
 ```bash
-tcc task log --project-id 1 --sprint-id 1 --task-id 9 --status "In Progress" --changed-by agent
+tcc task log --project-id 1 --sprint-id 1 --task-id 9 --expected-status "To Do" --status "In Progress" --changed-by agent
 ```
 
-This proves exit codes, authority visibility, active-sprint validation, session
-freshness, and JSON error handling without invoking LLMs.
+This proves exit codes, pinned execution authority validation, active-sprint
+validation, stale-write protection, and JSON error handling without invoking
+LLMs.
 
 ### Phase 3: Deterministic Lifecycle Mutations
 
@@ -385,17 +480,27 @@ stable.
 - Every CLI command emits the stable JSON envelope.
 - Every CLI command returns documented exit codes.
 - `authority status` detects missing, stale, pending, and current authority.
-- Mutating commands fail on stale authority before any write.
+- Generation and planning mutations fail on stale project authority before any
+  write.
+- Execution mutations validate pinned execution authority and warn, rather than
+  fail, on unrelated project-level spec drift.
 - Draft save commands require attempt ids.
 - `context pack` is phase-scoped, bounded, and includes omitted/truncated sections.
+- `next_valid_commands` includes only commands implemented in the installed CLI.
 - The first bounded mutation rejects inactive, planned-only, completed, or
   wrong-project sprint/task combinations.
+- The first bounded mutation requires `--expected-status` and rejects stale task
+  status before writing.
 - Logs go to stderr; JSON results go to stdout.
 
 ## Test Strategy
 
 - Unit-test command parsing and JSON envelope construction.
+- Unit-test `errors[]` and `warnings[]` schema construction.
+- Unit-test spec path resolution from repository root, not process cwd.
 - Unit-test authority status projection against fixture DB states.
+- Unit-test generation/planning authority gates separately from execution pinned
+  authority gates.
 - Unit-test context pack size/truncation and omitted-section reporting.
 - Add read-only tests that snapshot session/business DB state before and after
   query commands.
