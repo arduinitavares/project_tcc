@@ -69,17 +69,27 @@ class WorkflowSessionRepository:
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
+            cursor.execute(
+                "CREATE TEMP TABLE IF NOT EXISTS session_id_filter "
+                "(id TEXT PRIMARY KEY)"
+            )
             for start in range(0, len(normalized_ids), chunk_size):
                 chunk = normalized_ids[start : start + chunk_size]
-                rows: list[tuple[str, str]] = []
-                for session_id in chunk:
-                    cursor.execute(
-                        "SELECT id, state FROM sessions WHERE app_name=? AND user_id=? AND id=?",
-                        (app_name, user_id, session_id),
-                    )
-                    row = cursor.fetchone()
-                    if row is not None:
-                        rows.append(row)
+                cursor.execute("DELETE FROM session_id_filter")
+                cursor.executemany(
+                    "INSERT INTO session_id_filter (id) VALUES (?)",
+                    ((session_id,) for session_id in chunk),
+                )
+                cursor.execute(
+                    """
+                    SELECT sessions.id, sessions.state
+                    FROM sessions
+                    JOIN session_id_filter ON session_id_filter.id = sessions.id
+                    WHERE sessions.app_name=? AND sessions.user_id=?
+                    """,
+                    (app_name, user_id),
+                )
+                rows = cursor.fetchall()
 
                 for row_session_id, state_json in rows:
                     try:

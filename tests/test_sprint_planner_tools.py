@@ -5,6 +5,8 @@ from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
+import pytest
+from pydantic import ValidationError
 from sqlmodel import Session, col, select
 
 from agile_sqlmodel import (
@@ -78,6 +80,25 @@ def _seed_product_team_stories(session: Session) -> tuple[int, int, list[int]]:
 
     session.commit()
     return product.product_id, team.team_id, stories
+
+
+def test_save_sprint_plan_input_enforces_duration_bounds() -> None:
+    """Sprint persistence input must reject durations outside the documented range."""
+    with pytest.raises(ValidationError):
+        SaveSprintPlanInput(
+            product_id=1,
+            team_id=1,
+            sprint_start_date="2026-02-01",
+            sprint_duration_days=0,
+        )
+
+    with pytest.raises(ValidationError):
+        SaveSprintPlanInput(
+            product_id=1,
+            team_id=1,
+            sprint_start_date="2026-02-01",
+            sprint_duration_days=32,
+        )
 
 
 def _build_sprint_plan(story_ids: list[int]) -> dict[str, Any]:

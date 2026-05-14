@@ -40,6 +40,8 @@ class SaveSprintPlanInput(BaseModel):
     sprint_start_date: str = Field(description="Sprint start date (YYYY-MM-DD).")
     sprint_duration_days: int = Field(
         default=14,
+        ge=1,
+        le=31,
         description="Sprint duration in days (default 14, min 1, max 31).",
     )
 
