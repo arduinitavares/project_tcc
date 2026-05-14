@@ -157,6 +157,7 @@ def test_parse_llm_validator_response_parses_compliant_payload() -> None:
 def test_run_llm_spec_validation_uses_injected_helpers() -> None:
     """Verify run llm spec validation uses injected helpers."""
     from services.specs.story_validation_service import (  # noqa: PLC0415
+        LlmValidationResult,
         run_llm_spec_validation,
     )
 
@@ -166,7 +167,7 @@ def test_run_llm_spec_validation_uses_injected_helpers() -> None:
         captured["payload"] = payload_text
         return '{"is_compliant": true, "issues": [], "suggestions": [], "verdict": "Compliant"}'  # noqa: E501
 
-    def fake_parse(raw_text: str) -> object:
+    def fake_parse(raw_text: str) -> LlmValidationResult:
         captured["raw_text"] = raw_text
         return {
             "passed": True,

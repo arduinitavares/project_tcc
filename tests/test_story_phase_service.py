@@ -470,6 +470,15 @@ async def test_retry_story_draft_replays_request_projection_and_promotes_reusabl
             "has_full_artifact": False,
         }
 
+    def mark_feedback_absorbed(
+        runtime: JsonDict,
+        *,
+        feedback_ids: list[str],
+        attempt_id: str,
+    ) -> list[dict[str, Any]]:
+        del runtime, feedback_ids, attempt_id
+        return []
+
     payload = await retry_story_draft(
         project_id=7,
         parent_requirement="  Requirement A  ",
@@ -490,7 +499,7 @@ async def test_retry_story_draft_replays_request_projection_and_promotes_reusabl
                 "updated_at": kwargs["updated_at"],
             }
         ),
-        mark_feedback_absorbed=lambda runtime, *, feedback_ids, attempt_id: None,  # noqa: ARG005
+        mark_feedback_absorbed=mark_feedback_absorbed,
         failure_meta=lambda story_result, fallback_summary: {},  # noqa: ARG005
     )
 

@@ -69,17 +69,22 @@ class StoryCloseServiceError(Exception):
 
 
 class _StoryLike(Protocol):
-    story_id: int
+    @property
+    def story_id(self) -> int | None: ...
+
     status: StoryStatus
     resolution: StoryResolution | None
     completion_notes: str | None
     evidence_links: str | None
-    completed_at: object | None
+    completed_at: Any
 
 
 class _SprintLike(Protocol):
-    sprint_id: int
-    product_id: int | None
+    @property
+    def sprint_id(self) -> int | None: ...
+
+    @property
+    def product_id(self) -> int | None: ...
 
 
 class _StoryClosePersistOptions(TypedDict):

@@ -480,7 +480,7 @@ async def _ensure_session(session_id: str) -> dict[str, Any]:
 
 
 def _build_tool_context(
-    context: SimpleNamespace,
+    context: object,
 ) -> ToolContext:
     # API flows use a lightweight state container outside the ADK runtime.
     return cast("ToolContext", context)
@@ -1334,6 +1334,9 @@ def _build_task_packet(
 async def _run_setup(
     session_id: str, project_id: int, spec_file_path: str
 ) -> dict[str, Any]:
+    def _refresh_project_context(current_project_id: int, context: object) -> object:
+        return select_project(current_project_id, cast("ToolContext", context))
+
     return await run_project_setup_service(
         session_id=session_id,
         project_id=project_id,
@@ -1341,7 +1344,7 @@ async def _run_setup(
         hydrate_context=_hydrate_context,
         build_tool_context=_build_tool_context,
         link_spec_to_product=link_spec_to_product,
-        refresh_project_context=select_project,
+        refresh_project_context=_refresh_project_context,
         load_project=product_repo.get_by_id,
         setup_blocker=_setup_blocker,
         run_vision_agent=run_vision_agent_from_state,
@@ -2100,7 +2103,7 @@ async def generate_project_sprint(
             run_sprint_agent=run_sprint_agent_from_state,
             failure_meta_builder=lambda source, fallback_summary=None: _failure_meta(
                 cast("dict[str, Any] | None", source),
-                fallback_summary=cast("str | None", fallback_summary),
+                fallback_summary=fallback_summary,
             ),
             team_velocity_assumption=req.team_velocity_assumption,
             sprint_duration_days=req.sprint_duration_days,
@@ -2466,7 +2469,16 @@ def post_task_execution(
                     .order_by(desc(_queryable_attr(TaskExecutionLog.changed_at)))
                 ).all(),
                 parse_task_metadata=parse_task_metadata,
-                persist_execution_log=_persist_execution_log,
+                persist_execution_log=lambda **kwargs: _persist_execution_log(
+                    task=cast("Task", kwargs["task"]),
+                    old_status=kwargs["old_status"],
+                    new_status=kwargs["new_status"],
+                    outcome_summary=kwargs["outcome_summary"],
+                    artifact_refs_json=kwargs["artifact_refs_json"],
+                    notes=kwargs["notes"],
+                    acceptance_result=kwargs["acceptance_result"],
+                    changed_by=kwargs["changed_by"],
+                ),
             )
         except TaskExecutionServiceError as exc:
             raise HTTPException(
@@ -2482,6 +2494,10 @@ def get_story_close(
 ) -> StoryCloseReadResponse:
     """Get readiness information for closing a user story in a sprint."""
     with Session(get_engine()) as session:
+
+        def _task_progress(tasks: Sequence[object]) -> tuple[int, int, int, bool]:
+            return _story_task_progress(cast("Sequence[Task]", tasks))
+
         try:
             data = get_story_close_readiness_service(
                 project_id=project_id,
@@ -2498,7 +2514,7 @@ def get_story_close(
                 load_tasks=lambda: session.exec(
                     select(Task).where(Task.story_id == story_id)
                 ).all(),
-                task_progress=_story_task_progress,
+                task_progress=_task_progress,
             )
         except StoryCloseServiceError as exc:
             raise HTTPException(
@@ -2515,23 +2531,27 @@ def post_story_close(
     """Close a user story and record the final resolution notes."""
     with Session(get_engine()) as session:
 
+        def _task_progress(tasks: Sequence[object]) -> tuple[int, int, int, bool]:
+            return _story_task_progress(cast("Sequence[Task]", tasks))
+
         def _persist_story_close(  # noqa: PLR0913
             *,
-            story: UserStory,
+            story: object,
             old_status: StoryStatus,
             evidence_json: str | None,
             known_gaps: str | None,
             follow_up_notes: str | None,
             changed_by: str,
         ) -> None:
-            session.add(story)
+            story_model = cast("UserStory", story)
+            session.add(story_model)
             session.add(
                 StoryCompletionLog(
                     story_id=story_id,
                     old_status=old_status,
                     new_status=StoryStatus.DONE,
-                    resolution=story.resolution,
-                    delivered=story.completion_notes,
+                    resolution=story_model.resolution,
+                    delivered=story_model.completion_notes,
                     evidence=evidence_json,
                     known_gaps=known_gaps,
                     follow_ups_created=follow_up_notes,
@@ -2564,8 +2584,15 @@ def post_story_close(
                 load_tasks=lambda: session.exec(
                     select(Task).where(Task.story_id == story_id)
                 ).all(),
-                task_progress=_story_task_progress,
-                persist_story_close=_persist_story_close,
+                task_progress=_task_progress,
+                persist_story_close=lambda **kwargs: _persist_story_close(
+                    story=kwargs["story"],
+                    old_status=kwargs["old_status"],
+                    evidence_json=kwargs["evidence_json"],
+                    known_gaps=kwargs["known_gaps"],
+                    follow_up_notes=kwargs["follow_up_notes"],
+                    changed_by=kwargs["changed_by"],
+                ),
             )
         except StoryCloseServiceError as exc:
             raise HTTPException(

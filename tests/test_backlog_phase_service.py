@@ -340,7 +340,7 @@ async def test_save_backlog_draft_persists_persistence_state() -> None:
     assert saved["state"]["backlog_saved_at"] == "2026-04-04T00:00:00Z"
 
 
-async def _async_value(value: object) -> object:
+async def _async_value[T](value: T) -> T:
     return value
 
 

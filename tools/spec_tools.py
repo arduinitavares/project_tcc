@@ -22,7 +22,7 @@ Usage:
 
 import logging
 from collections.abc import Callable, Coroutine
-from typing import Any, Literal, Optional, Union, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast, overload
 
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
@@ -123,6 +123,9 @@ from services.specs.lifecycle_service import (
 )
 from services.specs.lifecycle_service import (
     save_project_specification as _service_save_project_specification,
+)
+from services.specs.story_validation_service import (
+    LlmValidationResult as _service_LlmValidationResult,
 )
 from services.specs.story_validation_service import (
     ValidateStoryInput as _service_ValidateStoryInput,
@@ -400,64 +403,63 @@ def compile_spec_authority(
     )
 
 
-@overload
-def compile_spec_authority_for_version(
-    params: dict[str, Any] | CompileSpecAuthorityForVersionInput,
-    tool_context: ToolContext | None = None,
-) -> dict[str, Any]: ...
+if TYPE_CHECKING:
 
+    @overload
+    def compile_spec_authority_for_version(
+        params: dict[str, Any] | CompileSpecAuthorityForVersionInput,
+        tool_context: ToolContext | None = None,
+    ) -> dict[str, Any]: ...
 
-@overload
-def compile_spec_authority_for_version(
-    params: CompileSpecAuthorityForVersionToolInput,
-    tool_context: ToolContext | None = None,
-) -> dict[str, Any]: ...
+    @overload
+    def compile_spec_authority_for_version(
+        params: CompileSpecAuthorityForVersionToolInput,
+        tool_context: ToolContext | None = None,
+    ) -> dict[str, Any]: ...
 
+    @overload
+    def update_spec_and_compile_authority(
+        params: dict[str, Any] | UpdateSpecAndCompileAuthorityInput,
+        tool_context: ToolContext | None = None,
+    ) -> dict[str, Any]: ...
 
-def compile_spec_authority_for_version(
-    params: CompileSpecAuthorityForVersionToolInput,
-    tool_context: ToolContext | None = None,
-) -> dict[str, Any]:
-    """Compatibility adapter over the public compiler service boundary."""
-    normalized_params: dict[str, Any] | CompileSpecAuthorityForVersionToolInput
-    if isinstance(params, CompileSpecAuthorityForVersionToolInput):
-        normalized_params = params.model_dump(exclude_none=True)
-    else:
-        normalized_params = params
-    return _service_compile_spec_authority_for_version(
-        normalized_params,
-        tool_context=tool_context,
-    )
+    @overload
+    def update_spec_and_compile_authority(
+        params: UpdateSpecAndCompileAuthorityToolInput,
+        tool_context: ToolContext | None = None,
+    ) -> dict[str, Any]: ...
 
+else:
 
-@overload
-def update_spec_and_compile_authority(
-    params: dict[str, Any] | UpdateSpecAndCompileAuthorityInput,
-    tool_context: ToolContext | None = None,
-) -> dict[str, Any]: ...
+    def compile_spec_authority_for_version(
+        params: CompileSpecAuthorityForVersionToolInput,
+        tool_context: ToolContext | None = None,
+    ) -> dict[str, Any]:
+        """Compatibility adapter over the public compiler service boundary."""
+        normalized_params: dict[str, Any] | CompileSpecAuthorityForVersionInput
+        if isinstance(params, CompileSpecAuthorityForVersionToolInput):
+            normalized_params = params.model_dump(exclude_none=True)
+        else:
+            normalized_params = params
+        return _service_compile_spec_authority_for_version(
+            normalized_params,
+            tool_context=tool_context,
+        )
 
-
-@overload
-def update_spec_and_compile_authority(
-    params: UpdateSpecAndCompileAuthorityToolInput,
-    tool_context: ToolContext | None = None,
-) -> dict[str, Any]: ...
-
-
-def update_spec_and_compile_authority(
-    params: UpdateSpecAndCompileAuthorityToolInput,
-    tool_context: ToolContext | None = None,
-) -> dict[str, Any]:
-    """Compatibility adapter over the public compiler service boundary."""
-    normalized_params: dict[str, Any] | UpdateSpecAndCompileAuthorityToolInput
-    if isinstance(params, UpdateSpecAndCompileAuthorityToolInput):
-        normalized_params = params.model_dump(exclude_none=True)
-    else:
-        normalized_params = params
-    return _service_update_spec_and_compile_authority(
-        normalized_params,
-        tool_context=tool_context,
-    )
+    def update_spec_and_compile_authority(
+        params: UpdateSpecAndCompileAuthorityToolInput,
+        tool_context: ToolContext | None = None,
+    ) -> dict[str, Any]:
+        """Compatibility adapter over the public compiler service boundary."""
+        normalized_params: dict[str, Any] | UpdateSpecAndCompileAuthorityInput
+        if isinstance(params, UpdateSpecAndCompileAuthorityToolInput):
+            normalized_params = params.model_dump(exclude_none=True)
+        else:
+            normalized_params = params
+        return _service_update_spec_and_compile_authority(
+            normalized_params,
+            tool_context=tool_context,
+        )
 
 
 def ensure_accepted_spec_authority(
@@ -587,28 +589,25 @@ async def _invoke_spec_validator_async(payload_text: str) -> str:
     return await _service_invoke_spec_validator_async(payload_text)
 
 
-def _parse_llm_validator_response(raw_text: str) -> dict[str, Any]:
+def _parse_llm_validator_response(raw_text: str) -> _service_LlmValidationResult:
     """Compatibility shim over the public story-validation helper."""
-    return cast("dict[str, Any]", _service_parse_llm_validator_response(raw_text))
+    return _service_parse_llm_validator_response(raw_text)
 
 
 def _run_llm_spec_validation(
     story: UserStory,
     authority: CompiledSpecAuthority,
-    artifact: SpecAuthorityCompilationSuccess | None,
+    artifact: object | None,
     feature: Feature | None = None,
-) -> dict[str, Any]:
+) -> _service_LlmValidationResult:
     """Compatibility shim over the public story-validation helper."""
-    return cast(
-        "dict[str, Any]",
-        _service_run_llm_spec_validation(
-            story,
-            authority,
-            artifact,
-            feature=feature,
-            invoke_spec_validator_async_fn=_invoke_spec_validator_async,
-            parse_llm_validator_response_fn=_parse_llm_validator_response,
-        ),
+    return _service_run_llm_spec_validation(
+        story,
+        authority,
+        artifact,
+        feature=feature,
+        invoke_spec_validator_async_fn=_invoke_spec_validator_async,
+        parse_llm_validator_response_fn=_parse_llm_validator_response,
     )
 
 

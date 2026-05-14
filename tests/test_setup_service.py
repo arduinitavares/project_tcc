@@ -17,7 +17,7 @@ async def test_run_project_setup_marks_compile_failure_and_skips_auto_vision() -
     saved: JsonDict = {}
     calls: JsonDict = {}
 
-    async def hydrate_context(session_id: str, project_id: int) -> object:
+    async def hydrate_context(session_id: str, project_id: int) -> SimpleNamespace:
         calls["hydrate"] = (session_id, project_id)
         return context
 
@@ -55,7 +55,7 @@ async def test_run_project_setup_marks_compile_failure_and_skips_auto_vision() -
             compiled_authority_json=None,
         )
 
-    def setup_blocker(_product: object) -> None:
+    def setup_blocker(_product: object) -> str | None:
         return None
 
     async def run_vision_agent(
@@ -111,7 +111,7 @@ async def test_run_project_setup_runs_auto_vision_after_successful_setup() -> No
     saved: JsonDict = {}
     calls: JsonDict = {}
 
-    async def hydrate_context(session_id: str, project_id: int) -> object:
+    async def hydrate_context(session_id: str, project_id: int) -> SimpleNamespace:
         calls["hydrate"] = (session_id, project_id)
         return context
 
@@ -143,7 +143,7 @@ async def test_run_project_setup_runs_auto_vision_after_successful_setup() -> No
             compiled_authority_json='{"ok": true}',
         )
 
-    def setup_blocker(_product: object) -> None:
+    def setup_blocker(_product: object) -> str | None:
         return None
 
     async def run_vision_agent(

@@ -1029,9 +1029,7 @@ def validate_story_with_spec_authority(
     **options: Unpack[_ValidateStoryOptions],
 ) -> dict[str, Any]:
     """Validate a story against an explicit spec version."""
-    dependencies = _resolve_validation_dependencies(
-        cast("_ValidateStoryOptions", options)
-    )
+    dependencies = _resolve_validation_dependencies(options)
     raw_params = _normalize_validate_story_params(params)
     if "mode" not in raw_params:
         raw_params["mode"] = dependencies["resolve_default_mode"]()

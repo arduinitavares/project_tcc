@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Protocol, Self, TypedDict, Unpack
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+    from datetime import datetime
 
 from models.enums import TaskAcceptanceResult, TaskStatus
 from utils.api_schemas import TaskExecutionLogEntry
@@ -46,33 +47,64 @@ class TaskExecutionServiceError(Exception):
 
 
 class _TaskLike(Protocol):
-    task_id: int
-    story_id: int
+    @property
+    def task_id(self) -> int | None: ...
+
+    @property
+    def story_id(self) -> int: ...
+
     status: TaskStatus
-    metadata_json: object | None
+
+    @property
+    def metadata_json(self) -> str | None: ...
 
 
 class _SprintLike(Protocol):
-    sprint_id: int
-    product_id: int | None
+    @property
+    def sprint_id(self) -> int | None: ...
+
+    @property
+    def product_id(self) -> int | None: ...
 
 
 class _TaskExecutionLogLike(Protocol):
-    log_id: int | None
-    task_id: int
-    sprint_id: int
-    old_status: TaskStatus | None
-    new_status: TaskStatus
-    outcome_summary: str | None
-    artifact_refs_json: object | None
-    acceptance_result: TaskAcceptanceResult
-    notes: str | None
-    changed_by: str
-    changed_at: object
+    @property
+    def log_id(self) -> int | None: ...
+
+    @property
+    def task_id(self) -> int: ...
+
+    @property
+    def sprint_id(self) -> int: ...
+
+    @property
+    def old_status(self) -> TaskStatus | None: ...
+
+    @property
+    def new_status(self) -> TaskStatus: ...
+
+    @property
+    def outcome_summary(self) -> str | None: ...
+
+    @property
+    def artifact_refs_json(self) -> object | None: ...
+
+    @property
+    def acceptance_result(self) -> TaskAcceptanceResult: ...
+
+    @property
+    def notes(self) -> str | None: ...
+
+    @property
+    def changed_by(self) -> str: ...
+
+    @property
+    def changed_at(self) -> datetime: ...
 
 
 class _TaskMetadataLike(Protocol):
-    checklist_items: Sequence[object]
+    @property
+    def checklist_items(self) -> Sequence[object]: ...
 
 
 class _PersistExecutionLogOptions(TypedDict):
@@ -107,7 +139,7 @@ class _TaskExecutionRecordOptions(_TaskExecutionHistoryOptions):
     notes: str | None
     acceptance_result: TaskAcceptanceResult | None
     changed_by: str | None
-    parse_task_metadata: Callable[[object | None], _TaskMetadataLike]
+    parse_task_metadata: Callable[[str | None], _TaskMetadataLike]
     persist_execution_log: _PersistExecutionLog
 
 
@@ -174,11 +206,12 @@ def get_task_execution_history(
 
     history: list[TaskExecutionLogEntry] = []
     for log in options["load_logs"]():
-        if getattr(log, "log_id", None) is None:
+        log_id = log.log_id
+        if log_id is None:
             continue
         history.append(
             TaskExecutionLogEntry(
-                log_id=log.log_id,
+                log_id=log_id,
                 task_id=log.task_id,
                 sprint_id=log.sprint_id,
                 old_status=log.old_status,

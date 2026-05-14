@@ -436,7 +436,7 @@ async def test_save_roadmap_draft_translates_save_failure() -> None:
     assert exc_info.value.detail == "roadmap save failed"
 
 
-async def _async_value(value: object) -> object:
+async def _async_value[T](value: T) -> T:
     return value
 
 
