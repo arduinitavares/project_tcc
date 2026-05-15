@@ -376,12 +376,20 @@ class MutationLedgerRepository:
             steps = _completed_steps(row)
             if step not in steps:
                 steps.append(step)
-            row.completed_steps_json = _json_dump(steps)
-            row.current_step = next_step
-            row.updated_at = db_now
-            session.add(row)
+            result = session.exec(
+                update(CliMutationLedger)
+                .where(CliMutationLedger.mutation_event_id == mutation_event_id)
+                .where(CliMutationLedger.status == MutationStatus.PENDING.value)
+                .where(CliMutationLedger.lease_owner == lease_owner)
+                .where(CliMutationLedger.lease_expires_at > db_now)
+                .values(
+                    completed_steps_json=_json_dump(steps),
+                    current_step=next_step,
+                    updated_at=db_now,
+                )
+            )
             session.commit()
-            return True
+            return result.rowcount == 1
 
     def finalize_success(
         self,

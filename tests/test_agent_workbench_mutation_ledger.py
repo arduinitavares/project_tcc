@@ -548,6 +548,69 @@ def test_expired_owner_cannot_mark_step_complete(engine: Engine) -> None:
     assert stored.current_step == "start"
 
 
+def test_mark_step_complete_loses_race_when_row_changes_before_commit(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _repo(engine)
+    now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    row = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-001",
+        request_hash="sha256:req",
+        project_id=7,
+        correlation_id="corr-1",
+        changed_by="cli-agent",
+        lease_owner="worker-1",
+        now=now,
+        lease_seconds=30,
+    ).ledger
+    assert row.mutation_event_id is not None
+    original_exec = mutation_ledger_mod.Session.exec
+    race_injected = False
+
+    def exec_after_recovery_race(
+        session: Session,
+        statement: object,
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        nonlocal race_injected
+        if isinstance(statement, Update) and not race_injected:
+            race_injected = True
+            original_exec(
+                session,
+                update(CliMutationLedger)
+                .where(CliMutationLedger.mutation_event_id == row.mutation_event_id)
+                .values(
+                    status=MutationStatus.RECOVERY_REQUIRED.value,
+                    recovery_action=RecoveryAction.RECONCILE_THEN_RESUME.value,
+                    lease_owner=None,
+                    lease_expires_at=None,
+                    updated_at=_db_time(now + timedelta(seconds=5)),
+                ),
+            )
+        return original_exec(session, statement, *args, **kwargs)
+
+    monkeypatch.setattr(mutation_ledger_mod.Session, "exec", exec_after_recovery_race)
+
+    marked = repo.mark_step_complete(
+        mutation_event_id=row.mutation_event_id,
+        lease_owner="worker-1",
+        step="business_marker",
+        next_step="session_marker",
+        now=now + timedelta(seconds=1),
+    )
+
+    assert marked is False
+    with Session(engine) as session:
+        stored = session.get(CliMutationLedger, row.mutation_event_id)
+    assert stored is not None
+    assert stored.status == MutationStatus.RECOVERY_REQUIRED.value
+    assert stored.completed_steps_json == "[]"
+    assert stored.current_step == "start"
+
+
 def test_expired_owner_cannot_finalize_success(engine: Engine) -> None:
     repo = _repo(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
