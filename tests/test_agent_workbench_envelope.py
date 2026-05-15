@@ -11,6 +11,7 @@ from services.agent_workbench.envelope import (
     error_envelope,
     success_envelope,
 )
+import services.agent_workbench.envelope as envelope_module
 
 EXPECTED_PHASE_1_COMMAND_NAMES = {
     "agileforge status",
@@ -26,8 +27,10 @@ EXPECTED_PHASE_1_COMMAND_NAMES = {
 }
 
 
-def test_success_envelope_has_stable_shape() -> None:
+def test_success_envelope_has_stable_shape(monkeypatch) -> None:
     """Serialize success responses with stable top-level keys."""
+    monkeypatch.setattr(envelope_module, "agileforge_version", lambda: "dev")
+
     envelope = success_envelope(
         command="agileforge project list",
         data={"items": []},
@@ -42,6 +45,7 @@ def test_success_envelope_has_stable_shape() -> None:
             )
         ],
         generated_at="2026-05-14T00:00:00Z",
+        correlation_id="corr-123",
     )
 
     assert envelope == {
@@ -61,13 +65,19 @@ def test_success_envelope_has_stable_shape() -> None:
         "meta": {
             "schema_version": "agileforge.cli.v1",
             "command": "agileforge project list",
+            "command_version": "1",
+            "agileforge_version": "dev",
+            "storage_schema_version": "1",
             "generated_at": "2026-05-14T00:00:00Z",
+            "correlation_id": "corr-123",
         },
     }
 
 
-def test_error_envelope_has_retryable_exit_code_error() -> None:
+def test_error_envelope_has_retryable_exit_code_error(monkeypatch) -> None:
     """Serialize a singular command error with warning context."""
+    monkeypatch.setattr(envelope_module, "agileforge_version", lambda: "dev")
+
     envelope = error_envelope(
         command="agileforge sprint candidates",
         error=WorkbenchError(
@@ -80,6 +90,8 @@ def test_error_envelope_has_retryable_exit_code_error() -> None:
         ),
         warnings=[WorkbenchWarning(code="STALE_INDEX", message="Index is stale.")],
         generated_at="2026-05-14T00:00:00Z",
+        command_version="2",
+        correlation_id="corr-456",
     )
 
     assert envelope == {
@@ -106,9 +118,28 @@ def test_error_envelope_has_retryable_exit_code_error() -> None:
         "meta": {
             "schema_version": "agileforge.cli.v1",
             "command": "agileforge sprint candidates",
+            "command_version": "2",
+            "agileforge_version": "dev",
+            "storage_schema_version": "1",
             "generated_at": "2026-05-14T00:00:00Z",
+            "correlation_id": "corr-456",
         },
     }
+
+
+def test_success_envelope_generates_default_correlation_id() -> None:
+    """Generate a UUID4 correlation ID when callers do not supply one."""
+    envelope = success_envelope(
+        command="agileforge status",
+        data={},
+        generated_at="2026-05-14T00:00:00Z",
+    )
+
+    correlation_id = envelope["meta"]["correlation_id"]
+
+    assert isinstance(correlation_id, str)
+    assert len(correlation_id) == 36
+    assert correlation_id.count("-") == 4
 
 
 def test_problem_to_dict_returns_shallow_copies() -> None:

@@ -3,6 +3,13 @@
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
+
+from services.agent_workbench.version import (
+    COMMAND_VERSION,
+    STORAGE_SCHEMA_VERSION,
+    agileforge_version,
+)
 
 SCHEMA_VERSION = "agileforge.cli.v1"
 
@@ -59,12 +66,38 @@ def utc_now_iso() -> str:
     )
 
 
+def _meta(
+    *,
+    command: str,
+    command_version: str | None,
+    generated_at: str | None,
+    correlation_id: str | None,
+    source_fingerprint: str | None,
+) -> dict[str, str]:
+    """Build common CLI envelope metadata."""
+    metadata = {
+        "schema_version": SCHEMA_VERSION,
+        "command": command,
+        "command_version": command_version or COMMAND_VERSION,
+        "agileforge_version": agileforge_version(),
+        "storage_schema_version": STORAGE_SCHEMA_VERSION,
+        "generated_at": generated_at or utc_now_iso(),
+        "correlation_id": correlation_id or str(uuid4()),
+    }
+    if source_fingerprint is not None:
+        metadata["source_fingerprint"] = source_fingerprint
+    return metadata
+
+
 def success_envelope(
     *,
     command: str,
     data: dict[str, Any] | list[Any],
     warnings: list[WorkbenchWarning] | None = None,
     generated_at: str | None = None,
+    command_version: str | None = None,
+    correlation_id: str | None = None,
+    source_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     """Build a successful command response envelope."""
     return {
@@ -72,11 +105,13 @@ def success_envelope(
         "data": data,
         "warnings": [warning.to_dict() for warning in warnings or []],
         "errors": [],
-        "meta": {
-            "schema_version": SCHEMA_VERSION,
-            "command": command,
-            "generated_at": generated_at or utc_now_iso(),
-        },
+        "meta": _meta(
+            command=command,
+            command_version=command_version,
+            generated_at=generated_at,
+            correlation_id=correlation_id,
+            source_fingerprint=source_fingerprint,
+        ),
     }
 
 
@@ -86,6 +121,9 @@ def error_envelope(
     error: WorkbenchError,
     warnings: list[WorkbenchWarning] | None = None,
     generated_at: str | None = None,
+    command_version: str | None = None,
+    correlation_id: str | None = None,
+    source_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     """Build a failed command response envelope."""
     return {
@@ -93,9 +131,11 @@ def error_envelope(
         "data": None,
         "warnings": [warning.to_dict() for warning in warnings or []],
         "errors": [error.to_dict()],
-        "meta": {
-            "schema_version": SCHEMA_VERSION,
-            "command": command,
-            "generated_at": generated_at or utc_now_iso(),
-        },
+        "meta": _meta(
+            command=command,
+            command_version=command_version,
+            generated_at=generated_at,
+            correlation_id=correlation_id,
+            source_fingerprint=source_fingerprint,
+        ),
     }
