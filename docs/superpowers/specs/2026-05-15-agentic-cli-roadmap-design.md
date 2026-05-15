@@ -74,15 +74,15 @@ directory through the central AgileForge repo shim.
   requires noninteractive confirmation flags and command-specific stale-state
   guards.
 - Contract hardening is the next slice before broad lifecycle mutations.
-- Every mutating command requires `--idempotency-key`.
+- Every non-dry-run mutating command requires `--idempotency-key`.
 - Mutation guards use explicit expected values rather than one ambiguous
   fingerprint.
 - `--expected-authority-version` means the accepted authority decision id from
   the latest accepted `SpecAuthorityAcceptance` row. Envelopes also expose the
   related `spec_version_id` and `authority_id`.
-- `--changed-by` defaults to `cli-agent`, accepts a non-empty stable actor
-  string, and appears in audit records plus domain history where that domain
-  already tracks actors.
+- `--changed-by` is optional on every mutation, defaults to `cli-agent`, accepts
+  a non-empty stable actor string, and appears in audit records plus domain
+  history where that domain already tracks actors.
 
 ## Architecture
 
@@ -117,7 +117,7 @@ Every mutation command must be defined by a request model, a response model, a
 guard policy, an idempotency policy, and a transaction/recovery policy before it
 is exposed in the parser.
 
-The standard mutation flow is:
+The standard non-dry-run mutation flow is:
 
 ```text
 parse args
@@ -131,27 +131,40 @@ parse args
 -> return typed mutation envelope
 ```
 
-Mutation request models must include:
+Non-dry-run mutation request models must include:
 
 - `idempotency_key`
 - `correlation_id`
 - `changed_by`
 - command-specific arguments
 - command-specific guard tokens
-- `dry_run`
+
+Preview request models must include `dry_run: true`, optional `dry_run_id`,
+optional `correlation_id`, optional `changed_by`, command-specific arguments,
+and command-specific guard tokens.
+
+### Dry-Run Idempotency Semantics
 
 The CLI must support `--dry-run` for mutation commands. A dry run validates the
 request and guard checks, returns the current before snapshot, and performs no
-domain writes. If deterministic prediction is unavailable, the dry-run envelope
-must set `preview_available: false` and explain why. Non-deterministic commands,
+domain writes.
+
+Dry-runs do not create mutation ledger rows, do not consume idempotency keys,
+and do not participate in mutation response replay. The parser must reject
+`--idempotency-key` when `--dry-run` is present. Agents may pass optional
+`--dry-run-id` for tracing preview runs, but `dry_run` and `dry_run_id` are not
+part of the canonical mutation request hash.
+
+If deterministic prediction is unavailable, the dry-run envelope must set
+`preview_available: false` and explain why. Non-deterministic commands,
 including model-backed generation and authority compilation, must not call model
 providers during dry runs.
 
 ### Idempotency And Durable Mutation Protocol
 
 `correlation_id` is for tracing. It is not a deduplication mechanism. Every
-mutating command must require `--idempotency-key` and persist a mutation ledger
-record before domain writes start.
+non-dry-run mutating command must require `--idempotency-key` and persist a
+mutation ledger record before domain writes start.
 
 The mutation ledger must store:
 
@@ -161,12 +174,14 @@ The mutation ledger must store:
 - project id when applicable
 - correlation id
 - changed-by actor
-- status: `pending`, `succeeded`, `failed`, `recovery_required`, or `rejected`
+- status: `pending`, `succeeded`, `validation_failed`,
+  `guard_rejected`, `domain_failed_no_side_effects`, or
+  `recovery_required`
 - guard inputs
 - before snapshot
 - after snapshot when available
 - response envelope when available
-- recovery command when recovery is required
+- recovery action when recovery is required
 - timestamps
 
 The uniqueness boundary is command name plus idempotency key. If the same
@@ -175,12 +190,58 @@ stored response or resume deterministic recovery. If the same command receives
 the same key with a different request hash, it must fail with
 `IDEMPOTENCY_KEY_REUSED`.
 
+Idempotency keys must be ASCII strings between 8 and 128 characters using only
+letters, digits, `.`, `_`, `:`, and `-`. Agents must generate a fresh key per
+non-dry-run command attempt. Phase 2A must not expire mutation ledger records;
+a later archival policy may move old rows only after preserving replay and audit
+requirements.
+
+Invalid argparse input does not create a ledger row. For non-dry-run mutations,
+the ledger row is created or loaded before guard checks. Guard-rejected and
+domain-validation-failed requests consume the idempotency key for that exact
+request hash and replay the same structured failure on retry. Retrying with
+updated guard tokens or corrected arguments requires a new idempotency key.
+
+Ledger status meanings are:
+
+- `pending`: ledger row exists and the command is inside its declared write
+  protocol.
+- `succeeded`: declared writes completed and the stored response can be replayed.
+- `validation_failed`: typed request validation or deterministic preflight
+  failed after parser acceptance and before domain writes.
+- `guard_rejected`: stale-state, stale-fingerprint, confirmation, or authority
+  guard failed before domain writes.
+- `domain_failed_no_side_effects`: the use case failed before declared domain
+  writes began, such as a model-provider failure before artifact persistence.
+- `recovery_required`: some declared side effect may have occurred, finalization
+  failed, or the command cannot prove that all declared writes completed.
+
+The canonical request hash includes command name, command version, normalized
+explicit arguments, defaulted arguments, resolved file paths, file content hashes
+for file inputs, guard tokens, and `changed_by`. It excludes the idempotency key,
+`correlation_id`, generated timestamps, dry-run fields, process cwd after path
+resolution, and environment-derived values that are not explicit command inputs.
+
 The ledger is also the audit source for CLI mutations. A command must not start
 domain writes if it cannot persist the initial ledger row. A canonical mutation
 is not successful until the final response is stored in the ledger. If side
 effects occur but finalization fails, the command must return
 `MUTATION_RECOVERY_REQUIRED` when possible, and the next invocation with the
 same idempotency key must produce a deterministic recovery or replay outcome.
+`mutation_event_id` is the mutation ledger primary key and the audit event id.
+
+Recovery must be operator-visible:
+
+```bash
+agileforge mutation show --mutation-event-id 101
+agileforge mutation resume --mutation-event-id 101
+agileforge mutation list --project-id 1 --status recovery_required
+```
+
+When a retry with the same command and idempotency key sees
+`recovery_required`, it may automatically resume only if the ledger row declares
+the recovery action safe and deterministic. Otherwise it must return
+`MUTATION_RECOVERY_REQUIRED` with a structured `mutation resume` remediation.
 
 ### Cross-Store Mutation Protocol
 
@@ -195,10 +256,12 @@ Before Phase 2B can ship `project create`, Phase 2A must define and test:
 - pending mutation ledger creation before product/spec/session writes
 - idempotent replay by command and request hash
 - ordered write steps for product, spec registry, authority compilation,
-  acceptance, and workflow session initialization
+  pending compiled authority artifact persistence, and workflow session
+  initialization
 - explicit recovery states for each step boundary
 - response replay after success
 - deterministic retry behavior after timeout or partial failure
+- no `SpecAuthorityAcceptance` row creation during `project create`
 
 A command must not claim atomicity across stores unless tests prove it.
 
@@ -230,6 +293,7 @@ agileforge story ...
 agileforge sprint ...
 agileforge task ...
 agileforge artifact ...
+agileforge mutation ...
 agileforge schema ...
 agileforge command ...
 agileforge help ...
@@ -261,7 +325,8 @@ agileforge project delete --project-id 1 --expected-context-fingerprint abc123 -
 reviewable pending authority artifact, initializes workflow state, and returns
 the next valid commands. It must not auto-accept authority or auto-run vision.
 The next canonical step is an explicit authority review/accept command. It does
-not require a running web server.
+not create a `SpecAuthorityAcceptance` row and does not require a running web
+server.
 
 `project delete` is a recoverable soft delete in the CLI roadmap. Irreversible
 purge requires a separate command and a later, stricter design.
@@ -376,6 +441,9 @@ agileforge doctor
 agileforge schema check
 agileforge capabilities
 agileforge command schema "agileforge vision generate"
+agileforge mutation show --mutation-event-id 101
+agileforge mutation resume --mutation-event-id 101
+agileforge mutation list --project-id 1 --status recovery_required
 ```
 
 `doctor` reports runtime health: database reachability, storage schema
@@ -388,6 +456,9 @@ mutation support, and supported storage/schema versions.
 `command schema` returns the input argument schema, output envelope schema,
 guard policy, idempotency policy, possible error codes, exit codes, and
 producer commands for required guard tokens.
+
+`mutation show`, `mutation resume`, and `mutation list` expose recovery state
+from the mutation ledger without requiring agents to inspect storage directly.
 
 ## Guardrails
 
@@ -509,8 +580,8 @@ Every command returns a Pydantic-backed envelope:
 
 `correlation_id` is generated automatically when not supplied. Agents may pass
 `--correlation-id` to tie retries and multi-command workflows together.
-Agents must pass `--idempotency-key` for mutation commands; the idempotency key
-is stored in the mutation ledger rather than envelope metadata.
+Agents must pass `--idempotency-key` for non-dry-run mutation commands; the
+idempotency key is stored in the mutation ledger rather than envelope metadata.
 
 Each command data payload has a named schema, for example:
 
@@ -533,7 +604,7 @@ TaskLogResult
 ArtifactClearResult
 ```
 
-Mutation payloads also include:
+Mutation and preview payloads also include the appropriate fields from this set:
 
 ```text
 before
@@ -541,9 +612,15 @@ after
 next_actions
 mutation_event_id
 dry_run
+dry_run_id
 preview_available
 idempotency_key
 ```
+
+Non-dry-run mutation responses include `mutation_event_id` and
+`idempotency_key`. Dry-run preview responses include `dry_run: true`,
+`dry_run_id` when supplied, and `preview_available`; they do not include a
+mutation ledger id.
 
 `next_actions` must be structured, not plain strings:
 
@@ -598,8 +675,13 @@ Exit codes must be stable and documented:
 `storage_schema_version` must be stored in the business database through an
 explicit migration/version table. `schema check` compares the required version,
 business database version, required tables/columns/indexes, and workflow session
-store readiness. Commands that require a newer storage schema fail before
-domain reads or writes.
+store readiness. Workflow session readiness checks must include configured
+storage location, file or database reachability, required ADK session tables,
+readable and writable mode for mutation-capable commands, and migration
+compatibility. If the ADK session store has no native schema-version source,
+`schema check` reports `version_source: unavailable` for that store and relies
+on required table/index/read-write checks. Commands that require a newer storage
+schema fail before domain reads or writes.
 
 ## Implementation Phases
 
@@ -613,6 +695,7 @@ domain reads or writes.
 - `schema check`
 - `capabilities`
 - `command schema`
+- `mutation show/list/resume`
 - mutation guard helpers
 - guard-token provenance declarations per command schema
 - mutation ledger with idempotency-key replay semantics
@@ -708,8 +791,8 @@ Each phase must include:
 - Generate commands create drafts, not canonical state.
 - Canonical mutations require reviewed artifact identity and expected state.
 - Canonical mutations reject stale artifact, context, or authority inputs.
-- Every mutation requires an idempotency key and supports deterministic replay
-  or recovery.
+- Every non-dry-run mutation requires an idempotency key and supports
+  deterministic replay or recovery.
 - Cross-store mutations leave a durable recovery record if all declared writes
   do not complete.
 - Command schemas declare exact guard-token producers and fingerprint payloads.
