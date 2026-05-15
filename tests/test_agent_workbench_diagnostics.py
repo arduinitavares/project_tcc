@@ -233,7 +233,7 @@ def test_doctor_reports_cwd_and_central_repo_root(
     central_repo_root = payload["central_repo_root"]
     assert central_repo_root["ok"] is True
     assert central_repo_root["status"] == "ok"
-    assert central_repo_root["path"].endswith("cli-contract-hardening-phase-2a")
+    assert Path(central_repo_root["path"]) == Path(__file__).resolve().parents[1]
     assert central_repo_root["path"] != str(tmp_path.resolve())
     assert payload["business_db"]["status"] == "ok"
     assert payload["workflow_session_store"]["status"] == "ok"
