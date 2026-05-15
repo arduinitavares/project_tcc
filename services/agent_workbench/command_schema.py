@@ -12,38 +12,46 @@ from services.agent_workbench.contract_models import (
     CommandOutputSchema,
 )
 from services.agent_workbench.error_codes import error_metadata
+from services.agent_workbench.version import COMMAND_VERSION, STORAGE_SCHEMA_VERSION
+
+CAPABILITIES_SCHEMA_VERSION: str = "agileforge.cli.capabilities.v1"
 
 
 def capabilities_payload() -> dict[str, Any]:
     """Return installed command capability metadata."""
+    commands = [
+        {
+            "name": command.name,
+            "command_version": command.command_version,
+            "phase": command.phase,
+            "stable": command.stable,
+            "mutates": command.mutates,
+            "destructive": command.destructive,
+            "requires_idempotency_key": command.requires_idempotency_key,
+            "accepts_expected_state": command.accepts_expected_state,
+            "accepts_expected_artifact_fingerprint": (
+                command.accepts_expected_artifact_fingerprint
+            ),
+            "accepts_expected_context_fingerprint": (
+                command.accepts_expected_context_fingerprint
+            ),
+            "accepts_expected_authority_version": (
+                command.accepts_expected_authority_version
+            ),
+            "input": {
+                "required": list(command.input_required),
+                "optional": list(command.input_optional),
+            },
+            "errors": list(command.errors),
+        }
+        for command in installed_commands()
+    ]
     return {
-        "commands": [
-            {
-                "name": command.name,
-                "command_version": command.command_version,
-                "phase": command.phase,
-                "stable": command.stable,
-                "mutates": command.mutates,
-                "destructive": command.destructive,
-                "requires_idempotency_key": command.requires_idempotency_key,
-                "accepts_expected_state": command.accepts_expected_state,
-                "accepts_expected_artifact_fingerprint": (
-                    command.accepts_expected_artifact_fingerprint
-                ),
-                "accepts_expected_context_fingerprint": (
-                    command.accepts_expected_context_fingerprint
-                ),
-                "accepts_expected_authority_version": (
-                    command.accepts_expected_authority_version
-                ),
-                "input": {
-                    "required": list(command.input_required),
-                    "optional": list(command.input_optional),
-                },
-                "errors": list(command.errors),
-            }
-            for command in installed_commands()
-        ],
+        "schema_version": CAPABILITIES_SCHEMA_VERSION,
+        "command_version": COMMAND_VERSION,
+        "storage_schema_version": STORAGE_SCHEMA_VERSION,
+        "installed_command_count": len(commands),
+        "commands": commands,
     }
 
 

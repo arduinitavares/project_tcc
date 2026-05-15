@@ -27,24 +27,63 @@ class CommandMetadata:
 
 
 _PHASE_1_COMMANDS: tuple[CommandMetadata, ...] = (
-    CommandMetadata(name="agileforge status", mutates=False, phase="phase_1"),
+    CommandMetadata(
+        name="agileforge status",
+        mutates=False,
+        phase="phase_1",
+        input_required=("project_id",),
+    ),
     CommandMetadata(name="agileforge project list", mutates=False, phase="phase_1"),
-    CommandMetadata(name="agileforge project show", mutates=False, phase="phase_1"),
-    CommandMetadata(name="agileforge workflow state", mutates=False, phase="phase_1"),
-    CommandMetadata(name="agileforge workflow next", mutates=False, phase="phase_1"),
-    CommandMetadata(name="agileforge authority status", mutates=False, phase="phase_1"),
+    CommandMetadata(
+        name="agileforge project show",
+        mutates=False,
+        phase="phase_1",
+        input_required=("project_id",),
+    ),
+    CommandMetadata(
+        name="agileforge workflow state",
+        mutates=False,
+        phase="phase_1",
+        input_required=("project_id",),
+    ),
+    CommandMetadata(
+        name="agileforge workflow next",
+        mutates=False,
+        phase="phase_1",
+        input_required=("project_id",),
+    ),
+    CommandMetadata(
+        name="agileforge authority status",
+        mutates=False,
+        phase="phase_1",
+        input_required=("project_id",),
+    ),
     CommandMetadata(
         name="agileforge authority invariants",
         mutates=False,
         phase="phase_1",
+        input_required=("project_id",),
+        input_optional=("spec_version_id",),
     ),
-    CommandMetadata(name="agileforge story show", mutates=False, phase="phase_1"),
+    CommandMetadata(
+        name="agileforge story show",
+        mutates=False,
+        phase="phase_1",
+        input_required=("story_id",),
+    ),
     CommandMetadata(
         name="agileforge sprint candidates",
         mutates=False,
         phase="phase_1",
+        input_required=("project_id",),
     ),
-    CommandMetadata(name="agileforge context pack", mutates=False, phase="phase_1"),
+    CommandMetadata(
+        name="agileforge context pack",
+        mutates=False,
+        phase="phase_1",
+        input_required=("project_id",),
+        input_optional=("phase",),
+    ),
 )
 
 _PHASE_2A_COMMANDS: tuple[CommandMetadata, ...] = (

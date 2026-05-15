@@ -12,7 +12,7 @@ from services.agent_workbench.command_schema import (
     command_schema_payload,
 )
 from services.agent_workbench.error_codes import ErrorCode, error_metadata
-from services.agent_workbench.version import COMMAND_VERSION
+from services.agent_workbench.version import COMMAND_VERSION, STORAGE_SCHEMA_VERSION
 
 EXPECTED_PHASE_1_COMMAND_NAMES = {
     "agileforge status",
@@ -35,6 +35,19 @@ EXPECTED_PHASE_2A_COMMAND_NAMES = {
     "agileforge mutation show",
     "agileforge mutation list",
     "agileforge mutation resume",
+}
+
+EXPECTED_PHASE_1_INPUTS = {
+    "agileforge status": (["project_id"], []),
+    "agileforge project list": ([], []),
+    "agileforge project show": (["project_id"], []),
+    "agileforge workflow state": (["project_id"], []),
+    "agileforge workflow next": (["project_id"], []),
+    "agileforge authority status": (["project_id"], []),
+    "agileforge authority invariants": (["project_id"], ["spec_version_id"]),
+    "agileforge story show": (["story_id"], []),
+    "agileforge sprint candidates": (["project_id"], []),
+    "agileforge context pack": (["project_id"], ["phase"]),
 }
 
 
@@ -71,6 +84,38 @@ def test_capabilities_expose_mutation_command_mutability() -> None:
     assert commands["agileforge mutation list"]["mutates"] is False
     assert commands["agileforge mutation resume"]["mutates"] is True
     assert commands["agileforge mutation resume"]["destructive"] is False
+
+
+def test_capabilities_include_top_level_contract_metadata() -> None:
+    """Expose capabilities payload metadata useful to agents."""
+    payload = capabilities_payload()
+    commands = payload["commands"]
+
+    assert isinstance(commands, list)
+    assert payload["schema_version"] == "agileforge.cli.capabilities.v1"
+    assert payload["command_version"] == COMMAND_VERSION
+    assert payload["storage_schema_version"] == STORAGE_SCHEMA_VERSION
+    assert payload["installed_command_count"] == len(commands)
+
+
+def test_phase_1_command_schema_payloads_publish_real_inputs() -> None:
+    """Expose real Phase 1 CLI input contracts in command schemas."""
+    for command_name, (required, optional) in EXPECTED_PHASE_1_INPUTS.items():
+        payload = command_schema_payload(command_name)
+
+        assert payload["input"]["required"] == required
+        assert payload["input"]["optional"] == optional
+
+
+def test_phase_1_capabilities_publish_real_inputs() -> None:
+    """Expose real Phase 1 CLI input contracts in capabilities."""
+    commands = _capability_by_name()
+
+    for command_name, (required, optional) in EXPECTED_PHASE_1_INPUTS.items():
+        assert commands[command_name]["input"] == {
+            "required": required,
+            "optional": optional,
+        }
 
 
 def test_command_schema_payload_describes_mutation_resume_contract() -> None:
