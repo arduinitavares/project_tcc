@@ -142,6 +142,28 @@ def test_success_envelope_generates_default_correlation_id() -> None:
     assert correlation_id.count("-") == 4
 
 
+def test_success_envelope_includes_optional_source_fingerprint() -> None:
+    """Include source fingerprint metadata only when callers supply it."""
+    source_fingerprint = "sha256:" + "a" * 64
+
+    envelope = success_envelope(
+        command="agileforge status",
+        data={},
+        generated_at="2026-05-14T00:00:00Z",
+        correlation_id="corr-source",
+        source_fingerprint=source_fingerprint,
+    )
+    envelope_without_source = success_envelope(
+        command="agileforge status",
+        data={},
+        generated_at="2026-05-14T00:00:00Z",
+        correlation_id="corr-no-source",
+    )
+
+    assert envelope["meta"]["source_fingerprint"] == source_fingerprint
+    assert "source_fingerprint" not in envelope_without_source["meta"]
+
+
 def test_problem_to_dict_returns_shallow_copies() -> None:
     """Keep dataclass internals isolated from serialized payload mutation."""
     warning = WorkbenchWarning(
