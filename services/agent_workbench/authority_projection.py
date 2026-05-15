@@ -808,9 +808,10 @@ class AuthorityProjectionService:
             project_id=project_id,
             spec_version_id=spec_version_id,
         )
-        if isinstance(selection, dict):
+        if isinstance(selection, _InvariantsSelection):
+            selected_id = selection.spec_version_id
+        else:
             return selection
-        selected_id = selection.spec_version_id
 
         spec_version = session.get(SpecRegistry, selected_id)
         if spec_version is None or spec_version.product_id != project_id:

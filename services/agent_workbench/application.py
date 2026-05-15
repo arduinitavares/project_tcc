@@ -124,7 +124,7 @@ class AgentWorkbenchApplication:
         project_data = _envelope_data(project)
         workflow_data = _envelope_data(workflow)
         authority_data = _envelope_data(authority)
-        data = {
+        data: dict[str, Any] = {
             "project": project_data,
             "workflow": workflow_data,
             "authority": authority_data,

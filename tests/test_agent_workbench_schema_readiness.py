@@ -1,6 +1,7 @@
 """Tests for read-only schema readiness checks."""
 
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from sqlalchemy import create_engine
@@ -46,7 +47,7 @@ def test_check_schema_readiness_does_not_create_missing_sqlite_file(
 def test_check_schema_readiness_reports_missing_columns() -> None:
     """Report missing columns without running migrations."""
     engine = create_engine("sqlite:///:memory:")
-    Product.__table__.create(engine)
+    cast("Any", Product).__table__.create(engine)
 
     result = check_schema_readiness(
         engine,

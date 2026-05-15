@@ -28,6 +28,7 @@ from utils.spec_schemas import ValidationEvidence
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
+    from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 JsonDict = dict[str, Any]
 
@@ -168,6 +169,11 @@ def _schema_error(command: str, readiness: SchemaReadiness) -> JsonDict:
             retryable=False,
         ),
     )
+
+
+def _int_column(value: object) -> InstrumentedAttribute[int | None]:
+    """Return a SQLModel integer column expression for typed query helpers."""
+    return cast("InstrumentedAttribute[int | None]", value)
 
 
 def _project_not_found_error(command: str, project_id: int) -> JsonDict:
@@ -392,33 +398,37 @@ class ReadProjectionService:
                 ).all()
             )
             product_ids = [
-                cast("int", product.product_id)
+                product.product_id
                 for product in products
                 if product.product_id is not None
             ]
             story_counts = self._count_by_product(
                 session,
-                UserStory.product_id,
-                UserStory.story_id,
+                _int_column(UserStory.product_id),
+                _int_column(UserStory.story_id),
                 product_ids,
             )
             sprint_counts = self._count_by_product(
                 session,
-                Sprint.product_id,
-                Sprint.sprint_id,
+                _int_column(Sprint.product_id),
+                _int_column(Sprint.sprint_id),
                 product_ids,
             )
-            items = [
-                {
-                    "product_id": product.product_id,
-                    "name": product.name,
-                    "description": product.description,
-                    "user_stories_count": story_counts.get(product.product_id, 0),
-                    "sprint_count": sprint_counts.get(product.product_id, 0),
-                    "updated_at": _iso_z(product.updated_at),
-                }
-                for product in products
-            ]
+            items: list[JsonDict] = []
+            for product in products:
+                product_id = product.product_id
+                if product_id is None:
+                    continue
+                items.append(
+                    {
+                        "product_id": product_id,
+                        "name": product.name,
+                        "description": product.description,
+                        "user_stories_count": story_counts.get(product_id, 0),
+                        "sprint_count": sprint_counts.get(product_id, 0),
+                        "updated_at": _iso_z(product.updated_at),
+                    }
+                )
 
         data = {
             "items": items,
@@ -643,16 +653,16 @@ class ReadProjectionService:
     def _count_by_product(
         self,
         session: Session,
-        product_column: object,
-        counted_column: object,
+        product_column: InstrumentedAttribute[int | None],
+        counted_column: InstrumentedAttribute[int | None],
         product_ids: list[int],
     ) -> dict[int, int]:
         """Return grouped row counts by product id."""
         if not product_ids:
             return {}
         rows = session.exec(
-            select(product_column, func.count(cast("Any", counted_column)))
-            .where(cast("Any", product_column).in_(product_ids))
+            select(product_column, func.count(counted_column))
+            .where(product_column.in_(product_ids))
             .group_by(product_column)
         ).all()
         return {int(product_id): int(count) for product_id, count in rows}
@@ -677,7 +687,7 @@ class ReadProjectionService:
             ).all()
         )
         open_sprint_ids = [
-            cast("int", sprint.sprint_id)
+            sprint.sprint_id
             for sprint in open_sprints
             if sprint.sprint_id is not None
         ]

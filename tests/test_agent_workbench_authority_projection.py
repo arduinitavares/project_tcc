@@ -6,7 +6,7 @@ import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from sqlalchemy import create_engine, text
 
@@ -21,6 +21,7 @@ from tests.typing_helpers import require_id
 
 if TYPE_CHECKING:
     import pytest
+    from sqlalchemy.engine import Engine
     from sqlmodel import Session
 
 SCHEMA_NOT_READY_EXIT_CODE: Final[int] = 1
@@ -31,6 +32,11 @@ AUTHORITY_ERROR_EXIT_CODE: Final[int] = 4
 def _spec_hash(content: str) -> str:
     """Return the persisted SHA-256 hash for spec content."""
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _engine(session: Session) -> Engine:
+    """Return the test session bind as an engine for projection services."""
+    return cast("Engine", session.get_bind())
 
 
 def _seed_product(
@@ -153,7 +159,7 @@ def test_authority_status_reports_missing_project(
     tmp_path: Path,
 ) -> None:
     """Return a structured CLI usage error when the project is unknown."""
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     result = service.status(project_id=404)
 
@@ -170,7 +176,7 @@ def test_authority_status_distinguishes_missing_authority_without_specs(
     """Report missing authority when the project has no spec versions."""
     product = _seed_product(session)
     product_id = require_id(product.product_id, "product_id")
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     result = service.status(project_id=product_id)
 
@@ -194,7 +200,7 @@ def test_authority_status_keeps_compiled_but_unaccepted_authority_pending(
         session,
         spec_version_id=require_id(spec.spec_version_id, "spec_version_id"),
     )
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     result = service.status(project_id=product_id)
 
@@ -232,7 +238,7 @@ def test_authority_status_reports_current_accepted_authority_from_repo_root(
         spec_version_id=require_id(spec.spec_version_id, "spec_version_id"),
     )
     acceptance = _accept_spec(session, product_id=product_id, spec=spec)
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     result = service.status(project_id=product_id)
 
@@ -279,7 +285,7 @@ def test_authority_status_uses_latest_accepted_decision(
         spec=newer_spec,
         decided_at=datetime(2026, 5, 14, 12, tzinfo=UTC) + timedelta(minutes=1),
     )
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     result = service.status(project_id=product_id)
 
@@ -308,7 +314,7 @@ def test_authority_status_marks_compiler_prompt_mismatch_stale(
         product_id=product_id,
         spec=spec,
     )
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     result = service.status(project_id=product_id)
 
@@ -332,7 +338,7 @@ def test_authority_status_marks_latest_spec_hash_drift_stale(
         spec_version_id=require_id(accepted_spec.spec_version_id, "spec_version_id"),
     )
     _accept_spec(session, product_id=product_id, spec=accepted_spec)
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     result = service.status(project_id=product_id)
 
@@ -361,13 +367,16 @@ def test_authority_status_marks_missing_accepted_spec_stale_before_latest_drift(
     )
     _seed_authority(session, spec_version_id=accepted_spec_id)
     _accept_spec(session, product_id=product_id, spec=accepted_spec)
-    session.exec(text("PRAGMA foreign_keys=OFF"))
+    session.exec(cast("Any", text("PRAGMA foreign_keys=OFF")))
     session.exec(
-        text("DELETE FROM spec_registry WHERE spec_version_id = :spec_version_id"),
+        cast(
+            "Any",
+            text("DELETE FROM spec_registry WHERE spec_version_id = :spec_version_id"),
+        ),
         params={"spec_version_id": accepted_spec_id},
     )
     session.commit()
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     result = service.status(project_id=product_id)
 
@@ -392,13 +401,16 @@ def test_authority_status_marks_missing_accepted_spec_stale_without_authority(
         "spec_version_id",
     )
     _accept_spec(session, product_id=product_id, spec=accepted_spec)
-    session.exec(text("PRAGMA foreign_keys=OFF"))
+    session.exec(cast("Any", text("PRAGMA foreign_keys=OFF")))
     session.exec(
-        text("DELETE FROM spec_registry WHERE spec_version_id = :spec_version_id"),
+        cast(
+            "Any",
+            text("DELETE FROM spec_registry WHERE spec_version_id = :spec_version_id"),
+        ),
         params={"spec_version_id": accepted_spec_id},
     )
     session.commit()
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     result = service.status(project_id=product_id)
 
@@ -426,7 +438,7 @@ def test_authority_status_marks_disk_spec_hash_drift_stale(
         spec_version_id=require_id(spec.spec_version_id, "spec_version_id"),
     )
     _accept_spec(session, product_id=product_id, spec=spec)
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     result = service.status(project_id=product_id)
 
@@ -450,7 +462,7 @@ def test_authority_status_fingerprint_changes_on_latest_spec_drift(
         spec_version_id=require_id(accepted_spec.spec_version_id, "spec_version_id"),
     )
     _accept_spec(session, product_id=product_id, spec=accepted_spec)
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
     current_result = service.status(project_id=product_id)
 
     _seed_spec(session, product_id=product_id, content="latest")
@@ -482,7 +494,7 @@ def test_authority_status_fingerprint_changes_on_disk_spec_drift(
         spec_version_id=require_id(spec.spec_version_id, "spec_version_id"),
     )
     _accept_spec(session, product_id=product_id, spec=spec)
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
     current_result = service.status(project_id=product_id)
 
     spec_path.write_text("# Changed\n", encoding="utf-8")
@@ -510,7 +522,7 @@ def test_authority_status_marks_missing_disk_spec_stale_with_warning(
         spec_version_id=require_id(spec.spec_version_id, "spec_version_id"),
     )
     _accept_spec(session, product_id=product_id, spec=spec)
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     result = service.status(project_id=product_id)
 
@@ -553,7 +565,7 @@ def test_authority_status_marks_unreadable_disk_spec_existing_with_warning(
         return original_read_bytes(path)
 
     monkeypatch.setattr(Path, "read_bytes", fake_read_bytes)
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     result = service.status(project_id=product_id)
 
@@ -579,7 +591,7 @@ def test_invariants_requires_accepted_authority_by_default(
         session,
         spec_version_id=require_id(spec.spec_version_id, "spec_version_id"),
     )
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     result = service.invariants(project_id=product_id)
 
@@ -602,7 +614,7 @@ def test_invariants_default_rejects_unaccepted_recompile(
         prompt_hash="b" * 64,
     )
     _accept_spec(session, product_id=product_id, spec=spec)
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     result = service.invariants(project_id=product_id)
 
@@ -631,7 +643,7 @@ def test_invariants_returns_explicit_compiled_authority_without_acceptance(
         session,
         spec_version_id=require_id(spec.spec_version_id, "spec_version_id"),
     )
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     result = service.invariants(
         project_id=product_id,
@@ -656,7 +668,7 @@ def test_invariants_reports_missing_compiled_authority(
     product = _seed_product(session)
     product_id = require_id(product.product_id, "product_id")
     spec = _seed_spec(session, product_id=product_id, content="# Spec\n")
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     result = service.invariants(
         project_id=product_id,
@@ -685,7 +697,7 @@ def test_malformed_invariants_do_not_crash_status_and_error_invariants(
         invariants="{bad json",
     )
     _accept_spec(session, product_id=product_id, spec=spec)
-    service = AuthorityProjectionService(engine=session.get_bind(), repo_root=tmp_path)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
 
     status_result = service.status(project_id=product_id)
     invariants_result = service.invariants(project_id=product_id)

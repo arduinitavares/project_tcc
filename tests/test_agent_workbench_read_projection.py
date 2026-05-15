@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import create_engine
 from sqlmodel import select
@@ -18,7 +18,15 @@ from utils.task_metadata import TaskMetadata, serialize_task_metadata
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from sqlalchemy.engine import Engine
     from sqlmodel import Session
+
+    from services.agent_workbench.session_reader import ReadOnlySessionReader
+
+
+def _engine(session: Session) -> Engine:
+    """Return the test session bind as an engine for projection services."""
+    return cast("Engine", session.get_bind())
 
 
 class _FakeSessionReader:
@@ -91,7 +99,7 @@ def _seed_project_with_story(session: Session) -> tuple[int, int, int, int]:
 def test_project_list_returns_counts_and_fingerprint(session: Session) -> None:
     """Verify project list is a read-only projection."""
     product_id, _story_id, _sprint_id, _task_id = _seed_project_with_story(session)
-    service = ReadProjectionService(engine=session.get_bind())
+    service = ReadProjectionService(engine=_engine(session))
 
     result = service.project_list()
 
@@ -108,7 +116,7 @@ def test_project_show_returns_structure_counts_and_latest_approved_spec(
 ) -> None:
     """Verify project show exposes read-only structure summary data."""
     product_id, _story_id, _sprint_id, _task_id = _seed_project_with_story(session)
-    service = ReadProjectionService(engine=session.get_bind())
+    service = ReadProjectionService(engine=_engine(session))
 
     result = service.project_show(project_id=product_id)
 
@@ -127,8 +135,8 @@ def test_workflow_state_uses_injected_read_only_session_reader(
     product_id, _story_id, _sprint_id, _task_id = _seed_project_with_story(session)
     reader = _FakeSessionReader()
     service = ReadProjectionService(
-        engine=session.get_bind(),
-        session_reader=reader,
+        engine=_engine(session),
+        session_reader=cast("ReadOnlySessionReader", reader),
     )
 
     result = service.workflow_state(project_id=product_id)
@@ -143,7 +151,7 @@ def test_workflow_state_uses_injected_read_only_session_reader(
 def test_story_show_returns_validation_and_fingerprint(session: Session) -> None:
     """Verify story show exposes story details without validation side effects."""
     _product_id, story_id, _sprint_id, _task_id = _seed_project_with_story(session)
-    service = ReadProjectionService(engine=session.get_bind())
+    service = ReadProjectionService(engine=_engine(session))
 
     result = service.story_show(story_id=story_id)
 
@@ -159,7 +167,7 @@ def test_sprint_candidates_returns_refined_unplanned_stories(
 ) -> None:
     """Verify sprint candidates use existing eligibility without mutation."""
     product_id, story_id, _sprint_id, _task_id = _seed_project_with_story(session)
-    service = ReadProjectionService(engine=session.get_bind())
+    service = ReadProjectionService(engine=_engine(session))
 
     result = service.sprint_candidates(project_id=product_id)
 
@@ -209,7 +217,7 @@ def test_sprint_candidates_counts_excluded_story_reasons(
     session.add_all([eligible, non_refined, superseded, done])
     session.commit()
     session.refresh(eligible)
-    service = ReadProjectionService(engine=session.get_bind())
+    service = ReadProjectionService(engine=_engine(session))
 
     result = service.sprint_candidates(project_id=product_id)
 
@@ -240,7 +248,7 @@ def test_sprint_candidates_match_canonical_session_helper(
     )
     session.add(eligible)
     session.commit()
-    service = ReadProjectionService(engine=session.get_bind())
+    service = ReadProjectionService(engine=_engine(session))
 
     canonical = fetch_sprint_candidates_from_session(session, product_id)
     result = service.sprint_candidates(project_id=product_id)
@@ -272,7 +280,7 @@ def test_sprint_candidates_fingerprint_changes_when_open_sprint_link_moves(
     session.commit()
     session.refresh(candidate)
     candidate_story_id = require_id(candidate.story_id, "candidate_story_id")
-    service = ReadProjectionService(engine=session.get_bind())
+    service = ReadProjectionService(engine=_engine(session))
 
     before = service.sprint_candidates(project_id=product_id)
     original_link = session.exec(
@@ -317,7 +325,7 @@ def test_sprint_candidates_fingerprint_changes_when_candidate_row_state_changes(
     session.add(candidate)
     session.commit()
     session.refresh(candidate)
-    service = ReadProjectionService(engine=session.get_bind())
+    service = ReadProjectionService(engine=_engine(session))
 
     before = service.sprint_candidates(project_id=product_id)
     candidate.updated_at = datetime(2026, 5, 15, 12, tzinfo=UTC)

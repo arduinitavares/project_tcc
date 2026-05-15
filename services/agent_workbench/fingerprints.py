@@ -20,12 +20,12 @@ def normalize_for_hash(value: object) -> object:
         return value.isoformat()
     if isinstance(value, Mapping):
         normalized: dict[str, object] = {}
-        for key in sorted(value, key=str):
+        for key, item in sorted(value.items(), key=lambda entry: str(entry[0])):
             canonical_key = str(key)
             if canonical_key in normalized:
                 msg = f"Duplicate canonical mapping key {canonical_key!r}."
                 raise ValueError(msg)
-            normalized[canonical_key] = normalize_for_hash(value[key])
+            normalized[canonical_key] = normalize_for_hash(item)
         return normalized
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return [normalize_for_hash(item) for item in value]
