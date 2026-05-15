@@ -250,6 +250,14 @@ def _cli_payload(
     assert payload["errors"] == []
     meta = _mapping(payload["meta"])
     assert meta["schema_version"] == SCHEMA_VERSION
+    assert meta["command_version"] == "1"
+    assert isinstance(meta["agileforge_version"], str)
+    assert meta["agileforge_version"]
+    assert meta["storage_schema_version"] == "1"
+    assert isinstance(meta["correlation_id"], str)
+    assert meta["correlation_id"]
+    assert isinstance(meta["generated_at"], str)
+    assert meta["generated_at"]
     return payload
 
 
