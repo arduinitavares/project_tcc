@@ -32,7 +32,7 @@ class ErrorCode(str, Enum):
     AUTHORITY_ACCEPTANCE_MISMATCH = "AUTHORITY_ACCEPTANCE_MISMATCH"
     AUTHORITY_INVARIANTS_INVALID = "AUTHORITY_INVARIANTS_INVALID"
     STALE_STATE = "STALE_STATE"
-    STALE_FINGERPRINT = "STALE_FINGERPRINT"
+    STALE_ARTIFACT_FINGERPRINT = "STALE_ARTIFACT_FINGERPRINT"
     STALE_CONTEXT_FINGERPRINT = "STALE_CONTEXT_FINGERPRINT"
     STALE_AUTHORITY_VERSION = "STALE_AUTHORITY_VERSION"
     CONFIRMATION_REQUIRED = "CONFIRMATION_REQUIRED"
@@ -68,9 +68,9 @@ _ERROR_REGISTRY: dict[ErrorCode, ErrorMetadata] = {
     ),
     ErrorCode.SCHEMA_NOT_READY: ErrorMetadata(
         code=ErrorCode.SCHEMA_NOT_READY.value,
-        default_exit_code=3,
-        retryable=False,
-        description="The storage schema is not ready for this command.",
+        default_exit_code=5,
+        retryable=True,
+        description="Required schema objects are missing.",
     ),
     ErrorCode.PROJECT_NOT_FOUND: ErrorMetadata(
         code=ErrorCode.PROJECT_NOT_FOUND.value,
@@ -116,45 +116,45 @@ _ERROR_REGISTRY: dict[ErrorCode, ErrorMetadata] = {
     ),
     ErrorCode.STALE_STATE: ErrorMetadata(
         code=ErrorCode.STALE_STATE.value,
-        default_exit_code=10,
+        default_exit_code=3,
         retryable=True,
-        description="State changed before the command could complete.",
+        description="Expected workflow state did not match.",
     ),
-    ErrorCode.STALE_FINGERPRINT: ErrorMetadata(
-        code=ErrorCode.STALE_FINGERPRINT.value,
-        default_exit_code=11,
+    ErrorCode.STALE_ARTIFACT_FINGERPRINT: ErrorMetadata(
+        code=ErrorCode.STALE_ARTIFACT_FINGERPRINT.value,
+        default_exit_code=3,
         retryable=True,
-        description="The supplied state fingerprint is stale.",
+        description="Reviewed artifact fingerprint changed.",
     ),
     ErrorCode.STALE_CONTEXT_FINGERPRINT: ErrorMetadata(
         code=ErrorCode.STALE_CONTEXT_FINGERPRINT.value,
-        default_exit_code=11,
+        default_exit_code=3,
         retryable=True,
-        description="The supplied context fingerprint is stale.",
+        description="Reviewed context fingerprint changed.",
     ),
     ErrorCode.STALE_AUTHORITY_VERSION: ErrorMetadata(
         code=ErrorCode.STALE_AUTHORITY_VERSION.value,
-        default_exit_code=12,
+        default_exit_code=3,
         retryable=True,
-        description="The supplied authority version is stale.",
+        description="Accepted authority version changed.",
     ),
     ErrorCode.CONFIRMATION_REQUIRED: ErrorMetadata(
         code=ErrorCode.CONFIRMATION_REQUIRED.value,
-        default_exit_code=20,
+        default_exit_code=2,
         retryable=False,
-        description="The command requires explicit confirmation.",
+        description="Destructive confirmation is missing.",
     ),
     ErrorCode.ACTIVE_STATE_BLOCKS_DELETE: ErrorMetadata(
         code=ErrorCode.ACTIVE_STATE_BLOCKS_DELETE.value,
-        default_exit_code=21,
+        default_exit_code=4,
         retryable=False,
-        description="Active state blocks the requested delete.",
+        description="Active workflow state blocks deletion.",
     ),
     ErrorCode.SCHEMA_VERSION_MISMATCH: ErrorMetadata(
         code=ErrorCode.SCHEMA_VERSION_MISMATCH.value,
-        default_exit_code=3,
-        retryable=False,
-        description="The storage schema version does not match this command.",
+        default_exit_code=5,
+        retryable=True,
+        description="Storage schema version is incompatible.",
     ),
     ErrorCode.MUTATION_FAILED: ErrorMetadata(
         code=ErrorCode.MUTATION_FAILED.value,
@@ -165,32 +165,32 @@ _ERROR_REGISTRY: dict[ErrorCode, ErrorMetadata] = {
     ErrorCode.MUTATION_ROLLBACK: ErrorMetadata(
         code=ErrorCode.MUTATION_ROLLBACK.value,
         default_exit_code=1,
-        retryable=False,
-        description="The mutation was rolled back.",
+        retryable=True,
+        description="Mutation rolled back or needs recovery.",
     ),
     ErrorCode.MUTATION_IN_PROGRESS: ErrorMetadata(
         code=ErrorCode.MUTATION_IN_PROGRESS.value,
-        default_exit_code=13,
+        default_exit_code=1,
         retryable=True,
-        description="A mutation is already in progress.",
+        description="Mutation lease is still active.",
     ),
     ErrorCode.MUTATION_RECOVERY_REQUIRED: ErrorMetadata(
         code=ErrorCode.MUTATION_RECOVERY_REQUIRED.value,
-        default_exit_code=14,
+        default_exit_code=1,
         retryable=True,
-        description="Mutation recovery is required before continuing.",
+        description="Mutation requires recovery before replay.",
     ),
     ErrorCode.MUTATION_RESUME_CONFLICT: ErrorMetadata(
         code=ErrorCode.MUTATION_RESUME_CONFLICT.value,
-        default_exit_code=15,
-        retryable=False,
-        description="The mutation cannot be resumed from this state.",
+        default_exit_code=1,
+        retryable=True,
+        description="Another worker acquired recovery.",
     ),
     ErrorCode.IDEMPOTENCY_KEY_REUSED: ErrorMetadata(
         code=ErrorCode.IDEMPOTENCY_KEY_REUSED.value,
-        default_exit_code=16,
+        default_exit_code=2,
         retryable=False,
-        description="The idempotency key was reused for a different mutation.",
+        description="Idempotency key was reused with a different request.",
     ),
     ErrorCode.MUTATION_NOT_FOUND: ErrorMetadata(
         code=ErrorCode.MUTATION_NOT_FOUND.value,
