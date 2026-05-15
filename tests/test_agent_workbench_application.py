@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy.engine import Engine
+
+from db.migrations import ensure_schema_current
 from services.agent_workbench.application import AgentWorkbenchApplication
+from services.agent_workbench.version import STORAGE_SCHEMA_VERSION
 
 PROJECT_ID = 7
 SPEC_VERSION_ID = 3
@@ -347,3 +351,59 @@ def test_application_workflow_next_fingerprint_changes_with_pack_inputs() -> Non
     assert first["data"]["source_fingerprint"].startswith("sha256:")
     assert changed["data"]["source_fingerprint"].startswith("sha256:")
     assert first["data"]["source_fingerprint"] != changed["data"]["source_fingerprint"]
+
+
+def test_application_diagnostics_facades_return_envelopes(engine: Engine) -> None:
+    """Expose diagnostics payloads through application envelopes."""
+    ensure_schema_current(engine)
+    app = AgentWorkbenchApplication(
+        read_projection=_FakeReadProjection(),
+        authority_projection=_FakeAuthorityProjection(),
+    )
+
+    doctor = app.doctor(business_engine=engine, session_db_url="sqlite:///:memory:")
+    schema_check = app.schema_check(
+        business_engine=engine,
+        session_db_url="sqlite:///:memory:",
+    )
+
+    assert doctor["ok"] is True
+    assert doctor["warnings"] == []
+    assert doctor["errors"] == []
+    assert doctor["data"]["central_repo_root"]["status"] == "ok"
+    assert doctor["data"]["caller_cwd"]["status"] == "ok"
+
+    assert schema_check == {
+        "ok": True,
+        "data": schema_check["data"],
+        "warnings": [],
+        "errors": [],
+    }
+    assert schema_check["data"]["business_db"]["required_version"] == (
+        STORAGE_SCHEMA_VERSION
+    )
+    assert schema_check["data"]["business_db"]["status"] == "ok"
+
+
+def test_application_contract_facades_return_envelopes() -> None:
+    """Expose capabilities and command schema through application envelopes."""
+    app = AgentWorkbenchApplication(
+        read_projection=_FakeReadProjection(),
+        authority_projection=_FakeAuthorityProjection(),
+    )
+
+    capabilities = app.capabilities()
+    command_schema = app.command_schema("agileforge status")
+
+    assert capabilities["ok"] is True
+    assert capabilities["warnings"] == []
+    assert capabilities["errors"] == []
+    assert capabilities["data"]["installed_command_count"] >= 1
+
+    assert command_schema == {
+        "ok": True,
+        "data": command_schema["data"],
+        "warnings": [],
+        "errors": [],
+    }
+    assert command_schema["data"]["name"] == "agileforge status"

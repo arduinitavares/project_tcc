@@ -4,9 +4,16 @@ from __future__ import annotations
 
 from typing import Any, Final, Protocol
 
+from sqlalchemy.engine import Engine
+
 from services.agent_workbench.authority_projection import AuthorityProjectionService
 from services.agent_workbench.command_registry import installed_command_names
+from services.agent_workbench.command_schema import (
+    capabilities_payload,
+    command_schema_payload,
+)
 from services.agent_workbench.context_pack import ContextPackService
+from services.agent_workbench.diagnostics import doctor_payload, schema_check_payload
 from services.agent_workbench.fingerprints import canonical_hash
 from services.agent_workbench.read_projection import ReadProjectionService
 
@@ -194,6 +201,57 @@ class AgentWorkbenchApplication:
             "errors": [],
         }
 
+    def doctor(
+        self,
+        *,
+        business_engine: Engine | None = None,
+        session_db_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Return local diagnostics in an application envelope."""
+        return _data_envelope(
+            doctor_payload(
+                business_engine=business_engine,
+                session_db_url=session_db_url,
+            )
+        )
+
+    def schema_check(
+        self,
+        *,
+        business_engine: Engine | None = None,
+        session_db_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Return schema readiness diagnostics in an application envelope."""
+        return _data_envelope(
+            schema_check_payload(
+                business_engine=business_engine,
+                session_db_url=session_db_url,
+            )
+        )
+
+    def capabilities(self) -> dict[str, Any]:
+        """Return installed command capabilities in an application envelope."""
+        return _data_envelope(capabilities_payload())
+
+    def command_schema(self, command_name: str) -> dict[str, Any]:
+        """Return one command schema in an application envelope."""
+        try:
+            payload = command_schema_payload(command_name)
+        except ValueError as exc:
+            return {
+                "ok": False,
+                "data": {},
+                "warnings": [],
+                "errors": [
+                    {
+                        "code": "UNKNOWN_COMMAND",
+                        "message": str(exc),
+                        "retryable": False,
+                    }
+                ],
+            }
+        return _data_envelope(payload)
+
     def authority_status(self, *, project_id: int) -> dict[str, Any]:
         """Return authority status projection."""
         return self._authority_projection.status(project_id=project_id)
@@ -215,6 +273,16 @@ def _envelope_data(envelope: dict[str, Any]) -> dict[str, Any]:
     """Return dictionary data from a successful child projection."""
     data = envelope.get("data")
     return data if isinstance(data, dict) else {}
+
+
+def _data_envelope(data: dict[str, Any]) -> dict[str, Any]:
+    """Wrap payload data in the application envelope shape."""
+    return {
+        "ok": True,
+        "data": data,
+        "warnings": [],
+        "errors": [],
+    }
 
 
 def _fingerprint_input(data: dict[str, Any]) -> object:
