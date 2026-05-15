@@ -6,8 +6,10 @@ import json
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import Engine
+from sqlalchemy.sql.dml import Update
 from sqlmodel import Session, SQLModel, select
 
 import services.agent_workbench.mutation_ledger as mutation_ledger_mod
@@ -359,6 +361,73 @@ def test_stale_pending_error_timestamp_uses_utc_instant_for_offset_now(
     assert stored.last_error_json is not None
     last_error = json.loads(stored.last_error_json)
     assert last_error["recorded_at"] == "2026-05-15T12:00:45+00:00"
+
+
+def test_stale_recovery_loses_race_when_same_owner_refreshes_lease(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _repo(engine)
+    now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    row = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-001",
+        request_hash="sha256:req",
+        project_id=7,
+        correlation_id="corr-1",
+        changed_by="cli-agent",
+        lease_owner="worker-1",
+        now=now,
+        lease_seconds=30,
+    ).ledger
+    assert row.mutation_event_id is not None
+    recovery_attempt_at = now + timedelta(seconds=45)
+    refreshed_expires_at = recovery_attempt_at + timedelta(seconds=60)
+    original_exec = mutation_ledger_mod.Session.exec
+    race_injected = False
+
+    def exec_with_lease_refresh_race(
+        session: Session,
+        statement: object,
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        nonlocal race_injected
+        if isinstance(statement, Update) and not race_injected:
+            race_injected = True
+            original_exec(
+                session,
+                update(CliMutationLedger)
+                .where(CliMutationLedger.mutation_event_id == row.mutation_event_id)
+                .values(
+                    last_heartbeat_at=_db_time(recovery_attempt_at),
+                    lease_expires_at=_db_time(refreshed_expires_at),
+                    updated_at=_db_time(recovery_attempt_at),
+                ),
+            )
+        return original_exec(session, statement, *args, **kwargs)
+
+    monkeypatch.setattr(mutation_ledger_mod.Session, "exec", exec_with_lease_refresh_race)
+
+    result = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-001",
+        request_hash="sha256:req",
+        project_id=7,
+        correlation_id="corr-2",
+        changed_by="cli-agent",
+        lease_owner="worker-2",
+        now=recovery_attempt_at,
+        lease_seconds=30,
+    )
+
+    assert result.error_code == MUTATION_IN_PROGRESS
+    with Session(engine) as session:
+        stored = session.exec(select(CliMutationLedger)).one()
+    assert stored.status == MutationStatus.PENDING.value
+    assert stored.lease_owner == "worker-1"
+    assert stored.lease_expires_at == _db_time(refreshed_expires_at)
+    assert stored.last_error_json is None
 
 
 def test_resume_requires_compare_and_set_from_recovery_required(

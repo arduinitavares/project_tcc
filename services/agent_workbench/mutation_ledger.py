@@ -219,6 +219,10 @@ class MutationLedgerRepository:
             statement = statement.where(CliMutationLedger.lease_owner.is_(None))
         else:
             statement = statement.where(CliMutationLedger.lease_owner == row.lease_owner)
+        if row.lease_expires_at is None:
+            statement = statement.where(CliMutationLedger.lease_expires_at.is_(None))
+        else:
+            statement = statement.where(CliMutationLedger.lease_expires_at <= db_now)
 
         result = session.exec(
             statement.values(
