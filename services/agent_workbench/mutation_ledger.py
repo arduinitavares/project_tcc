@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, select
 
@@ -85,7 +86,13 @@ def _stale_pending_error(row: CliMutationLedger, now: datetime) -> dict[str, Any
 
 
 def _db_datetime(value: datetime) -> datetime:
-    """Normalize datetimes to SQLite's persisted representation."""
+    """Normalize datetimes to UTC-naive values for SQLite persistence.
+
+    Naive inputs are treated as already UTC. Aware inputs are converted to the
+    equivalent UTC instant before dropping tzinfo.
+    """
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
     return value.replace(tzinfo=None)
 
 
@@ -141,7 +148,24 @@ class MutationLedgerRepository:
                 updated_at=db_now,
             )
             session.add(row)
-            session.commit()
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                raced_row = session.exec(
+                    select(CliMutationLedger).where(
+                        CliMutationLedger.command == command,
+                        CliMutationLedger.idempotency_key == idempotency_key,
+                    )
+                ).first()
+                if raced_row is None:
+                    raise
+                return self._existing_result(
+                    session=session,
+                    row=raced_row,
+                    request_hash=request_hash,
+                    now=now,
+                )
             session.refresh(row)
             return LedgerLoadResult(ledger=row)
 
@@ -290,6 +314,7 @@ class MutationLedgerRepository:
                 .where(CliMutationLedger.mutation_event_id == mutation_event_id)
                 .where(CliMutationLedger.status == MutationStatus.PENDING.value)
                 .where(CliMutationLedger.lease_owner == lease_owner)
+                .where(CliMutationLedger.lease_expires_at > db_now)
                 .values(
                     last_heartbeat_at=db_now,
                     lease_expires_at=db_now + timedelta(seconds=lease_seconds),
@@ -332,6 +357,8 @@ class MutationLedgerRepository:
                 row is None
                 or row.status != MutationStatus.PENDING.value
                 or row.lease_owner != lease_owner
+                or row.lease_expires_at is None
+                or row.lease_expires_at <= db_now
             ):
                 return False
 
@@ -362,6 +389,7 @@ class MutationLedgerRepository:
                 .where(CliMutationLedger.mutation_event_id == mutation_event_id)
                 .where(CliMutationLedger.status == MutationStatus.PENDING.value)
                 .where(CliMutationLedger.lease_owner == lease_owner)
+                .where(CliMutationLedger.lease_expires_at > db_now)
                 .values(
                     status=MutationStatus.SUCCEEDED.value,
                     after_json=_json_dump(after),
@@ -378,7 +406,7 @@ class MutationLedgerRepository:
             session.commit()
             return result.rowcount == 1
 
-    def force_recovery_required(
+    def _force_recovery_required_for_test(
         self,
         *,
         mutation_event_id: int,
@@ -387,23 +415,33 @@ class MutationLedgerRepository:
         last_error: dict[str, Any],
         now: datetime,
     ) -> None:
-        """Force a row into recovery-required state for tests."""
+        """Force a pending row into recovery-required state for tests."""
         db_now = _db_datetime(now)
         with Session(self._engine) as session:
-            row = session.get(CliMutationLedger, mutation_event_id)
-            if row is None:
-                raise ValueError(f"Mutation event {mutation_event_id} not found.")
-            row.status = MutationStatus.RECOVERY_REQUIRED.value
-            row.recovery_action = recovery_action.value
-            row.recovery_safe_to_auto_resume = safe_to_auto_resume
-            row.last_error_json = _json_dump(last_error)
-            row.lease_owner = None
-            row.lease_acquired_at = None
-            row.last_heartbeat_at = None
-            row.lease_expires_at = None
-            row.updated_at = db_now
-            session.add(row)
+            result = session.exec(
+                update(CliMutationLedger)
+                .where(CliMutationLedger.mutation_event_id == mutation_event_id)
+                .where(CliMutationLedger.status == MutationStatus.PENDING.value)
+                .values(
+                    status=MutationStatus.RECOVERY_REQUIRED.value,
+                    recovery_action=recovery_action.value,
+                    recovery_safe_to_auto_resume=safe_to_auto_resume,
+                    last_error_json=_json_dump(last_error),
+                    lease_owner=None,
+                    lease_acquired_at=None,
+                    last_heartbeat_at=None,
+                    lease_expires_at=None,
+                    updated_at=db_now,
+                )
+            )
             session.commit()
+            if result.rowcount != 1:
+                row = session.get(CliMutationLedger, mutation_event_id)
+                if row is None:
+                    raise ValueError(f"Mutation event {mutation_event_id} not found.")
+                raise RuntimeError(
+                    f"Mutation event {mutation_event_id} was not pending."
+                )
 
     def acquire_resume_lease(
         self,

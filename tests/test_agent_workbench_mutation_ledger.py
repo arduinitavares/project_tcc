@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
+import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, select
 
+import services.agent_workbench.mutation_ledger as mutation_ledger_mod
 from models.agent_workbench import CliMutationLedger
 from services.agent_workbench.mutation_ledger import (
     IDEMPOTENCY_KEY_REUSED,
@@ -26,7 +29,9 @@ def _repo(engine: Engine) -> MutationLedgerRepository:
 
 
 def _db_time(value: datetime) -> datetime:
-    return value.replace(tzinfo=None)
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(UTC).replace(tzinfo=None)
 
 
 def test_create_pending_row_records_request_hash_and_lease(engine: Engine) -> None:
@@ -60,6 +65,92 @@ def test_create_pending_row_records_request_hash_and_lease(engine: Engine) -> No
     assert result.ledger.lease_expires_at == _db_time(now + timedelta(seconds=30))
     assert result.ledger.current_step == "start"
 
+    with Session(engine) as session:
+        rows = session.exec(select(CliMutationLedger)).all()
+    assert len(rows) == 1
+
+
+def test_offset_aware_create_timestamps_are_stored_as_utc_instants(
+    engine: Engine,
+) -> None:
+    repo = _repo(engine)
+    offset_now = datetime(2026, 5, 15, 15, 0, tzinfo=timezone(timedelta(hours=3)))
+
+    result = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-001",
+        request_hash="sha256:req",
+        project_id=7,
+        correlation_id="corr-1",
+        changed_by="cli-agent",
+        lease_owner="worker-1",
+        now=offset_now,
+        lease_seconds=30,
+    )
+
+    assert result.ledger.lease_acquired_at == datetime(2026, 5, 15, 12, 0)
+    assert result.ledger.last_heartbeat_at == datetime(2026, 5, 15, 12, 0)
+    assert result.ledger.lease_expires_at == datetime(2026, 5, 15, 12, 0, 30)
+
+
+def test_create_or_load_handles_unique_constraint_insert_race(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _repo(engine)
+    now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    original_commit = mutation_ledger_mod.Session.commit
+    raced = False
+    inserting_competing_row = False
+
+    def commit_with_insert_race(session: Session) -> None:
+        nonlocal raced, inserting_competing_row
+        if (
+            not raced
+            and not inserting_competing_row
+            and any(isinstance(item, CliMutationLedger) for item in session.new)
+        ):
+            raced = True
+            inserting_competing_row = True
+            with Session(engine) as competing_session:
+                competing_session.add(
+                    CliMutationLedger(
+                        command="agileforge fake mutate",
+                        idempotency_key="fake-key-001",
+                        request_hash="sha256:req",
+                        project_id=7,
+                        correlation_id="corr-race",
+                        changed_by="cli-agent",
+                        status=MutationStatus.PENDING.value,
+                        lease_owner="worker-race",
+                        lease_acquired_at=_db_time(now),
+                        last_heartbeat_at=_db_time(now),
+                        lease_expires_at=_db_time(now + timedelta(seconds=30)),
+                        created_at=_db_time(now),
+                        updated_at=_db_time(now),
+                    )
+                )
+                original_commit(competing_session)
+            inserting_competing_row = False
+            raise IntegrityError("insert race", params=None, orig=Exception("unique"))
+        original_commit(session)
+
+    monkeypatch.setattr(mutation_ledger_mod.Session, "commit", commit_with_insert_race)
+
+    result = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-001",
+        request_hash="sha256:req",
+        project_id=7,
+        correlation_id="corr-1",
+        changed_by="cli-agent",
+        lease_owner="worker-1",
+        now=now + timedelta(seconds=1),
+        lease_seconds=30,
+    )
+
+    assert result.error_code == MUTATION_IN_PROGRESS
+    assert result.ledger.lease_owner == "worker-race"
     with Session(engine) as session:
         rows = session.exec(select(CliMutationLedger)).all()
     assert len(rows) == 1
@@ -248,7 +339,8 @@ def test_resume_requires_compare_and_set_from_recovery_required(
         lease_seconds=1,
     ).ledger
     assert row.mutation_event_id is not None
-    repo.force_recovery_required(
+    assert not hasattr(repo, "force_recovery_required")
+    repo._force_recovery_required_for_test(
         mutation_event_id=row.mutation_event_id,
         recovery_action=RecoveryAction.RESUME_FROM_STEP,
         safe_to_auto_resume=True,
@@ -283,6 +375,103 @@ def test_resume_requires_compare_and_set_from_recovery_required(
     )
     assert acquired.ledger.lease_expires_at == _db_time(now + timedelta(seconds=32))
     assert conflicted.error_code == MUTATION_RESUME_CONFLICT
+
+
+def test_expired_owner_cannot_heartbeat(engine: Engine) -> None:
+    repo = _repo(engine)
+    now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    row = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-001",
+        request_hash="sha256:req",
+        project_id=7,
+        correlation_id="corr-1",
+        changed_by="cli-agent",
+        lease_owner="worker-1",
+        now=now,
+        lease_seconds=30,
+    ).ledger
+    assert row.mutation_event_id is not None
+
+    refreshed = repo.require_active_owner(
+        mutation_event_id=row.mutation_event_id,
+        lease_owner="worker-1",
+        now=now + timedelta(seconds=30),
+        lease_seconds=30,
+    )
+
+    assert refreshed is False
+    with Session(engine) as session:
+        stored = session.get(CliMutationLedger, row.mutation_event_id)
+    assert stored is not None
+    assert stored.last_heartbeat_at == _db_time(now)
+    assert stored.lease_expires_at == _db_time(now + timedelta(seconds=30))
+
+
+def test_expired_owner_cannot_mark_step_complete(engine: Engine) -> None:
+    repo = _repo(engine)
+    now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    row = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-001",
+        request_hash="sha256:req",
+        project_id=7,
+        correlation_id="corr-1",
+        changed_by="cli-agent",
+        lease_owner="worker-1",
+        now=now,
+        lease_seconds=30,
+    ).ledger
+    assert row.mutation_event_id is not None
+
+    marked = repo.mark_step_complete(
+        mutation_event_id=row.mutation_event_id,
+        lease_owner="worker-1",
+        step="business_marker",
+        next_step="session_marker",
+        now=now + timedelta(seconds=30),
+    )
+
+    assert marked is False
+    with Session(engine) as session:
+        stored = session.get(CliMutationLedger, row.mutation_event_id)
+    assert stored is not None
+    assert stored.completed_steps_json == "[]"
+    assert stored.current_step == "start"
+
+
+def test_expired_owner_cannot_finalize_success(engine: Engine) -> None:
+    repo = _repo(engine)
+    now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    row = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-001",
+        request_hash="sha256:req",
+        project_id=7,
+        correlation_id="corr-1",
+        changed_by="cli-agent",
+        lease_owner="worker-1",
+        now=now,
+        lease_seconds=30,
+    ).ledger
+    assert row.mutation_event_id is not None
+
+    finalized = repo.finalize_success(
+        mutation_event_id=row.mutation_event_id,
+        lease_owner="worker-1",
+        after={"step": "done"},
+        response={"ok": True},
+        now=now + timedelta(seconds=30),
+    )
+
+    assert finalized is False
+    with Session(engine) as session:
+        stored = session.get(CliMutationLedger, row.mutation_event_id)
+    assert stored is not None
+    assert stored.status == MutationStatus.PENDING.value
+    assert stored.after_json is None
+    assert stored.response_json is None
+    assert stored.lease_owner == "worker-1"
 
 
 def test_transition_status_enforces_expected_status_and_owner(
