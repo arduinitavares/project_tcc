@@ -1,11 +1,13 @@
 """Tests for agent workbench command schema contracts."""
 
 from services.agent_workbench.command_registry import (
+    CommandMetadata,
     command_is_available,
     installed_command_names,
     installed_commands,
 )
 from services.agent_workbench.command_schema import (
+    _guard_policy,
     capabilities_payload,
     command_schema_payload,
 )
@@ -78,6 +80,7 @@ def test_command_schema_payload_describes_mutation_resume_contract() -> None:
     assert payload["name"] == "agileforge mutation resume"
     assert payload["command_version"] == COMMAND_VERSION
     assert payload["mutates"] is True
+    assert payload["guard_policy"] == []
     assert payload["input"]["required"] == ["mutation_event_id"]
     assert payload["input"]["optional"] == ["correlation_id"]
     assert ErrorCode.MUTATION_RESUME_CONFLICT.value in payload["errors"]
@@ -96,6 +99,22 @@ def test_command_schema_exit_codes_match_error_registry() -> None:
             ErrorCode.MUTATION_RESUME_CONFLICT
         ).default_exit_code,
     }
+
+
+def test_command_schema_guard_policy_lists_enabled_guard_fields() -> None:
+    """Return only enabled guard field names in command schema contracts."""
+    command = CommandMetadata(
+        name="agileforge future guarded command",
+        mutates=True,
+        phase="phase_future",
+        accepts_expected_state=True,
+        accepts_expected_context_fingerprint=True,
+    )
+
+    assert _guard_policy(command) == [
+        "expected_state",
+        "expected_context_fingerprint",
+    ]
 
 
 def test_phase_2a_commands_are_registered_and_available() -> None:

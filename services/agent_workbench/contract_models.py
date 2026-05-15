@@ -35,7 +35,7 @@ class CommandContractSchema(BaseModel):
     destructive: bool
     input: CommandInputSchema
     output: CommandOutputSchema
-    guard_policy: dict[str, Any]
+    guard_policy: list[str]
     idempotency_required: bool
     errors: list[str]
     exit_codes: dict[str, int]

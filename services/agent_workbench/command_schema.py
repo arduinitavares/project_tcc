@@ -85,20 +85,24 @@ def _command_metadata(command_name: str) -> CommandMetadata:
     raise ValueError(msg)
 
 
-def _guard_policy(command: CommandMetadata) -> dict[str, bool]:
-    """Return guard-policy flags for a command contract."""
-    return {
-        "accepts_expected_state": command.accepts_expected_state,
-        "accepts_expected_artifact_fingerprint": (
-            command.accepts_expected_artifact_fingerprint
+def _guard_policy(command: CommandMetadata) -> list[str]:
+    """Return enabled guard field names for a command contract."""
+    guard_fields = [
+        ("expected_state", command.accepts_expected_state),
+        (
+            "expected_artifact_fingerprint",
+            command.accepts_expected_artifact_fingerprint,
         ),
-        "accepts_expected_context_fingerprint": (
-            command.accepts_expected_context_fingerprint
+        (
+            "expected_context_fingerprint",
+            command.accepts_expected_context_fingerprint,
         ),
-        "accepts_expected_authority_version": (
-            command.accepts_expected_authority_version
+        (
+            "expected_authority_version",
+            command.accepts_expected_authority_version,
         ),
-    }
+    ]
+    return [name for name, enabled in guard_fields if enabled]
 
 
 def _envelope_schema() -> dict[str, Any]:
