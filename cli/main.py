@@ -225,6 +225,18 @@ def _success_data(result: JsonObject) -> JsonObject | JsonList:
     return {}
 
 
+def _source_fingerprint(result: JsonObject) -> str | None:
+    """Return source fingerprint metadata from successful result data."""
+    data = result.get("data")
+    data_mapping = _as_mapping(data)
+    if data_mapping is None:
+        return None
+    source_fingerprint = data_mapping.get("source_fingerprint")
+    if isinstance(source_fingerprint, str):
+        return source_fingerprint
+    return None
+
+
 def _wrap(command: str, result: JsonObject) -> JsonObject:
     """Wrap a service result in a stable CLI envelope when needed."""
     if "meta" in result:
@@ -236,6 +248,7 @@ def _wrap(command: str, result: JsonObject) -> JsonObject:
             command=command,
             data=_success_data(result),
             warnings=warnings,
+            source_fingerprint=_source_fingerprint(result),
         )
 
     errors = _errors_from_result(result)

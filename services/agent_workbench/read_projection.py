@@ -15,7 +15,8 @@ from models import db as model_db
 from models.core import Epic, Feature, Product, Sprint, SprintStory, Theme, UserStory
 from models.enums import SprintStatus, StoryStatus
 from models.specs import SpecRegistry
-from services.agent_workbench.envelope import WorkbenchError, error_envelope
+from services.agent_workbench.envelope import error_envelope
+from services.agent_workbench.error_codes import ErrorCode, workbench_error
 from services.agent_workbench.fingerprints import canonical_hash
 from services.agent_workbench.schema_readiness import (
     SchemaReadiness,
@@ -155,8 +156,8 @@ def _schema_error(command: str, readiness: SchemaReadiness) -> JsonDict:
     """Return a stable schema-not-ready error envelope."""
     return error_envelope(
         command=command,
-        error=WorkbenchError(
-            code="SCHEMA_NOT_READY",
+        error=workbench_error(
+            ErrorCode.SCHEMA_NOT_READY,
             message=(
                 "Database schema is missing required tables or columns for this "
                 "read-only command."
@@ -165,8 +166,6 @@ def _schema_error(command: str, readiness: SchemaReadiness) -> JsonDict:
             remediation=[
                 "Run the application startup or migration command before using the CLI."
             ],
-            exit_code=1,
-            retryable=False,
         ),
     )
 
@@ -180,13 +179,11 @@ def _project_not_found_error(command: str, project_id: int) -> JsonDict:
     """Return a structured project lookup error."""
     return error_envelope(
         command=command,
-        error=WorkbenchError(
-            code="PROJECT_NOT_FOUND",
+        error=workbench_error(
+            ErrorCode.PROJECT_NOT_FOUND,
             message=f"Project {project_id} was not found.",
             details={"project_id": project_id},
             remediation=["agileforge project list"],
-            exit_code=2,
-            retryable=False,
         ),
     )
 
@@ -195,13 +192,11 @@ def _story_not_found_error(story_id: int) -> JsonDict:
     """Return a structured story lookup error."""
     return error_envelope(
         command=STORY_SHOW_COMMAND,
-        error=WorkbenchError(
-            code="STORY_NOT_FOUND",
+        error=workbench_error(
+            ErrorCode.STORY_NOT_FOUND,
             message=f"Story {story_id} was not found.",
             details={"story_id": story_id},
             remediation=["agileforge sprint candidates --project-id <project_id>"],
-            exit_code=2,
-            retryable=False,
         ),
     )
 

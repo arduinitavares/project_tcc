@@ -9,6 +9,34 @@ from services.agent_workbench.error_codes import (
     workbench_error,
 )
 
+EXPECTED_ERROR_METADATA = {
+    ErrorCode.INVALID_COMMAND: (2, False),
+    ErrorCode.COMMAND_EXCEPTION: (1, False),
+    ErrorCode.COMMAND_NOT_IMPLEMENTED: (2, False),
+    ErrorCode.SCHEMA_NOT_READY: (5, True),
+    ErrorCode.PROJECT_NOT_FOUND: (4, False),
+    ErrorCode.STORY_NOT_FOUND: (4, False),
+    ErrorCode.SPEC_VERSION_NOT_FOUND: (4, False),
+    ErrorCode.AUTHORITY_NOT_ACCEPTED: (4, False),
+    ErrorCode.AUTHORITY_NOT_COMPILED: (4, False),
+    ErrorCode.AUTHORITY_ACCEPTANCE_MISMATCH: (4, False),
+    ErrorCode.AUTHORITY_INVARIANTS_INVALID: (4, False),
+    ErrorCode.SCHEMA_VERSION_MISMATCH: (5, True),
+    ErrorCode.STALE_STATE: (3, True),
+    ErrorCode.STALE_ARTIFACT_FINGERPRINT: (3, True),
+    ErrorCode.STALE_CONTEXT_FINGERPRINT: (3, True),
+    ErrorCode.STALE_AUTHORITY_VERSION: (3, True),
+    ErrorCode.CONFIRMATION_REQUIRED: (2, False),
+    ErrorCode.ACTIVE_STATE_BLOCKS_DELETE: (4, False),
+    ErrorCode.MUTATION_FAILED: (1, False),
+    ErrorCode.MUTATION_ROLLBACK: (1, True),
+    ErrorCode.MUTATION_IN_PROGRESS: (1, True),
+    ErrorCode.MUTATION_RECOVERY_REQUIRED: (1, True),
+    ErrorCode.MUTATION_RESUME_CONFLICT: (1, True),
+    ErrorCode.IDEMPOTENCY_KEY_REUSED: (2, False),
+    ErrorCode.MUTATION_NOT_FOUND: (4, False),
+}
+
 
 def test_registry_covers_representative_phase_2a_error_codes() -> None:
     """Expose stable metadata for the CLI hardening error taxonomy."""
@@ -31,24 +59,8 @@ def test_registry_covers_representative_phase_2a_error_codes() -> None:
 @pytest.mark.parametrize(
     ("code", "exit_code", "retryable"),
     [
-        (ErrorCode.INVALID_COMMAND, 2, False),
-        (ErrorCode.COMMAND_EXCEPTION, 1, False),
-        (ErrorCode.SCHEMA_NOT_READY, 5, True),
-        (ErrorCode.PROJECT_NOT_FOUND, 4, False),
-        (ErrorCode.SCHEMA_VERSION_MISMATCH, 5, True),
-        (ErrorCode.STALE_STATE, 3, True),
-        (ErrorCode.STALE_ARTIFACT_FINGERPRINT, 3, True),
-        (ErrorCode.STALE_CONTEXT_FINGERPRINT, 3, True),
-        (ErrorCode.STALE_AUTHORITY_VERSION, 3, True),
-        (ErrorCode.CONFIRMATION_REQUIRED, 2, False),
-        (ErrorCode.ACTIVE_STATE_BLOCKS_DELETE, 4, False),
-        (ErrorCode.MUTATION_FAILED, 1, False),
-        (ErrorCode.MUTATION_ROLLBACK, 1, True),
-        (ErrorCode.MUTATION_IN_PROGRESS, 1, True),
-        (ErrorCode.MUTATION_RECOVERY_REQUIRED, 1, True),
-        (ErrorCode.MUTATION_RESUME_CONFLICT, 1, True),
-        (ErrorCode.IDEMPOTENCY_KEY_REUSED, 2, False),
-        (ErrorCode.MUTATION_NOT_FOUND, 4, False),
+        (code, exit_code, retryable)
+        for code, (exit_code, retryable) in EXPECTED_ERROR_METADATA.items()
     ],
 )
 def test_error_metadata_has_stable_exit_codes(
@@ -63,6 +75,11 @@ def test_error_metadata_has_stable_exit_codes(
     assert metadata.default_exit_code == exit_code
     assert metadata.retryable is retryable
     assert metadata.description
+
+
+def test_error_metadata_table_covers_every_error_code() -> None:
+    """Ensure every defined error code has explicit mapping coverage."""
+    assert set(EXPECTED_ERROR_METADATA) == set(ErrorCode)
 
 
 def test_workbench_error_uses_metadata_defaults() -> None:

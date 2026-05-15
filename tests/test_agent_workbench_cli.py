@@ -237,6 +237,32 @@ def test_cli_writes_success_json_to_stdout(
     assert app.calls == [("project_list", {})]
 
 
+def test_cli_wraps_success_source_fingerprint_in_meta(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Expose successful result source fingerprints in envelope metadata."""
+    source_fingerprint = "sha256:" + "b" * 64
+    app = _FakeApplication()
+
+    def project_list_with_source() -> JsonObject:
+        app.calls.append(("project_list", {}))
+        return {
+            "ok": True,
+            "data": {"items": [], "source_fingerprint": source_fingerprint},
+            "warnings": [],
+            "errors": [],
+        }
+
+    app.project_list = project_list_with_source  # type: ignore[method-assign]
+
+    rc = main(["project", "list"], application=app)
+
+    payload = _stdout_payload(capsys)
+    assert rc == 0
+    assert _mapping(payload["data"])["source_fingerprint"] == source_fingerprint
+    assert _mapping(payload["meta"])["source_fingerprint"] == source_fingerprint
+
+
 def test_cli_routes_authority_status(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

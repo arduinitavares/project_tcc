@@ -24,6 +24,7 @@ from services.agent_workbench.envelope import (
     WorkbenchWarning,
     error_envelope,
 )
+from services.agent_workbench.error_codes import ErrorCode, workbench_error
 from services.agent_workbench.fingerprints import canonical_hash
 from services.agent_workbench.schema_readiness import (
     SchemaReadiness,
@@ -148,8 +149,8 @@ def _schema_error(command: str, readiness: SchemaReadiness) -> JsonDict:
     """Return the stable schema-not-ready error envelope."""
     return error_envelope(
         command=command,
-        error=WorkbenchError(
-            code="SCHEMA_NOT_READY",
+        error=workbench_error(
+            ErrorCode.SCHEMA_NOT_READY,
             message=(
                 "Database schema is missing required tables or columns for this "
                 "read-only command."
@@ -158,8 +159,6 @@ def _schema_error(command: str, readiness: SchemaReadiness) -> JsonDict:
             remediation=[
                 "Run the application startup or migration command before using the CLI."
             ],
-            exit_code=1,
-            retryable=False,
         ),
     )
 
@@ -168,13 +167,11 @@ def _project_not_found_error(command: str, project_id: int) -> JsonDict:
     """Return a structured project lookup error."""
     return error_envelope(
         command=command,
-        error=WorkbenchError(
-            code="PROJECT_NOT_FOUND",
+        error=workbench_error(
+            ErrorCode.PROJECT_NOT_FOUND,
             message=f"Project {project_id} was not found.",
             details={"project_id": project_id},
             remediation=["agileforge project list"],
-            exit_code=2,
-            retryable=False,
         ),
     )
 
@@ -183,13 +180,11 @@ def _authority_not_accepted_error(project_id: int) -> JsonDict:
     """Return the default invariants error when no authority is accepted."""
     return error_envelope(
         command=AUTHORITY_INVARIANTS_COMMAND,
-        error=WorkbenchError(
-            code="AUTHORITY_NOT_ACCEPTED",
+        error=workbench_error(
+            ErrorCode.AUTHORITY_NOT_ACCEPTED,
             message="No accepted authority exists for this project.",
             details={"project_id": project_id},
             remediation=["Accept a compiled authority before using the default view."],
-            exit_code=4,
-            retryable=False,
         ),
     )
 
@@ -198,13 +193,11 @@ def _authority_not_compiled_error(project_id: int, spec_version_id: int) -> Json
     """Return a structured missing-compiled-authority error."""
     return error_envelope(
         command=AUTHORITY_INVARIANTS_COMMAND,
-        error=WorkbenchError(
-            code="AUTHORITY_NOT_COMPILED",
+        error=workbench_error(
+            ErrorCode.AUTHORITY_NOT_COMPILED,
             message=f"Spec version {spec_version_id} has no compiled authority.",
             details={"project_id": project_id, "spec_version_id": spec_version_id},
             remediation=["Compile authority for the selected spec version."],
-            exit_code=4,
-            retryable=False,
         ),
     )
 
@@ -218,8 +211,8 @@ def _authority_acceptance_mismatch_error(
     """Return a structured error for unaccepted recompile output."""
     return error_envelope(
         command=AUTHORITY_INVARIANTS_COMMAND,
-        error=WorkbenchError(
-            code="AUTHORITY_ACCEPTANCE_MISMATCH",
+        error=workbench_error(
+            ErrorCode.AUTHORITY_ACCEPTANCE_MISMATCH,
             message=(
                 "Compiled authority provenance does not match the accepted "
                 "authority decision."
@@ -236,8 +229,6 @@ def _authority_acceptance_mismatch_error(
                 "Accept the recompiled authority or restore the accepted compiled "
                 "artifact."
             ],
-            exit_code=4,
-            retryable=False,
         ),
     )
 
@@ -268,8 +259,8 @@ def _invalid_invariants_error(
     """Return a structured invalid-invariants JSON error."""
     return error_envelope(
         command=AUTHORITY_INVARIANTS_COMMAND,
-        error=WorkbenchError(
-            code="AUTHORITY_INVARIANTS_INVALID",
+        error=workbench_error(
+            ErrorCode.AUTHORITY_INVARIANTS_INVALID,
             message="Compiled authority invariants JSON is invalid.",
             details={
                 "authority_id": authority.authority_id,
@@ -277,8 +268,6 @@ def _invalid_invariants_error(
                 "reason": reason,
             },
             remediation=["Inspect the compiled authority row and regenerate it."],
-            exit_code=1,
-            retryable=False,
         ),
     )
 

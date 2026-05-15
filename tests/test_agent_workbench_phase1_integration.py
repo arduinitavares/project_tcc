@@ -383,7 +383,7 @@ def test_phase1_cli_preserves_schema_not_ready_error_envelope(
     rc = main(["project", "list"], application=app)
     payload = _payload_from_stdout(capsys)
 
-    assert rc == 1
+    assert rc == 5
     assert payload["ok"] is False
     assert payload["data"] is None
     meta = _mapping(payload["meta"])
@@ -391,7 +391,8 @@ def test_phase1_cli_preserves_schema_not_ready_error_envelope(
     assert meta["command"] == "agileforge project list"
     error = _mapping(_sequence(payload["errors"])[0])
     assert error["code"] == "SCHEMA_NOT_READY"
-    assert error["exit_code"] == 1
+    assert error["exit_code"] == 5
+    assert error["retryable"] is True
     assert "products" in _mapping(_mapping(error["details"])["missing"])
     assert not db_path.exists()
 

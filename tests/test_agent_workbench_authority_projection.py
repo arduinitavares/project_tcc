@@ -24,8 +24,8 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
     from sqlmodel import Session
 
-SCHEMA_NOT_READY_EXIT_CODE: Final[int] = 1
-CLI_USAGE_ERROR_EXIT_CODE: Final[int] = 2
+SCHEMA_NOT_READY_EXIT_CODE: Final[int] = 5
+NOT_FOUND_EXIT_CODE: Final[int] = 4
 AUTHORITY_ERROR_EXIT_CODE: Final[int] = 4
 
 
@@ -150,6 +150,7 @@ def test_authority_status_reports_schema_not_ready_without_creating_database(
     assert result["ok"] is False
     assert result["errors"][0]["code"] == "SCHEMA_NOT_READY"
     assert result["errors"][0]["exit_code"] == SCHEMA_NOT_READY_EXIT_CODE
+    assert result["errors"][0]["retryable"] is True
     assert "products" in result["errors"][0]["details"]["missing"]
     assert not db_path.exists()
 
@@ -165,7 +166,8 @@ def test_authority_status_reports_missing_project(
 
     assert result["ok"] is False
     assert result["errors"][0]["code"] == "PROJECT_NOT_FOUND"
-    assert result["errors"][0]["exit_code"] == CLI_USAGE_ERROR_EXIT_CODE
+    assert result["errors"][0]["exit_code"] == NOT_FOUND_EXIT_CODE
+    assert result["errors"][0]["retryable"] is False
     assert result["errors"][0]["details"] == {"project_id": 404}
 
 
