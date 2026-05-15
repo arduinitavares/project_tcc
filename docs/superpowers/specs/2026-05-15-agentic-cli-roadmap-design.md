@@ -177,11 +177,19 @@ The mutation ledger must store:
 - status: `pending`, `succeeded`, `validation_failed`,
   `guard_rejected`, `domain_failed_no_side_effects`, or
   `recovery_required`
+- current step
+- completed steps
 - guard inputs
 - before snapshot
 - after snapshot when available
 - response envelope when available
 - recovery action when recovery is required
+- recovery safe-to-auto-resume flag
+- lease owner
+- lease acquired timestamp
+- last heartbeat timestamp
+- lease expiration timestamp
+- last error
 - timestamps
 
 The uniqueness boundary is command name plus idempotency key. If the same
@@ -205,7 +213,7 @@ updated guard tokens or corrected arguments requires a new idempotency key.
 Ledger status meanings are:
 
 - `pending`: ledger row exists and the command is inside its declared write
-  protocol.
+  protocol under an active lease.
 - `succeeded`: declared writes completed and the stored response can be replayed.
 - `validation_failed`: typed request validation or deterministic preflight
   failed after parser acceptance and before domain writes.
@@ -215,6 +223,15 @@ Ledger status meanings are:
   writes began, such as a model-provider failure before artifact persistence.
 - `recovery_required`: some declared side effect may have occurred, finalization
   failed, or the command cannot prove that all declared writes completed.
+
+The recovery action is a finite enum:
+
+- `none`: no recovery is available or needed.
+- `resume_from_step`: continue from the first incomplete declared step.
+- `reconcile_then_resume`: inspect durable state, mark already-completed steps,
+  then continue from the first incomplete declared step.
+- `manual_intervention_required`: return structured instructions; do not run
+  additional side effects automatically.
 
 The canonical request hash includes command name, command version, normalized
 explicit arguments, defaulted arguments, resolved file paths, file content hashes
@@ -230,6 +247,27 @@ effects occur but finalization fails, the command must return
 same idempotency key must produce a deterministic recovery or replay outcome.
 `mutation_event_id` is the mutation ledger primary key and the audit event id.
 
+### Pending Lease And Fencing
+
+`pending` means an active command holds the ledger lease. Each mutation process
+gets a unique lease owner token and must heartbeat before long operations and
+before each declared side-effect boundary.
+
+Every step update and finalization write must compare the stored lease owner
+with the process lease owner. If the owner differs, the process is fenced and
+must stop without additional domain writes.
+
+When a command invocation loads an existing `pending` row:
+
+- if the lease heartbeat is still fresh, it returns `MUTATION_IN_PROGRESS` with
+  retry guidance;
+- if the lease is stale, it must atomically transition the row from `pending` to
+  `recovery_required`, compute the recovery action from current step, completed
+  steps, and durable state, then return `MUTATION_RECOVERY_REQUIRED`.
+
+Phase 2A must define the default stale-pending timeout and make it configurable
+for tests. Stale pending rows are recovery candidates, not safe replay records.
+
 Recovery must be operator-visible:
 
 ```bash
@@ -238,10 +276,29 @@ agileforge mutation resume --mutation-event-id 101
 agileforge mutation list --project-id 1 --status recovery_required
 ```
 
-When a retry with the same command and idempotency key sees
-`recovery_required`, it may automatically resume only if the ledger row declares
-the recovery action safe and deterministic. Otherwise it must return
-`MUTATION_RECOVERY_REQUIRED` with a structured `mutation resume` remediation.
+`mutation resume` is a guarded recovery operation over the original ledger row.
+It mutates only that ledger row and the remaining side effects declared by the
+original command. It reuses the original command, original idempotency key,
+original request hash, original normalized request, and original guard inputs.
+It must not accept command arguments that alter the original mutation. It may
+accept only `--mutation-event-id` plus optional tracing fields such as
+`--correlation-id`.
+
+`mutation resume` requires ledger status `recovery_required`. It must acquire
+the row by atomic compare-and-set from `recovery_required` to `pending` with a
+new lease owner before doing recovery work. If another process wins that
+transition, the command returns `MUTATION_IN_PROGRESS` or
+`MUTATION_RESUME_CONFLICT`.
+
+Automatic resume is allowed only when the ledger row is `recovery_required`,
+the recovery action has `safe_to_auto_resume: true`, and the process wins the
+same atomic status transition required by `mutation resume`. Otherwise the
+command returns `MUTATION_RECOVERY_REQUIRED` with a structured
+`mutation resume` remediation.
+
+`mutation resume` output must include the original command, original request
+hash, original idempotency key, before recovery state, after recovery state,
+resumed steps, final status, whether domain state changed, and next actions.
 
 ### Cross-Store Mutation Protocol
 
@@ -258,9 +315,11 @@ Before Phase 2B can ship `project create`, Phase 2A must define and test:
 - ordered write steps for product, spec registry, authority compilation,
   pending compiled authority artifact persistence, and workflow session
   initialization
+- durable progress fields before and after each side-effect boundary
 - explicit recovery states for each step boundary
 - response replay after success
 - deterministic retry behavior after timeout or partial failure
+- stale pending detection and owner fencing
 - no `SpecAuthorityAcceptance` row creation during `project create`
 
 A command must not claim atomicity across stores unless tests prove it.
@@ -644,7 +703,7 @@ Errors are structured:
 
 ```json
 {
-  "code": "STALE_CONTEXT",
+  "code": "STALE_CONTEXT_FINGERPRINT",
   "message": "Project state changed since the draft was reviewed.",
   "remediation": [
     "agileforge status --project-id 1",
@@ -660,6 +719,7 @@ include `INVALID_COMMAND`, `COMMAND_EXCEPTION`, `COMMAND_NOT_IMPLEMENTED`,
 `AUTHORITY_NOT_ACCEPTED`, `STALE_STATE`, `STALE_ARTIFACT_FINGERPRINT`,
 `STALE_CONTEXT_FINGERPRINT`, `STALE_AUTHORITY_VERSION`,
 `IDEMPOTENCY_KEY_REUSED`, `MUTATION_RECOVERY_REQUIRED`,
+`MUTATION_IN_PROGRESS`, `MUTATION_RESUME_CONFLICT`,
 `CONFIRMATION_REQUIRED`, `ACTIVE_STATE_BLOCKS_DELETE`, `MUTATION_FAILED`, and
 `MUTATION_ROLLBACK`.
 
@@ -699,12 +759,15 @@ schema fail before domain reads or writes.
 - mutation guard helpers
 - guard-token provenance declarations per command schema
 - mutation ledger with idempotency-key replay semantics
+- pending lease, heartbeat, stale-pending detection, and owner fencing
 - dry-run envelope support
 - audit semantics through the mutation ledger
+- guarded `mutation resume` compare-and-set semantics
 - destructive command policy helpers
 - a fake/test mutation command that proves envelopes, schemas, guard failures,
-  dry-run, idempotency replay, request-hash mismatch, and audit finalization
-  before any real domain mutation ships
+  dry-run, idempotency replay, request-hash mismatch, stale pending recovery,
+  concurrent resume fencing, failed resume replay, and audit finalization before
+  any real domain mutation ships
 - tests proving existing read commands keep working
 
 ### Phase 2B: Project Setup Mutation
@@ -768,6 +831,9 @@ Each phase must include:
 - dry-run tests
 - idempotency replay and request-hash mismatch tests
 - mutation ledger/audit finalization tests
+- pending lease, stale-pending, heartbeat, and owner-fencing tests
+- `mutation resume` compare-and-set, concurrent resume, and failed resume
+  replay tests
 - error registry and exit-code tests
 - command schema tests for input and output contracts
 - guard-token producer/consumer coverage tests
@@ -793,6 +859,10 @@ Each phase must include:
 - Canonical mutations reject stale artifact, context, or authority inputs.
 - Every non-dry-run mutation requires an idempotency key and supports
   deterministic replay or recovery.
+- `mutation resume` uses the original ledger row and cannot alter original
+  mutation arguments.
+- Stale pending ledger rows are detected, fenced, and converted into recovery
+  candidates before replay or resume.
 - Cross-store mutations leave a durable recovery record if all declared writes
   do not complete.
 - Command schemas declare exact guard-token producers and fingerprint payloads.
