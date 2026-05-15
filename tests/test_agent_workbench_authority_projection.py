@@ -17,6 +17,7 @@ from models.specs import (
     SpecRegistry,
 )
 from services.agent_workbench.authority_projection import AuthorityProjectionService
+from services.agent_workbench.error_codes import ErrorCode, error_metadata
 from tests.typing_helpers import require_id
 
 if TYPE_CHECKING:
@@ -682,6 +683,33 @@ def test_invariants_reports_missing_compiled_authority(
     assert result["errors"][0]["details"] == {
         "project_id": product_id,
         "spec_version_id": spec.spec_version_id,
+    }
+
+
+def test_invariants_reports_missing_spec_version_with_registry_metadata(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    """Use registry defaults when an explicit spec version is unknown."""
+    product = _seed_product(session)
+    product_id = require_id(product.product_id, "product_id")
+    missing_spec_version_id = 999_999
+    metadata = error_metadata(ErrorCode.SPEC_VERSION_NOT_FOUND)
+    service = AuthorityProjectionService(engine=_engine(session), repo_root=tmp_path)
+
+    result = service.invariants(
+        project_id=product_id,
+        spec_version_id=missing_spec_version_id,
+    )
+
+    error = result["errors"][0]
+    assert result["ok"] is False
+    assert error["code"] == metadata.code
+    assert error["exit_code"] == metadata.default_exit_code
+    assert error["retryable"] is metadata.retryable
+    assert error["details"] == {
+        "project_id": product_id,
+        "spec_version_id": missing_spec_version_id,
     }
 
 

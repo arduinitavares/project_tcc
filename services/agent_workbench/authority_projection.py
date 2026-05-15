@@ -237,16 +237,14 @@ def _spec_version_not_found_error(project_id: int, spec_version_id: int) -> Json
     """Return a structured invalid-spec-version error."""
     return error_envelope(
         command=AUTHORITY_INVARIANTS_COMMAND,
-        error=WorkbenchError(
-            code="SPEC_VERSION_NOT_FOUND",
+        error=workbench_error(
+            ErrorCode.SPEC_VERSION_NOT_FOUND,
             message=(
                 f"Spec version {spec_version_id} was not found for project "
                 f"{project_id}."
             ),
             details={"project_id": project_id, "spec_version_id": spec_version_id},
             remediation=["Choose a spec version that belongs to this project."],
-            exit_code=2,
-            retryable=False,
         ),
     )
 
