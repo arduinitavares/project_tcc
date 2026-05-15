@@ -101,12 +101,17 @@ _PHASE_2A_COMMANDS: tuple[CommandMetadata, ...] = (
         mutates=False,
         phase="phase_2a",
         input_required=("mutation_event_id",),
+        errors=(
+            ErrorCode.SCHEMA_NOT_READY.value,
+            ErrorCode.MUTATION_NOT_FOUND.value,
+        ),
     ),
     CommandMetadata(
         name="agileforge mutation list",
         mutates=False,
         phase="phase_2a",
         input_optional=("project_id", "status"),
+        errors=(ErrorCode.SCHEMA_NOT_READY.value,),
     ),
     CommandMetadata(
         name="agileforge mutation resume",
@@ -115,7 +120,8 @@ _PHASE_2A_COMMANDS: tuple[CommandMetadata, ...] = (
         input_required=("mutation_event_id",),
         input_optional=("correlation_id",),
         errors=(
-            ErrorCode.MUTATION_IN_PROGRESS.value,
+            ErrorCode.SCHEMA_NOT_READY.value,
+            ErrorCode.MUTATION_NOT_FOUND.value,
             ErrorCode.MUTATION_RESUME_CONFLICT.value,
         ),
     ),

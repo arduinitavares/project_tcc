@@ -128,8 +128,21 @@ def test_command_schema_payload_describes_mutation_resume_contract() -> None:
     assert payload["guard_policy"] == []
     assert payload["input"]["required"] == ["mutation_event_id"]
     assert payload["input"]["optional"] == ["correlation_id"]
+    assert ErrorCode.SCHEMA_NOT_READY.value in payload["errors"]
+    assert ErrorCode.MUTATION_NOT_FOUND.value in payload["errors"]
     assert ErrorCode.MUTATION_RESUME_CONFLICT.value in payload["errors"]
+    assert ErrorCode.MUTATION_IN_PROGRESS.value not in payload["errors"]
     assert payload["output"]["envelope_schema"]["type"] == "object"
+
+
+def test_command_schema_payload_describes_mutation_show_errors() -> None:
+    """Describe reachable mutation inspection errors."""
+    payload = command_schema_payload("agileforge mutation show")
+
+    assert payload["errors"] == [
+        ErrorCode.SCHEMA_NOT_READY.value,
+        ErrorCode.MUTATION_NOT_FOUND.value,
+    ]
 
 
 def test_command_schema_exit_codes_match_error_registry() -> None:
@@ -137,8 +150,11 @@ def test_command_schema_exit_codes_match_error_registry() -> None:
     payload = command_schema_payload("agileforge mutation resume")
 
     assert payload["exit_codes"] == {
-        ErrorCode.MUTATION_IN_PROGRESS.value: error_metadata(
-            ErrorCode.MUTATION_IN_PROGRESS
+        ErrorCode.SCHEMA_NOT_READY.value: error_metadata(
+            ErrorCode.SCHEMA_NOT_READY
+        ).default_exit_code,
+        ErrorCode.MUTATION_NOT_FOUND.value: error_metadata(
+            ErrorCode.MUTATION_NOT_FOUND
         ).default_exit_code,
         ErrorCode.MUTATION_RESUME_CONFLICT.value: error_metadata(
             ErrorCode.MUTATION_RESUME_CONFLICT

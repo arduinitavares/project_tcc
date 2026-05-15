@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
+from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlmodel import SQLModel
 
@@ -508,3 +510,26 @@ def test_application_mutation_facades_return_ledger_envelopes(
     assert resumed["ok"] is True
     assert resumed["data"]["status"] == MutationStatus.PENDING.value
     assert resumed["data"]["recovery"]["domain_resume_required"] is True
+
+
+def test_application_mutation_facades_report_schema_not_ready_without_creating_db(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutation ledger facade methods should not create absent SQLite files."""
+    db_path = tmp_path / "missing-ledger.sqlite3"
+    missing_engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    monkeypatch.setattr(
+        application_mod,
+        "get_engine",
+        lambda: missing_engine,
+        raising=False,
+    )
+
+    result = AgentWorkbenchApplication().mutation_list()
+
+    assert result["ok"] is False
+    assert result["data"] is None
+    assert result["errors"][0]["code"] == "SCHEMA_NOT_READY"
+    assert "cli_mutation_ledger" in result["errors"][0]["details"]["missing"]
+    assert not db_path.exists()

@@ -19,9 +19,43 @@ from services.agent_workbench.error_codes import ErrorCode, workbench_error
 from services.agent_workbench.fingerprints import canonical_hash
 from services.agent_workbench.mutation_ledger import MutationLedgerRepository
 from services.agent_workbench.read_projection import ReadProjectionService
+from services.agent_workbench.schema_readiness import (
+    SchemaRequirement,
+    check_schema_readiness,
+)
 
 STATUS_COMMAND: Final[str] = "agileforge status"
 WORKFLOW_NEXT_COMMAND: Final[str] = "agileforge workflow next"
+MUTATION_LEDGER_REQUIREMENTS: Final[tuple[SchemaRequirement, ...]] = (
+    SchemaRequirement(
+        table="cli_mutation_ledger",
+        columns=(
+            "mutation_event_id",
+            "command",
+            "idempotency_key",
+            "request_hash",
+            "project_id",
+            "correlation_id",
+            "changed_by",
+            "status",
+            "current_step",
+            "completed_steps_json",
+            "guard_inputs_json",
+            "before_json",
+            "after_json",
+            "response_json",
+            "recovery_action",
+            "recovery_safe_to_auto_resume",
+            "lease_owner",
+            "lease_acquired_at",
+            "last_heartbeat_at",
+            "lease_expires_at",
+            "last_error_json",
+            "created_at",
+            "updated_at",
+        ),
+    ),
+)
 
 
 class _ReadProjection(Protocol):
@@ -248,7 +282,9 @@ class AgentWorkbenchApplication:
 
     def mutation_show(self, *, mutation_event_id: int) -> dict[str, Any]:
         """Return one mutation ledger event."""
-        repo = MutationLedgerRepository(engine=get_engine())
+        repo, error = _mutation_ledger_repository()
+        if error is not None:
+            return error
         return repo.show_event(mutation_event_id=mutation_event_id)
 
     def mutation_list(
@@ -258,7 +294,9 @@ class AgentWorkbenchApplication:
         status: str | None = None,
     ) -> dict[str, Any]:
         """Return mutation ledger events."""
-        repo = MutationLedgerRepository(engine=get_engine())
+        repo, error = _mutation_ledger_repository()
+        if error is not None:
+            return error
         return repo.list_events(project_id=project_id, status=status)
 
     def mutation_resume(
@@ -268,7 +306,9 @@ class AgentWorkbenchApplication:
         correlation_id: str | None = None,
     ) -> dict[str, Any]:
         """Acquire a guarded recovery lease for a mutation event."""
-        repo = MutationLedgerRepository(engine=get_engine())
+        repo, error = _mutation_ledger_repository()
+        if error is not None:
+            return error
         return repo.resume_event(
             mutation_event_id=mutation_event_id,
             correlation_id=correlation_id,
@@ -325,6 +365,29 @@ def _data_envelope(data: dict[str, Any]) -> dict[str, Any]:
         "data": data,
         "warnings": [],
         "errors": [],
+    }
+
+
+def _mutation_ledger_repository() -> tuple[MutationLedgerRepository, None] | tuple[
+    None,
+    dict[str, Any],
+]:
+    """Return a mutation ledger repo or a schema-not-ready envelope."""
+    engine = get_engine()
+    readiness = check_schema_readiness(engine, MUTATION_LEDGER_REQUIREMENTS)
+    if readiness.ok:
+        return MutationLedgerRepository(engine=engine), None
+
+    error = workbench_error(
+        ErrorCode.SCHEMA_NOT_READY,
+        details={"missing": readiness.missing},
+        remediation=["agileforge schema check"],
+    )
+    return None, {
+        "ok": False,
+        "data": None,
+        "warnings": [],
+        "errors": [error.to_dict()],
     }
 
 
