@@ -28,7 +28,7 @@ def _remove_console_handlers() -> None:
     root_logger = logging.getLogger()
     kept_handlers = []
     for handler in root_logger.handlers:
-        handler_id = getattr(handler, "_project_tcc_handler_id", "")
+        handler_id = getattr(handler, "_agileforge_handler_id", "")
         if str(handler_id).startswith("console:"):
             handler.close()
             continue

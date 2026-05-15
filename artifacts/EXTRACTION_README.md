@@ -6,7 +6,7 @@ This directory contains extracted evaluation metrics for Chapter 6 (Resultados) 
 
 ### Production Database: `db/spec_authority_dev.db` ⭐ (ACTIVE)
 - **Location:** `<project_root>/db/spec_authority_dev.db`
-- **Configured via:** `.env` → `PROJECT_TCC_DB_URL=sqlite:///./db/spec_authority_dev.db`
+- **Configured via:** `.env` → `AGILEFORGE_DB_URL=sqlite:///./db/spec_authority_dev.db`
 - **Size:** ~260 KB
 - **Last Modified:** 2026-02-01
 - **Contains:** 2 products with spec authority validation, 7 stories (4 with validation_evidence)
@@ -17,7 +17,7 @@ This directory contains extracted evaluation metrics for Chapter 6 (Resultados) 
 
 ### ADK Session Database: `db/spec_authority_session_dev.db` (example)
 - **Location:** `<project_root>/db/spec_authority_session_dev.db`
-- **Configured via:** `.env` → `PROJECT_TCC_SESSION_DB_URL=sqlite:///./db/spec_authority_session_dev.db`
+- **Configured via:** `.env` → `AGILEFORGE_SESSION_DB_URL=sqlite:///./db/spec_authority_session_dev.db`
 - **Size:** ~52 KB (session storage only)
 - **Contains:** Google ADK session data (app_states, events, sessions, user_states)
 - **Note:** NOT used for evaluation metrics; contains conversation history only
@@ -97,7 +97,7 @@ The following evaluation data was collected externally and must be included manu
 
 ```bash
 # From project root
-cd c:\Users\mjnrc\projects\project_tcc
+cd c:\Users\mjnrc\projects\agileforge
 
 # Extract from PRODUCTION database (configured in .env)
 python -m scripts.extract_tcc_metrics db/spec_authority_dev.db
@@ -115,7 +115,7 @@ sqlite3 db/spec_authority_dev.db < artifacts/sql_queries/05_sprint_plan_cycle_ti
 
 ## Known Limitations
 
-1. **Database Configuration:** The active database is configured via `.env` file (`PROJECT_TCC_DB_URL`). Currently set to `db/spec_authority_dev.db`.
+1. **Database Configuration:** The active database is configured via `.env` file (`AGILEFORGE_DB_URL`). Currently set to `db/spec_authority_dev.db`.
 2. **Limited Data:** Only 2 projects and 7 stories in the active database; this is a development/evaluation dataset
 3. **Validation Evidence:** Available for 4 of 7 stories (57.1% coverage)
 4. **Timing Granularity:** Only `SPRINT_PLAN_SAVED` events have explicit `duration_seconds`; other timing requires timestamp math

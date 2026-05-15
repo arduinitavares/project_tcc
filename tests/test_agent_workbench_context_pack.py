@@ -160,11 +160,11 @@ def test_sprint_planning_pack_filters_unimplemented_next_commands() -> None:
     assert data["phase"] == "sprint-planning"
     assert data["fsm_state"] == "SPRINT_SETUP"
     assert data["next_valid_commands"] == [
-        "tcc sprint candidates --project-id 7",
+        "agileforge sprint candidates --project-id 7",
     ]
     assert data["blocked_commands"] == []
     assert data["blocked_future_commands"] == [
-        "tcc sprint generate --project-id 7 --selected-story-ids 1,2,3",
+        "agileforge sprint generate --project-id 7 --selected-story-ids 1,2,3",
     ]
     assert data["included_sections"] == [
         "workflow",
@@ -220,7 +220,7 @@ def test_sprint_planning_pack_blocks_candidates_outside_sprint_state() -> None:
     assert data["phase_data"] == {}
     assert data["blocked_commands"] == [
         {
-            "command": "tcc sprint candidates --project-id 7",
+            "command": "agileforge sprint candidates --project-id 7",
             "reason_code": "WORKFLOW_STATE_NOT_SPRINT_PLANNING",
             "details": {"fsm_state": "VISION_INTERVIEW"},
         }
@@ -246,7 +246,7 @@ def test_sprint_planning_pack_blocks_candidates_when_authority_blocks() -> None:
     assert data["phase_data"] == {}
     assert data["blocked_commands"] == [
         {
-            "command": "tcc sprint candidates --project-id 7",
+            "command": "agileforge sprint candidates --project-id 7",
             "reason_code": "AUTHORITY_BLOCKING_STATE",
             "details": {"authority_status": "stale"},
         }

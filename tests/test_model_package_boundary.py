@@ -493,7 +493,7 @@ def test_core_user_story_boundary_is_safe_in_fresh_process(
         "assert rels['tasks'].mapper.class_.__module__ == 'models.core'"
     )
     env = os.environ.copy()
-    env["PROJECT_TCC_DB_URL"] = f"sqlite:///{tmp_path / 'fresh-process.db'}"
+    env["AGILEFORGE_DB_URL"] = f"sqlite:///{tmp_path / 'fresh-process.db'}"
 
     result = subprocess.run(  # noqa: S603  # nosec B603
         [sys.executable, "-c", command],
@@ -511,7 +511,7 @@ def test_models_core_import_does_not_require_db_env() -> None:
     """Verify models core import does not require db env."""
     root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
-    env.pop("PROJECT_TCC_DB_URL", None)
+    env.pop("AGILEFORGE_DB_URL", None)
 
     result = subprocess.run(  # nosec B603
         [sys.executable, "-c", "import models.core"],
@@ -529,7 +529,7 @@ def test_models_core_task_boundary_does_not_require_db_env() -> None:
     """Verify models core task boundary does not require db env."""
     root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
-    env.pop("PROJECT_TCC_DB_URL", None)
+    env.pop("AGILEFORGE_DB_URL", None)
 
     result = subprocess.run(  # nosec B603
         [
@@ -551,7 +551,7 @@ def test_models_core_sprint_boundary_does_not_require_db_env() -> None:
     """Verify models core sprint boundary does not require db env."""
     root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
-    env.pop("PROJECT_TCC_DB_URL", None)
+    env.pop("AGILEFORGE_DB_URL", None)
 
     result = subprocess.run(  # nosec B603
         [
@@ -575,7 +575,7 @@ def test_agile_sqlmodel_script_entrypoint_stays_safe_after_user_story_move(
     """Verify agile sqlmodel script entrypoint stays safe after user story move."""
     root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
-    env["PROJECT_TCC_DB_URL"] = f"sqlite:///{tmp_path / 'business.db'}"
+    env["AGILEFORGE_DB_URL"] = f"sqlite:///{tmp_path / 'business.db'}"
 
     result = subprocess.run(  # noqa: S603  # nosec B603
         [sys.executable, str(root / "agile_sqlmodel.py")],

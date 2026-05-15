@@ -120,7 +120,7 @@ def test_structured_task_spec_rejects_unknown_task_kind() -> None:
 
 - [ ] **Step 2: Run the new tests to verify the current code fails**
 
-Run: `uv run pytest /Users/aaat/projects/project_tcc/tests/test_task_metadata.py -q`
+Run: `uv run pytest /Users/aaat/projects/agileforge/tests/test_task_metadata.py -q`
 
 Expected: FAIL because `review`, `qa`, and `validation` are still rejected by the current `TaskKind` validation path.
 
@@ -160,17 +160,17 @@ def _validate_task_kind(cls, value: Any) -> TaskKind:
 
 - [ ] **Step 4: Re-run the tests to verify normalization works and unknown values still fail**
 
-Run: `uv run pytest /Users/aaat/projects/project_tcc/tests/test_task_metadata.py -q`
+Run: `uv run pytest /Users/aaat/projects/agileforge/tests/test_task_metadata.py -q`
 
 Expected: PASS with 4 tests green.
 
 - [ ] **Step 5: Commit the shared canonicalization slice**
 
 ```bash
-git -C /Users/aaat/projects/project_tcc add \
-  /Users/aaat/projects/project_tcc/utils/task_metadata.py \
-  /Users/aaat/projects/project_tcc/tests/test_task_metadata.py
-git -C /Users/aaat/projects/project_tcc commit -m "feat: canonicalize sprint task kinds"
+git -C /Users/aaat/projects/agileforge add \
+  /Users/aaat/projects/agileforge/utils/task_metadata.py \
+  /Users/aaat/projects/agileforge/tests/test_task_metadata.py
+git -C /Users/aaat/projects/agileforge commit -m "feat: canonicalize sprint task kinds"
 ```
 
 ## Task 2: Harden the Sprint Planner Prompt Contract
@@ -214,7 +214,7 @@ def test_sprint_planner_prompt_calls_out_decomposition_anti_patterns() -> None:
 
 - [ ] **Step 2: Run the prompt-contract test to verify it fails against the current prompt**
 
-Run: `uv run pytest /Users/aaat/projects/project_tcc/tests/test_sprint_planner_prompt_contract.py -q`
+Run: `uv run pytest /Users/aaat/projects/agileforge/tests/test_sprint_planner_prompt_contract.py -q`
 
 Expected: FAIL because the prompt does not yet contain the exact contract language or the positive/negative examples.
 
@@ -238,17 +238,17 @@ Also update the JSON example so every task uses only canonical kinds and at leas
 
 - [ ] **Step 4: Re-run the prompt-contract test**
 
-Run: `uv run pytest /Users/aaat/projects/project_tcc/tests/test_sprint_planner_prompt_contract.py -q`
+Run: `uv run pytest /Users/aaat/projects/agileforge/tests/test_sprint_planner_prompt_contract.py -q`
 
 Expected: PASS with both prompt assertions green.
 
 - [ ] **Step 5: Commit the prompt hardening slice**
 
 ```bash
-git -C /Users/aaat/projects/project_tcc add \
-  /Users/aaat/projects/project_tcc/orchestrator_agent/agent_tools/sprint_planner_tool/instructions.txt \
-  /Users/aaat/projects/project_tcc/tests/test_sprint_planner_prompt_contract.py
-git -C /Users/aaat/projects/project_tcc commit -m "docs: harden sprint planner prompt contract"
+git -C /Users/aaat/projects/agileforge add \
+  /Users/aaat/projects/agileforge/orchestrator_agent/agent_tools/sprint_planner_tool/instructions.txt \
+  /Users/aaat/projects/agileforge/tests/test_sprint_planner_prompt_contract.py
+git -C /Users/aaat/projects/agileforge commit -m "docs: harden sprint planner prompt contract"
 ```
 
 ## Task 3: Split Public Retry Hints from Full Failure-Artifact Details
@@ -484,9 +484,9 @@ def test_sprint_generate_failure_exposes_validation_errors_in_response_and_histo
 Run:
 
 ```bash
-uv run pytest /Users/aaat/projects/project_tcc/tests/test_sprint_runtime.py -q
-uv run pytest /Users/aaat/projects/project_tcc/tests/test_runtime_failure_artifacts.py -q
-uv run pytest /Users/aaat/projects/project_tcc/tests/test_api_sprint_flow.py -q
+uv run pytest /Users/aaat/projects/agileforge/tests/test_sprint_runtime.py -q
+uv run pytest /Users/aaat/projects/agileforge/tests/test_runtime_failure_artifacts.py -q
+uv run pytest /Users/aaat/projects/agileforge/tests/test_api_sprint_flow.py -q
 ```
 
 Expected: FAIL because sprint failures do not yet attach public `validation_errors: list[str]`, ADK-time structured validation detail is not preserved, and the API/history assertions will not find the new field.
@@ -620,9 +620,9 @@ Use that split consistently:
 Run:
 
 ```bash
-uv run pytest /Users/aaat/projects/project_tcc/tests/test_sprint_runtime.py -q
-uv run pytest /Users/aaat/projects/project_tcc/tests/test_runtime_failure_artifacts.py -q
-uv run pytest /Users/aaat/projects/project_tcc/tests/test_api_sprint_flow.py -q
+uv run pytest /Users/aaat/projects/agileforge/tests/test_sprint_runtime.py -q
+uv run pytest /Users/aaat/projects/agileforge/tests/test_runtime_failure_artifacts.py -q
+uv run pytest /Users/aaat/projects/agileforge/tests/test_api_sprint_flow.py -q
 ```
 
 Expected: PASS, with runtime/API now exposing `output_artifact.validation_errors` as `list[str]` while failure artifacts still retain structured dictionaries.
@@ -630,14 +630,14 @@ Expected: PASS, with runtime/API now exposing `output_artifact.validation_errors
 - [ ] **Step 5: Commit the runtime retry-guidance slice**
 
 ```bash
-git -C /Users/aaat/projects/project_tcc add \
-  /Users/aaat/projects/project_tcc/utils/failure_artifacts.py \
-  /Users/aaat/projects/project_tcc/utils/adk_runner.py \
-  /Users/aaat/projects/project_tcc/services/sprint_runtime.py \
-  /Users/aaat/projects/project_tcc/tests/test_sprint_runtime.py \
-  /Users/aaat/projects/project_tcc/tests/test_runtime_failure_artifacts.py \
-  /Users/aaat/projects/project_tcc/tests/test_api_sprint_flow.py
-git -C /Users/aaat/projects/project_tcc commit -m "feat: expose sprint retry guidance"
+git -C /Users/aaat/projects/agileforge add \
+  /Users/aaat/projects/agileforge/utils/failure_artifacts.py \
+  /Users/aaat/projects/agileforge/utils/adk_runner.py \
+  /Users/aaat/projects/agileforge/services/sprint_runtime.py \
+  /Users/aaat/projects/agileforge/tests/test_sprint_runtime.py \
+  /Users/aaat/projects/agileforge/tests/test_runtime_failure_artifacts.py \
+  /Users/aaat/projects/agileforge/tests/test_api_sprint_flow.py
+git -C /Users/aaat/projects/agileforge commit -m "feat: expose sprint retry guidance"
 ```
 
 ## Task 4: Render Retry Guidance and Clarify the Retry Input Affordance
@@ -680,7 +680,7 @@ test('sprint planner form labels retry notes clearly', () => {
 
 - [ ] **Step 2: Run the frontend test to verify the current UI lacks the new affordance**
 
-Run: `node --test /Users/aaat/projects/project_tcc/tests/test_sprint_workspace_display.mjs`
+Run: `node --test /Users/aaat/projects/agileforge/tests/test_sprint_workspace_display.mjs`
 
 Expected: FAIL because there is no `renderSprintValidationErrors` helper and the form still says `Planning Notes`.
 
@@ -731,18 +731,18 @@ html += renderSprintValidationErrors(artifact.validation_errors);
 
 - [ ] **Step 4: Re-run the frontend test**
 
-Run: `node --test /Users/aaat/projects/project_tcc/tests/test_sprint_workspace_display.mjs`
+Run: `node --test /Users/aaat/projects/agileforge/tests/test_sprint_workspace_display.mjs`
 
 Expected: PASS, with retry guidance rendered in the failure card and the form copy updated.
 
 - [ ] **Step 5: Commit the sprint UI slice**
 
 ```bash
-git -C /Users/aaat/projects/project_tcc add \
-  /Users/aaat/projects/project_tcc/frontend/project.html \
-  /Users/aaat/projects/project_tcc/frontend/project.js \
-  /Users/aaat/projects/project_tcc/tests/test_sprint_workspace_display.mjs
-git -C /Users/aaat/projects/project_tcc commit -m "feat: show sprint retry guidance"
+git -C /Users/aaat/projects/agileforge add \
+  /Users/aaat/projects/agileforge/frontend/project.html \
+  /Users/aaat/projects/agileforge/frontend/project.js \
+  /Users/aaat/projects/agileforge/tests/test_sprint_workspace_display.mjs
+git -C /Users/aaat/projects/agileforge commit -m "feat: show sprint retry guidance"
 ```
 
 ## Task 5: Run the Full Focused Verification Sweep
@@ -763,12 +763,12 @@ Run:
 
 ```bash
 uv run pytest \
-  /Users/aaat/projects/project_tcc/tests/test_task_metadata.py \
-  /Users/aaat/projects/project_tcc/tests/test_sprint_planner_prompt_contract.py \
-  /Users/aaat/projects/project_tcc/tests/test_sprint_planner_schemes.py \
-  /Users/aaat/projects/project_tcc/tests/test_sprint_runtime.py \
-  /Users/aaat/projects/project_tcc/tests/test_runtime_failure_artifacts.py \
-  /Users/aaat/projects/project_tcc/tests/test_api_sprint_flow.py \
+  /Users/aaat/projects/agileforge/tests/test_task_metadata.py \
+  /Users/aaat/projects/agileforge/tests/test_sprint_planner_prompt_contract.py \
+  /Users/aaat/projects/agileforge/tests/test_sprint_planner_schemes.py \
+  /Users/aaat/projects/agileforge/tests/test_sprint_runtime.py \
+  /Users/aaat/projects/agileforge/tests/test_runtime_failure_artifacts.py \
+  /Users/aaat/projects/agileforge/tests/test_api_sprint_flow.py \
   -q
 ```
 
@@ -776,7 +776,7 @@ Expected: PASS with all targeted Python regressions green.
 
 - [ ] **Step 2: Run the sprint workspace display test**
 
-Run: `node --test /Users/aaat/projects/project_tcc/tests/test_sprint_workspace_display.mjs`
+Run: `node --test /Users/aaat/projects/agileforge/tests/test_sprint_workspace_display.mjs`
 
 Expected: PASS with the sprint UI regression suite green.
 
@@ -785,8 +785,8 @@ Expected: PASS with the sprint UI regression suite green.
 Run:
 
 ```bash
-git -C /Users/aaat/projects/project_tcc status --short
-git -C /Users/aaat/projects/project_tcc diff --stat HEAD~4..HEAD
+git -C /Users/aaat/projects/agileforge status --short
+git -C /Users/aaat/projects/agileforge diff --stat HEAD~4..HEAD
 ```
 
 Expected: only the planned files above are changed, with no unrelated drift pulled into the implementation branch.

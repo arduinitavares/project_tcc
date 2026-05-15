@@ -1,7 +1,7 @@
 ## Agile SQLModel Runtime Seam Inventory
 
 Date: 2026-04-06
-Worktree: `/Users/aaat/projects/project_tcc/.worktrees/phase1-route-stabilization`
+Worktree: `/Users/aaat/projects/agileforge/.worktrees/phase1-route-stabilization`
 
 ### Goal
 

@@ -31,8 +31,8 @@ Add coverage for:
   - `Task.story`
   - `Task.assignee`
 - the existing no-env package guarantee:
-  - `import models.core` still succeeds without `PROJECT_TCC_DB_URL`
-  - `python agile_sqlmodel.py` still works when `PROJECT_TCC_DB_URL` is explicitly set
+  - `import models.core` still succeeds without `AGILEFORGE_DB_URL`
+  - `python agile_sqlmodel.py` still works when `AGILEFORGE_DB_URL` is explicitly set
 
 - [ ] **Step 2: Add failing import-boundary checks for the first `Task` consumers**
 

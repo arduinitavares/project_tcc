@@ -34,8 +34,8 @@
 ### Task 1: Add Reusable Interview Runtime Projection Helpers
 
 **Files:**
-- Create: `/Users/aaat/projects/project_tcc/services/interview_runtime.py`
-- Create: `/Users/aaat/projects/project_tcc/tests/test_interview_runtime.py`
+- Create: `/Users/aaat/projects/agileforge/services/interview_runtime.py`
+- Create: `/Users/aaat/projects/agileforge/tests/test_interview_runtime.py`
 
 - [ ] **Step 1: Write failing unit tests for subject initialization, feedback absorption, migration, and reset**
 
@@ -374,8 +374,8 @@ git commit -m "feat: add interview runtime projection helpers"
 ### Task 2: Refactor Story Runtime to Assemble Requests From Projections
 
 **Files:**
-- Modify: `/Users/aaat/projects/project_tcc/services/story_runtime.py`
-- Modify: `/Users/aaat/projects/project_tcc/tests/test_story_runtime.py`
+- Modify: `/Users/aaat/projects/agileforge/services/story_runtime.py`
+- Modify: `/Users/aaat/projects/agileforge/tests/test_story_runtime.py`
 
 - [ ] **Step 1: Expand story runtime tests to cover reusable draft lookup, request replay, and failure classification**
 
@@ -720,9 +720,9 @@ git commit -m "feat: make story runtime projection-aware"
 ### Task 3: Make Story API Endpoints Projection-Driven and Add Explicit Retry
 
 **Files:**
-- Modify: `/Users/aaat/projects/project_tcc/api.py`
-- Create: `/Users/aaat/projects/project_tcc/tests/test_api_story_interview_flow.py`
-- Modify: `/Users/aaat/projects/project_tcc/tests/test_api_delete_story.py`
+- Modify: `/Users/aaat/projects/agileforge/api.py`
+- Create: `/Users/aaat/projects/agileforge/tests/test_api_story_interview_flow.py`
+- Modify: `/Users/aaat/projects/agileforge/tests/test_api_delete_story.py`
 
 - [ ] **Step 1: Write failing API tests for projection-based generate, retry, save, and history**
 
@@ -1320,8 +1320,8 @@ git commit -m "feat: add failure-aware story interview api"
 ### Task 4: Update Story Interview UI for Explicit Retry and Projection-Based Save
 
 **Files:**
-- Modify: `/Users/aaat/projects/project_tcc/frontend/project.html`
-- Modify: `/Users/aaat/projects/project_tcc/frontend/project.js`
+- Modify: `/Users/aaat/projects/agileforge/frontend/project.html`
+- Modify: `/Users/aaat/projects/agileforge/frontend/project.js`
 
 - [ ] **Step 1: Add the explicit retry button to the story action bar**
 

@@ -46,12 +46,12 @@
 ### Task 1: Add Planner-Generated Task Checklists to Structured Task Metadata
 
 **Files:**
-- Modify: `/Users/aaat/projects/project_tcc/utils/task_metadata.py`
-- Modify: `/Users/aaat/projects/project_tcc/orchestrator_agent/agent_tools/sprint_planner_tool/instructions.txt`
-- Modify: `/Users/aaat/projects/project_tcc/orchestrator_agent/agent_tools/sprint_planner_tool/schemes.py`
-- Modify: `/Users/aaat/projects/project_tcc/tests/test_sprint_planner_schemes.py`
-- Modify: `/Users/aaat/projects/project_tcc/tests/test_sprint_planner_tools.py`
-- Modify: `/Users/aaat/projects/project_tcc/tests/test_sprint_runtime.py`
+- Modify: `/Users/aaat/projects/agileforge/utils/task_metadata.py`
+- Modify: `/Users/aaat/projects/agileforge/orchestrator_agent/agent_tools/sprint_planner_tool/instructions.txt`
+- Modify: `/Users/aaat/projects/agileforge/orchestrator_agent/agent_tools/sprint_planner_tool/schemes.py`
+- Modify: `/Users/aaat/projects/agileforge/tests/test_sprint_planner_schemes.py`
+- Modify: `/Users/aaat/projects/agileforge/tests/test_sprint_planner_tools.py`
+- Modify: `/Users/aaat/projects/agileforge/tests/test_sprint_runtime.py`
 
 - [ ] **Step 1: Write failing schema tests for checklist-aware planner output**
 
@@ -230,8 +230,8 @@ git commit -m "feat: add planner-generated task checklists"
 ### Task 2: Surface Checklist-Aware Tasks in Sprint Summaries
 
 **Files:**
-- Modify: `/Users/aaat/projects/project_tcc/api.py`
-- Modify: `/Users/aaat/projects/project_tcc/tests/test_api_sprint_flow.py`
+- Modify: `/Users/aaat/projects/agileforge/api.py`
+- Modify: `/Users/aaat/projects/agileforge/tests/test_api_sprint_flow.py`
 
 - [ ] **Step 1: Write a failing API serialization test for `checklist_items` and `is_executable`**
 
@@ -308,11 +308,11 @@ git commit -m "feat: expose task checklist metadata in sprint summaries"
 ### Task 3: Introduce `story_packet.v1` and Bump Task Packets to `task_packet.v2`
 
 **Files:**
-- Modify: `/Users/aaat/projects/project_tcc/api.py`
-- Modify: `/Users/aaat/projects/project_tcc/docs/task-packet-vision.md`
-- Create: `/Users/aaat/projects/project_tcc/docs/task-packet-schema-v2.md`
-- Create: `/Users/aaat/projects/project_tcc/docs/story-packet-schema-v1.md`
-- Modify: `/Users/aaat/projects/project_tcc/tests/test_api_sprint_flow.py`
+- Modify: `/Users/aaat/projects/agileforge/api.py`
+- Modify: `/Users/aaat/projects/agileforge/docs/task-packet-vision.md`
+- Create: `/Users/aaat/projects/agileforge/docs/task-packet-schema-v2.md`
+- Create: `/Users/aaat/projects/agileforge/docs/story-packet-schema-v1.md`
+- Modify: `/Users/aaat/projects/agileforge/tests/test_api_sprint_flow.py`
 
 - [ ] **Step 1: Write failing API tests for `task_packet.v2` and `story_packet.v1`**
 
@@ -678,9 +678,9 @@ git commit -m "feat: add story packets and task packet v2"
 ### Task 4: Split Story Bootstrap Rendering from Task Delta Rendering
 
 **Files:**
-- Modify: `/Users/aaat/projects/project_tcc/services/packet_renderer.py`
-- Modify: `/Users/aaat/projects/project_tcc/tests/test_packet_renderer.py`
-- Modify: `/Users/aaat/projects/project_tcc/tests/test_api_sprint_flow.py`
+- Modify: `/Users/aaat/projects/agileforge/services/packet_renderer.py`
+- Modify: `/Users/aaat/projects/agileforge/tests/test_packet_renderer.py`
+- Modify: `/Users/aaat/projects/agileforge/tests/test_api_sprint_flow.py`
 
 - [ ] **Step 1: Write failing renderer tests for story prompts and task-checklist wording**
 
@@ -849,7 +849,7 @@ git commit -m "feat: split story and task packet renderers"
 ### Task 5: Wire Story Prompt Copying and Executable Task UX in the Frontend
 
 **Files:**
-- Modify: `/Users/aaat/projects/project_tcc/frontend/project.js`
+- Modify: `/Users/aaat/projects/agileforge/frontend/project.js`
 
 - [ ] **Step 1: Add a story-level copy button to the story card header**
 
@@ -952,9 +952,9 @@ git commit -m "feat: add story prompt copy flow"
 ### Task 6: Run Full Regression and Publish the Final Contract Docs
 
 **Files:**
-- Modify: `/Users/aaat/projects/project_tcc/docs/task-packet-vision.md`
-- Modify: `/Users/aaat/projects/project_tcc/docs/task-packet-schema-v2.md`
-- Modify: `/Users/aaat/projects/project_tcc/docs/story-packet-schema-v1.md`
+- Modify: `/Users/aaat/projects/agileforge/docs/task-packet-vision.md`
+- Modify: `/Users/aaat/projects/agileforge/docs/task-packet-schema-v2.md`
+- Modify: `/Users/aaat/projects/agileforge/docs/story-packet-schema-v1.md`
 
 - [ ] **Step 1: Update the vision doc to describe story bootstrap + task delta flow**
 

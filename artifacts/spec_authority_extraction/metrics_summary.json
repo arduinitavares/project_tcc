@@ -1,7 +1,7 @@
 {
   "extraction_metadata": {
     "timestamp": "2026-02-01T12:45:50.403444+00:00",
-    "db_path": "C:\\Users\\mjnrc\\projects\\project_tcc\\db\\spec_authority_dev.db",
+    "db_path": "C:\\Users\\mjnrc\\projects\\agileforge\\db\\spec_authority_dev.db",
     "db_filename": "spec_authority_dev.db",
     "commit_hash": "a6f22cbb8151"
   },

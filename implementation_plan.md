@@ -1,8 +1,8 @@
 # Improve the Copy Agent Prompt
 
-The [render_agent_prompt](file:///Users/aaat/projects/project_tcc/services/packet_renderer.py#94-171) function in [services/packet_renderer.py](file:///Users/aaat/projects/project_tcc/services/packet_renderer.py) renders a task packet as an XML-tagged prompt optimized for AI coding agents (Cursor, Copilot, etc.). The current implementation has three issues the user wants to address:
+The [render_agent_prompt](file:///Users/aaat/projects/agileforge/services/packet_renderer.py#94-171) function in [services/packet_renderer.py](file:///Users/aaat/projects/agileforge/services/packet_renderer.py) renders a task packet as an XML-tagged prompt optimized for AI coding agents (Cursor, Copilot, etc.). The current implementation has three issues the user wants to address:
 
-1. **Empty info pollution** — sections like [(None specified)](file:///Users/aaat/projects/project_tcc/api.py#954-957) or [(No task-local hard constraints identified)](file:///Users/aaat/projects/project_tcc/api.py#954-957) add noise with no value.
+1. **Empty info pollution** — sections like [(None specified)](file:///Users/aaat/projects/agileforge/api.py#954-957) or [(No task-local hard constraints identified)](file:///Users/aaat/projects/agileforge/api.py#954-957) add noise with no value.
 2. **No modern prompting pattern** — the prompt lacks a ReAct-style reasoning loop and structured AC verification checklist.
 3. **Unstructured output** — the prompt doesn't request structured progress/completion output that the user can quickly parse when reviewing work.
 
@@ -10,7 +10,7 @@ The [render_agent_prompt](file:///Users/aaat/projects/project_tcc/services/packe
 
 ### Core Renderer
 
-#### [MODIFY] [packet_renderer.py](file:///Users/aaat/projects/project_tcc/services/packet_renderer.py)
+#### [MODIFY] [packet_renderer.py](file:///Users/aaat/projects/agileforge/services/packet_renderer.py)
 
 **1. Suppress empty sections** instead of emitting placeholders:
 
@@ -29,7 +29,7 @@ The [render_agent_prompt](file:///Users/aaat/projects/project_tcc/services/packe
 +        parts.append("  </artifact_targets>")
 ```
 
-Apply the same pattern to: `sprint_goal`, `parent_story`, `workstream_tags`, [story_compliance_boundaries](file:///Users/aaat/projects/project_tcc/api.py#530-569), [hard_constraints](file:///Users/aaat/projects/project_tcc/api.py#571-608), and [acceptance_criteria](file:///Users/aaat/projects/project_tcc/api.py#429-447). If a section has no data, omit it entirely. Empty `<context>` and `<task_context>` wrappers should also be omitted when all their children are empty.
+Apply the same pattern to: `sprint_goal`, `parent_story`, `workstream_tags`, [story_compliance_boundaries](file:///Users/aaat/projects/agileforge/api.py#530-569), [hard_constraints](file:///Users/aaat/projects/agileforge/api.py#571-608), and [acceptance_criteria](file:///Users/aaat/projects/agileforge/api.py#429-447). If a section has no data, omit it entirely. Empty `<context>` and `<task_context>` wrappers should also be omitted when all their children are empty.
 
 **2. Add ReAct reasoning loop with AC verification** as a `<execution_protocol>` block:
 
@@ -73,11 +73,11 @@ When you finish, output your completion report in exactly this format:
 
 ### Automated Tests
 
-The existing test [test_packet_renderer_escapes_html_and_xml_safely](file:///Users/aaat/projects/project_tcc/tests/test_api_sprint_flow.py#954-988) in [test_api_sprint_flow.py](file:///Users/aaat/projects/project_tcc/tests/test_api_sprint_flow.py) tests the agent flavor rendering. We will write new, focused unit tests in a new file for the renderer:
+The existing test [test_packet_renderer_escapes_html_and_xml_safely](file:///Users/aaat/projects/agileforge/tests/test_api_sprint_flow.py#954-988) in [test_api_sprint_flow.py](file:///Users/aaat/projects/agileforge/tests/test_api_sprint_flow.py) tests the agent flavor rendering. We will write new, focused unit tests in a new file for the renderer:
 
-#### [NEW] [test_packet_renderer.py](file:///Users/aaat/projects/project_tcc/tests/test_packet_renderer.py)
+#### [NEW] [test_packet_renderer.py](file:///Users/aaat/projects/agileforge/tests/test_packet_renderer.py)
 
-Unit tests that directly test [render_agent_prompt](file:///Users/aaat/projects/project_tcc/services/packet_renderer.py#94-171) and [render_human_brief](file:///Users/aaat/projects/project_tcc/services/packet_renderer.py#28-92) with controlled packet dicts:
+Unit tests that directly test [render_agent_prompt](file:///Users/aaat/projects/agileforge/services/packet_renderer.py#94-171) and [render_human_brief](file:///Users/aaat/projects/agileforge/services/packet_renderer.py#28-92) with controlled packet dicts:
 
 1. **`test_agent_prompt_omits_empty_sections`** — pass a packet with no sprint goal, no story description, no artifact targets, no workstream tags, no constraints → assert none of the placeholder strings appear.
 2. **`test_agent_prompt_includes_populated_sections`** — pass a fully populated packet → assert all XML tags are present.

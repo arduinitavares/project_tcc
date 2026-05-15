@@ -20,7 +20,7 @@ def _remove_console_handlers() -> None:
     root_logger = logging.getLogger()
     kept_handlers = []
     for handler in root_logger.handlers:
-        handler_id = getattr(handler, "_project_tcc_handler_id", "")
+        handler_id = getattr(handler, "_agileforge_handler_id", "")
         if str(handler_id).startswith("console:"):
             handler.close()
             continue
@@ -41,7 +41,7 @@ def test_console_logging_hides_file_only_messages_and_sql(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify console logging hides file only messages and sql."""
-    monkeypatch.delenv("PROJECT_TCC_DB_ECHO", raising=False)
+    monkeypatch.delenv("AGILEFORGE_DB_ECHO", raising=False)
 
     stream = io.StringIO()
     with redirect_stderr(stream):
@@ -69,7 +69,7 @@ def test_console_logging_allows_sql_when_echo_is_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify console logging allows sql when echo is enabled."""
-    monkeypatch.setenv("PROJECT_TCC_DB_ECHO", "true")
+    monkeypatch.setenv("AGILEFORGE_DB_ECHO", "true")
 
     stream = io.StringIO()
     with redirect_stderr(stream):

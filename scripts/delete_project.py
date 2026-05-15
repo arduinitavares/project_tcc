@@ -32,7 +32,7 @@ def resolve_db_path(explicit_path: str | None = None) -> str:
     """Resolve a database path from CLI input or required runtime config."""
     return resolve_database_target(
         explicit_path,
-        env_name="PROJECT_TCC_DB_URL",
+        env_name="AGILEFORGE_DB_URL",
     ).sqlite_connect_target
 
 
@@ -207,7 +207,7 @@ def main() -> None:
     parser.add_argument(
         "db",
         nargs="?",
-        help="Optional SQLite database path or sqlite:/// URL. Defaults to PROJECT_TCC_DB_URL.",  # noqa: E501
+        help="Optional SQLite database path or sqlite:/// URL. Defaults to AGILEFORGE_DB_URL.",  # noqa: E501
     )
     args = parser.parse_args()
     delete_project(args.product_id, resolve_db_path(args.db))

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-SCHEMA_VERSION = "tcc.cli.v1"
+SCHEMA_VERSION = "agileforge.cli.v1"
 
 
 @dataclass(frozen=True)

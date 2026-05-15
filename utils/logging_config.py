@@ -68,7 +68,7 @@ def _ensure_handler(
                 return
     if handler_id:
         handler.set_name(handler_id)
-        handler.__dict__["_project_tcc_handler_id"] = handler_id
+        handler.__dict__["_agileforge_handler_id"] = handler_id
     logger.addHandler(handler)
 
 

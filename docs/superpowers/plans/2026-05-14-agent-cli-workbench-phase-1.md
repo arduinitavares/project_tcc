@@ -14,16 +14,16 @@
 
 Implement Phase 1 only:
 
-- `tcc status --project-id 1`
-- `tcc project list`
-- `tcc project show --project-id 1`
-- `tcc workflow state --project-id 1`
-- `tcc workflow next --project-id 1`
-- `tcc authority status --project-id 1`
-- `tcc authority invariants --project-id 1`
-- `tcc story show --story-id 42`
-- `tcc sprint candidates --project-id 1`
-- `tcc context pack --project-id 1 --phase sprint-planning`
+- `agileforge status --project-id 1`
+- `agileforge project list`
+- `agileforge project show --project-id 1`
+- `agileforge workflow state --project-id 1`
+- `agileforge workflow next --project-id 1`
+- `agileforge authority status --project-id 1`
+- `agileforge authority invariants --project-id 1`
+- `agileforge story show --story-id 42`
+- `agileforge sprint candidates --project-id 1`
+- `agileforge context pack --project-id 1 --phase sprint-planning`
 
 Do not implement workflow mutations, LLM-backed generation, or Phase 2 task logging in this plan. Add the pure task-status normalization helper now so Phase 2 has a pinned input contract.
 
@@ -31,16 +31,16 @@ Do not implement workflow mutations, LLM-backed generation, or Phase 2 task logg
 
 | Command | Business Tables Read | Session Fields Read | Fingerprint Inputs | Forbidden Side Effects |
 | --- | --- | --- | --- | --- |
-| `tcc status --project-id` | `products`, latest `sprints`, latest `spec_registry`, `compiled_spec_authority`, latest `spec_authority_acceptance` | full project session state for `fsm_state`, `setup_status`, `setup_error` | command, args, product id/update, latest sprint id/update/status, latest spec id/hash/status, authority id/compiled_at, acceptance id/decided_at/status, session state hash | migrations, compile, authority backfill, session update |
-| `tcc project list` | `products`, grouped `user_stories`, grouped `sprints` | none | command, args, product ids/update timestamps, story/sprint counts | session reads/writes, migrations |
-| `tcc project show --project-id` | `products`, `themes`, `epics`, `features`, `user_stories`, `sprints`, latest approved `spec_registry` | none | command, args, product id/update, structure counts, latest approved spec id/hash | active-project hydration, authority backfill |
-| `tcc workflow state --project-id` | `products` existence only | full project session state | command, args, product id/update, session state hash | session creation/update |
-| `tcc workflow next --project-id` | same as `status` | same as `status` | same as `status`, installed command names | advertising unimplemented commands as next-valid |
-| `tcc authority status --project-id` | `products`, all project `spec_registry`, project `compiled_spec_authority`, latest `spec_authority_acceptance` | none | command, args, product id/update, spec ids/hash/status, authority ids/compiled_at, acceptance ids/decided_at/status, disk spec hash result | compile, accept, product cache backfill |
-| `tcc authority invariants --project-id` | same as `authority status`, selected `compiled_spec_authority` | none | command, args, authority fingerprint | choosing arbitrary authority when none is accepted |
-| `tcc story show --story-id` | `user_stories`, optional `features`, `epics`, `themes`, `products` | none | command, args, story id/update, accepted spec version id, validation evidence hash | validation run, story mutation |
-| `tcc sprint candidates --project-id` | `user_stories`, `sprints`, `sprint_stories` | none | command, args, candidate story ids/update/status/refinement flags, open sprint ids/update/status | sprint planning generation |
-| `tcc context pack --project-id --phase sprint-planning` | composed from `status`, `authority status`, `sprint candidates` | same as `status` | command, args, included section names, child projection fingerprints, authority fingerprint | compile, repair, mutations, unbounded raw spec inclusion |
+| `agileforge status --project-id` | `products`, latest `sprints`, latest `spec_registry`, `compiled_spec_authority`, latest `spec_authority_acceptance` | full project session state for `fsm_state`, `setup_status`, `setup_error` | command, args, product id/update, latest sprint id/update/status, latest spec id/hash/status, authority id/compiled_at, acceptance id/decided_at/status, session state hash | migrations, compile, authority backfill, session update |
+| `agileforge project list` | `products`, grouped `user_stories`, grouped `sprints` | none | command, args, product ids/update timestamps, story/sprint counts | session reads/writes, migrations |
+| `agileforge project show --project-id` | `products`, `themes`, `epics`, `features`, `user_stories`, `sprints`, latest approved `spec_registry` | none | command, args, product id/update, structure counts, latest approved spec id/hash | active-project hydration, authority backfill |
+| `agileforge workflow state --project-id` | `products` existence only | full project session state | command, args, product id/update, session state hash | session creation/update |
+| `agileforge workflow next --project-id` | same as `status` | same as `status` | same as `status`, installed command names | advertising unimplemented commands as next-valid |
+| `agileforge authority status --project-id` | `products`, all project `spec_registry`, project `compiled_spec_authority`, latest `spec_authority_acceptance` | none | command, args, product id/update, spec ids/hash/status, authority ids/compiled_at, acceptance ids/decided_at/status, disk spec hash result | compile, accept, product cache backfill |
+| `agileforge authority invariants --project-id` | same as `authority status`, selected `compiled_spec_authority` | none | command, args, authority fingerprint | choosing arbitrary authority when none is accepted |
+| `agileforge story show --story-id` | `user_stories`, optional `features`, `epics`, `themes`, `products` | none | command, args, story id/update, accepted spec version id, validation evidence hash | validation run, story mutation |
+| `agileforge sprint candidates --project-id` | `user_stories`, `sprints`, `sprint_stories` | none | command, args, candidate story ids/update/status/refinement flags, open sprint ids/update/status | sprint planning generation |
+| `agileforge context pack --project-id --phase sprint-planning` | composed from `status`, `authority status`, `sprint candidates` | same as `status` | command, args, included section names, child projection fingerprints, authority fingerprint | compile, repair, mutations, unbounded raw spec inclusion |
 
 ## Canonical Hashing Rules
 
@@ -115,14 +115,14 @@ from services.agent_workbench.envelope import (
 def test_success_envelope_has_stable_shape() -> None:
     """Verify success envelope has stable machine-readable shape."""
     envelope = success_envelope(
-        command="tcc project list",
+        command="agileforge project list",
         data={"items": []},
         warnings=[
             WorkbenchWarning(
                 code="EMPTY_PROJECTS",
                 message="No projects exist.",
                 details={"count": 0},
-                remediation=["tcc project create --name Example --spec-file specs/app.md"],
+                remediation=["agileforge project create --name Example --spec-file specs/app.md"],
             )
         ],
         generated_at="2026-05-14T00:00:00Z",
@@ -136,13 +136,13 @@ def test_success_envelope_has_stable_shape() -> None:
                 "code": "EMPTY_PROJECTS",
                 "message": "No projects exist.",
                 "details": {"count": 0},
-                "remediation": ["tcc project create --name Example --spec-file specs/app.md"],
+                "remediation": ["agileforge project create --name Example --spec-file specs/app.md"],
             }
         ],
         "errors": [],
         "meta": {
-            "schema_version": "tcc.cli.v1",
-            "command": "tcc project list",
+            "schema_version": "agileforge.cli.v1",
+            "command": "agileforge project list",
             "generated_at": "2026-05-14T00:00:00Z",
         },
     }
@@ -151,7 +151,7 @@ def test_success_envelope_has_stable_shape() -> None:
 def test_error_envelope_has_retryable_exit_code_error() -> None:
     """Verify error envelope serializes retry and exit-code fields."""
     envelope = error_envelope(
-        command="tcc authority status",
+        command="agileforge authority status",
         error=WorkbenchError(
             code="SCHEMA_NOT_READY",
             message="Database schema is missing required tables.",
@@ -182,11 +182,11 @@ def test_registry_exposes_only_phase_1_commands() -> None:
     """Verify installed commands exclude future workflow mutations."""
     commands = installed_command_names()
 
-    assert "tcc sprint candidates" in commands
-    assert "tcc context pack" in commands
-    assert "tcc sprint generate" not in commands
-    assert command_is_available("tcc sprint candidates") is True
-    assert command_is_available("tcc sprint generate") is False
+    assert "agileforge sprint candidates" in commands
+    assert "agileforge context pack" in commands
+    assert "agileforge sprint generate" not in commands
+    assert command_is_available("agileforge sprint candidates") is True
+    assert command_is_available("agileforge sprint generate") is False
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -216,7 +216,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Final
 
-SCHEMA_VERSION: Final[str] = "tcc.cli.v1"
+SCHEMA_VERSION: Final[str] = "agileforge.cli.v1"
 
 
 def utc_now_iso() -> str:
@@ -333,16 +333,16 @@ class CommandMetadata:
 
 
 _COMMANDS: Final[Sequence[CommandMetadata]] = (
-    CommandMetadata("tcc status", mutates=False, phase="phase_1"),
-    CommandMetadata("tcc project list", mutates=False, phase="phase_1"),
-    CommandMetadata("tcc project show", mutates=False, phase="phase_1"),
-    CommandMetadata("tcc workflow state", mutates=False, phase="phase_1"),
-    CommandMetadata("tcc workflow next", mutates=False, phase="phase_1"),
-    CommandMetadata("tcc authority status", mutates=False, phase="phase_1"),
-    CommandMetadata("tcc authority invariants", mutates=False, phase="phase_1"),
-    CommandMetadata("tcc story show", mutates=False, phase="phase_1"),
-    CommandMetadata("tcc sprint candidates", mutates=False, phase="phase_1"),
-    CommandMetadata("tcc context pack", mutates=False, phase="phase_1"),
+    CommandMetadata("agileforge status", mutates=False, phase="phase_1"),
+    CommandMetadata("agileforge project list", mutates=False, phase="phase_1"),
+    CommandMetadata("agileforge project show", mutates=False, phase="phase_1"),
+    CommandMetadata("agileforge workflow state", mutates=False, phase="phase_1"),
+    CommandMetadata("agileforge workflow next", mutates=False, phase="phase_1"),
+    CommandMetadata("agileforge authority status", mutates=False, phase="phase_1"),
+    CommandMetadata("agileforge authority invariants", mutates=False, phase="phase_1"),
+    CommandMetadata("agileforge story show", mutates=False, phase="phase_1"),
+    CommandMetadata("agileforge sprint candidates", mutates=False, phase="phase_1"),
+    CommandMetadata("agileforge context pack", mutates=False, phase="phase_1"),
 )
 
 
@@ -1073,7 +1073,7 @@ class AuthorityProjectionService:
 
     def status(self, *, project_id: int) -> dict[str, Any]:
         """Return current Spec Authority status for a project."""
-        schema_error = self._check_schema("tcc authority status")
+        schema_error = self._check_schema("agileforge authority status")
         if schema_error:
             return schema_error
 
@@ -1081,12 +1081,12 @@ class AuthorityProjectionService:
             product = session.get(Product, project_id)
             if not product:
                 return error_envelope(
-                    command="tcc authority status",
+                    command="agileforge authority status",
                     error=WorkbenchError(
                         code="PROJECT_NOT_FOUND",
                         message=f"Project {project_id} was not found.",
                         details={"project_id": project_id},
-                        remediation=["tcc project list"],
+                        remediation=["agileforge project list"],
                         exit_code=2,
                         retryable=False,
                     ),
@@ -1200,7 +1200,7 @@ class AuthorityProjectionService:
         spec_version_id: int | None = None,
     ) -> dict[str, Any]:
         """Return invariants for the accepted or explicitly requested authority."""
-        schema_error = self._check_schema("tcc authority invariants")
+        schema_error = self._check_schema("agileforge authority invariants")
         if schema_error:
             return schema_error
 
@@ -1216,15 +1216,15 @@ class AuthorityProjectionService:
                 ).first()
                 if accepted is None:
                     return error_envelope(
-                        command="tcc authority invariants",
+                        command="agileforge authority invariants",
                         error=WorkbenchError(
                             code="AUTHORITY_NOT_ACCEPTED",
                             message="No accepted authority exists for this project.",
                             details={"project_id": project_id},
                             remediation=[
-                                "tcc authority versions --project-id "
+                                "agileforge authority versions --project-id "
                                 f"{project_id}",
-                                "tcc authority accept --project-id "
+                                "agileforge authority accept --project-id "
                                 f"{project_id} --spec-version-id 3 --policy human --decided-by agent",
                             ],
                             exit_code=4,
@@ -1240,13 +1240,13 @@ class AuthorityProjectionService:
             ).first()
             if not authority:
                 return error_envelope(
-                    command="tcc authority invariants",
+                    command="agileforge authority invariants",
                     error=WorkbenchError(
                         code="AUTHORITY_NOT_COMPILED",
                         message=f"Spec version {spec_version_id} has no compiled authority.",
                         details={"spec_version_id": spec_version_id},
                         remediation=[
-                            f"tcc authority compile --spec-version-id {spec_version_id}"
+                            f"agileforge authority compile --spec-version-id {spec_version_id}"
                         ],
                         exit_code=4,
                         retryable=False,
@@ -1556,7 +1556,7 @@ class ReadProjectionService:
 
     def project_list(self) -> dict[str, Any]:
         """Return projects with story and sprint counts."""
-        schema_error = self._check_schema("tcc project list")
+        schema_error = self._check_schema("agileforge project list")
         if schema_error:
             return schema_error
 
@@ -1595,7 +1595,7 @@ class ReadProjectionService:
                     "count": len(items),
                     "source_fingerprint": canonical_hash(
                         {
-                            "command": "tcc project list",
+                            "command": "agileforge project list",
                             "items": items,
                         }
                     ),
@@ -1606,7 +1606,7 @@ class ReadProjectionService:
 
     def project_show(self, *, project_id: int) -> dict[str, Any]:
         """Return project detail counts without active-project hydration."""
-        schema_error = self._check_schema("tcc project show")
+        schema_error = self._check_schema("agileforge project show")
         if schema_error:
             return schema_error
 
@@ -1614,12 +1614,12 @@ class ReadProjectionService:
             product = session.get(Product, project_id)
             if not product:
                 return error_envelope(
-                    command="tcc project show",
+                    command="agileforge project show",
                     error=WorkbenchError(
                         code="PROJECT_NOT_FOUND",
                         message=f"Project {project_id} was not found.",
                         details={"project_id": project_id},
-                        remediation=["tcc project list"],
+                        remediation=["agileforge project list"],
                         exit_code=2,
                         retryable=False,
                     ),
@@ -1648,13 +1648,13 @@ class ReadProjectionService:
                 "updated_at": product.updated_at,
             }
             data["source_fingerprint"] = canonical_hash(
-                {"command": "tcc project show", "data": data}
+                {"command": "agileforge project show", "data": data}
             )
             return {"ok": True, "data": data, "warnings": [], "errors": []}
 
     def workflow_state(self, *, project_id: int) -> dict[str, Any]:
         """Return workflow session state without creating or updating sessions."""
-        schema_error = self._check_schema("tcc workflow state")
+        schema_error = self._check_schema("agileforge workflow state")
         if schema_error:
             return schema_error
         state = self._session_reader.get_project_state(project_id)
@@ -1662,14 +1662,14 @@ class ReadProjectionService:
             "project_id": project_id,
             "state": state,
             "source_fingerprint": canonical_hash(
-                {"command": "tcc workflow state", "project_id": project_id, "state": state}
+                {"command": "agileforge workflow state", "project_id": project_id, "state": state}
             ),
         }
         return {"ok": True, "data": data, "warnings": [], "errors": []}
 
     def story_show(self, *, story_id: int) -> dict[str, Any]:
         """Return story details and parsed validation presence."""
-        schema_error = self._check_schema("tcc story show")
+        schema_error = self._check_schema("agileforge story show")
         if schema_error:
             return schema_error
 
@@ -1677,12 +1677,12 @@ class ReadProjectionService:
             story = session.get(UserStory, story_id)
             if not story:
                 return error_envelope(
-                    command="tcc story show",
+                    command="agileforge story show",
                     error=WorkbenchError(
                         code="STORY_NOT_FOUND",
                         message=f"Story {story_id} was not found.",
                         details={"story_id": story_id},
-                        remediation=["tcc query backlog --project-id 1"],
+                        remediation=["agileforge query backlog --project-id 1"],
                         exit_code=2,
                         retryable=False,
                     ),
@@ -1713,13 +1713,13 @@ class ReadProjectionService:
                 "updated_at": story.updated_at,
             }
             data["source_fingerprint"] = canonical_hash(
-                {"command": "tcc story show", "data": data}
+                {"command": "agileforge story show", "data": data}
             )
             return {"ok": True, "data": data, "warnings": [], "errors": []}
 
     def sprint_candidates(self, *, project_id: int) -> dict[str, Any]:
         """Return sprint candidates using existing eligibility semantics."""
-        schema_error = self._check_schema("tcc sprint candidates")
+        schema_error = self._check_schema("agileforge sprint candidates")
         if schema_error:
             return schema_error
 
@@ -1740,7 +1740,7 @@ class ReadProjectionService:
             "message": raw.get("message"),
         }
         data["source_fingerprint"] = canonical_hash(
-            {"command": "tcc sprint candidates", "project_id": project_id, "data": data}
+            {"command": "agileforge sprint candidates", "project_id": project_id, "data": data}
         )
         return {"ok": True, "data": data, "warnings": [], "errors": []}
 ```
@@ -1912,9 +1912,9 @@ def test_sprint_planning_pack_filters_unimplemented_next_commands() -> None:
     assert result["ok"] is True
     data = result["data"]
     assert data["phase"] == "sprint-planning"
-    assert data["next_valid_commands"] == ["tcc sprint candidates --project-id 1"]
+    assert data["next_valid_commands"] == ["agileforge sprint candidates --project-id 1"]
     assert data["blocked_future_commands"] == [
-        "tcc sprint generate --project-id 1 --selected-story-ids 1,2,3"
+        "agileforge sprint generate --project-id 1 --selected-story-ids 1,2,3"
     ]
     assert data["source_fingerprint"].startswith("sha256:")
     assert data["authority_fingerprint"] == "sha256:" + "3" * 64
@@ -1950,15 +1950,15 @@ class ContextPackService:
         self._authority_projection = authority_projection
 
     def _sprint_planning_commands(self, project_id: int) -> tuple[list[str], list[str]]:
-        candidate_command = f"tcc sprint candidates --project-id {project_id}"
-        generate_command = f"tcc sprint generate --project-id {project_id} --selected-story-ids 1,2,3"
+        candidate_command = f"agileforge sprint candidates --project-id {project_id}"
+        generate_command = f"agileforge sprint generate --project-id {project_id} --selected-story-ids 1,2,3"
         next_valid: list[str] = []
         blocked: list[str] = []
-        if command_is_available("tcc sprint candidates"):
+        if command_is_available("agileforge sprint candidates"):
             next_valid.append(candidate_command)
         else:
             blocked.append(candidate_command)
-        if command_is_available("tcc sprint generate"):
+        if command_is_available("agileforge sprint generate"):
             next_valid.append(generate_command)
         else:
             blocked.append(generate_command)
@@ -1991,7 +1991,7 @@ class ContextPackService:
         authority_data = authority["data"]
         workflow_data = workflow["data"]
         source_payload = {
-            "command": "tcc context pack",
+            "command": "agileforge context pack",
             "project_id": project_id,
             "phase": phase,
             "included_sections": included_sections,
@@ -2105,7 +2105,7 @@ git commit -m "feat: add workbench context packs"
 Create `tests/test_agent_workbench_cli.py`:
 
 ```python
-"""Tests for the tcc CLI transport."""
+"""Tests for the AgileForge CLI transport."""
 
 from __future__ import annotations
 
@@ -2136,7 +2136,7 @@ def test_cli_writes_success_json_to_stdout(capsys) -> None:  # noqa: ANN001
     assert rc == 0
     assert captured.err == ""
     assert payload["ok"] is True
-    assert payload["meta"]["command"] == "tcc project list"
+    assert payload["meta"]["command"] == "agileforge project list"
 
 
 def test_cli_supports_authority_status(capsys) -> None:  # noqa: ANN001
@@ -2162,7 +2162,7 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'cli.main'`.
 Create `cli/__init__.py`:
 
 ```python
-"""Command-line entrypoints for project_tcc."""
+"""Command-line entrypoints for agileforge."""
 ```
 
 - [ ] **Step 4: Implement argparse CLI**
@@ -2233,7 +2233,7 @@ def _wrap(command: str, result: dict[str, Any]) -> dict[str, Any]:
 
 def build_parser() -> argparse.ArgumentParser:
     """Build CLI parser."""
-    parser = argparse.ArgumentParser(prog="tcc")
+    parser = argparse.ArgumentParser(prog="agileforge")
     subparsers = parser.add_subparsers(dest="group", required=True)
 
     project = subparsers.add_parser("project")
@@ -2282,39 +2282,39 @@ def _dispatch(args: argparse.Namespace, application: object) -> tuple[str, dict[
     group = args.group
     action = getattr(args, "action", None)
     if group == "project" and action == "list":
-        return "tcc project list", application.project_list()
+        return "agileforge project list", application.project_list()
     if group == "project" and action == "show":
-        return "tcc project show", application.project_show(project_id=args.project_id)
+        return "agileforge project show", application.project_show(project_id=args.project_id)
     if group == "workflow" and action == "state":
-        return "tcc workflow state", application.workflow_state(project_id=args.project_id)
+        return "agileforge workflow state", application.workflow_state(project_id=args.project_id)
     if group == "workflow" and action == "next":
-        return "tcc workflow next", application.workflow_next(project_id=args.project_id)
+        return "agileforge workflow next", application.workflow_next(project_id=args.project_id)
     if group == "authority" and action == "status":
-        return "tcc authority status", application.authority_status(project_id=args.project_id)
+        return "agileforge authority status", application.authority_status(project_id=args.project_id)
     if group == "authority" and action == "invariants":
-        return "tcc authority invariants", application.authority_invariants(
+        return "agileforge authority invariants", application.authority_invariants(
             project_id=args.project_id,
             spec_version_id=args.spec_version_id,
         )
     if group == "story" and action == "show":
-        return "tcc story show", application.story_show(story_id=args.story_id)
+        return "agileforge story show", application.story_show(story_id=args.story_id)
     if group == "sprint" and action == "candidates":
-        return "tcc sprint candidates", application.sprint_candidates(project_id=args.project_id)
+        return "agileforge sprint candidates", application.sprint_candidates(project_id=args.project_id)
     if group == "context" and action == "pack":
-        return "tcc context pack", application.context_pack(
+        return "agileforge context pack", application.context_pack(
             project_id=args.project_id,
             phase=args.phase,
         )
     if group == "status":
-        return "tcc status", application.status(project_id=args.project_id)
-    return "tcc", {
+        return "agileforge status", application.status(project_id=args.project_id)
+    return "agileforge", {
         "ok": False,
         "errors": [
             {
                 "code": "COMMAND_NOT_IMPLEMENTED",
                 "message": "Command is not implemented.",
                 "details": {"group": group, "action": action},
-                "remediation": ["Run tcc --help."],
+                "remediation": ["Run agileforge --help."],
                 "exit_code": 2,
                 "retryable": False,
             }
@@ -2344,7 +2344,7 @@ Modify `pyproject.toml` after `[project]` metadata and dependencies:
 
 ```toml
 [project.scripts]
-tcc = "cli.main:main"
+agileforge = "cli.main:main"
 ```
 
 - [ ] **Step 6: Run CLI tests**
@@ -2355,7 +2355,7 @@ Expected: PASS.
 
 - [ ] **Step 7: Run CLI smoke command**
 
-Run: `uv run --frozen tcc --help`
+Run: `uv run --frozen agileforge --help`
 
 Expected: exits `0` and prints argparse help text containing `project`, `workflow`, `authority`, `story`, `sprint`, `context`, and `status`.
 
@@ -2363,7 +2363,7 @@ Expected: exits `0` and prints argparse help text containing `project`, `workflo
 
 ```bash
 git add cli/__init__.py cli/main.py pyproject.toml tests/test_agent_workbench_cli.py
-git commit -m "feat: add tcc read-only cli"
+git commit -m "feat: add AgileForge read-only CLI"
 ```
 
 ---
@@ -2440,9 +2440,9 @@ def test_phase1_context_pack_returns_installed_next_commands(
 
     assert rc == 0
     assert payload["ok"] is True
-    assert f"tcc sprint candidates --project-id {project_id}" in payload["data"]["next_valid_commands"]
+    assert f"agileforge sprint candidates --project-id {project_id}" in payload["data"]["next_valid_commands"]
     assert payload["data"]["blocked_future_commands"] == [
-        f"tcc sprint generate --project-id {project_id} --selected-story-ids 1,2,3"
+        f"agileforge sprint generate --project-id {project_id} --selected-story-ids 1,2,3"
     ]
 ```
 
@@ -2494,7 +2494,7 @@ git commit -m "test: cover agent workbench phase 1"
 
 - If ruff flags long lines in planned code, wrap the line without changing behavior.
 - If type checking rejects protocol use in `AgentWorkbenchApplication`, replace the protocol annotations with `Any` in that facade only; do not add broad casts elsewhere.
-- If `uv run --frozen tcc --help` fails because the lockfile lacks editable script metadata, run the equivalent `uv run --frozen python -m cli.main --help` and then inspect whether the package script is available after normal project installation. Do not modify `uv.lock` unless the package manager requires it.
+- If `uv run --frozen agileforge --help` fails because the lockfile lacks editable script metadata, run the equivalent `uv run --frozen python -m cli.main --help` and then inspect whether the package script is available after normal project installation. Do not modify `uv.lock` unless the package manager requires it.
 - Do not add LLM-backed commands in this plan.
 - Do not add write commands in this plan.
 - Do not call `ensure_business_db_ready()` from CLI read paths.

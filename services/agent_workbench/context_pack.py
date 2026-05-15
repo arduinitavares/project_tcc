@@ -9,9 +9,9 @@ from services.agent_workbench.fingerprints import canonical_hash
 
 JsonDict = dict[str, Any]
 
-CONTEXT_PACK_COMMAND: Final[str] = "tcc context pack"
-SPRINT_CANDIDATES_COMMAND: Final[str] = "tcc sprint candidates"
-SPRINT_GENERATE_COMMAND: Final[str] = "tcc sprint generate"
+CONTEXT_PACK_COMMAND: Final[str] = "agileforge context pack"
+SPRINT_CANDIDATES_COMMAND: Final[str] = "agileforge sprint candidates"
+SPRINT_GENERATE_COMMAND: Final[str] = "agileforge sprint generate"
 SPRINT_PLANNING_STATES: Final[frozenset[str]] = frozenset(
     {"SPRINT_SETUP", "SPRINT_PLANNING"}
 )

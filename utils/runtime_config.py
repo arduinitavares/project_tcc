@@ -59,8 +59,8 @@ class RuntimeConfigError(RuntimeError):
     def shared_session_database(cls) -> RuntimeConfigError:
         """Build an error when business and session DBs point to the same file."""
         return cls(
-            "PROJECT_TCC_SESSION_DB_URL must point to a different SQLite file than "
-            "PROJECT_TCC_DB_URL."
+            "AGILEFORGE_SESSION_DB_URL must point to a different SQLite file than "
+            "AGILEFORGE_DB_URL."
         )
 
 
@@ -216,13 +216,13 @@ def resolve_database_target(
 @lru_cache(maxsize=1)
 def get_business_db_target() -> DatabaseTarget:
     """Return the configured business database target."""
-    return resolve_database_target(None, env_name="PROJECT_TCC_DB_URL")
+    return resolve_database_target(None, env_name="AGILEFORGE_DB_URL")
 
 
 @lru_cache(maxsize=1)
 def get_session_db_target() -> DatabaseTarget:
     """Return the configured session database target."""
-    target = resolve_database_target(None, env_name="PROJECT_TCC_SESSION_DB_URL")
+    target = resolve_database_target(None, env_name="AGILEFORGE_SESSION_DB_URL")
     business_target = get_business_db_target()
     if (
         target.sqlite_path is not None
@@ -240,7 +240,7 @@ def get_openrouter_api_key() -> str | None:
 @lru_cache(maxsize=1)
 def get_database_echo() -> bool:
     """Return whether SQLAlchemy echo logging is enabled."""
-    return get_bool_env("PROJECT_TCC_DB_ECHO", default=False)
+    return get_bool_env("AGILEFORGE_DB_ECHO", default=False)
 
 
 def get_spec_validator_max_tokens(default: int = 4096) -> int:
@@ -287,19 +287,19 @@ def get_api_host(default: str = _DEFAULT_API_HOST) -> str:
     """Return the API host for local runs.
 
     Defaults to loopback for safer local development. Set
-    PROJECT_TCC_API_HOST explicitly when you want broader network exposure.
+    AGILEFORGE_API_HOST explicitly when you want broader network exposure.
     """
-    return get_optional_env("PROJECT_TCC_API_HOST", default) or default
+    return get_optional_env("AGILEFORGE_API_HOST", default) or default
 
 
 def get_api_port(default: int = 8000) -> int:
     """Return the API port for local runs."""
-    return get_int_env("PROJECT_TCC_API_PORT", default)
+    return get_int_env("AGILEFORGE_API_PORT", default)
 
 
 def get_api_reload(default: bool = True) -> bool:
     """Return whether api.py should launch uvicorn in reload mode."""
-    return get_bool_env("PROJECT_TCC_API_RELOAD", default)
+    return get_bool_env("AGILEFORGE_API_RELOAD", default)
 
 
 def clear_runtime_config_cache() -> None:

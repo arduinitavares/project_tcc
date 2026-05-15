@@ -248,11 +248,11 @@ def test_application_context_pack_facade_composes_sprint_planning_pack() -> None
         "sprint_candidates",
     ]
     assert data["next_valid_commands"] == [
-        "tcc sprint candidates --project-id 7",
+        "agileforge sprint candidates --project-id 7",
     ]
     assert data["blocked_commands"] == []
     assert data["blocked_future_commands"] == [
-        "tcc sprint generate --project-id 7 --selected-story-ids 1,2,3",
+        "agileforge sprint generate --project-id 7 --selected-story-ids 1,2,3",
     ]
 
 
@@ -320,10 +320,10 @@ def test_application_workflow_next_derives_from_sprint_planning_pack() -> None:
         "ok": True,
         "data": {
             "project_id": PROJECT_ID,
-            "next_valid_commands": ["tcc sprint candidates --project-id 7"],
+            "next_valid_commands": ["agileforge sprint candidates --project-id 7"],
             "blocked_commands": [],
             "blocked_future_commands": [
-                "tcc sprint generate --project-id 7 --selected-story-ids 1,2,3",
+                "agileforge sprint generate --project-id 7 --selected-story-ids 1,2,3",
             ],
             "source_fingerprint": result["data"]["source_fingerprint"],
         },

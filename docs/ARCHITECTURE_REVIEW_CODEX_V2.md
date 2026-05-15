@@ -1,5 +1,5 @@
 # Architecture Review Report (Codex V2)
-## AgenticFlow / `project_tcc`
+## AgenticFlow / `agileforge`
 
 This revision incorporates valid feedback on the first Codex report:
 
@@ -11,19 +11,19 @@ This revision incorporates valid feedback on the first Codex report:
 
 The codebase is still best treated as a modular monolith. That was the right high-level choice, and the repo already contains useful structural pieces: `services/`, `repositories/`, `orchestrator_agent/fsm/`, and `utils/`.
 
-The main problem is not the choice of monolith versus services. The main problem is that the HTTP delivery layer never finished the architectural split, so too much orchestration accumulated in [`api.py`](/Users/aaat/projects/project_tcc/api.py). A second hotspot, [`tools/spec_tools.py`](/Users/aaat/projects/project_tcc/tools/spec_tools.py), has grown into a similar multi-responsibility module around specification lifecycle and validation.
+The main problem is not the choice of monolith versus services. The main problem is that the HTTP delivery layer never finished the architectural split, so too much orchestration accumulated in [`api.py`](/Users/aaat/projects/agileforge/api.py). A second hotspot, [`tools/spec_tools.py`](/Users/aaat/projects/agileforge/tools/spec_tools.py), has grown into a similar multi-responsibility module around specification lifecycle and validation.
 
 ### Revised Top Issues
 
 | # | Problem | Severity |
 |---|---------|----------|
-| 1 | [`api.py`](/Users/aaat/projects/project_tcc/api.py) is a 4,297-line god file combining routes, DTOs, workflow state mutation, packet building, and direct DB access | Critical |
+| 1 | [`api.py`](/Users/aaat/projects/agileforge/api.py) is a 4,297-line god file combining routes, DTOs, workflow state mutation, packet building, and direct DB access | Critical |
 | 2 | Several frontend-expected endpoints are implemented as plain functions with no FastAPI decorators | High |
 | 3 | Route handlers and helper functions open raw SQLModel sessions directly, bypassing the repository boundary | High |
 | 4 | Workflow transition and attempt-recording logic is duplicated across phases instead of being centralized | High |
-| 5 | [`tools/spec_tools.py`](/Users/aaat/projects/project_tcc/tools/spec_tools.py) is a 2,905-line second god module | High |
-| 6 | [`utils/schemes.py`](/Users/aaat/projects/project_tcc/utils/schemes.py) mixes agent schemas, API schemas, and ORM-coupled imports | Medium |
-| 7 | [`tools/orchestrator_tools.py`](/Users/aaat/projects/project_tcc/tools/orchestrator_tools.py) mixes query concerns, cache hydration, and active-project session mutation | Medium |
+| 5 | [`tools/spec_tools.py`](/Users/aaat/projects/agileforge/tools/spec_tools.py) is a 2,905-line second god module | High |
+| 6 | [`utils/schemes.py`](/Users/aaat/projects/agileforge/utils/schemes.py) mixes agent schemas, API schemas, and ORM-coupled imports | Medium |
+| 7 | [`tools/orchestrator_tools.py`](/Users/aaat/projects/agileforge/tools/orchestrator_tools.py) mixes query concerns, cache hydration, and active-project session mutation | Medium |
 
 ### Architectural Decision Tree For This Repo
 
@@ -51,14 +51,14 @@ The main problem is not the choice of monolith versus services. The main problem
 
 ### Finding 1: `api.py` owns too many responsibilities
 
-- File size: [`api.py`](/Users/aaat/projects/project_tcc/api.py) is 4,297 lines.
+- File size: [`api.py`](/Users/aaat/projects/agileforge/api.py) is 4,297 lines.
 - It defines 33 FastAPI-decorated endpoints and a large private helper surface.
 - It also owns:
-  - workflow session hydration: [`_ensure_session`](/Users/aaat/projects/project_tcc/api.py#L500), [`_hydrate_context`](/Users/aaat/projects/project_tcc/api.py#L515)
-  - packet construction: [`_build_story_packet`](/Users/aaat/projects/project_tcc/api.py#L1177), [`_build_task_packet`](/Users/aaat/projects/project_tcc/api.py#L1298)
-  - setup orchestration: [`_run_setup`](/Users/aaat/projects/project_tcc/api.py#L1485)
-  - story runtime lifecycle glue: [`_ensure_story_runtime`](/Users/aaat/projects/project_tcc/api.py#L2433), [`_sync_story_legacy_mirrors`](/Users/aaat/projects/project_tcc/api.py#L2688)
-  - sprint execution/close behaviors: [`save_project_sprint`](/Users/aaat/projects/project_tcc/api.py#L4108), [`start_project_sprint`](/Users/aaat/projects/project_tcc/api.py#L4197)
+  - workflow session hydration: [`_ensure_session`](/Users/aaat/projects/agileforge/api.py#L500), [`_hydrate_context`](/Users/aaat/projects/agileforge/api.py#L515)
+  - packet construction: [`_build_story_packet`](/Users/aaat/projects/agileforge/api.py#L1177), [`_build_task_packet`](/Users/aaat/projects/agileforge/api.py#L1298)
+  - setup orchestration: [`_run_setup`](/Users/aaat/projects/agileforge/api.py#L1485)
+  - story runtime lifecycle glue: [`_ensure_story_runtime`](/Users/aaat/projects/agileforge/api.py#L2433), [`_sync_story_legacy_mirrors`](/Users/aaat/projects/agileforge/api.py#L2688)
+  - sprint execution/close behaviors: [`save_project_sprint`](/Users/aaat/projects/agileforge/api.py#L4108), [`start_project_sprint`](/Users/aaat/projects/agileforge/api.py#L4197)
 
 Why this matters:
 
@@ -71,25 +71,25 @@ Why this matters:
 
 The frontend calls these endpoints:
 
-- [`frontend/project.js:3066`](/Users/aaat/projects/project_tcc/frontend/project.js#L3066) and [`frontend/project.js:3110`](/Users/aaat/projects/project_tcc/frontend/project.js#L3110) call sprint close URLs
-- [`frontend/project.js:3855`](/Users/aaat/projects/project_tcc/frontend/project.js#L3855), [`frontend/project.js:3888`](/Users/aaat/projects/project_tcc/frontend/project.js#L3888), [`frontend/project.js:3938`](/Users/aaat/projects/project_tcc/frontend/project.js#L3938) call packet URLs
-- [`frontend/project.js:4011`](/Users/aaat/projects/project_tcc/frontend/project.js#L4011), [`frontend/project.js:4132`](/Users/aaat/projects/project_tcc/frontend/project.js#L4132) call task execution URLs
-- [`frontend/project.js:4173`](/Users/aaat/projects/project_tcc/frontend/project.js#L4173), [`frontend/project.js:4289`](/Users/aaat/projects/project_tcc/frontend/project.js#L4289) call story close URLs
+- [`frontend/project.js:3066`](/Users/aaat/projects/agileforge/frontend/project.js#L3066) and [`frontend/project.js:3110`](/Users/aaat/projects/agileforge/frontend/project.js#L3110) call sprint close URLs
+- [`frontend/project.js:3855`](/Users/aaat/projects/agileforge/frontend/project.js#L3855), [`frontend/project.js:3888`](/Users/aaat/projects/agileforge/frontend/project.js#L3888), [`frontend/project.js:3938`](/Users/aaat/projects/agileforge/frontend/project.js#L3938) call packet URLs
+- [`frontend/project.js:4011`](/Users/aaat/projects/agileforge/frontend/project.js#L4011), [`frontend/project.js:4132`](/Users/aaat/projects/agileforge/frontend/project.js#L4132) call task execution URLs
+- [`frontend/project.js:4173`](/Users/aaat/projects/agileforge/frontend/project.js#L4173), [`frontend/project.js:4289`](/Users/aaat/projects/agileforge/frontend/project.js#L4289) call story close URLs
 
-But the corresponding functions in [`api.py`](/Users/aaat/projects/project_tcc/api.py) are plain functions with no `@app.get` / `@app.post` decorators:
+But the corresponding functions in [`api.py`](/Users/aaat/projects/agileforge/api.py) are plain functions with no `@app.get` / `@app.post` decorators:
 
-- [`get_sprint_close`](/Users/aaat/projects/project_tcc/api.py#L3663)
-- [`post_sprint_close`](/Users/aaat/projects/project_tcc/api.py#L3694)
-- [`get_project_task_packet`](/Users/aaat/projects/project_tcc/api.py#L3748)
-- [`get_project_story_packet`](/Users/aaat/projects/project_tcc/api.py#L3778)
-- [`get_task_execution`](/Users/aaat/projects/project_tcc/api.py#L3811)
-- [`post_task_execution`](/Users/aaat/projects/project_tcc/api.py#L3882)
-- [`get_story_close`](/Users/aaat/projects/project_tcc/api.py#L3953)
-- [`post_story_close`](/Users/aaat/projects/project_tcc/api.py#L4024)
+- [`get_sprint_close`](/Users/aaat/projects/agileforge/api.py#L3663)
+- [`post_sprint_close`](/Users/aaat/projects/agileforge/api.py#L3694)
+- [`get_project_task_packet`](/Users/aaat/projects/agileforge/api.py#L3748)
+- [`get_project_story_packet`](/Users/aaat/projects/agileforge/api.py#L3778)
+- [`get_task_execution`](/Users/aaat/projects/agileforge/api.py#L3811)
+- [`post_task_execution`](/Users/aaat/projects/agileforge/api.py#L3882)
+- [`get_story_close`](/Users/aaat/projects/agileforge/api.py#L3953)
+- [`post_story_close`](/Users/aaat/projects/agileforge/api.py#L4024)
 
 Observed usage:
 
-- I found direct test usage of [`get_task_execution`](/Users/aaat/projects/project_tcc/tests/test_api_task_execution.py#L200), but no FastAPI route registration or alternate `add_api_route` wiring.
+- I found direct test usage of [`get_task_execution`](/Users/aaat/projects/agileforge/tests/test_api_task_execution.py#L200), but no FastAPI route registration or alternate `add_api_route` wiring.
 
 Why this matters:
 
@@ -98,22 +98,22 @@ Why this matters:
 
 ### Finding 3: Raw DB access is spread through the API layer
 
-Direct `Session(get_engine())` usage in [`api.py`](/Users/aaat/projects/project_tcc/api.py) appears at:
+Direct `Session(get_engine())` usage in [`api.py`](/Users/aaat/projects/agileforge/api.py) appears at:
 
-- [`api.py:790`](/Users/aaat/projects/project_tcc/api.py#L790)
-- [`api.py:3366`](/Users/aaat/projects/project_tcc/api.py#L3366)
-- [`api.py:3639`](/Users/aaat/projects/project_tcc/api.py#L3639)
-- [`api.py:3667`](/Users/aaat/projects/project_tcc/api.py#L3667)
-- [`api.py:3698`](/Users/aaat/projects/project_tcc/api.py#L3698)
-- [`api.py:3756`](/Users/aaat/projects/project_tcc/api.py#L3756)
-- [`api.py:3789`](/Users/aaat/projects/project_tcc/api.py#L3789)
-- [`api.py:3815`](/Users/aaat/projects/project_tcc/api.py#L3815)
-- [`api.py:3889`](/Users/aaat/projects/project_tcc/api.py#L3889)
-- [`api.py:3957`](/Users/aaat/projects/project_tcc/api.py#L3957)
-- [`api.py:4028`](/Users/aaat/projects/project_tcc/api.py#L4028)
-- [`api.py:4205`](/Users/aaat/projects/project_tcc/api.py#L4205)
+- [`api.py:790`](/Users/aaat/projects/agileforge/api.py#L790)
+- [`api.py:3366`](/Users/aaat/projects/agileforge/api.py#L3366)
+- [`api.py:3639`](/Users/aaat/projects/agileforge/api.py#L3639)
+- [`api.py:3667`](/Users/aaat/projects/agileforge/api.py#L3667)
+- [`api.py:3698`](/Users/aaat/projects/agileforge/api.py#L3698)
+- [`api.py:3756`](/Users/aaat/projects/agileforge/api.py#L3756)
+- [`api.py:3789`](/Users/aaat/projects/agileforge/api.py#L3789)
+- [`api.py:3815`](/Users/aaat/projects/agileforge/api.py#L3815)
+- [`api.py:3889`](/Users/aaat/projects/agileforge/api.py#L3889)
+- [`api.py:3957`](/Users/aaat/projects/agileforge/api.py#L3957)
+- [`api.py:4028`](/Users/aaat/projects/agileforge/api.py#L4028)
+- [`api.py:4205`](/Users/aaat/projects/agileforge/api.py#L4205)
 
-The most concrete example is [`delete_project_story`](/Users/aaat/projects/project_tcc/api.py#L3198), which performs a multi-table delete flow directly in the route layer.
+The most concrete example is [`delete_project_story`](/Users/aaat/projects/agileforge/api.py#L3198), which performs a multi-table delete flow directly in the route layer.
 
 Why this matters:
 
@@ -125,12 +125,12 @@ Why this matters:
 
 Duplicated phase triplets:
 
-- vision: [`_ensure_vision_attempts`](/Users/aaat/projects/project_tcc/api.py#L1442), [`_record_vision_attempt`](/Users/aaat/projects/project_tcc/api.py#L1449), [`_set_vision_fsm_state`](/Users/aaat/projects/project_tcc/api.py#L1478)
-- backlog: [`_ensure_backlog_attempts`](/Users/aaat/projects/project_tcc/api.py#L1987), [`_record_backlog_attempt`](/Users/aaat/projects/project_tcc/api.py#L1994), [`_set_backlog_fsm_state`](/Users/aaat/projects/project_tcc/api.py#L2023)
-- roadmap: [`_ensure_roadmap_attempts`](/Users/aaat/projects/project_tcc/api.py#L2203), [`_record_roadmap_attempt`](/Users/aaat/projects/project_tcc/api.py#L2210), [`_set_roadmap_fsm_state`](/Users/aaat/projects/project_tcc/api.py#L2239)
-- sprint: [`_ensure_sprint_attempts`](/Users/aaat/projects/project_tcc/api.py#L3358), [`_record_sprint_attempt`](/Users/aaat/projects/project_tcc/api.py#L3406)
+- vision: [`_ensure_vision_attempts`](/Users/aaat/projects/agileforge/api.py#L1442), [`_record_vision_attempt`](/Users/aaat/projects/agileforge/api.py#L1449), [`_set_vision_fsm_state`](/Users/aaat/projects/agileforge/api.py#L1478)
+- backlog: [`_ensure_backlog_attempts`](/Users/aaat/projects/agileforge/api.py#L1987), [`_record_backlog_attempt`](/Users/aaat/projects/agileforge/api.py#L1994), [`_set_backlog_fsm_state`](/Users/aaat/projects/agileforge/api.py#L2023)
+- roadmap: [`_ensure_roadmap_attempts`](/Users/aaat/projects/agileforge/api.py#L2203), [`_record_roadmap_attempt`](/Users/aaat/projects/agileforge/api.py#L2210), [`_set_roadmap_fsm_state`](/Users/aaat/projects/agileforge/api.py#L2239)
+- sprint: [`_ensure_sprint_attempts`](/Users/aaat/projects/agileforge/api.py#L3358), [`_record_sprint_attempt`](/Users/aaat/projects/agileforge/api.py#L3406)
 
-There is also duplicated route-local FSM validation such as [`valid_states`](/Users/aaat/projects/project_tcc/api.py#L3478) inside sprint generation.
+There is also duplicated route-local FSM validation such as [`valid_states`](/Users/aaat/projects/agileforge/api.py#L3478) inside sprint generation.
 
 Why this matters:
 
@@ -140,14 +140,14 @@ Why this matters:
 
 ### Finding 5: `tools/spec_tools.py` is now a second god module
 
-File size: [`tools/spec_tools.py`](/Users/aaat/projects/project_tcc/tools/spec_tools.py) is 2,905 lines.
+File size: [`tools/spec_tools.py`](/Users/aaat/projects/agileforge/tools/spec_tools.py) is 2,905 lines.
 
 It currently mixes:
 
-- spec save/link/read: [`save_project_specification`](/Users/aaat/projects/project_tcc/tools/spec_tools.py#L143), [`link_spec_to_product`](/Users/aaat/projects/project_tcc/tools/spec_tools.py#L367), [`read_project_specification`](/Users/aaat/projects/project_tcc/tools/spec_tools.py#L502)
-- preview/compile lifecycle: [`preview_spec_authority`](/Users/aaat/projects/project_tcc/tools/spec_tools.py#L633), [`compile_spec_authority`](/Users/aaat/projects/project_tcc/tools/spec_tools.py#L1141), [`compile_spec_authority_for_version`](/Users/aaat/projects/project_tcc/tools/spec_tools.py#L1260), [`update_spec_and_compile_authority`](/Users/aaat/projects/project_tcc/tools/spec_tools.py#L1506)
-- acceptance/status: [`ensure_accepted_spec_authority`](/Users/aaat/projects/project_tcc/tools/spec_tools.py#L1654), [`check_spec_authority_status`](/Users/aaat/projects/project_tcc/tools/spec_tools.py#L1900)
-- story validation: [`validate_story_with_spec_authority`](/Users/aaat/projects/project_tcc/tools/spec_tools.py#L2553)
+- spec save/link/read: [`save_project_specification`](/Users/aaat/projects/agileforge/tools/spec_tools.py#L143), [`link_spec_to_product`](/Users/aaat/projects/agileforge/tools/spec_tools.py#L367), [`read_project_specification`](/Users/aaat/projects/agileforge/tools/spec_tools.py#L502)
+- preview/compile lifecycle: [`preview_spec_authority`](/Users/aaat/projects/agileforge/tools/spec_tools.py#L633), [`compile_spec_authority`](/Users/aaat/projects/agileforge/tools/spec_tools.py#L1141), [`compile_spec_authority_for_version`](/Users/aaat/projects/agileforge/tools/spec_tools.py#L1260), [`update_spec_and_compile_authority`](/Users/aaat/projects/agileforge/tools/spec_tools.py#L1506)
+- acceptance/status: [`ensure_accepted_spec_authority`](/Users/aaat/projects/agileforge/tools/spec_tools.py#L1654), [`check_spec_authority_status`](/Users/aaat/projects/agileforge/tools/spec_tools.py#L1900)
+- story validation: [`validate_story_with_spec_authority`](/Users/aaat/projects/agileforge/tools/spec_tools.py#L2553)
 
 Why this matters:
 
@@ -158,12 +158,12 @@ Why this matters:
 
 `api.py` imports:
 
-- [`_compute_story_input_hash`](/Users/aaat/projects/project_tcc/tools/spec_tools.py#L2153)
-- [`_load_compiled_artifact`](/Users/aaat/projects/project_tcc/tools/spec_tools.py#L854)
+- [`_compute_story_input_hash`](/Users/aaat/projects/agileforge/tools/spec_tools.py#L2153)
+- [`_load_compiled_artifact`](/Users/aaat/projects/agileforge/tools/spec_tools.py#L854)
 
 via:
 
-- [`api.py:112-116`](/Users/aaat/projects/project_tcc/api.py#L112)
+- [`api.py:112-116`](/Users/aaat/projects/agileforge/api.py#L112)
 
 Why this matters:
 
@@ -172,12 +172,12 @@ Why this matters:
 
 ### Finding 7: `utils/schemes.py` has real layering leakage
 
-File size: [`utils/schemes.py`](/Users/aaat/projects/project_tcc/utils/schemes.py) is 711 lines.
+File size: [`utils/schemes.py`](/Users/aaat/projects/agileforge/utils/schemes.py) is 711 lines.
 
 It contains mid-file ORM imports:
 
-- [`utils/schemes.py:572`](/Users/aaat/projects/project_tcc/utils/schemes.py#L572): `from agile_sqlmodel import TaskStatus, TaskAcceptanceResult`
-- [`utils/schemes.py:637`](/Users/aaat/projects/project_tcc/utils/schemes.py#L637): `from agile_sqlmodel import StoryResolution`
+- [`utils/schemes.py:572`](/Users/aaat/projects/agileforge/utils/schemes.py#L572): `from agile_sqlmodel import TaskStatus, TaskAcceptanceResult`
+- [`utils/schemes.py:637`](/Users/aaat/projects/agileforge/utils/schemes.py#L637): `from agile_sqlmodel import StoryResolution`
 
 Why this matters:
 
@@ -188,9 +188,9 @@ Why this matters:
 
 Key functions:
 
-- query/read model: [`fetch_sprint_candidates`](/Users/aaat/projects/project_tcc/tools/orchestrator_tools.py#L459)
-- state bootstrap: [`get_real_business_state`](/Users/aaat/projects/project_tcc/tools/orchestrator_tools.py#L634)
-- active-project session mutation: [`select_project`](/Users/aaat/projects/project_tcc/tools/orchestrator_tools.py#L654)
+- query/read model: [`fetch_sprint_candidates`](/Users/aaat/projects/agileforge/tools/orchestrator_tools.py#L459)
+- state bootstrap: [`get_real_business_state`](/Users/aaat/projects/agileforge/tools/orchestrator_tools.py#L634)
+- active-project session mutation: [`select_project`](/Users/aaat/projects/agileforge/tools/orchestrator_tools.py#L654)
 
 Why this matters:
 
@@ -260,7 +260,7 @@ FastAPI routers
 
 Transitional note:
 
-- during the first router split, helpers may remain in [`api.py`](/Users/aaat/projects/project_tcc/api.py) or move to a temporary `api/_internal/` module;
+- during the first router split, helpers may remain in [`api.py`](/Users/aaat/projects/agileforge/api.py) or move to a temporary `api/_internal/` module;
 - that is a staging step only;
 - by the end of Phase 3, orchestration helpers should live in `services/phases/*`, packet-building helpers in `services/packets/*`, and persistence/query logic in `repositories/*`.
 
@@ -287,7 +287,7 @@ Transitional note:
 
 - to `services/phases/story_service.py`
   - story runtime orchestration currently split between `api.py` and `services/story_runtime.py`
-  - specifically: logic around [`_ensure_story_runtime`](/Users/aaat/projects/project_tcc/api.py#L2433), retryability, save payload derivation, resolution summary, and legacy mirror syncing
+  - specifically: logic around [`_ensure_story_runtime`](/Users/aaat/projects/agileforge/api.py#L2433), retryability, save payload derivation, resolution summary, and legacy mirror syncing
 
 - to `services/phases/workflow_state.py`
   - generic attempt recording
@@ -328,8 +328,8 @@ def set_phase_fsm_state(
   - `override_state` is an escape hatch for asymmetric phases such as sprint planning, where the target-state mapping is not a simple review/interview pair
 
 - to `services/packets/packet_service.py`
-  - [`_build_story_packet`](/Users/aaat/projects/project_tcc/api.py#L1177)
-  - [`_build_task_packet`](/Users/aaat/projects/project_tcc/api.py#L1298)
+  - [`_build_story_packet`](/Users/aaat/projects/agileforge/api.py#L1177)
+  - [`_build_task_packet`](/Users/aaat/projects/agileforge/api.py#L1298)
   - supporting packet context loaders
 
 ### Split `tools/spec_tools.py`
@@ -360,7 +360,7 @@ def set_phase_fsm_state(
 - `models/db.py`
   - `get_engine`, DB bootstrap, migration bootstrap
 
-- keep [`agile_sqlmodel.py`](/Users/aaat/projects/project_tcc/agile_sqlmodel.py) as a compatibility shim during migration
+- keep [`agile_sqlmodel.py`](/Users/aaat/projects/agileforge/agile_sqlmodel.py) as a compatibility shim during migration
   - re-export symbols from `models/*`
   - migrate imports incrementally rather than in one big bang
 
@@ -371,7 +371,7 @@ def set_phase_fsm_state(
 - Register or explicitly retire the 8 currently undecorated close/execution/packet functions.
 - Add a fast regression test confirming those frontend URLs are registered.
 - Extract only route declarations from `api.py` into `api/routers/*`, keeping existing helper calls.
-- During this phase, helper functions may stay in [`api.py`](/Users/aaat/projects/project_tcc/api.py) or move to a temporary `api/_internal/` module.
+- During this phase, helper functions may stay in [`api.py`](/Users/aaat/projects/agileforge/api.py) or move to a temporary `api/_internal/` module.
 - Do not move orchestration logic into `api/_internal/` permanently; it is a transition seam, not the target architecture.
 
 Validation:
@@ -379,9 +379,9 @@ Validation:
 - startup succeeds
 - route table includes close/execution/packet endpoints
 - verify with:
-  - [tests/test_api_sprint_close.py](/Users/aaat/projects/project_tcc/tests/test_api_sprint_close.py)
-  - [tests/test_api_task_execution.py](/Users/aaat/projects/project_tcc/tests/test_api_task_execution.py)
-  - [tests/test_api_sprint_flow.py](/Users/aaat/projects/project_tcc/tests/test_api_sprint_flow.py)
+  - [tests/test_api_sprint_close.py](/Users/aaat/projects/agileforge/tests/test_api_sprint_close.py)
+  - [tests/test_api_task_execution.py](/Users/aaat/projects/agileforge/tests/test_api_task_execution.py)
+  - [tests/test_api_sprint_flow.py](/Users/aaat/projects/agileforge/tests/test_api_sprint_flow.py)
 
 ### Phase 2: Introduce `services/phases/*`
 
@@ -401,10 +401,10 @@ Validation:
 - routers no longer open sessions or call save tools directly
 - service unit tests cover generate/save/retry behavior
 - verify with:
-  - [tests/test_api_vision_flow.py](/Users/aaat/projects/project_tcc/tests/test_api_vision_flow.py)
-  - [tests/test_api_story_interview_flow.py](/Users/aaat/projects/project_tcc/tests/test_api_story_interview_flow.py)
-  - [tests/test_api_sprint_flow.py](/Users/aaat/projects/project_tcc/tests/test_api_sprint_flow.py)
-  - [tests/test_packet_renderer.py](/Users/aaat/projects/project_tcc/tests/test_packet_renderer.py)
+  - [tests/test_api_vision_flow.py](/Users/aaat/projects/agileforge/tests/test_api_vision_flow.py)
+  - [tests/test_api_story_interview_flow.py](/Users/aaat/projects/agileforge/tests/test_api_story_interview_flow.py)
+  - [tests/test_api_sprint_flow.py](/Users/aaat/projects/agileforge/tests/test_api_sprint_flow.py)
+  - [tests/test_packet_renderer.py](/Users/aaat/projects/agileforge/tests/test_packet_renderer.py)
 - Coverage gap:
   - there is no dedicated API packet endpoint test file today;
   - when `_build_story_packet` and `_build_task_packet` move to `services/packets/packet_service.py`, add or extend API-level packet endpoint tests so the route wiring is explicitly covered
@@ -449,9 +449,9 @@ Validation:
 - changing attempt metadata requires edits in one place
 - FSM transition rules are testable without importing `api.py`
 - verify with:
-  - [tests/test_fsm_story_transitions.py](/Users/aaat/projects/project_tcc/tests/test_fsm_story_transitions.py)
-  - [tests/test_workflow_session_bootstrap.py](/Users/aaat/projects/project_tcc/tests/test_workflow_session_bootstrap.py)
-  - [tests/test_sprint_planner_tool_registration.py](/Users/aaat/projects/project_tcc/tests/test_sprint_planner_tool_registration.py)
+  - [tests/test_fsm_story_transitions.py](/Users/aaat/projects/agileforge/tests/test_fsm_story_transitions.py)
+  - [tests/test_workflow_session_bootstrap.py](/Users/aaat/projects/agileforge/tests/test_workflow_session_bootstrap.py)
+  - [tests/test_sprint_planner_tool_registration.py](/Users/aaat/projects/agileforge/tests/test_sprint_planner_tool_registration.py)
 
 ### Phase 4: Split spec lifecycle
 
@@ -463,10 +463,10 @@ Validation:
 - `api.py` no longer imports underscore-prefixed functions
 - story validation and spec compilation tests run against separate services
 - verify with:
-  - [tests/test_spec_authority.py](/Users/aaat/projects/project_tcc/tests/test_spec_authority.py)
-  - [tests/test_spec_authority_compile_tool.py](/Users/aaat/projects/project_tcc/tests/test_spec_authority_compile_tool.py)
-  - [tests/test_update_spec_and_compile_authority.py](/Users/aaat/projects/project_tcc/tests/test_update_spec_and_compile_authority.py)
-  - [tests/test_story_validation_pinning.py](/Users/aaat/projects/project_tcc/tests/test_story_validation_pinning.py)
+  - [tests/test_spec_authority.py](/Users/aaat/projects/agileforge/tests/test_spec_authority.py)
+  - [tests/test_spec_authority_compile_tool.py](/Users/aaat/projects/agileforge/tests/test_spec_authority_compile_tool.py)
+  - [tests/test_update_spec_and_compile_authority.py](/Users/aaat/projects/agileforge/tests/test_update_spec_and_compile_authority.py)
+  - [tests/test_story_validation_pinning.py](/Users/aaat/projects/agileforge/tests/test_story_validation_pinning.py)
 
 ### Phase 5: Clean secondary hotspots
 
@@ -478,15 +478,15 @@ Validation:
 - utility/schema modules stop importing ORM enums mid-file
 - service layer dependencies become easier to trace
 - verify with:
-  - [tests/test_orchestrator_tools.py](/Users/aaat/projects/project_tcc/tests/test_orchestrator_tools.py)
-  - [tests/test_orchestrator_tools_unittest.py](/Users/aaat/projects/project_tcc/tests/test_orchestrator_tools_unittest.py)
-  - [tests/test_select_project_hydration.py](/Users/aaat/projects/project_tcc/tests/test_select_project_hydration.py)
-  - [tests/test_story_runtime.py](/Users/aaat/projects/project_tcc/tests/test_story_runtime.py)
+  - [tests/test_orchestrator_tools.py](/Users/aaat/projects/agileforge/tests/test_orchestrator_tools.py)
+  - [tests/test_orchestrator_tools_unittest.py](/Users/aaat/projects/agileforge/tests/test_orchestrator_tools_unittest.py)
+  - [tests/test_select_project_hydration.py](/Users/aaat/projects/agileforge/tests/test_select_project_hydration.py)
+  - [tests/test_story_runtime.py](/Users/aaat/projects/agileforge/tests/test_story_runtime.py)
 
 ### Phase 6: Package Models Behind a Stable Import Shim
 
-- Introduce a `models/` package and move ORM types out of [`agile_sqlmodel.py`](/Users/aaat/projects/project_tcc/agile_sqlmodel.py).
-- Keep [`agile_sqlmodel.py`](/Users/aaat/projects/project_tcc/agile_sqlmodel.py) as a compatibility shim that re-exports the new package during the migration window.
+- Introduce a `models/` package and move ORM types out of [`agile_sqlmodel.py`](/Users/aaat/projects/agileforge/agile_sqlmodel.py).
+- Keep [`agile_sqlmodel.py`](/Users/aaat/projects/agileforge/agile_sqlmodel.py) as a compatibility shim that re-exports the new package during the migration window.
 - Migrate imports incrementally across API, services, repositories, tools, and tests.
 
 Validation:
@@ -494,11 +494,11 @@ Validation:
 - import sites continue to work through the shim
 - model packaging is transparent to runtime behavior
 - verify with:
-  - [tests/test_db_migrations_sprint_lifecycle.py](/Users/aaat/projects/project_tcc/tests/test_db_migrations_sprint_lifecycle.py)
-  - [tests/test_api_sprint_close.py](/Users/aaat/projects/project_tcc/tests/test_api_sprint_close.py)
-  - [tests/test_api_story_interview_flow.py](/Users/aaat/projects/project_tcc/tests/test_api_story_interview_flow.py)
-  - [tests/test_api_sprint_flow.py](/Users/aaat/projects/project_tcc/tests/test_api_sprint_flow.py)
-  - [tests/test_api_task_execution.py](/Users/aaat/projects/project_tcc/tests/test_api_task_execution.py)
+  - [tests/test_db_migrations_sprint_lifecycle.py](/Users/aaat/projects/agileforge/tests/test_db_migrations_sprint_lifecycle.py)
+  - [tests/test_api_sprint_close.py](/Users/aaat/projects/agileforge/tests/test_api_sprint_close.py)
+  - [tests/test_api_story_interview_flow.py](/Users/aaat/projects/agileforge/tests/test_api_story_interview_flow.py)
+  - [tests/test_api_sprint_flow.py](/Users/aaat/projects/agileforge/tests/test_api_sprint_flow.py)
+  - [tests/test_api_task_execution.py](/Users/aaat/projects/agileforge/tests/test_api_task_execution.py)
 
 ## 6. Final Recommendation
 

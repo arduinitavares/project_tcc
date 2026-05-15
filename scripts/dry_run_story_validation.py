@@ -13,7 +13,7 @@ from utils.runtime_config import DatabaseTarget, resolve_database_target
 
 def resolve_db_target(explicit_db: str | None = None) -> DatabaseTarget:
     """Resolve the business DB target for dry-run validation."""
-    return resolve_database_target(explicit_db, env_name="PROJECT_TCC_DB_URL")
+    return resolve_database_target(explicit_db, env_name="AGILEFORGE_DB_URL")
 
 
 def _load_invariants(compiled_artifact_json: str | None) -> list[dict[str, Any]] | None:
@@ -152,7 +152,7 @@ if __name__ == "__main__":
     parser.add_argument("product_id", type=int, help="Product ID to inspect.")
     parser.add_argument(
         "--db",
-        help="Optional SQLite database path or sqlite:/// URL. Defaults to PROJECT_TCC_DB_URL.",  # noqa: E501
+        help="Optional SQLite database path or sqlite:/// URL. Defaults to AGILEFORGE_DB_URL.",  # noqa: E501
     )
     args = parser.parse_args()
     dry_run_validation(args.product_id, db=args.db)

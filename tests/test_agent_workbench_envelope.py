@@ -13,23 +13,23 @@ from services.agent_workbench.envelope import (
 )
 
 EXPECTED_PHASE_1_COMMAND_NAMES = {
-    "tcc status",
-    "tcc project list",
-    "tcc project show",
-    "tcc workflow state",
-    "tcc workflow next",
-    "tcc authority status",
-    "tcc authority invariants",
-    "tcc story show",
-    "tcc sprint candidates",
-    "tcc context pack",
+    "agileforge status",
+    "agileforge project list",
+    "agileforge project show",
+    "agileforge workflow state",
+    "agileforge workflow next",
+    "agileforge authority status",
+    "agileforge authority invariants",
+    "agileforge story show",
+    "agileforge sprint candidates",
+    "agileforge context pack",
 }
 
 
 def test_success_envelope_has_stable_shape() -> None:
     """Serialize success responses with stable top-level keys."""
     envelope = success_envelope(
-        command="tcc project list",
+        command="agileforge project list",
         data={"items": []},
         warnings=[
             WorkbenchWarning(
@@ -37,7 +37,7 @@ def test_success_envelope_has_stable_shape() -> None:
                 message="No projects exist.",
                 details={"count": 0},
                 remediation=[
-                    "tcc project create --name Example --spec-file specs/app.md"
+                    "agileforge project create --name Example --spec-file specs/app.md"
                 ],
             )
         ],
@@ -53,14 +53,14 @@ def test_success_envelope_has_stable_shape() -> None:
                 "message": "No projects exist.",
                 "details": {"count": 0},
                 "remediation": [
-                    "tcc project create --name Example --spec-file specs/app.md"
+                    "agileforge project create --name Example --spec-file specs/app.md"
                 ],
             }
         ],
         "errors": [],
         "meta": {
-            "schema_version": "tcc.cli.v1",
-            "command": "tcc project list",
+            "schema_version": "agileforge.cli.v1",
+            "command": "agileforge project list",
             "generated_at": "2026-05-14T00:00:00Z",
         },
     }
@@ -69,12 +69,12 @@ def test_success_envelope_has_stable_shape() -> None:
 def test_error_envelope_has_retryable_exit_code_error() -> None:
     """Serialize a singular command error with warning context."""
     envelope = error_envelope(
-        command="tcc sprint candidates",
+        command="agileforge sprint candidates",
         error=WorkbenchError(
             code="PROJECT_NOT_FOUND",
             message="Project does not exist.",
             details={"project_id": "missing"},
-            remediation=["tcc project list"],
+            remediation=["agileforge project list"],
             exit_code=2,
             retryable=True,
         ),
@@ -98,14 +98,14 @@ def test_error_envelope_has_retryable_exit_code_error() -> None:
                 "code": "PROJECT_NOT_FOUND",
                 "message": "Project does not exist.",
                 "details": {"project_id": "missing"},
-                "remediation": ["tcc project list"],
+                "remediation": ["agileforge project list"],
                 "exit_code": 2,
                 "retryable": True,
             }
         ],
         "meta": {
-            "schema_version": "tcc.cli.v1",
-            "command": "tcc sprint candidates",
+            "schema_version": "agileforge.cli.v1",
+            "command": "agileforge sprint candidates",
             "generated_at": "2026-05-14T00:00:00Z",
         },
     }
@@ -145,10 +145,10 @@ def test_registry_exposes_only_phase_1_commands() -> None:
 
     assert isinstance(names, set)
     assert names == EXPECTED_PHASE_1_COMMAND_NAMES
-    assert "tcc sprint generate" not in names
-    assert command_is_available("tcc sprint candidates") is True
-    assert command_is_available("tcc context pack") is True
-    assert command_is_available("tcc sprint generate") is False
+    assert "agileforge sprint generate" not in names
+    assert command_is_available("agileforge sprint candidates") is True
+    assert command_is_available("agileforge context pack") is True
+    assert command_is_available("agileforge sprint generate") is False
 
 
 def test_registry_metadata_has_phase_1_shape() -> None:

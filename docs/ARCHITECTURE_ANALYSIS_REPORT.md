@@ -1,8 +1,8 @@
 # Enterprise Architecture Analysis Report
 
-> **Repository:** `project_tcc` — Autonomous Agile Management Platform  
-> **Analysis date:** 2026-02-09  
-> **Analyst scope:** Static code analysis, repository structure, dependency signals, documentation  
+> **Repository:** `agileforge` — Autonomous Agile Management Platform
+> **Analysis date:** 2026-02-09
+> **Analyst scope:** Static code analysis, repository structure, dependency signals, documentation
 
 > **Legacy note:** This report analyzes the pre-FastAPI CLI architecture. The current supported runtime entrypoint is [api.py](api.py), and references to `main.py` below are historical.
 
@@ -161,8 +161,8 @@ This is the architecture that the codebase already implements. The recommendatio
 - There is **no explicit Repository abstraction** — tools directly import models and `get_engine()`.
 
 **[Fact]** Two distinct data stores coexist:
-1. **Business DB** (configured by `PROJECT_TCC_DB_URL`, for example `db/spec_authority_dev.db`): Product, spec, story, sprint data via SQLModel. Created by `agile_sqlmodel.create_db_and_tables()`.
-2. **Session/Volatile State DB** (configured by `PROJECT_TCC_SESSION_DB_URL`, for example `db/spec_authority_session_dev.db`): ADK's `DatabaseSessionService` stores transient agent session state.
+1. **Business DB** (configured by `AGILEFORGE_DB_URL`, for example `db/spec_authority_dev.db`): Product, spec, story, sprint data via SQLModel. Created by `agile_sqlmodel.create_db_and_tables()`.
+2. **Session/Volatile State DB** (configured by `AGILEFORGE_SESSION_DB_URL`, for example `db/spec_authority_session_dev.db`): ADK's `DatabaseSessionService` stores transient agent session state.
 
 **[Fact]** Schema evolution uses **hand-written idempotent migrations** in [db/migrations.py](db/migrations.py) — `ALTER TABLE ADD COLUMN` only, no `DROP`, no data destructive operations.
 
@@ -336,47 +336,47 @@ This is the correct presentation architecture for the system's context:
 
 #### T1 — Dual-Store Consistency Gap (ARCH-003)
 
-**Intent:** Session state and business DB should reflect the same reality.  
-**Implementation:** Two independent SQLite stores with no transactional boundary.  
-**Evidence:** [main.py](main.py#L420-L460) writes to session state; [tools/*.py](tools/) write to business DB. A failed session update after a successful tool commit creates divergence.  
-**Risk level:** **High** — can cause duplicate tool invocations or lost acknowledgments.  
+**Intent:** Session state and business DB should reflect the same reality.
+**Implementation:** Two independent SQLite stores with no transactional boundary.
+**Evidence:** [main.py](main.py#L420-L460) writes to session state; [tools/*.py](tools/) write to business DB. A failed session update after a successful tool commit creates divergence.
+**Risk level:** **High** — can cause duplicate tool invocations or lost acknowledgments.
 **Mitigation:** The FSM state is now persisted with `force=True` ([main.py](main.py#L406)), reducing the most critical case. Full mitigation requires either a single-store consolidation or a reconciliation mechanism.
 
 #### T2 — Retry Scope Overlap (ARCH-011, ARCH-012)
 
-**Intent:** Resilient LLM interactions.  
-**Implementation:** `SelfHealingAgent` retries + `ConditionalLoopAgent` iterations = multiplicative calls.  
-**Evidence:** Up to `3 retries × 4 iterations × 3 agents = 36+ LLM calls` for a single story in worst case.  
-**Risk level:** **High** — cost and latency amplification.  
+**Intent:** Resilient LLM interactions.
+**Implementation:** `SelfHealingAgent` retries + `ConditionalLoopAgent` iterations = multiplicative calls.
+**Evidence:** Up to `3 retries × 4 iterations × 3 agents = 36+ LLM calls` for a single story in worst case.
+**Risk level:** **High** — cost and latency amplification.
 **Mitigation:** Implement a global call budget counter that caps total LLM invocations per user turn.
 
 #### T3 — Non-Idempotent Tool Retries (ARCH-011)
 
-**Intent:** ZDR/rate-limit retries should be transparent.  
-**Implementation:** `SelfHealingAgent` retries the entire agent turn. If tools have already committed side effects before the LLM call fails, retried turns may produce duplicate writes.  
-**Evidence:** `save_backlog_tool` checks for duplicates by title ([backlog_primer/tools.py](orchestrator_agent/agent_tools/backlog_primer/tools.py#L89-L94)), but other save tools may not.  
-**Risk level:** **Medium** — partially mitigated by duplicate checks in some tools.  
+**Intent:** ZDR/rate-limit retries should be transparent.
+**Implementation:** `SelfHealingAgent` retries the entire agent turn. If tools have already committed side effects before the LLM call fails, retried turns may produce duplicate writes.
+**Evidence:** `save_backlog_tool` checks for duplicates by title ([backlog_primer/tools.py](orchestrator_agent/agent_tools/backlog_primer/tools.py#L89-L94)), but other save tools may not.
+**Risk level:** **Medium** — partially mitigated by duplicate checks in some tools.
 **Mitigation:** Ensure all save tools implement idempotency guards.
 
 #### T4 — FSM State Explosion
 
-**Intent:** Each Scrum artifact gets Interview → Review → Persistence states.  
-**Implementation:** 24+ states in the FSM, with 698 lines of state definitions.  
-**Evidence:** [orchestrator_agent/fsm/states.py](orchestrator_agent/fsm/states.py), [orchestrator_agent/fsm/definitions.py](orchestrator_agent/fsm/definitions.py).  
-**Risk level:** **Medium** — cognitive load for developers maintaining the FSM grows with each new artifact type.  
+**Intent:** Each Scrum artifact gets Interview → Review → Persistence states.
+**Implementation:** 24+ states in the FSM, with 698 lines of state definitions.
+**Evidence:** [orchestrator_agent/fsm/states.py](orchestrator_agent/fsm/states.py), [orchestrator_agent/fsm/definitions.py](orchestrator_agent/fsm/definitions.py).
+**Risk level:** **Medium** — cognitive load for developers maintaining the FSM grows with each new artifact type.
 **Mitigation:** Consider extracting the Interview → Review → Persistence pattern into a reusable template that generates state definitions programmatically.
 
 #### T5 — Validation Gap in Vision/Roadmap Save (ARCH-008)
 
-**Intent:** Draft → Review → Commit should ensure human confirmation.  
-**Implementation:** The "review" state relies on LLM interpretation of user confirmation, not a deterministic gate.  
-**Evidence:** Unlike the story pipeline (which has `AuthorityGate`), vision and roadmap saves are protected only by FSM state + LLM instruction.  
+**Intent:** Draft → Review → Commit should ensure human confirmation.
+**Implementation:** The "review" state relies on LLM interpretation of user confirmation, not a deterministic gate.
+**Evidence:** Unlike the story pipeline (which has `AuthorityGate`), vision and roadmap saves are protected only by FSM state + LLM instruction.
 **Risk level:** **Low-Medium** — the FSM state restriction prevents wrong-phase saves, but within the review state, premature persistence is possible.
 
 ### Accidental Architecture
 
 1. **Legacy `engine` module-level variable:** A non-guarded `engine = create_engine(...)` exists at module level alongside the safer `get_engine()` function ([agile_sqlmodel.py](agile_sqlmodel.py#L799-L804)). The `export_snapshot.py` imports this legacy variable directly.
-2. **Configuration sprawl risk:** database locations must remain env-driven (`PROJECT_TCC_DB_URL`, `PROJECT_TCC_SESSION_DB_URL`) to avoid reintroducing confusing legacy filenames or split-brain local setups.
+2. **Configuration sprawl risk:** database locations must remain env-driven (`AGILEFORGE_DB_URL`, `AGILEFORGE_SESSION_DB_URL`) to avoid reintroducing confusing legacy filenames or split-brain local setups.
 3. **`PERSIST_LLM_OUTPUT` flag** (ARCH-004) creates two fundamentally different runtime behaviors controlled by a hidden environment variable.
 
 ---
@@ -457,4 +457,4 @@ This is the correct presentation architecture for the system's context:
 
 ---
 
-*Report generated by static analysis of the `project_tcc` repository. All citations refer to files and documentation present in the codebase as of the analysis date.*
+*Report generated by static analysis of the `agileforge` repository. All citations refer to files and documentation present in the codebase as of the analysis date.*

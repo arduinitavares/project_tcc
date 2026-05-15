@@ -318,56 +318,56 @@ Report 2:
 
 ### 1. Root Cause Location
 The root cause lives primarily in two locations:
-1. **Context Orchestration:** [services/story_runtime.py](cci:7://file:///c:/Users/mjnrc/projects/project_tcc/services/story_runtime.py:0:0-0:0) (specifically in the [build_story_input_context](cci:1://file:///c:/Users/mjnrc/projects/project_tcc/services/story_runtime.py:31:0-58:5) function).
-2. **Prompt & Schema Definitions:** 
-   - [orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt](cci:7://file:///c:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:0:0-0:0)
-   - [orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py](cci:7://file:///c:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py:0:0-0:0)
+1. **Context Orchestration:** [services/story_runtime.py](cci:7://file:///c:/Users/mjnrc/projects/agileforge/services/story_runtime.py:0:0-0:0) (specifically in the [build_story_input_context](cci:1://file:///c:/Users/mjnrc/projects/agileforge/services/story_runtime.py:31:0-58:5) function).
+2. **Prompt & Schema Definitions:**
+   - [orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt](cci:7://file:///c:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:0:0-0:0)
+   - [orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py](cci:7://file:///c:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py:0:0-0:0)
 
 ### 2. Why the Current Architecture Allows Scope Expansion
-* **Global Context Injected as Local Scope:** In [story_runtime.py](cci:7://file:///c:/Users/mjnrc/projects/project_tcc/services/story_runtime.py:0:0-0:0), the AI is given the `pending_spec_content` mapped to the `technical_spec` field. This contains the **entire milestone specification** (including UML, packaging instructions, all frontend/backend constraints, tests, etc.). When generating stories for a single `parent_requirement`, the AI reads this entire global context and mistakenly tries to decompose *all* of the artifacts mentioned in the spec, rather than isolating the software functional requirements of the specific `parent_requirement`.
+* **Global Context Injected as Local Scope:** In [story_runtime.py](cci:7://file:///c:/Users/mjnrc/projects/agileforge/services/story_runtime.py:0:0-0:0), the AI is given the `pending_spec_content` mapped to the `technical_spec` field. This contains the **entire milestone specification** (including UML, packaging instructions, all frontend/backend constraints, tests, etc.). When generating stories for a single `parent_requirement`, the AI reads this entire global context and mistakenly tries to decompose *all* of the artifacts mentioned in the spec, rather than isolating the software functional requirements of the specific `parent_requirement`.
 * **No Artifact Stream Isolation:** The AI prompt lacks the concept of "Artifact Streams". It doesn't know that "Characterization Tests" and "UML Data Models" are meant to be separate streams. It simply sees them in the spec and merges them into the current story group.
 * **Duplication & Cross-contamination:** Because *every* requirement generation call receives the exact same global `technical_spec`, the AI generates the same overarching stories (e.g., "Create UML diagram", "Package release") over and over for each requirement.
-* **INVEST Sizing Ambiguity:** In [schemes.py](cci:7://file:///c:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/roadmap_builder/schemes.py:0:0-0:0), `invest_score` evaluates how well the story meets INVEST principles (High, Medium, Low). However, this phrasing confuses the LLM, which conflates a "High INVEST grade" with "High Effort" or "High Complexity"—making it seem like the AI is inflating the size of simple tasks, when it's actually just assigning a passing grade for INVEST formatting. Furthermore, the prompt's instruction to decompose until everything is a "2-3 days of effort" vertical slice forces the AI to unnaturally split simple tasks just to meet this rigid heuristic.
+* **INVEST Sizing Ambiguity:** In [schemes.py](cci:7://file:///c:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/roadmap_builder/schemes.py:0:0-0:0), `invest_score` evaluates how well the story meets INVEST principles (High, Medium, Low). However, this phrasing confuses the LLM, which conflates a "High INVEST grade" with "High Effort" or "High Complexity"—making it seem like the AI is inflating the size of simple tasks, when it's actually just assigning a passing grade for INVEST formatting. Furthermore, the prompt's instruction to decompose until everything is a "2-3 days of effort" vertical slice forces the AI to unnaturally split simple tasks just to meet this rigid heuristic.
 
 ### 3. Concrete Changes to Architecture & Prompt Design
 
 **A. Introduce Explicit Scope Boundaries & Artifact Streams**
-*   **Prompt Modification:** Update [instructions.txt](cci:7://file:///c:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:0:0-0:0) to include explicit constraints on artifact creation.
+*   **Prompt Modification:** Update [instructions.txt](cci:7://file:///c:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:0:0-0:0) to include explicit constraints on artifact creation.
     *   *Add Rule:* "OUT OF SCOPE: Do not generate stories for UML diagrams, documentation, screenshots, or packaging *unless* the `parent_requirement` explicitly names them. Focus strictly on the software functionality required to implement the requirement."
     *   *Add Rule:* "Routine developer tasks (e.g., static analysis, test configuration) should be embedded into the Acceptance Criteria of functional stories, not split into separate administrative stories."
 
 **B. Context Slicing (Orchestrator Level)**
-*   **Alternative Context Pruning Prompt:** If slicing the spec programmatically is too complex, add a pre-processing step or explicit AI instruction: 
+*   **Alternative Context Pruning Prompt:** If slicing the spec programmatically is too complex, add a pre-processing step or explicit AI instruction:
     *   *Instruction:* "The `technical_spec` provided is for the ENTIRE milestone. You must FILTER this context and ONLY apply the technical constraints that directly intersect with the `parent_requirement`."
 
 **C. INVEST Heuristics & Schema Refinement**
-*   **Rename Metric:** In [schemes.py](cci:7://file:///c:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/roadmap_builder/schemes.py:0:0-0:0), change the description of `invest_score` to clearly indicate it is an "invest_quality_grade" to decouple it from task size estimation.
-*   **Effort Heuristics:** Give the LLM a way to explicitly estimate effort. Add an `estimated_effort` (e.g., "Hours", "Days") field to [UserStoryItem](cci:2://file:///c:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py:7:0-87:19). Instruct the LLM: "Do not artificially split a 1-hour task to make it 2 days. If a task naturally takes less than a day, leave it whole."
+*   **Rename Metric:** In [schemes.py](cci:7://file:///c:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/roadmap_builder/schemes.py:0:0-0:0), change the description of `invest_score` to clearly indicate it is an "invest_quality_grade" to decouple it from task size estimation.
+*   **Effort Heuristics:** Give the LLM a way to explicitly estimate effort. Add an `estimated_effort` (e.g., "Hours", "Days") field to [UserStoryItem](cci:2://file:///c:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py:7:0-87:19). Instruct the LLM: "Do not artificially split a 1-hour task to make it 2 days. If a task naturally takes less than a day, leave it whole."
 
 **D. Validation / Deduplication Layer**
-*   **Post-Generation Validation/Context:** In [story_runtime.py](cci:7://file:///c:/Users/mjnrc/projects/project_tcc/services/story_runtime.py:0:0-0:0), inject previously generated stories for the current milestone into the context prompt under a new field: `already_generated_milestone_stories`. 
+*   **Post-Generation Validation/Context:** In [story_runtime.py](cci:7://file:///c:/Users/mjnrc/projects/agileforge/services/story_runtime.py:0:0-0:0), inject previously generated stories for the current milestone into the context prompt under a new field: `already_generated_milestone_stories`.
 *   *Instruction:* "Do not generate stories for cross-cutting concerns (like UML or test setup) if they are already covered in the `already_generated_milestone_stories`."
 
 ### 4. Suggested Implementation Approach
 
-1.  **Modify [UserStoryWriterInput](cci:2://file:///c:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py:90:0-122:5) ([schemes.py](cci:7://file:///c:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/roadmap_builder/schemes.py:0:0-0:0)):**
+1.  **Modify [UserStoryWriterInput](cci:2://file:///c:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py:90:0-122:5) ([schemes.py](cci:7://file:///c:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/roadmap_builder/schemes.py:0:0-0:0)):**
     *   Add an optional `existing_milestone_stories: str` field to hold already generated context.
     *   Add an `artifact_stream_focus: str` field (e.g., default to `"Software Implementation"`).
-    *   Update [UserStoryItem](cci:2://file:///c:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py:7:0-87:19) to include a strict `estimated_effort` field to cleanly separate size from INVEST compliance.
-2.  **Update [build_story_input_context](cci:1://file:///c:/Users/mjnrc/projects/project_tcc/services/story_runtime.py:31:0-58:5) ([story_runtime.py](cci:7://file:///c:/Users/mjnrc/projects/project_tcc/services/story_runtime.py:0:0-0:0)):**
+    *   Update [UserStoryItem](cci:2://file:///c:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py:7:0-87:19) to include a strict `estimated_effort` field to cleanly separate size from INVEST compliance.
+2.  **Update [build_story_input_context](cci:1://file:///c:/Users/mjnrc/projects/agileforge/services/story_runtime.py:31:0-58:5) ([story_runtime.py](cci:7://file:///c:/Users/mjnrc/projects/agileforge/services/story_runtime.py:0:0-0:0)):**
     *   Fetch all currently saved stories from `state.get("story_saved", {})` and `state.get("story_outputs", {})`.
     *   Flatten the titles/statements of existing stories and pass them into the new `existing_milestone_stories` field.
     *   Provide explicit prompt context warning the model that the `technical_spec` is global, and it must filter for only what's necessary.
-3.  **Rewrite [instructions.txt](cci:7://file:///c:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:0:0-0:0):**
+3.  **Rewrite [instructions.txt](cci:7://file:///c:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:0:0-0:0):**
     *   Add a "SCOPE & ARTIFACT BOUNDARIES" section explicitly forbidding cross-stream artifact bleed (UML, packaging) unless strictly requested.
     *   Clarify INVEST grading vs. Effort estimation. Replace the hard "2-3 days" rule with "Small enough to fit in a sprint, but do not artificially over-decompose trivial tasks."
 
 ### 5. Files to Modify
-- [c:\Users\mjnrc\projects\project_tcc\orchestrator_agent\agent_tools\user_story_writer_tool\schemes.py](cci:7://file:///c:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py:0:0-0:0)
+- [c:\Users\mjnrc\projects\agileforge\orchestrator_agent\agent_tools\user_story_writer_tool\schemes.py](cci:7://file:///c:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py:0:0-0:0)
   *(Update schemas with new scope fields, decouple effort from `invest_score`)*
-- [c:\Users\mjnrc\projects\project_tcc\orchestrator_agent\agent_tools\user_story_writer_tool\instructions.txt](cci:7://file:///c:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:0:0-0:0)
+- [c:\Users\mjnrc\projects\agileforge\orchestrator_agent\agent_tools\user_story_writer_tool\instructions.txt](cci:7://file:///c:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:0:0-0:0)
   *(Update SYSTEM instructions to map out strict scope boundaries, rule out duplication, and fix INVEST rules)*
-- [c:\Users\mjnrc\projects\project_tcc\services\story_runtime.py](cci:7://file:///c:/Users/mjnrc/projects/project_tcc/services/story_runtime.py:0:0-0:0)
+- [c:\Users\mjnrc\projects\agileforge\services\story_runtime.py](cci:7://file:///c:/Users/mjnrc/projects/agileforge/services/story_runtime.py:0:0-0:0)
   *(Update `build_story_input_context` to pipe in deduplication history and inject strict scope warnings)*
 
 >
@@ -378,20 +378,20 @@ Report 3:
 <
 **1) Likely root cause location**
 
-- Scope drift is centered in the story-generation path: [services/story_runtime.py](C:/Users/mjnrc/projects/project_tcc/services/story_runtime.py:32), [orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:15), and [orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py:91).
-- Duplicate persistence and bloat are amplified in save/linkage logic: [orchestrator_agent/agent_tools/backlog_primer/tools.py](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/backlog_primer/tools.py:120), [orchestrator_agent/agent_tools/user_story_writer_tool/tools.py](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/tools.py:207), [orchestrator_agent/agent_tools/user_story_writer_tool/tools.py](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/tools.py:220).
-- There is no integrated post-generation scope/dedup gate before save in API flow: [api.py](C:/Users/mjnrc/projects/project_tcc/api.py:1175), while validation exists only as a separate tool: [tools/spec_tools.py](C:/Users/mjnrc/projects/project_tcc/tools/spec_tools.py:2404).
+- Scope drift is centered in the story-generation path: [services/story_runtime.py](C:/Users/mjnrc/projects/agileforge/services/story_runtime.py:32), [orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:15), and [orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py:91).
+- Duplicate persistence and bloat are amplified in save/linkage logic: [orchestrator_agent/agent_tools/backlog_primer/tools.py](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/backlog_primer/tools.py:120), [orchestrator_agent/agent_tools/user_story_writer_tool/tools.py](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/tools.py:207), [orchestrator_agent/agent_tools/user_story_writer_tool/tools.py](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/tools.py:220).
+- There is no integrated post-generation scope/dedup gate before save in API flow: [api.py](C:/Users/mjnrc/projects/agileforge/api.py:1175), while validation exists only as a separate tool: [tools/spec_tools.py](C:/Users/mjnrc/projects/agileforge/tools/spec_tools.py:2404).
 
 **2) Why current architecture allows scope expansion**
 
-- Story input includes full `technical_spec` and full `compiled_authority` for every requirement, so global context is treated as local scope: [services/story_runtime.py](C:/Users/mjnrc/projects/project_tcc/services/story_runtime.py:57).
-- Requirement context is weak and free-text, built from milestone theme/focus/reasoning, not strict ownership metadata: [services/story_runtime.py](C:/Users/mjnrc/projects/project_tcc/services/story_runtime.py:42), [orchestrator_agent/fsm/deterministic_tool_adapters.py](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/fsm/deterministic_tool_adapters.py:126).
-- Prompt has conflicting guidance (allows technical-task framing, then forbids technical tasks), which increases model ambiguity: [orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:35), [orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:67).
-- Prompt explicitly says “do not target fixed number of stories,” and schema has no max count, so over-decomposition is unconstrained: [orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:31), [orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py:138).
-- Roadmap items are plain strings (no requirement ID, no stream ownership), so boundaries are not machine-enforceable: [orchestrator_agent/agent_tools/roadmap_builder/schemes.py](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/roadmap_builder/schemes.py:113).
-- API tracks story attempts/outputs by requirement string key, which is fragile for duplicate names across milestones/streams: [api.py](C:/Users/mjnrc/projects/project_tcc/api.py:981), [api.py](C:/Users/mjnrc/projects/project_tcc/api.py:998).
-- Persistence linkage mismatch likely creates duplicate rows: backlog seed uses `refinement_slot = priority`, but story refinement upserts slots from `1..N`: [orchestrator_agent/agent_tools/backlog_primer/tools.py](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/backlog_primer/tools.py:120), [orchestrator_agent/agent_tools/user_story_writer_tool/tools.py](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/tools.py:207).
-- When refined output shrinks, stale higher slots are not superseded (warning only), so bloat persists: [orchestrator_agent/agent_tools/user_story_writer_tool/tools.py](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/tools.py:220). A cleanup exists only as manual script: [scripts/reconcile_product_refinement.py](C:/Users/mjnrc/projects/project_tcc/scripts/reconcile_product_refinement.py:55).
+- Story input includes full `technical_spec` and full `compiled_authority` for every requirement, so global context is treated as local scope: [services/story_runtime.py](C:/Users/mjnrc/projects/agileforge/services/story_runtime.py:57).
+- Requirement context is weak and free-text, built from milestone theme/focus/reasoning, not strict ownership metadata: [services/story_runtime.py](C:/Users/mjnrc/projects/agileforge/services/story_runtime.py:42), [orchestrator_agent/fsm/deterministic_tool_adapters.py](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/fsm/deterministic_tool_adapters.py:126).
+- Prompt has conflicting guidance (allows technical-task framing, then forbids technical tasks), which increases model ambiguity: [orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:35), [orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:67).
+- Prompt explicitly says “do not target fixed number of stories,” and schema has no max count, so over-decomposition is unconstrained: [orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:31), [orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py:138).
+- Roadmap items are plain strings (no requirement ID, no stream ownership), so boundaries are not machine-enforceable: [orchestrator_agent/agent_tools/roadmap_builder/schemes.py](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/roadmap_builder/schemes.py:113).
+- API tracks story attempts/outputs by requirement string key, which is fragile for duplicate names across milestones/streams: [api.py](C:/Users/mjnrc/projects/agileforge/api.py:981), [api.py](C:/Users/mjnrc/projects/agileforge/api.py:998).
+- Persistence linkage mismatch likely creates duplicate rows: backlog seed uses `refinement_slot = priority`, but story refinement upserts slots from `1..N`: [orchestrator_agent/agent_tools/backlog_primer/tools.py](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/backlog_primer/tools.py:120), [orchestrator_agent/agent_tools/user_story_writer_tool/tools.py](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/tools.py:207).
+- When refined output shrinks, stale higher slots are not superseded (warning only), so bloat persists: [orchestrator_agent/agent_tools/user_story_writer_tool/tools.py](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/tools.py:220). A cleanup exists only as manual script: [scripts/reconcile_product_refinement.py](C:/Users/mjnrc/projects/agileforge/scripts/reconcile_product_refinement.py:55).
 
 **3) Concrete platform improvements**
 
@@ -414,7 +414,7 @@ Report 3:
 - Separate INVEST quality from effort:
   - keep `invest_quality` for compliance,
   - add explicit `effort_band` (`XS/S/M/L`) for sizing.
-- Integrate spec validation gate into story flow (not only scripts/tests), using existing validator capability from [tools/spec_tools.py](C:/Users/mjnrc/projects/project_tcc/tools/spec_tools.py:2404).
+- Integrate spec validation gate into story flow (not only scripts/tests), using existing validator capability from [tools/spec_tools.py](C:/Users/mjnrc/projects/agileforge/tools/spec_tools.py:2404).
 
 **4) Suggested implementation approach**
 
@@ -423,7 +423,7 @@ Report 3:
 - Preserve backward compatibility with migration adapters for old payloads.
 
 2. Runtime scope isolation.
-- Refactor [services/story_runtime.py](C:/Users/mjnrc/projects/project_tcc/services/story_runtime.py:32) to build structured scope objects instead of concatenated text blocks.
+- Refactor [services/story_runtime.py](C:/Users/mjnrc/projects/agileforge/services/story_runtime.py:32) to build structured scope objects instead of concatenated text blocks.
 - Stop injecting previous full JSON draft into free-text context; pass prior draft in dedicated field.
 
 3. Deterministic validation gate.
@@ -440,14 +440,14 @@ Report 3:
 
 **5) Files to modify (primary targets)**
 
-- Story generation runtime: [services/story_runtime.py](C:/Users/mjnrc/projects/project_tcc/services/story_runtime.py:32)
-- Story prompt + schemas: [orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:15), [orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py:91)
-- Story persistence logic: [orchestrator_agent/agent_tools/user_story_writer_tool/tools.py](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/user_story_writer_tool/tools.py:71)
-- Backlog seed linkage bug: [orchestrator_agent/agent_tools/backlog_primer/tools.py](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/backlog_primer/tools.py:120)
-- Roadmap schema (typed ownership refs): [orchestrator_agent/agent_tools/roadmap_builder/schemes.py](C:/Users/mjnrc/projects/project_tcc/orchestrator_agent/agent_tools/roadmap_builder/schemes.py:96)
-- API orchestration hooks (validation gate integration): [api.py](C:/Users/mjnrc/projects/project_tcc/api.py:954), [api.py](C:/Users/mjnrc/projects/project_tcc/api.py:1063), [api.py](C:/Users/mjnrc/projects/project_tcc/api.py:1150)
-- DB schema/migrations for stream + unique linkage: [agile_sqlmodel.py](C:/Users/mjnrc/projects/project_tcc/agile_sqlmodel.py:563), [db/migrations.py](C:/Users/mjnrc/projects/project_tcc/db/migrations.py:282)
-- Optional reuse for compliance gate: [tools/spec_tools.py](C:/Users/mjnrc/projects/project_tcc/tools/spec_tools.py:2404)
+- Story generation runtime: [services/story_runtime.py](C:/Users/mjnrc/projects/agileforge/services/story_runtime.py:32)
+- Story prompt + schemas: [orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/instructions.txt:15), [orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/schemes.py:91)
+- Story persistence logic: [orchestrator_agent/agent_tools/user_story_writer_tool/tools.py](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/user_story_writer_tool/tools.py:71)
+- Backlog seed linkage bug: [orchestrator_agent/agent_tools/backlog_primer/tools.py](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/backlog_primer/tools.py:120)
+- Roadmap schema (typed ownership refs): [orchestrator_agent/agent_tools/roadmap_builder/schemes.py](C:/Users/mjnrc/projects/agileforge/orchestrator_agent/agent_tools/roadmap_builder/schemes.py:96)
+- API orchestration hooks (validation gate integration): [api.py](C:/Users/mjnrc/projects/agileforge/api.py:954), [api.py](C:/Users/mjnrc/projects/agileforge/api.py:1063), [api.py](C:/Users/mjnrc/projects/agileforge/api.py:1150)
+- DB schema/migrations for stream + unique linkage: [agile_sqlmodel.py](C:/Users/mjnrc/projects/agileforge/agile_sqlmodel.py:563), [db/migrations.py](C:/Users/mjnrc/projects/agileforge/db/migrations.py:282)
+- Optional reuse for compliance gate: [tools/spec_tools.py](C:/Users/mjnrc/projects/agileforge/tools/spec_tools.py:2404)
 
 Overall diagnosis: this is mainly a platform design gap (contract + orchestration + validation), not just a prompt wording issue. Prompt fixes alone will help, but without typed stream ownership and deterministic post-generation guards, scope drift and duplicate artifacts will continue.
 

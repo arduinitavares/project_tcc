@@ -32,11 +32,11 @@ if TYPE_CHECKING:
 
 JsonDict = dict[str, Any]
 
-PROJECT_LIST_COMMAND: Final[str] = "tcc project list"
-PROJECT_SHOW_COMMAND: Final[str] = "tcc project show"
-WORKFLOW_STATE_COMMAND: Final[str] = "tcc workflow state"
-STORY_SHOW_COMMAND: Final[str] = "tcc story show"
-SPRINT_CANDIDATES_COMMAND: Final[str] = "tcc sprint candidates"
+PROJECT_LIST_COMMAND: Final[str] = "agileforge project list"
+PROJECT_SHOW_COMMAND: Final[str] = "agileforge project show"
+WORKFLOW_STATE_COMMAND: Final[str] = "agileforge workflow state"
+STORY_SHOW_COMMAND: Final[str] = "agileforge story show"
+SPRINT_CANDIDATES_COMMAND: Final[str] = "agileforge sprint candidates"
 
 _PRODUCT_REQUIREMENT: Final[SchemaRequirement] = SchemaRequirement(
     "products",
@@ -184,7 +184,7 @@ def _project_not_found_error(command: str, project_id: int) -> JsonDict:
             code="PROJECT_NOT_FOUND",
             message=f"Project {project_id} was not found.",
             details={"project_id": project_id},
-            remediation=["tcc project list"],
+            remediation=["agileforge project list"],
             exit_code=2,
             retryable=False,
         ),
@@ -199,7 +199,7 @@ def _story_not_found_error(story_id: int) -> JsonDict:
             code="STORY_NOT_FOUND",
             message=f"Story {story_id} was not found.",
             details={"story_id": story_id},
-            remediation=["tcc sprint candidates --project-id <project_id>"],
+            remediation=["agileforge sprint candidates --project-id <project_id>"],
             exit_code=2,
             retryable=False,
         ),

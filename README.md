@@ -1,12 +1,14 @@
-# 🤖 Autonomous Agile Management Platform
+# AgileForge
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Google ADK](https://img.shields.io/badge/Google-ADK-orange.svg)](https://github.com/google/adk-python)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> **A multi-agent AI system that simulates Scrum roles to reduce cognitive load for small development teams (1-4 developers).**
+> **A developer tool for agent-assisted agile planning and execution, governed by Spec Authority.**
 
-This project is part of a **TCC (Trabalho de Conclusão de Curso)** research initiative exploring how AI agents can autonomously orchestrate Agile workflows, from product vision to sprint execution, utilizing a **Spec-Driven Architecture**.
+AgileForge orchestrates the full agile backbone from product vision to sprint execution. It gives agents a bounded workflow, a SQLite-backed project memory, and a read-only CLI for inspecting project context safely.
+
+This project began as a **TCC (Trabalho de Conclusão de Curso)** research initiative exploring how AI agents can autonomously orchestrate Agile workflows with a **Spec-Driven Architecture**.
 
 ---
 
@@ -83,8 +85,8 @@ Vision → Specification Authority → Initial Backlog → Roadmap → User Stor
 
 ```bash
 # Clone the repository
-git clone https://github.com/arduinitavares/project_tcc.git
-cd project_tcc
+git clone https://github.com/arduinitavares/agileforge.git
+cd agileforge
 
 # Install dependencies
 pip install -e .
@@ -95,8 +97,17 @@ poetry install
 cp .env.example .env
 # Then edit .env and set:
 # - OPEN_ROUTER_API_KEY
-# - PROJECT_TCC_DB_URL
-# - PROJECT_TCC_SESSION_DB_URL
+# - AGILEFORGE_DB_URL
+# - AGILEFORGE_SESSION_DB_URL
+```
+
+### Agent CLI
+
+```bash
+uv run --frozen agileforge --help
+uv run --frozen agileforge project list
+uv run --frozen agileforge status --project-id 1
+uv run --frozen agileforge context pack --project-id 1 --phase sprint-planning
 ```
 
 ### Running the Application
@@ -155,7 +166,7 @@ Agent: ✅ Story #35 updated: IN_PROGRESS → DONE
 ## 📁 Project Structure
 
 ```
-project_tcc/
+agileforge/
 ├── api.py                           # Deterministic FastAPI entry point
 ├── agile_sqlmodel.py                # Database schema (SQLModel/SQLAlchemy)
 ├── PLANNING_WORKFLOW.md             # Detailed workflow documentation

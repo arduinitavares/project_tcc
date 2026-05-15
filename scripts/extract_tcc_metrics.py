@@ -9,7 +9,7 @@ Chapter 6 (Resultados) of the thesis. Produces reproducible, auditable outputs.
 Usage:
     python -m scripts.extract_tcc_metrics <db_path>
     python -m scripts.extract_tcc_metrics db/spec_authority_dev.db
-    python -m scripts.extract_tcc_metrics  # uses PROJECT_TCC_DB_URL
+    python -m scripts.extract_tcc_metrics  # uses AGILEFORGE_DB_URL
 
 Outputs:
     - artifacts/metrics_summary.csv
@@ -970,7 +970,7 @@ def main() -> None:
     parser.add_argument(
         "db_path",
         nargs="?",
-        help="Optional SQLite database path or sqlite:/// URL. Defaults to PROJECT_TCC_DB_URL.",
+        help="Optional SQLite database path or sqlite:/// URL. Defaults to AGILEFORGE_DB_URL.",
     )
     parser.add_argument(
         "--output-dir",
@@ -979,7 +979,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    db_target = resolve_database_target(args.db_path, env_name="PROJECT_TCC_DB_URL")
+    db_target = resolve_database_target(args.db_path, env_name="AGILEFORGE_DB_URL")
     if db_target.sqlite_path is None:
         emit(
             "ERROR: Metrics extraction requires a file-backed SQLite database.",

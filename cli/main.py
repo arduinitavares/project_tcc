@@ -19,6 +19,18 @@ from services.agent_workbench.envelope import (
 DEFAULT_CONTEXT_PHASE: str = "overview"
 INVALID_COMMAND_EXIT_CODE: int = 2
 COMMAND_EXCEPTION_EXIT_CODE: int = 1
+HELP_DESCRIPTION: str = (
+    "AgileForge agent-facing CLI for read-only agile workflow context."
+)
+HELP_EPILOG: str = """\
+Examples:
+  agileforge project list
+  agileforge status --project-id 1
+  agileforge workflow state --project-id 1
+  agileforge authority status --project-id 1
+  agileforge sprint candidates --project-id 1
+  agileforge context pack --project-id 1 --phase sprint-planning
+"""
 type JsonObject = dict[str, object]
 type JsonList = list[object]
 CommandResult = tuple[str, JsonObject]
@@ -253,12 +265,12 @@ def _parse_error_envelope(message: str, argv: list[str] | None) -> JsonObject:
     """Return a structured envelope for invalid command input."""
     parsed_argv = list(argv) if argv is not None else sys.argv[1:]
     return error_envelope(
-        command="tcc",
+        command="agileforge",
         error=WorkbenchError(
             code="INVALID_COMMAND",
             message=message,
             details={"argv": parsed_argv},
-            remediation=["Run tcc --help."],
+            remediation=["Run agileforge --help."],
             exit_code=INVALID_COMMAND_EXIT_CODE,
             retryable=False,
         ),
@@ -268,7 +280,7 @@ def _parse_error_envelope(message: str, argv: list[str] | None) -> JsonObject:
 def _exception_envelope(exc: Exception) -> JsonObject:
     """Return a structured envelope for unexpected command exceptions."""
     return error_envelope(
-        command="tcc",
+        command="agileforge",
         error=WorkbenchError(
             code="COMMAND_EXCEPTION",
             message=str(exc) or "Command failed with an unexpected exception.",
@@ -282,84 +294,104 @@ def _exception_envelope(exc: Exception) -> JsonObject:
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level CLI parser."""
-    parser = _WorkbenchArgumentParser(prog="tcc")
+    parser = _WorkbenchArgumentParser(
+        prog="agileforge",
+        description=HELP_DESCRIPTION,
+        epilog=HELP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     subparsers = parser.add_subparsers(
         dest="group",
         required=True,
         parser_class=_WorkbenchArgumentParser,
     )
 
-    project = subparsers.add_parser("project")
+    project = subparsers.add_parser(
+        "project",
+        help="List and inspect AgileForge projects.",
+    )
     project_sub = project.add_subparsers(
         dest="action",
         required=True,
         parser_class=_WorkbenchArgumentParser,
     )
-    project_list = project_sub.add_parser("list")
+    project_list = project_sub.add_parser("list", help="List projects.")
     project_list.set_defaults(command_handler=_project_list)
-    project_show = project_sub.add_parser("show")
+    project_show = project_sub.add_parser("show", help="Show one project.")
     project_show.add_argument("--project-id", type=int, required=True)
     project_show.set_defaults(command_handler=_project_show)
 
-    workflow = subparsers.add_parser("workflow")
+    workflow = subparsers.add_parser(
+        "workflow",
+        help="Inspect workflow state and next installed commands.",
+    )
     workflow_sub = workflow.add_subparsers(
         dest="action",
         required=True,
         parser_class=_WorkbenchArgumentParser,
     )
-    workflow_state = workflow_sub.add_parser("state")
+    workflow_state = workflow_sub.add_parser("state", help="Show workflow state.")
     workflow_state.add_argument("--project-id", type=int, required=True)
     workflow_state.set_defaults(command_handler=_workflow_state)
-    workflow_next = workflow_sub.add_parser("next")
+    workflow_next = workflow_sub.add_parser("next", help="Show next commands.")
     workflow_next.add_argument("--project-id", type=int, required=True)
     workflow_next.set_defaults(command_handler=_workflow_next)
 
-    authority = subparsers.add_parser("authority")
+    authority = subparsers.add_parser(
+        "authority",
+        help="Inspect accepted Spec Authority.",
+    )
     authority_sub = authority.add_subparsers(
         dest="action",
         required=True,
         parser_class=_WorkbenchArgumentParser,
     )
-    authority_status = authority_sub.add_parser("status")
+    authority_status = authority_sub.add_parser("status", help="Show authority status.")
     authority_status.add_argument("--project-id", type=int, required=True)
     authority_status.set_defaults(command_handler=_authority_status)
-    authority_invariants = authority_sub.add_parser("invariants")
+    authority_invariants = authority_sub.add_parser(
+        "invariants",
+        help="List authority invariants.",
+    )
     authority_invariants.add_argument("--project-id", type=int, required=True)
     authority_invariants.add_argument("--spec-version-id", type=int)
     authority_invariants.set_defaults(command_handler=_authority_invariants)
 
-    story = subparsers.add_parser("story")
+    story = subparsers.add_parser("story", help="Inspect user stories.")
     story_sub = story.add_subparsers(
         dest="action",
         required=True,
         parser_class=_WorkbenchArgumentParser,
     )
-    story_show = story_sub.add_parser("show")
+    story_show = story_sub.add_parser("show", help="Show one story.")
     story_show.add_argument("--story-id", type=int, required=True)
     story_show.set_defaults(command_handler=_story_show)
 
-    sprint = subparsers.add_parser("sprint")
+    sprint = subparsers.add_parser("sprint", help="Inspect sprint planning inputs.")
     sprint_sub = sprint.add_subparsers(
         dest="action",
         required=True,
         parser_class=_WorkbenchArgumentParser,
     )
-    sprint_candidates = sprint_sub.add_parser("candidates")
+    sprint_candidates = sprint_sub.add_parser(
+        "candidates",
+        help="List sprint candidate stories.",
+    )
     sprint_candidates.add_argument("--project-id", type=int, required=True)
     sprint_candidates.set_defaults(command_handler=_sprint_candidates)
 
-    context = subparsers.add_parser("context")
+    context = subparsers.add_parser("context", help="Build bounded agent context.")
     context_sub = context.add_subparsers(
         dest="action",
         required=True,
         parser_class=_WorkbenchArgumentParser,
     )
-    context_pack = context_sub.add_parser("pack")
+    context_pack = context_sub.add_parser("pack", help="Build a context pack.")
     context_pack.add_argument("--project-id", type=int, required=True)
     context_pack.add_argument("--phase", default=DEFAULT_CONTEXT_PHASE)
     context_pack.set_defaults(command_handler=_context_pack)
 
-    status = subparsers.add_parser("status")
+    status = subparsers.add_parser("status", help="Show project orientation status.")
     status.add_argument("--project-id", type=int, required=True)
     status.set_defaults(command_handler=_status)
     return parser
@@ -370,12 +402,14 @@ def _project_list(
     application: _Application,
 ) -> CommandResult:
     """Route project list to the application facade."""
-    return "tcc project list", application.project_list()
+    return "agileforge project list", application.project_list()
 
 
 def _project_show(args: argparse.Namespace, application: _Application) -> CommandResult:
     """Route project show to the application facade."""
-    return "tcc project show", application.project_show(project_id=args.project_id)
+    return "agileforge project show", application.project_show(
+        project_id=args.project_id
+    )
 
 
 def _workflow_state(
@@ -383,7 +417,9 @@ def _workflow_state(
     application: _Application,
 ) -> CommandResult:
     """Route workflow state to the application facade."""
-    return "tcc workflow state", application.workflow_state(project_id=args.project_id)
+    return "agileforge workflow state", application.workflow_state(
+        project_id=args.project_id
+    )
 
 
 def _workflow_next(
@@ -391,7 +427,9 @@ def _workflow_next(
     application: _Application,
 ) -> CommandResult:
     """Route workflow next to the application facade."""
-    return "tcc workflow next", application.workflow_next(project_id=args.project_id)
+    return "agileforge workflow next", application.workflow_next(
+        project_id=args.project_id
+    )
 
 
 def _authority_status(
@@ -399,7 +437,7 @@ def _authority_status(
     application: _Application,
 ) -> CommandResult:
     """Route authority status to the application facade."""
-    return "tcc authority status", application.authority_status(
+    return "agileforge authority status", application.authority_status(
         project_id=args.project_id
     )
 
@@ -409,7 +447,7 @@ def _authority_invariants(
     application: _Application,
 ) -> CommandResult:
     """Route authority invariants to the application facade."""
-    return "tcc authority invariants", application.authority_invariants(
+    return "agileforge authority invariants", application.authority_invariants(
         project_id=args.project_id,
         spec_version_id=args.spec_version_id,
     )
@@ -417,7 +455,7 @@ def _authority_invariants(
 
 def _story_show(args: argparse.Namespace, application: _Application) -> CommandResult:
     """Route story show to the application facade."""
-    return "tcc story show", application.story_show(story_id=args.story_id)
+    return "agileforge story show", application.story_show(story_id=args.story_id)
 
 
 def _sprint_candidates(
@@ -425,14 +463,14 @@ def _sprint_candidates(
     application: _Application,
 ) -> CommandResult:
     """Route sprint candidates to the application facade."""
-    return "tcc sprint candidates", application.sprint_candidates(
+    return "agileforge sprint candidates", application.sprint_candidates(
         project_id=args.project_id
     )
 
 
 def _context_pack(args: argparse.Namespace, application: _Application) -> CommandResult:
     """Route context pack to the application facade."""
-    return "tcc context pack", application.context_pack(
+    return "agileforge context pack", application.context_pack(
         project_id=args.project_id,
         phase=args.phase,
     )
@@ -440,7 +478,7 @@ def _context_pack(args: argparse.Namespace, application: _Application) -> Comman
 
 def _status(args: argparse.Namespace, application: _Application) -> CommandResult:
     """Route root status to the application facade."""
-    return "tcc status", application.status(project_id=args.project_id)
+    return "agileforge status", application.status(project_id=args.project_id)
 
 
 def _dispatch(args: argparse.Namespace, application: _Application) -> CommandResult:
@@ -451,7 +489,7 @@ def _dispatch(args: argparse.Namespace, application: _Application) -> CommandRes
 
     group = args.group
     action = getattr(args, "action", None)
-    return "tcc", {
+    return "agileforge", {
         "ok": False,
         "warnings": [],
         "errors": [
@@ -459,7 +497,7 @@ def _dispatch(args: argparse.Namespace, application: _Application) -> CommandRes
                 "code": "COMMAND_NOT_IMPLEMENTED",
                 "message": "Command is not implemented.",
                 "details": {"group": group, "action": action},
-                "remediation": ["Run tcc --help."],
+                "remediation": ["Run agileforge --help."],
                 "exit_code": 2,
                 "retryable": False,
             }

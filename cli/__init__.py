@@ -1,1 +1,1 @@
-"""Command-line entrypoints for project_tcc."""
+"""Command-line entrypoints for agileforge."""

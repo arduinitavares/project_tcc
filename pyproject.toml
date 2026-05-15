@@ -1,5 +1,5 @@
 [project]
-name = "project-tcc"
+name = "agileforge"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tcc = "cli.main:main"
+agileforge = "cli.main:main"
 
 [tool.uv]
 package = true

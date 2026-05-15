@@ -106,7 +106,7 @@ class DeterministicValidationResult:
 
 
 def _make_engine() -> Any:  # noqa: ANN401
-    temp_dir = Path(tempfile.mkdtemp(prefix="project_tcc_smoke_"))
+    temp_dir = Path(tempfile.mkdtemp(prefix="agileforge_smoke_"))
     db_path = temp_dir / "smoke.db"
     engine = create_engine(
         f"sqlite:///{db_path}",

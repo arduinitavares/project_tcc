@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 def _session_repo(db_path: Path) -> WorkflowSessionRepository:
     target = resolve_database_target(
         str(db_path),
-        env_name="PROJECT_TCC_SESSION_DB_URL",
+        env_name="AGILEFORGE_SESSION_DB_URL",
     )
     return WorkflowSessionRepository(db_target=target)
 

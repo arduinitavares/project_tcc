@@ -22,8 +22,8 @@ def _new_temp_db_path(suffix: str) -> str:
 
 temp_db_path = _new_temp_db_path(suffix=".db")
 temp_session_db_path = _new_temp_db_path(suffix="_session.db")
-os.environ["PROJECT_TCC_DB_URL"] = f"sqlite:///{temp_db_path}"
-os.environ["PROJECT_TCC_SESSION_DB_URL"] = f"sqlite:///{temp_session_db_path}"
+os.environ["AGILEFORGE_DB_URL"] = f"sqlite:///{temp_db_path}"
+os.environ["AGILEFORGE_SESSION_DB_URL"] = f"sqlite:///{temp_session_db_path}"
 
 from sqlmodel import Session, SQLModel, select  # noqa: E402
 

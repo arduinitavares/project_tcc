@@ -185,7 +185,7 @@ def test_resolve_db_path_prefers_explicit_argument(
 ) -> None:
     """Verify resolve db path prefers explicit argument."""
     explicit_path = tmp_path / "explicit.db"
-    monkeypatch.setenv("PROJECT_TCC_DB_URL", "sqlite:///./db/from-env.db")
+    monkeypatch.setenv("AGILEFORGE_DB_URL", "sqlite:///./db/from-env.db")
     resolved = resolve_db_path(str(explicit_path))
     assert resolved == str(explicit_path.resolve())
 
@@ -194,6 +194,6 @@ def test_resolve_db_path_requires_config_when_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify resolve db path requires config when missing."""
-    monkeypatch.delenv("PROJECT_TCC_DB_URL", raising=False)
-    with pytest.raises(RuntimeConfigError, match="PROJECT_TCC_DB_URL"):
+    monkeypatch.delenv("AGILEFORGE_DB_URL", raising=False)
+    with pytest.raises(RuntimeConfigError, match="AGILEFORGE_DB_URL"):
         resolve_db_path(None)

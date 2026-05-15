@@ -56,9 +56,9 @@ def test_default_reader_returns_empty_for_missing_session_db_without_creating_fi
     """Avoid creating the configured session DB when it does not exist."""
     business_path = tmp_path / "business.sqlite3"
     session_path = tmp_path / "missing-sessions.sqlite3"
-    monkeypatch.setenv("PROJECT_TCC_DB_URL", f"sqlite:///{business_path.as_posix()}")
+    monkeypatch.setenv("AGILEFORGE_DB_URL", f"sqlite:///{business_path.as_posix()}")
     monkeypatch.setenv(
-        "PROJECT_TCC_SESSION_DB_URL",
+        "AGILEFORGE_SESSION_DB_URL",
         f"sqlite:///{session_path.as_posix()}",
     )
     clear_runtime_config_cache()
@@ -80,9 +80,9 @@ def test_default_reader_returns_empty_when_sessions_table_missing(
     business_path = tmp_path / "business.sqlite3"
     session_path = tmp_path / "sessions.sqlite3"
     session_path.touch()
-    monkeypatch.setenv("PROJECT_TCC_DB_URL", f"sqlite:///{business_path.as_posix()}")
+    monkeypatch.setenv("AGILEFORGE_DB_URL", f"sqlite:///{business_path.as_posix()}")
     monkeypatch.setenv(
-        "PROJECT_TCC_SESSION_DB_URL",
+        "AGILEFORGE_SESSION_DB_URL",
         f"sqlite:///{session_path.as_posix()}",
     )
     clear_runtime_config_cache()
@@ -125,9 +125,9 @@ def test_default_reader_fetches_existing_session_with_read_only_connection(
                 json.dumps({"fsm_state": "SPRINT_SETUP"}),
             ),
         )
-    monkeypatch.setenv("PROJECT_TCC_DB_URL", f"sqlite:///{business_path.as_posix()}")
+    monkeypatch.setenv("AGILEFORGE_DB_URL", f"sqlite:///{business_path.as_posix()}")
     monkeypatch.setenv(
-        "PROJECT_TCC_SESSION_DB_URL",
+        "AGILEFORGE_SESSION_DB_URL",
         f"sqlite:///{session_path.as_posix()}",
     )
     clear_runtime_config_cache()

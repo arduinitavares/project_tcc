@@ -12,41 +12,41 @@
 
 ## File Map
 
-- Modify: `/Users/aaat/projects/project_tcc/agile_sqlmodel.py`
+- Modify: `/Users/aaat/projects/agileforge/agile_sqlmodel.py`
   Responsibility: extend `Sprint` persistence with completion and snapshot fields.
-- Modify: `/Users/aaat/projects/project_tcc/db/migrations.py`
+- Modify: `/Users/aaat/projects/agileforge/db/migrations.py`
   Responsibility: add additive sprint lifecycle migrations for older databases.
-- Modify: `/Users/aaat/projects/project_tcc/utils/schemes.py`
+- Modify: `/Users/aaat/projects/agileforge/utils/schemes.py`
   Responsibility: add typed sprint-close request and response models.
-- Modify: `/Users/aaat/projects/project_tcc/orchestrator_agent/agent_tools/sprint_planner_tool/tools.py`
+- Modify: `/Users/aaat/projects/agileforge/orchestrator_agent/agent_tools/sprint_planner_tool/tools.py`
   Responsibility: update planned sprint save semantics to create-or-update one open planned sprint, enforce open-sprint conflicts correctly, and keep updates in place.
-- Modify: `/Users/aaat/projects/project_tcc/tools/orchestrator_tools.py`
+- Modify: `/Users/aaat/projects/agileforge/tools/orchestrator_tools.py`
   Responsibility: exclude stories already committed to open planned/active sprints from sprint candidates while still allowing unfinished stories linked only to completed sprints.
-- Modify: `/Users/aaat/projects/project_tcc/services/sprint_input.py`
+- Modify: `/Users/aaat/projects/agileforge/services/sprint_input.py`
   Responsibility: preserve candidate normalization while passing through the refined eligibility result and excluded counts.
-- Modify: `/Users/aaat/projects/project_tcc/api.py`
+- Modify: `/Users/aaat/projects/agileforge/api.py`
   Responsibility: normalize legacy shell state, serialize lightweight sprint list items plus runtime summary, add selected-sprint detail, enforce start invariants, and implement sprint close preview/confirm endpoints.
-- Modify: `/Users/aaat/projects/project_tcc/frontend/project.js`
+- Modify: `/Users/aaat/projects/agileforge/frontend/project.js`
   Responsibility: stop inferring sprint mode from `started_at`, load runtime summary plus selected-sprint detail, render planned/active/completed views, and drive actions from server-provided `allowed_actions`.
-- Modify: `/Users/aaat/projects/project_tcc/frontend/project.html`
+- Modify: `/Users/aaat/projects/agileforge/frontend/project.html`
   Responsibility: add sprint-runtime summary slots and sprint-close UI containers without turning the shell into a repeated timeline.
-- Create: `/Users/aaat/projects/project_tcc/tests/test_db_migrations_sprint_lifecycle.py`
+- Create: `/Users/aaat/projects/agileforge/tests/test_db_migrations_sprint_lifecycle.py`
   Responsibility: prove new sprint lifecycle columns are added and idempotent on legacy schemas.
-- Modify: `/Users/aaat/projects/project_tcc/tests/test_sprint_planner_tools.py`
+- Modify: `/Users/aaat/projects/agileforge/tests/test_sprint_planner_tools.py`
   Responsibility: verify planned sprint update-in-place behavior and open-sprint conflict rules in the persistence tool.
-- Modify: `/Users/aaat/projects/project_tcc/tests/test_api_sprint_flow.py`
+- Modify: `/Users/aaat/projects/agileforge/tests/test_api_sprint_flow.py`
   Responsibility: verify sprint list/detail/runtime-summary payloads, start invariants, candidate eligibility, and legacy shell-state normalization.
-- Create: `/Users/aaat/projects/project_tcc/tests/test_api_sprint_close.py`
+- Create: `/Users/aaat/projects/agileforge/tests/test_api_sprint_close.py`
   Responsibility: verify sprint close preview, close confirmation, snapshot persistence, and `SPRINT_COMPLETED` events.
-- Create: `/Users/aaat/projects/project_tcc/tests/test_sprint_workspace_display.mjs`
+- Create: `/Users/aaat/projects/agileforge/tests/test_sprint_workspace_display.mjs`
   Responsibility: verify frontend sprint-mode selection, landing priority, and runtime-summary behavior with extracted functions from `frontend/project.js`.
 
 ### Task 1: Add Sprint Completion Persistence and Migration Coverage
 
 **Files:**
-- Modify: `/Users/aaat/projects/project_tcc/agile_sqlmodel.py`
-- Modify: `/Users/aaat/projects/project_tcc/db/migrations.py`
-- Create: `/Users/aaat/projects/project_tcc/tests/test_db_migrations_sprint_lifecycle.py`
+- Modify: `/Users/aaat/projects/agileforge/agile_sqlmodel.py`
+- Modify: `/Users/aaat/projects/agileforge/db/migrations.py`
+- Create: `/Users/aaat/projects/agileforge/tests/test_db_migrations_sprint_lifecycle.py`
 
 - [ ] **Step 1: Write failing migration tests for legacy sprint tables**
 
@@ -195,11 +195,11 @@ git commit -m "feat: persist sprint close snapshots"
 ### Task 2: Update Planned-Sprint Persistence and Candidate Eligibility
 
 **Files:**
-- Modify: `/Users/aaat/projects/project_tcc/orchestrator_agent/agent_tools/sprint_planner_tool/tools.py`
-- Modify: `/Users/aaat/projects/project_tcc/tools/orchestrator_tools.py`
-- Modify: `/Users/aaat/projects/project_tcc/services/sprint_input.py`
-- Modify: `/Users/aaat/projects/project_tcc/tests/test_sprint_planner_tools.py`
-- Modify: `/Users/aaat/projects/project_tcc/tests/test_api_sprint_flow.py`
+- Modify: `/Users/aaat/projects/agileforge/orchestrator_agent/agent_tools/sprint_planner_tool/tools.py`
+- Modify: `/Users/aaat/projects/agileforge/tools/orchestrator_tools.py`
+- Modify: `/Users/aaat/projects/agileforge/services/sprint_input.py`
+- Modify: `/Users/aaat/projects/agileforge/tests/test_sprint_planner_tools.py`
+- Modify: `/Users/aaat/projects/agileforge/tests/test_api_sprint_flow.py`
 
 - [ ] **Step 1: Write failing tests for planned-sprint update-in-place and candidate filtering**
 
@@ -482,8 +482,8 @@ git commit -m "feat: enforce open sprint lifecycle rules"
 ### Task 3: Add Lightweight Sprint List, Selected-Sprint Detail, and Shell-State Normalization
 
 **Files:**
-- Modify: `/Users/aaat/projects/project_tcc/api.py`
-- Modify: `/Users/aaat/projects/project_tcc/tests/test_api_sprint_flow.py`
+- Modify: `/Users/aaat/projects/agileforge/api.py`
+- Modify: `/Users/aaat/projects/agileforge/tests/test_api_sprint_flow.py`
 
 - [ ] **Step 1: Write failing API tests for runtime summary, selected-sprint detail, and legacy shell-state normalization**
 
@@ -775,9 +775,9 @@ git commit -m "feat: add sprint runtime summary and detail api"
 ### Task 4: Implement Sprint Close Preview, Close Confirmation, and Snapshot Serialization
 
 **Files:**
-- Modify: `/Users/aaat/projects/project_tcc/utils/schemes.py`
-- Modify: `/Users/aaat/projects/project_tcc/api.py`
-- Create: `/Users/aaat/projects/project_tcc/tests/test_api_sprint_close.py`
+- Modify: `/Users/aaat/projects/agileforge/utils/schemes.py`
+- Modify: `/Users/aaat/projects/agileforge/api.py`
+- Create: `/Users/aaat/projects/agileforge/tests/test_api_sprint_close.py`
 
 - [ ] **Step 1: Write failing API tests for sprint close preview and close confirmation**
 
@@ -1042,11 +1042,11 @@ git commit -m "feat: add sprint close flow"
 ### Task 5: Update the Project Shell and Sprint Workspace to Use Canonical Runtime State
 
 **Files:**
-- Modify: `/Users/aaat/projects/project_tcc/frontend/project.js`
-- Modify: `/Users/aaat/projects/project_tcc/frontend/project.html`
-- Create: `/Users/aaat/projects/project_tcc/tests/test_sprint_workspace_display.mjs`
-- Modify: `/Users/aaat/projects/project_tcc/tests/test_api_sprint_flow.py`
-- Modify: `/Users/aaat/projects/project_tcc/tests/test_api_sprint_close.py`
+- Modify: `/Users/aaat/projects/agileforge/frontend/project.js`
+- Modify: `/Users/aaat/projects/agileforge/frontend/project.html`
+- Create: `/Users/aaat/projects/agileforge/tests/test_sprint_workspace_display.mjs`
+- Modify: `/Users/aaat/projects/agileforge/tests/test_api_sprint_flow.py`
+- Modify: `/Users/aaat/projects/agileforge/tests/test_api_sprint_close.py`
 
 - [ ] **Step 1: Write failing frontend tests for canonical status handling and landing priority**
 

@@ -52,7 +52,7 @@ Agents still lack one coherent shell interface. That creates several hazards:
 
 ## Goals
 
-- Provide one coherent `tcc` CLI for autonomous agents and human operators.
+- Provide one coherent `agileforge` CLI for autonomous agents and human operators.
 - Expose safe read/query commands over existing project data.
 - Make Spec Authority status and freshness visible before all important work.
 - Preserve FSM, setup, authority, validation, and execution guardrails.
@@ -99,8 +99,8 @@ context pack, and first task-log use case. Moving all orchestration out of
 
 ### 2. Read Commands Stay Read-Only
 
-`tcc query ...`, `tcc project show`, `tcc authority status`, and
-`tcc context pack` must not compile specs, repair cached authority, hydrate
+`agileforge query ...`, `agileforge project show`, `agileforge authority status`, and
+`agileforge context pack` must not compile specs, repair cached authority, hydrate
 workflow sessions with side effects, or write to session state.
 
 All read commands must go through `ReadProjectionService`. That service opens
@@ -163,24 +163,24 @@ to stdout.
 ### Orientation And Query Commands
 
 ```bash
-tcc status --project-id 1
-tcc project list
-tcc project show --project-id 1
-tcc workflow state --project-id 1
-tcc workflow next --project-id 1
-tcc query structure --project-id 1
-tcc query backlog --project-id 1
-tcc query features --project-id 1
-tcc story show --story-id 42
-tcc sprint candidates --project-id 1
+agileforge status --project-id 1
+agileforge project list
+agileforge project show --project-id 1
+agileforge workflow state --project-id 1
+agileforge workflow next --project-id 1
+agileforge query structure --project-id 1
+agileforge query backlog --project-id 1
+agileforge query features --project-id 1
+agileforge story show --story-id 42
+agileforge sprint candidates --project-id 1
 ```
 
-`tcc status --project-id` is the cheap orientation command. Its payload includes
+`agileforge status --project-id` is the cheap orientation command. Its payload includes
 project identity, DB/session reachability, FSM state, setup status, active or
 planned sprint summary, Spec Authority status, disk spec sync status, and
 implemented CLI capability groups.
 
-`tcc workflow next --project-id` returns only commands that are both valid for
+`agileforge workflow next --project-id` returns only commands that are both valid for
 the current workflow state and implemented in the installed CLI. It considers
 FSM state, setup blockers, authority gates, current drafts, active sprint state,
 and installed command capability metadata.
@@ -188,12 +188,12 @@ and installed command capability metadata.
 ### Authority Commands
 
 ```bash
-tcc authority status --project-id 1
-tcc authority versions --project-id 1
-tcc authority show --project-id 1 --spec-version-id 3
-tcc authority invariants --project-id 1
-tcc authority compile --spec-version-id 3
-tcc authority accept --project-id 1 --spec-version-id 3 --policy human --decided-by agent
+agileforge authority status --project-id 1
+agileforge authority versions --project-id 1
+agileforge authority show --project-id 1 --spec-version-id 3
+agileforge authority invariants --project-id 1
+agileforge authority compile --spec-version-id 3
+agileforge authority accept --project-id 1 --spec-version-id 3 --policy human --decided-by agent
 ```
 
 `compile` must not imply `accept`. Acceptance is a distinct command and policy
@@ -207,10 +207,10 @@ authority version first.
 ### Context Commands
 
 ```bash
-tcc context pack --project-id 1
-tcc context pack --project-id 1 --phase sprint-planning
-tcc context pack --project-id 1 --phase execution --sprint-id 3
-tcc context pack --project-id 1 --phase execution --sprint-id 3 --task-id 42
+agileforge context pack --project-id 1
+agileforge context pack --project-id 1 --phase sprint-planning
+agileforge context pack --project-id 1 --phase execution --sprint-id 3
+agileforge context pack --project-id 1 --phase execution --sprint-id 3 --task-id 42
 ```
 
 ### Future Workflow Commands
@@ -220,35 +220,35 @@ the application facade, authority checks, read-only projections, and one bounded
 mutation are stable.
 
 ```bash
-tcc project create --name "Project" --spec-file specs/app.md
-tcc vision generate --project-id 1 --input "..."
-tcc vision draft save --project-id 1 --attempt-id 12
-tcc backlog generate --project-id 1
-tcc backlog draft save --project-id 1 --attempt-id 13
-tcc roadmap generate --project-id 1
-tcc roadmap draft save --project-id 1 --attempt-id 14
-tcc story generate --project-id 1 --requirement "..."
-tcc story draft save --project-id 1 --requirement "..." --attempt-id 15
-tcc story phase-complete --project-id 1
-tcc sprint generate --project-id 1 --selected-story-ids 1,2,3
-tcc sprint draft save --project-id 1 --attempt-id 16 --team-name "Team" --start-date 2026-05-14
-tcc sprint start --project-id 1 --sprint-id 1
+agileforge project create --name "Project" --spec-file specs/app.md
+agileforge vision generate --project-id 1 --input "..."
+agileforge vision draft save --project-id 1 --attempt-id 12
+agileforge backlog generate --project-id 1
+agileforge backlog draft save --project-id 1 --attempt-id 13
+agileforge roadmap generate --project-id 1
+agileforge roadmap draft save --project-id 1 --attempt-id 14
+agileforge story generate --project-id 1 --requirement "..."
+agileforge story draft save --project-id 1 --requirement "..." --attempt-id 15
+agileforge story phase-complete --project-id 1
+agileforge sprint generate --project-id 1 --selected-story-ids 1,2,3
+agileforge sprint draft save --project-id 1 --attempt-id 16 --team-name "Team" --start-date 2026-05-14
+agileforge sprint start --project-id 1 --sprint-id 1
 ```
 
 ### Execution And Review Commands
 
 ```bash
-tcc story packet --project-id 1 --sprint-id 1 --story-id 7 --flavor agent
-tcc task packet --project-id 1 --sprint-id 1 --task-id 9 --flavor agent
-tcc task history --project-id 1 --sprint-id 1 --task-id 9
-tcc task log --project-id 1 --sprint-id 1 --task-id 9 --expected-status "To Do" --status "In Progress" --changed-by agent
-tcc story close-readiness --project-id 1 --sprint-id 1 --story-id 7
-tcc story close --project-id 1 --sprint-id 1 --story-id 7 --changed-by agent
-tcc sprint close-readiness --project-id 1 --sprint-id 1
-tcc sprint close --project-id 1 --sprint-id 1 --changed-by agent
-tcc failure show --project-id 1 --artifact-id abc123
-tcc snapshot export --project-id 1
-tcc metrics export --project-id 1
+agileforge story packet --project-id 1 --sprint-id 1 --story-id 7 --flavor agent
+agileforge task packet --project-id 1 --sprint-id 1 --task-id 9 --flavor agent
+agileforge task history --project-id 1 --sprint-id 1 --task-id 9
+agileforge task log --project-id 1 --sprint-id 1 --task-id 9 --expected-status "To Do" --status "In Progress" --changed-by agent
+agileforge story close-readiness --project-id 1 --sprint-id 1 --story-id 7
+agileforge story close --project-id 1 --sprint-id 1 --story-id 7 --changed-by agent
+agileforge sprint close-readiness --project-id 1 --sprint-id 1
+agileforge sprint close --project-id 1 --sprint-id 1 --changed-by agent
+agileforge failure show --project-id 1 --artifact-id abc123
+agileforge snapshot export --project-id 1
+agileforge metrics export --project-id 1
 ```
 
 ## Response Envelope
@@ -262,8 +262,8 @@ Every command must return one stable JSON envelope:
   "warnings": [],
   "errors": [],
   "meta": {
-    "schema_version": "tcc.cli.v1",
-    "command": "tcc authority status",
+    "schema_version": "agileforge.cli.v1",
+    "command": "agileforge authority status",
     "generated_at": "2026-05-14T00:00:00Z"
   }
 }
@@ -279,7 +279,7 @@ Each `errors[]` item uses this schema:
   "code": "AUTHORITY_STALE",
   "message": "Spec file changed after the accepted authority was compiled.",
   "details": {},
-  "remediation": ["tcc authority status --project-id 1"],
+  "remediation": ["agileforge authority status --project-id 1"],
   "exit_code": 4,
   "retryable": false
 }
@@ -360,10 +360,10 @@ Example:
   },
   "warnings": [],
   "next_valid_commands": [
-    "tcc sprint candidates --project-id 1"
+    "agileforge sprint candidates --project-id 1"
   ],
   "blocked_future_commands": [
-    "tcc sprint generate --project-id 1 --selected-story-ids ..."
+    "agileforge sprint generate --project-id 1 --selected-story-ids ..."
   ],
   "included_sections": ["project", "workflow", "authority", "sprint_candidates"],
   "omitted_sections": ["raw_spec", "completed_sprint_history"],
@@ -436,16 +436,16 @@ structured authority warnings or errors with the resolved path included in
 Implement:
 
 ```bash
-tcc status --project-id 1
-tcc project list
-tcc project show --project-id 1
-tcc workflow state --project-id 1
-tcc workflow next --project-id 1
-tcc authority status --project-id 1
-tcc authority invariants --project-id 1
-tcc story show --story-id 42
-tcc sprint candidates --project-id 1
-tcc context pack --project-id 1 --phase sprint-planning
+agileforge status --project-id 1
+agileforge project list
+agileforge project show --project-id 1
+agileforge workflow state --project-id 1
+agileforge workflow next --project-id 1
+agileforge authority status --project-id 1
+agileforge authority invariants --project-id 1
+agileforge story show --story-id 42
+agileforge sprint candidates --project-id 1
+agileforge context pack --project-id 1 --phase sprint-planning
 ```
 
 No workflow mutations. No LLM-backed generation.
@@ -455,7 +455,7 @@ No workflow mutations. No LLM-backed generation.
 Implement task execution logging:
 
 ```bash
-tcc task log --project-id 1 --sprint-id 1 --task-id 9 --expected-status "To Do" --status "In Progress" --changed-by agent
+agileforge task log --project-id 1 --sprint-id 1 --task-id 9 --expected-status "To Do" --status "In Progress" --changed-by agent
 ```
 
 This proves exit codes, pinned execution authority validation, active-sprint

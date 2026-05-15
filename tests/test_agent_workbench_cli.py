@@ -1,4 +1,4 @@
-"""Tests for the tcc CLI transport."""
+"""Tests for the agileforge CLI transport."""
 
 from __future__ import annotations
 
@@ -173,7 +173,7 @@ class _FailingApplication(_FakeApplication):
                     "code": "PROJECT_NOT_FOUND",
                     "message": "Project does not exist.",
                     "details": {"project_id": project_id},
-                    "remediation": ["tcc project list"],
+                    "remediation": ["agileforge project list"],
                     "exit_code": ERROR_EXIT_CODE,
                     "retryable": False,
                 }
@@ -233,7 +233,7 @@ def test_cli_writes_success_json_to_stdout(
     assert payload["data"] == {"items": []}
     assert payload["warnings"] == []
     assert payload["errors"] == []
-    assert _mapping(payload["meta"])["command"] == "tcc project list"
+    assert _mapping(payload["meta"])["command"] == "agileforge project list"
     assert app.calls == [("project_list", {})]
 
 
@@ -253,7 +253,7 @@ def test_cli_routes_authority_status(
     data = _mapping(payload["data"])
     assert data["project_id"] == PROJECT_ID
     assert data["status"] == "missing"
-    assert _mapping(payload["meta"])["command"] == "tcc authority status"
+    assert _mapping(payload["meta"])["command"] == "agileforge authority status"
     assert app.calls == [("authority_status", {"project_id": PROJECT_ID})]
 
 
@@ -272,7 +272,7 @@ def test_cli_uses_error_exit_code_and_preserves_warnings(
     assert rc == ERROR_EXIT_CODE
     assert payload["ok"] is False
     assert payload["data"] is None
-    assert _mapping(payload["meta"])["command"] == "tcc project show"
+    assert _mapping(payload["meta"])["command"] == "agileforge project show"
     assert payload["warnings"] == [
         {
             "code": "CACHE_STALE",
@@ -286,7 +286,7 @@ def test_cli_uses_error_exit_code_and_preserves_warnings(
             "code": "PROJECT_NOT_FOUND",
             "message": "Project does not exist.",
             "details": {"project_id": PROJECT_ID},
-            "remediation": ["tcc project list"],
+            "remediation": ["agileforge project list"],
             "exit_code": ERROR_EXIT_CODE,
             "retryable": False,
         }
@@ -306,7 +306,7 @@ def test_cli_unexpected_exceptions_return_json_envelope(
     assert payload["ok"] is False
     assert payload["data"] is None
     assert payload["warnings"] == []
-    assert _mapping(payload["meta"])["command"] == "tcc"
+    assert _mapping(payload["meta"])["command"] == "agileforge"
     error = _first_mapping(payload["errors"])
     assert error["code"] == "COMMAND_EXCEPTION"
     assert error["message"] == "projection exploded"
@@ -326,7 +326,7 @@ def test_cli_parse_errors_return_json_envelope(
     assert payload["ok"] is False
     assert payload["data"] is None
     assert payload["warnings"] == []
-    assert _mapping(payload["meta"])["command"] == "tcc"
+    assert _mapping(payload["meta"])["command"] == "agileforge"
     error = _first_mapping(payload["errors"])
     assert error["code"] == "INVALID_COMMAND"
     assert error["exit_code"] == INVALID_COMMAND_EXIT_CODE
@@ -347,10 +347,29 @@ def test_module_parse_errors_return_json_envelope() -> None:
     assert result.returncode == INVALID_COMMAND_EXIT_CODE
     assert result.stderr == ""
     assert payload["ok"] is False
-    assert _mapping(payload["meta"])["command"] == "tcc"
+    assert _mapping(payload["meta"])["command"] == "agileforge"
     error = _first_mapping(payload["errors"])
     assert error["code"] == "INVALID_COMMAND"
     assert error["exit_code"] == INVALID_COMMAND_EXIT_CODE
+
+
+def test_top_level_help_describes_agent_workbench_commands(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify help output is useful for agents and developers."""
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--help"])
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 0
+    assert captured.err == ""
+    assert "AgileForge" in captured.out
+    assert "agent-facing CLI" in captured.out
+    assert "agileforge project list" in captured.out
+    assert (
+        "agileforge context pack --project-id 1 --phase sprint-planning"
+        in captured.out
+    )
 
 
 def test_packaged_project_exposes_api_module_from_other_cwd(
@@ -391,17 +410,17 @@ def test_packaged_project_exposes_api_module_from_other_cwd(
     [
         (
             ["project", "show", "--project-id", str(PROJECT_ID)],
-            "tcc project show",
+            "agileforge project show",
             ("project_show", {"project_id": PROJECT_ID}),
         ),
         (
             ["workflow", "state", "--project-id", str(PROJECT_ID)],
-            "tcc workflow state",
+            "agileforge workflow state",
             ("workflow_state", {"project_id": PROJECT_ID}),
         ),
         (
             ["workflow", "next", "--project-id", str(PROJECT_ID)],
-            "tcc workflow next",
+            "agileforge workflow next",
             ("workflow_next", {"project_id": PROJECT_ID}),
         ),
         (
@@ -413,7 +432,7 @@ def test_packaged_project_exposes_api_module_from_other_cwd(
                 "--spec-version-id",
                 str(SPEC_VERSION_ID),
             ],
-            "tcc authority invariants",
+            "agileforge authority invariants",
             (
                 "authority_invariants",
                 {"project_id": PROJECT_ID, "spec_version_id": SPEC_VERSION_ID},
@@ -421,12 +440,12 @@ def test_packaged_project_exposes_api_module_from_other_cwd(
         ),
         (
             ["story", "show", "--story-id", str(STORY_ID)],
-            "tcc story show",
+            "agileforge story show",
             ("story_show", {"story_id": STORY_ID}),
         ),
         (
             ["sprint", "candidates", "--project-id", str(PROJECT_ID)],
-            "tcc sprint candidates",
+            "agileforge sprint candidates",
             ("sprint_candidates", {"project_id": PROJECT_ID}),
         ),
         (
@@ -438,7 +457,7 @@ def test_packaged_project_exposes_api_module_from_other_cwd(
                 "--phase",
                 "sprint-planning",
             ],
-            "tcc context pack",
+            "agileforge context pack",
             (
                 "context_pack",
                 {"project_id": PROJECT_ID, "phase": "sprint-planning"},
@@ -446,7 +465,7 @@ def test_packaged_project_exposes_api_module_from_other_cwd(
         ),
         (
             ["status", "--project-id", str(PROJECT_ID)],
-            "tcc status",
+            "agileforge status",
             ("status", {"project_id": PROJECT_ID}),
         ),
     ],

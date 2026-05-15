@@ -10,8 +10,8 @@ from services.agent_workbench.context_pack import ContextPackService
 from services.agent_workbench.fingerprints import canonical_hash
 from services.agent_workbench.read_projection import ReadProjectionService
 
-STATUS_COMMAND: Final[str] = "tcc status"
-WORKFLOW_NEXT_COMMAND: Final[str] = "tcc workflow next"
+STATUS_COMMAND: Final[str] = "agileforge status"
+WORKFLOW_NEXT_COMMAND: Final[str] = "agileforge workflow next"
 
 
 class _ReadProjection(Protocol):

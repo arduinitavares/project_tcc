@@ -36,8 +36,8 @@ if TYPE_CHECKING:
 
 JsonDict = dict[str, Any]
 
-AUTHORITY_STATUS_COMMAND: Final[str] = "tcc authority status"
-AUTHORITY_INVARIANTS_COMMAND: Final[str] = "tcc authority invariants"
+AUTHORITY_STATUS_COMMAND: Final[str] = "agileforge authority status"
+AUTHORITY_INVARIANTS_COMMAND: Final[str] = "agileforge authority invariants"
 
 _AUTHORITY_REQUIREMENTS: Final[tuple[SchemaRequirement, ...]] = (
     SchemaRequirement(
@@ -172,7 +172,7 @@ def _project_not_found_error(command: str, project_id: int) -> JsonDict:
             code="PROJECT_NOT_FOUND",
             message=f"Project {project_id} was not found.",
             details={"project_id": project_id},
-            remediation=["tcc project list"],
+            remediation=["agileforge project list"],
             exit_code=2,
             retryable=False,
         ),

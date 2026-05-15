@@ -18,10 +18,10 @@ _TEST_MODEL_CONFIG_PATH = (
 )
 os.environ.setdefault("MODEL_CONFIG_PATH", str(_TEST_MODEL_CONFIG_PATH))
 os.environ.setdefault("RELAX_ZDR_FOR_TESTS", "true")
-os.environ.setdefault("PROJECT_TCC_DB_URL", "sqlite:///:memory:")
-_TEST_SESSION_DB_PATH = Path(tempfile.gettempdir()) / "project_tcc_test_sessions.db"
+os.environ.setdefault("AGILEFORGE_DB_URL", "sqlite:///:memory:")
+_TEST_SESSION_DB_PATH = Path(tempfile.gettempdir()) / "agileforge_test_sessions.db"
 os.environ.setdefault(
-    "PROJECT_TCC_SESSION_DB_URL",
+    "AGILEFORGE_SESSION_DB_URL",
     f"sqlite:///{_TEST_SESSION_DB_PATH.as_posix()}",
 )
 

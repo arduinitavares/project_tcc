@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 type JsonObject = dict[str, object]
 
-SCHEMA_VERSION = "tcc.cli.v1"
+SCHEMA_VERSION = "agileforge.cli.v1"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SPEC_CONTENT = "# Phase 1 Spec\n\nThe CLI must expose read-only project context.\n"
 COMPILER_VERSION = "1.0.0"
@@ -274,7 +274,7 @@ def test_phase1_cli_drives_real_application_facade(
     command_cases = [
         (
             ["project", "list"],
-            "tcc project list",
+            "agileforge project list",
             lambda data: (
                 data["count"] == 1
                 and _mapping(_sequence(data["items"])[0])["product_id"] == project_id
@@ -282,7 +282,7 @@ def test_phase1_cli_drives_real_application_facade(
         ),
         (
             ["project", "show", "--project-id", str(project_id)],
-            "tcc project show",
+            "agileforge project show",
             lambda data: (
                 data["product_id"] == project_id
                 and _mapping(data["structure_counts"])["user_stories"]
@@ -293,36 +293,36 @@ def test_phase1_cli_drives_real_application_facade(
         ),
         (
             ["workflow", "state", "--project-id", str(project_id)],
-            "tcc workflow state",
+            "agileforge workflow state",
             lambda data: _mapping(data["state"])["fsm_state"] == "SPRINT_SETUP",
         ),
         (
             ["workflow", "next", "--project-id", str(project_id)],
-            "tcc workflow next",
+            "agileforge workflow next",
             lambda data: data["next_valid_commands"]
-            == [f"tcc sprint candidates --project-id {project_id}"],
+            == [f"agileforge sprint candidates --project-id {project_id}"],
         ),
         (
             ["authority", "status", "--project-id", str(project_id)],
-            "tcc authority status",
+            "agileforge authority status",
             lambda data: data["status"] == "current"
             and _mapping(data["disk_spec"])["matches_accepted"] is True,
         ),
         (
             ["authority", "invariants", "--project-id", str(project_id)],
-            "tcc authority invariants",
+            "agileforge authority invariants",
             lambda data: data["count"] == 1
             and _mapping(_sequence(data["invariants"])[0])["id"] == "INV-1",
         ),
         (
             ["story", "show", "--story-id", str(story_id)],
-            "tcc story show",
+            "agileforge story show",
             lambda data: data["story_id"] == story_id
             and data["accepted_spec_version_id"] == spec_version_id,
         ),
         (
             ["sprint", "candidates", "--project-id", str(project_id)],
-            "tcc sprint candidates",
+            "agileforge sprint candidates",
             lambda data: data["count"] == 1
             and _mapping(_sequence(data["items"])[0])["story_id"] == story_id,
         ),
@@ -335,13 +335,13 @@ def test_phase1_cli_drives_real_application_facade(
                 "--phase",
                 "sprint-planning",
             ],
-            "tcc context pack",
+            "agileforge context pack",
             lambda data: (
                 data["next_valid_commands"]
-                == [f"tcc sprint candidates --project-id {project_id}"]
+                == [f"agileforge sprint candidates --project-id {project_id}"]
                 and data["blocked_future_commands"]
                 == [
-                    f"tcc sprint generate --project-id {project_id} "
+                    f"agileforge sprint generate --project-id {project_id} "
                     "--selected-story-ids 1,2,3"
                 ]
                 and data["blocked_commands"] == []
@@ -353,7 +353,7 @@ def test_phase1_cli_drives_real_application_facade(
         ),
         (
             ["status", "--project-id", str(project_id)],
-            "tcc status",
+            "agileforge status",
             lambda data: _mapping(data["project"])["product_id"] == project_id
             and _mapping(data["authority"])["status"] == "current",
         ),
@@ -388,7 +388,7 @@ def test_phase1_cli_preserves_schema_not_ready_error_envelope(
     assert payload["data"] is None
     meta = _mapping(payload["meta"])
     assert meta["schema_version"] == SCHEMA_VERSION
-    assert meta["command"] == "tcc project list"
+    assert meta["command"] == "agileforge project list"
     error = _mapping(_sequence(payload["errors"])[0])
     assert error["code"] == "SCHEMA_NOT_READY"
     assert error["exit_code"] == 1
@@ -397,7 +397,7 @@ def test_phase1_cli_preserves_schema_not_ready_error_envelope(
 
 
 def test_phase1_console_script_help_is_wired(tmp_path: Path) -> None:
-    """Verify installed tcc console script is available through uv project run."""
+    """Verify installed console script is available through uv project run."""
     uv_path = shutil.which("uv")
     assert uv_path is not None
 
@@ -408,7 +408,7 @@ def test_phase1_console_script_help_is_wired(tmp_path: Path) -> None:
             "--project",
             str(PROJECT_ROOT),
             "--frozen",
-            "tcc",
+            "agileforge",
             "--help",
         ],
         cwd=tmp_path,
@@ -418,6 +418,6 @@ def test_phase1_console_script_help_is_wired(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0
-    assert "usage: tcc" in result.stdout
+    assert "usage: agileforge" in result.stdout
     for group in PHASE_1_GROUPS:
         assert group in result.stdout

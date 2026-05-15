@@ -13,16 +13,24 @@ class CommandMetadata:
 
 
 _PHASE_1_COMMANDS: tuple[CommandMetadata, ...] = (
-    CommandMetadata(name="tcc status", mutates=False, phase="phase_1"),
-    CommandMetadata(name="tcc project list", mutates=False, phase="phase_1"),
-    CommandMetadata(name="tcc project show", mutates=False, phase="phase_1"),
-    CommandMetadata(name="tcc workflow state", mutates=False, phase="phase_1"),
-    CommandMetadata(name="tcc workflow next", mutates=False, phase="phase_1"),
-    CommandMetadata(name="tcc authority status", mutates=False, phase="phase_1"),
-    CommandMetadata(name="tcc authority invariants", mutates=False, phase="phase_1"),
-    CommandMetadata(name="tcc story show", mutates=False, phase="phase_1"),
-    CommandMetadata(name="tcc sprint candidates", mutates=False, phase="phase_1"),
-    CommandMetadata(name="tcc context pack", mutates=False, phase="phase_1"),
+    CommandMetadata(name="agileforge status", mutates=False, phase="phase_1"),
+    CommandMetadata(name="agileforge project list", mutates=False, phase="phase_1"),
+    CommandMetadata(name="agileforge project show", mutates=False, phase="phase_1"),
+    CommandMetadata(name="agileforge workflow state", mutates=False, phase="phase_1"),
+    CommandMetadata(name="agileforge workflow next", mutates=False, phase="phase_1"),
+    CommandMetadata(name="agileforge authority status", mutates=False, phase="phase_1"),
+    CommandMetadata(
+        name="agileforge authority invariants",
+        mutates=False,
+        phase="phase_1",
+    ),
+    CommandMetadata(name="agileforge story show", mutates=False, phase="phase_1"),
+    CommandMetadata(
+        name="agileforge sprint candidates",
+        mutates=False,
+        phase="phase_1",
+    ),
+    CommandMetadata(name="agileforge context pack", mutates=False, phase="phase_1"),
 )
 
 
