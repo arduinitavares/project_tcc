@@ -322,6 +322,45 @@ def test_stale_pending_becomes_recovery_required_with_structured_error(
     }
 
 
+def test_stale_pending_error_timestamp_uses_utc_instant_for_offset_now(
+    engine: Engine,
+) -> None:
+    repo = _repo(engine)
+    created_at = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    offset_now = datetime(2026, 5, 15, 15, 0, 45, tzinfo=timezone(timedelta(hours=3)))
+    row = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-001",
+        request_hash="sha256:req",
+        project_id=7,
+        correlation_id="corr-1",
+        changed_by="cli-agent",
+        lease_owner="worker-1",
+        now=created_at,
+        lease_seconds=30,
+    ).ledger
+    assert row.mutation_event_id is not None
+
+    result = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-001",
+        request_hash="sha256:req",
+        project_id=7,
+        correlation_id="corr-2",
+        changed_by="cli-agent",
+        lease_owner="worker-2",
+        now=offset_now,
+        lease_seconds=30,
+    )
+
+    assert result.error_code == MUTATION_RECOVERY_REQUIRED
+    with Session(engine) as session:
+        stored = session.exec(select(CliMutationLedger)).one()
+    assert stored.last_error_json is not None
+    last_error = json.loads(stored.last_error_json)
+    assert last_error["recorded_at"] == "2026-05-15T12:00:45+00:00"
+
+
 def test_resume_requires_compare_and_set_from_recovery_required(
     engine: Engine,
 ) -> None:

@@ -81,8 +81,15 @@ def _stale_pending_error(row: CliMutationLedger, now: datetime) -> dict[str, Any
         "message": "Pending mutation lease expired.",
         "details": {"current_step": row.current_step},
         "retryable": True,
-        "recorded_at": now.isoformat(),
+        "recorded_at": _utc_isoformat(now),
     }
+
+
+def _utc_isoformat(value: datetime) -> str:
+    """Return an ISO timestamp for the UTC instant represented by value."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC).isoformat()
+    return value.astimezone(UTC).isoformat()
 
 
 def _db_datetime(value: datetime) -> datetime:
