@@ -6,7 +6,7 @@
 
 ## Summary
 
-AgileForge needs a complete CLI-first agent interface. Agents should be able to
+AgileForge needs a complete CLI-first agent interface. Agents must be able to
 create projects, inspect state, generate drafts, save reviewed work, execute
 sprints, log task progress, close work, and run guarded recovery operations
 without MCP, browser interaction, hand-written HTTP calls, or a running web
@@ -31,7 +31,7 @@ The project already has the underlying pieces for a fuller interface:
 - Phase services and tests for vision, backlog, roadmap, stories, sprints,
   task execution, story close, sprint close, and recovery paths.
 
-Agents should not be sent through the dashboard or FastAPI as a workaround.
+Agents must not be sent through the dashboard or FastAPI as a workaround.
 They need a coherent shell contract that is safe to run from any project
 directory through the central AgileForge repo shim.
 
@@ -46,6 +46,7 @@ directory through the central AgileForge repo shim.
 - Preserve manual review checkpoints before canonical state changes.
 - Support central-repo execution from arbitrary caller project directories.
 - Include full admin and recovery operations as normal guarded commands.
+- Harden the CLI command contract before adding broad mutation coverage.
 - Phase implementation so each command promotes its use case into a shared
   service boundary before exposing it through CLI.
 
@@ -70,10 +71,13 @@ directory through the central AgileForge repo shim.
   strongly guarded.
 - Destructive commands are available by default, but require explicit
   confirmation flags.
+- Contract hardening is the next slice before broad lifecycle mutations.
+- Mutation guards use explicit expected values rather than one ambiguous
+  fingerprint.
 
 ## Architecture
 
-The CLI transport should stay thin:
+The CLI transport must stay thin:
 
 ```text
 cli/main.py
@@ -89,14 +93,43 @@ printing a typed envelope, and returning the correct exit code. It must not
 import FastAPI route handlers, call HTTP endpoints, or duplicate workflow
 orchestration.
 
-Each new mutating command should first promote its business operation into a
-focused use case service or facade method. For example, `project create` should
+Each new mutating command must first promote its business operation into a
+focused use case service or facade method. For example, `project create` must
 move project creation and setup orchestration behind the application boundary.
 The CLI calls that boundary directly. The API can later call the same boundary
 where parity is useful.
 
 This keeps the CLI and API as peers over shared application behavior while
 avoiding a large rewrite of `api.py`.
+
+## Mutation Contract Boundary
+
+Every mutation command must be defined by a request model, a response model, a
+guard policy, and a transaction policy before it is exposed in the parser.
+
+The standard mutation flow is:
+
+```text
+parse args
+-> build typed request
+-> resolve caller-relative paths
+-> load current project/workflow/authority context
+-> run guard checks
+-> execute use case service
+-> write audit event
+-> return typed mutation envelope
+```
+
+The CLI must support `--dry-run` for mutation commands. A dry run validates the
+request and guard checks, returns the current before snapshot and predicted
+changes where they can be computed deterministically, and performs no writes.
+
+Each mutation use case must document its write boundary. Business database
+writes and workflow session writes may not share one SQLite transaction in the
+current architecture. Until that changes, cross-store mutations must use
+preflight validation, narrow write ordering, rollback or compensation where
+possible, and explicit partial-failure remediation. A command must not claim
+atomicity across stores unless tests prove it.
 
 ## Central Repo And Caller Paths
 
@@ -128,6 +161,8 @@ agileforge task ...
 agileforge artifact ...
 agileforge schema ...
 agileforge help ...
+agileforge doctor
+agileforge capabilities
 ```
 
 Commands follow a manual checkpoint grammar:
@@ -147,12 +182,15 @@ agileforge project list
 agileforge project show --project-id 1
 agileforge project create --name "Project" --spec-file specs/app.md
 agileforge project setup retry --project-id 1 --spec-file specs/app.md
-agileforge project delete --project-id 1 --confirm-project-name "Project"
+agileforge project delete --project-id 1 --confirm-project-id 1 --confirm-project-name "Project" --reason "duplicate project"
 ```
 
 `project create` initializes the project, links and compiles the specification,
 initializes workflow state, and returns the next valid commands. It does not
 require a running web server.
+
+`project delete` is a recoverable soft delete in the CLI roadmap. Irreversible
+purge requires a separate command and a later, stricter design.
 
 ### Workflow Commands
 
@@ -172,7 +210,7 @@ agileforge authority status --project-id 1
 agileforge authority invariants --project-id 1
 agileforge authority compile --project-id 1 --spec-file specs/app.md
 agileforge authority show --project-id 1 --spec-version-id 3
-agileforge authority accept --project-id 1 --spec-version-id 3 --expected-fingerprint abc123
+agileforge authority accept --project-id 1 --spec-version-id 3 --expected-artifact-fingerprint abc123
 ```
 
 Authority compilation creates reviewable authority output. Accepting authority
@@ -183,15 +221,15 @@ is an explicit canonical mutation.
 ```bash
 agileforge vision generate --project-id 1 --input "optional guidance"
 agileforge vision draft show --project-id 1 --attempt-id 12
-agileforge vision draft save --project-id 1 --attempt-id 12 --expected-state VISION_REVIEW --expected-fingerprint abc123
+agileforge vision draft save --project-id 1 --attempt-id 12 --expected-state VISION_REVIEW --expected-artifact-fingerprint abc123 --expected-authority-version 3
 
 agileforge backlog generate --project-id 1
 agileforge backlog draft show --project-id 1 --attempt-id 13
-agileforge backlog draft save --project-id 1 --attempt-id 13 --expected-state BACKLOG_REVIEW --expected-fingerprint def456
+agileforge backlog draft save --project-id 1 --attempt-id 13 --expected-state BACKLOG_REVIEW --expected-artifact-fingerprint def456 --expected-authority-version 3
 
 agileforge roadmap generate --project-id 1
 agileforge roadmap draft show --project-id 1 --attempt-id 14
-agileforge roadmap draft save --project-id 1 --attempt-id 14 --expected-state ROADMAP_REVIEW --expected-fingerprint ghi789
+agileforge roadmap draft save --project-id 1 --attempt-id 14 --expected-state ROADMAP_REVIEW --expected-artifact-fingerprint ghi789 --expected-authority-version 3
 ```
 
 These phases always generate drafts first. Saving a draft requires a reviewed
@@ -202,11 +240,11 @@ attempt id and stale-context guard.
 ```bash
 agileforge story generate --project-id 1 --requirement "checkout as guest"
 agileforge story draft show --project-id 1 --attempt-id 15
-agileforge story draft save --project-id 1 --attempt-id 15 --expected-state STORY_REVIEW --expected-fingerprint jkl012
+agileforge story draft save --project-id 1 --attempt-id 15 --expected-state STORY_REVIEW --expected-artifact-fingerprint jkl012 --expected-authority-version 3
 agileforge story show --story-id 7
 agileforge story packet --project-id 1 --sprint-id 3 --story-id 7 --flavor agent
 agileforge story close-readiness --project-id 1 --sprint-id 3 --story-id 7
-agileforge story close --project-id 1 --sprint-id 3 --story-id 7 --expected-fingerprint mno345
+agileforge story close --project-id 1 --sprint-id 3 --story-id 7 --expected-context-fingerprint mno345
 agileforge story phase-complete --project-id 1 --expected-state STORY_REVIEW
 ```
 
@@ -219,9 +257,9 @@ a story must verify task state, sprint membership, and review readiness.
 agileforge sprint candidates --project-id 1
 agileforge sprint generate --project-id 1 --selected-story-ids 1,2,3
 agileforge sprint draft show --project-id 1 --attempt-id 20
-agileforge sprint draft save --project-id 1 --attempt-id 20 --team-name "Core" --start-date 2026-05-18 --expected-state SPRINT_REVIEW --expected-fingerprint pqr678
+agileforge sprint draft save --project-id 1 --attempt-id 20 --team-name "Core" --start-date 2026-05-18 --expected-state SPRINT_REVIEW --expected-artifact-fingerprint pqr678 --expected-authority-version 3
 agileforge sprint start --project-id 1 --sprint-id 3 --expected-state SPRINT_PLANNED
-agileforge sprint close --project-id 1 --sprint-id 3 --expected-state SPRINT_ACTIVE --expected-fingerprint stu901
+agileforge sprint close --project-id 1 --sprint-id 3 --expected-state SPRINT_ACTIVE --expected-context-fingerprint stu901
 ```
 
 Sprint save and start are canonical mutations. They must fail if the selected
@@ -253,6 +291,25 @@ agileforge help command vision generate --format json
 Schema commands expose Pydantic contract documentation for agents. Artifact
 clear is destructive and requires explicit confirmation.
 
+### Operational Contract Commands
+
+```bash
+agileforge doctor
+agileforge schema check
+agileforge capabilities
+agileforge command schema "agileforge vision generate"
+```
+
+`doctor` reports runtime health: database reachability, storage schema
+readiness, central repo resolution, caller cwd, configured model providers, and
+session store reachability.
+
+`capabilities` reports installed commands, command versions, stability,
+mutation support, and supported storage/schema versions.
+
+`command schema` returns both input argument schema and output envelope schema
+for the named command.
+
 ## Guardrails
 
 Read commands must remain read-only. They may detect missing, stale, or invalid
@@ -267,19 +324,37 @@ expected state to fail closed when stale:
 
 - `--attempt-id`, `--draft-id`, `--sprint-id`, `--story-id`, or `--artifact-id`
 - `--expected-state` when the workflow FSM matters
-- `--expected-fingerprint` or `--expected-authority-version` when reviewed
-  content or Spec Authority matters
+- `--expected-artifact-fingerprint` when reviewed draft content matters
+- `--expected-context-fingerprint` when the reviewed state spans multiple
+  projections such as workflow, authority, sprint, story, and task state
+- `--expected-authority-version` when Spec Authority matters
 - phase-specific expected values such as `--expected-status`
 
 If the current state does not match the expected state, the command returns a
 typed stale-context error and remediation commands.
 
+The guard contract must not overload one fingerprint field with several
+meanings. Artifact fingerprints protect reviewed content. Context fingerprints
+protect reviewed multi-resource state. Authority version protects the accepted
+Spec Authority lineage.
+
+The v1 concurrency model is optimistic. Commands are safe under overlapping
+agent attempts by rejecting stale writes; they do not guarantee serializable
+multi-agent scheduling across independent resources. If later requirements need
+stronger concurrency, add explicit row versions or a locking strategy before
+claiming that support.
+
 Destructive commands must require explicit confirmation flags. The CLI must not
 prompt interactively by default because agents need deterministic behavior.
 Missing confirmation flags produce structured errors with the required flags.
+Destructive commands must also require a non-empty `--reason`.
 
 All canonical and destructive mutations must return before/after summaries
 and enough audit metadata to explain what changed and why.
+
+Every canonical and destructive mutation must append an audit event containing
+the command, correlation id, changed-by value, guard inputs, before snapshot,
+after snapshot, outcome, timestamp, and project id when applicable.
 
 ## Output Contracts
 
@@ -291,16 +366,24 @@ Every command returns a Pydantic-backed envelope:
 ```json
 {
   "ok": true,
-  "command": "agileforge vision generate",
   "data": {},
   "warnings": [],
   "errors": [],
-  "metadata": {
-    "schema_version": "1.0",
-    "source_fingerprint": "abc123"
+  "meta": {
+    "schema_version": "agileforge.cli.v1",
+    "command": "agileforge vision generate",
+    "command_version": "1",
+    "agileforge_version": "dev",
+    "storage_schema_version": "1",
+    "generated_at": "2026-05-15T12:00:00Z",
+    "correlation_id": "8f87d14d-7e1c-4e63-b7c2-a1163f9e0b56",
+    "source_fingerprint": "sha256:abc123"
   }
 }
 ```
+
+`correlation_id` is generated automatically when not supplied. Agents may pass
+`--correlation-id` to tie retries and multi-command workflows together.
 
 Each command data payload has a named schema, for example:
 
@@ -323,6 +406,16 @@ TaskLogResult
 ArtifactClearResult
 ```
 
+Mutation payloads also include:
+
+```text
+before
+after
+next_actions
+audit_event_id
+dry_run
+```
+
 Errors are structured:
 
 ```json
@@ -336,6 +429,15 @@ Errors are structured:
 }
 ```
 
+Error codes must come from a central registry. The registry defines the stable
+code, default exit code, retryability, and description. Minimum required codes
+include `INVALID_COMMAND`, `COMMAND_EXCEPTION`, `COMMAND_NOT_IMPLEMENTED`,
+`SCHEMA_NOT_READY`, `SCHEMA_VERSION_MISMATCH`, `PROJECT_NOT_FOUND`,
+`AUTHORITY_NOT_ACCEPTED`, `STALE_STATE`, `STALE_ARTIFACT_FINGERPRINT`,
+`STALE_CONTEXT_FINGERPRINT`, `STALE_AUTHORITY_VERSION`,
+`CONFIRMATION_REQUIRED`, `ACTIVE_STATE_BLOCKS_DELETE`, `MUTATION_FAILED`, and
+`MUTATION_ROLLBACK`.
+
 Exit codes must be stable and documented:
 
 - `0`: command succeeded
@@ -347,13 +449,29 @@ Exit codes must be stable and documented:
 
 ## Implementation Phases
 
-### Phase 2: Project Setup Mutation
+### Phase 2A: CLI Contract Hardening
+
+- envelope metadata enrichment
+- central error code registry
+- command registry enrichment with command versions and stability status
+- `doctor`
+- `schema check`
+- `capabilities`
+- `command schema`
+- mutation guard helpers
+- dry-run envelope support
+- audit event model and writer
+- destructive command policy helpers
+- tests proving existing read commands keep working
+
+### Phase 2B: Project Setup Mutation
 
 - `project create`
 - `project setup retry`
 - mutation envelope models
 - schema/help docs for mutation commands
 - caller-cwd-safe spec path resolution
+- application-level rollback or explicit partial-failure remediation
 - tests proving no FastAPI route imports
 
 ### Phase 3: Draft Generation And Manual Save
@@ -400,7 +518,15 @@ Each phase must include:
 - JSON envelope and Pydantic schema tests
 - guardrail failure tests
 - stale-context tests
+- dry-run tests
+- audit event tests
+- error registry and exit-code tests
+- command schema tests for input and output contracts
+- contract metadata tests for command version, AgileForge version, storage
+  schema version, and correlation id
 - integration tests over temporary business and session stores
+- partial-failure tests for cross-store mutations
+- soft-delete visibility tests for destructive project operations
 - runtime import boundary tests proving CLI commands do not import FastAPI
   route handlers
 - tests proving commands work from outside the AgileForge repository
@@ -413,8 +539,13 @@ Each phase must include:
 - Query commands remain read-only.
 - Generate commands create drafts, not canonical state.
 - Canonical mutations require reviewed artifact identity and expected state.
-- Destructive commands require explicit confirmation flags.
+- Canonical mutations reject stale artifact, context, or authority inputs.
+- Destructive commands require explicit confirmation flags and a reason.
+- Destructive project deletion is recoverable by default.
+- Mutation commands support dry-run previews.
+- Mutations write audit events with correlation ids.
 - CLI outputs are stable, typed, JSON-default envelopes.
+- CLI command schemas expose both input and output contracts.
 - File path arguments work correctly from arbitrary caller directories.
 - The implementation can proceed phase by phase without duplicating workflow
   rules in `cli/main.py`.
