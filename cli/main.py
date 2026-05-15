@@ -296,6 +296,9 @@ def _wrap(command: str, result: JsonObject) -> JsonObject:
             error=errors[0],
             warnings=warnings,
         )
+        data = result.get("data")
+        if isinstance(data, dict):
+            envelope["data"] = {str(key): value for key, value in data.items()}
         if len(errors) > 1:
             envelope["errors"] = [error.to_dict() for error in errors]
         return envelope

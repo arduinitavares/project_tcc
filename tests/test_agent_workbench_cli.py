@@ -451,6 +451,61 @@ def test_cli_uses_error_exit_code_and_preserves_warnings(
     ]
 
 
+def test_cli_preserves_error_data_from_service_result(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Keep structured failure data when wrapping service errors."""
+    app = _FakeApplication()
+
+    def mutation_resume_conflict(
+        *,
+        mutation_event_id: int,
+        correlation_id: str | None = None,
+    ) -> JsonObject:
+        app.calls.append(
+            (
+                "mutation_resume",
+                {
+                    "mutation_event_id": mutation_event_id,
+                    "correlation_id": correlation_id,
+                },
+            )
+        )
+        return {
+            "ok": False,
+            "data": {"mutation_event_id": mutation_event_id, "status": "pending"},
+            "warnings": [],
+            "errors": [
+                {
+                    "code": "MUTATION_RESUME_CONFLICT",
+                    "message": "Another worker acquired recovery.",
+                    "details": {"mutation_event_id": mutation_event_id},
+                    "remediation": [],
+                    "exit_code": 1,
+                    "retryable": True,
+                }
+            ],
+        }
+
+    app.mutation_resume = mutation_resume_conflict  # type: ignore[method-assign]
+
+    rc = main(
+        ["mutation", "resume", "--mutation-event-id", "101"],
+        application=app,
+    )
+
+    payload = _stdout_payload(capsys)
+    assert rc == 1
+    assert payload["ok"] is False
+    assert payload["data"] == {"mutation_event_id": 101, "status": "pending"}
+    assert app.calls == [
+        (
+            "mutation_resume",
+            {"mutation_event_id": 101, "correlation_id": None},
+        )
+    ]
+
+
 def test_cli_unexpected_exceptions_return_json_envelope(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

@@ -15,6 +15,7 @@ from services.agent_workbench.command_schema import (
 )
 from services.agent_workbench.context_pack import ContextPackService
 from services.agent_workbench.diagnostics import doctor_payload, schema_check_payload
+from services.agent_workbench.error_codes import ErrorCode, workbench_error
 from services.agent_workbench.fingerprints import canonical_hash
 from services.agent_workbench.mutation_ledger import MutationLedgerRepository
 from services.agent_workbench.read_projection import ReadProjectionService
@@ -231,17 +232,17 @@ class AgentWorkbenchApplication:
         try:
             payload = command_schema_payload(command_name)
         except ValueError as exc:
+            error = workbench_error(
+                ErrorCode.COMMAND_NOT_IMPLEMENTED,
+                message=str(exc),
+                details={"command_name": command_name},
+                remediation=["agileforge capabilities"],
+            )
             return {
                 "ok": False,
                 "data": {},
                 "warnings": [],
-                "errors": [
-                    {
-                        "code": "UNKNOWN_COMMAND",
-                        "message": str(exc),
-                        "retryable": False,
-                    }
-                ],
+                "errors": [error.to_dict()],
             }
         return _data_envelope(payload)
 

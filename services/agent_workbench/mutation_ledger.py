@@ -163,10 +163,15 @@ class MutationLedgerRepository:
         if shown.get("ok") is not True:
             return shown
 
+        now = datetime.now(UTC)
+        self._repair_expired_pending_resume(
+            mutation_event_id=mutation_event_id,
+            now=now,
+        )
         result = self.acquire_resume_lease(
             mutation_event_id=mutation_event_id,
             lease_owner=_resume_lease_owner(correlation_id),
-            now=datetime.now(UTC),
+            now=now,
             lease_seconds=DEFAULT_LEASE_SECONDS,
         )
         data = _row_payload(result.ledger)
@@ -186,6 +191,25 @@ class MutationLedgerRepository:
             "domain_resume_required": True,
         }
         return _success_result(data)
+
+    def _repair_expired_pending_resume(
+        self,
+        *,
+        mutation_event_id: int,
+        now: datetime,
+    ) -> LedgerLoadResult | None:
+        """Fence an expired pending resume lease back into recovery-required."""
+        db_now = _db_datetime(now)
+        with Session(self._engine) as session:
+            row = session.get(CliMutationLedger, mutation_event_id)
+            if (
+                row is None
+                or row.status != MutationStatus.PENDING.value
+                or row.lease_expires_at is None
+                or row.lease_expires_at > db_now
+            ):
+                return None
+            return self._handle_pending_existing(session=session, row=row, now=now)
 
     def create_or_load(
         self,

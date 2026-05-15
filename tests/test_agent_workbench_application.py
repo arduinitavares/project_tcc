@@ -441,6 +441,30 @@ def test_application_contract_facades_return_envelopes() -> None:
     assert command_schema["data"]["name"] == "agileforge status"
 
 
+def test_application_unknown_command_schema_uses_registered_error() -> None:
+    """Unknown command schema requests use registry-backed error metadata."""
+    app = AgentWorkbenchApplication(
+        read_projection=_FakeReadProjection(),
+        authority_projection=_FakeAuthorityProjection(),
+    )
+
+    result = app.command_schema("agileforge not installed")
+
+    assert result["ok"] is False
+    assert result["data"] == {}
+    assert result["warnings"] == []
+    assert result["errors"] == [
+        {
+            "code": "COMMAND_NOT_IMPLEMENTED",
+            "message": "Unknown command: agileforge not installed",
+            "details": {"command_name": "agileforge not installed"},
+            "remediation": ["agileforge capabilities"],
+            "exit_code": 2,
+            "retryable": False,
+        }
+    ]
+
+
 def test_application_mutation_facades_return_ledger_envelopes(
     engine: Engine,
     monkeypatch: pytest.MonkeyPatch,

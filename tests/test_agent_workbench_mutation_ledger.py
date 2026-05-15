@@ -675,7 +675,7 @@ def test_resume_event_acquires_recovery_lease_without_domain_recovery(
 def test_resume_event_returns_structured_conflict_error(engine: Engine) -> None:
     """Return the registered conflict when a recovery lease is unavailable."""
     repo = _repo(engine)
-    now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    now = datetime.now(UTC)
     row = repo.create_or_load(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
@@ -705,6 +705,70 @@ def test_resume_event_returns_structured_conflict_error(engine: Engine) -> None:
             "retryable": True,
         }
     ]
+
+
+def test_resume_event_repairs_expired_resume_lease_before_reacquiring(
+    engine: Engine,
+) -> None:
+    """Recover a stale generic resume lease before acquiring a fresh one."""
+    repo = _repo(engine)
+    now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    row = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-001",
+        request_hash="sha256:req",
+        project_id=7,
+        correlation_id="corr-1",
+        changed_by="cli-agent",
+        lease_owner="worker-1",
+        now=now,
+        lease_seconds=1,
+    ).ledger
+    assert row.mutation_event_id is not None
+    repo._force_recovery_required_for_test(
+        mutation_event_id=row.mutation_event_id,
+        recovery_action=RecoveryAction.RESUME_FROM_STEP,
+        safe_to_auto_resume=True,
+        last_error={"code": "CRASHED"},
+        now=now + timedelta(seconds=2),
+    )
+    first = repo.resume_event(
+        mutation_event_id=row.mutation_event_id,
+        correlation_id="corr-first",
+    )
+    assert first["ok"] is True
+    assert first["data"]["lease_owner"] == "agileforge-cli:mutation-resume:corr-first"
+    with Session(engine) as session:
+        session.exec(
+            update(CliMutationLedger)
+            .where(CliMutationLedger.mutation_event_id == row.mutation_event_id)
+            .values(
+                lease_acquired_at=datetime(2000, 1, 1, tzinfo=UTC),
+                last_heartbeat_at=datetime(2000, 1, 1, tzinfo=UTC),
+                lease_expires_at=datetime(2000, 1, 1, 0, 5, tzinfo=UTC),
+            )
+        )
+        session.commit()
+
+    second = repo.resume_event(
+        mutation_event_id=row.mutation_event_id,
+        correlation_id="corr-second",
+    )
+
+    assert second["ok"] is True
+    assert second["data"]["status"] == MutationStatus.PENDING.value
+    assert second["data"]["lease_owner"] == (
+        "agileforge-cli:mutation-resume:corr-second"
+    )
+    assert second["data"]["recovery"] == {
+        "acquired": True,
+        "domain_resume_required": True,
+    }
+    with Session(engine) as session:
+        stored = session.get(CliMutationLedger, row.mutation_event_id)
+    assert stored is not None
+    assert stored.status == MutationStatus.PENDING.value
+    assert stored.lease_owner == "agileforge-cli:mutation-resume:corr-second"
 
 
 def test_expired_owner_cannot_heartbeat(engine: Engine) -> None:
