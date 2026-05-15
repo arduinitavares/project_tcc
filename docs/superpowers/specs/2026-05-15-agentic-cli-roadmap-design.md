@@ -47,6 +47,7 @@ directory through the central AgileForge repo shim.
 - Support central-repo execution from arbitrary caller project directories.
 - Include full admin and recovery operations as normal guarded commands.
 - Harden the CLI command contract before adding broad mutation coverage.
+- Make every mutation idempotent and recoverable before exposing it to agents.
 - Phase implementation so each command promotes its use case into a shared
   service boundary before exposing it through CLI.
 
@@ -69,11 +70,19 @@ directory through the central AgileForge repo shim.
 - Pydantic models define command payloads, warnings, errors, and schemas.
 - Guardrails are hybrid: draft commands are validated, canonical mutations are
   strongly guarded.
-- Destructive commands are available by default, but require explicit
-  confirmation flags.
+- Destructive commands are listed in capabilities by default, but execution
+  requires noninteractive confirmation flags and command-specific stale-state
+  guards.
 - Contract hardening is the next slice before broad lifecycle mutations.
+- Every mutating command requires `--idempotency-key`.
 - Mutation guards use explicit expected values rather than one ambiguous
   fingerprint.
+- `--expected-authority-version` means the accepted authority decision id from
+  the latest accepted `SpecAuthorityAcceptance` row. Envelopes also expose the
+  related `spec_version_id` and `authority_id`.
+- `--changed-by` defaults to `cli-agent`, accepts a non-empty stable actor
+  string, and appears in audit records plus domain history where that domain
+  already tracks actors.
 
 ## Architecture
 
@@ -105,7 +114,8 @@ avoiding a large rewrite of `api.py`.
 ## Mutation Contract Boundary
 
 Every mutation command must be defined by a request model, a response model, a
-guard policy, and a transaction policy before it is exposed in the parser.
+guard policy, an idempotency policy, and a transaction/recovery policy before it
+is exposed in the parser.
 
 The standard mutation flow is:
 
@@ -113,23 +123,84 @@ The standard mutation flow is:
 parse args
 -> build typed request
 -> resolve caller-relative paths
+-> persist or replay mutation ledger record
 -> load current project/workflow/authority context
 -> run guard checks
 -> execute use case service
--> write audit event
+-> finalize mutation ledger and audit event
 -> return typed mutation envelope
 ```
 
+Mutation request models must include:
+
+- `idempotency_key`
+- `correlation_id`
+- `changed_by`
+- command-specific arguments
+- command-specific guard tokens
+- `dry_run`
+
 The CLI must support `--dry-run` for mutation commands. A dry run validates the
-request and guard checks, returns the current before snapshot and predicted
-changes where they can be computed deterministically, and performs no writes.
+request and guard checks, returns the current before snapshot, and performs no
+domain writes. If deterministic prediction is unavailable, the dry-run envelope
+must set `preview_available: false` and explain why. Non-deterministic commands,
+including model-backed generation and authority compilation, must not call model
+providers during dry runs.
+
+### Idempotency And Durable Mutation Protocol
+
+`correlation_id` is for tracing. It is not a deduplication mechanism. Every
+mutating command must require `--idempotency-key` and persist a mutation ledger
+record before domain writes start.
+
+The mutation ledger must store:
+
+- command name
+- idempotency key
+- canonical request hash
+- project id when applicable
+- correlation id
+- changed-by actor
+- status: `pending`, `succeeded`, `failed`, `recovery_required`, or `rejected`
+- guard inputs
+- before snapshot
+- after snapshot when available
+- response envelope when available
+- recovery command when recovery is required
+- timestamps
+
+The uniqueness boundary is command name plus idempotency key. If the same
+command receives the same key and the same request hash, it must replay the
+stored response or resume deterministic recovery. If the same command receives
+the same key with a different request hash, it must fail with
+`IDEMPOTENCY_KEY_REUSED`.
+
+The ledger is also the audit source for CLI mutations. A command must not start
+domain writes if it cannot persist the initial ledger row. A canonical mutation
+is not successful until the final response is stored in the ledger. If side
+effects occur but finalization fails, the command must return
+`MUTATION_RECOVERY_REQUIRED` when possible, and the next invocation with the
+same idempotency key must produce a deterministic recovery or replay outcome.
+
+### Cross-Store Mutation Protocol
 
 Each mutation use case must document its write boundary. Business database
 writes and workflow session writes may not share one SQLite transaction in the
-current architecture. Until that changes, cross-store mutations must use
-preflight validation, narrow write ordering, rollback or compensation where
-possible, and explicit partial-failure remediation. A command must not claim
-atomicity across stores unless tests prove it.
+current architecture. A cross-store mutation must either complete all declared
+writes or leave a durable recovery record that makes the next command
+deterministic.
+
+Before Phase 2B can ship `project create`, Phase 2A must define and test:
+
+- pending mutation ledger creation before product/spec/session writes
+- idempotent replay by command and request hash
+- ordered write steps for product, spec registry, authority compilation,
+  acceptance, and workflow session initialization
+- explicit recovery states for each step boundary
+- response replay after success
+- deterministic retry behavior after timeout or partial failure
+
+A command must not claim atomicity across stores unless tests prove it.
 
 ## Central Repo And Caller Paths
 
@@ -160,6 +231,7 @@ agileforge sprint ...
 agileforge task ...
 agileforge artifact ...
 agileforge schema ...
+agileforge command ...
 agileforge help ...
 agileforge doctor
 agileforge capabilities
@@ -180,14 +252,16 @@ verbs such as `save`, `accept`, `start`, `log`, `close`, `reset`, or `delete`.
 ```bash
 agileforge project list
 agileforge project show --project-id 1
-agileforge project create --name "Project" --spec-file specs/app.md
-agileforge project setup retry --project-id 1 --spec-file specs/app.md
-agileforge project delete --project-id 1 --confirm-project-id 1 --confirm-project-name "Project" --reason "duplicate project"
+agileforge project create --name "Project" --spec-file specs/app.md --idempotency-key create-project-20260515-001
+agileforge project setup retry --project-id 1 --spec-file specs/app.md --idempotency-key setup-retry-1-001
+agileforge project delete --project-id 1 --expected-context-fingerprint abc123 --confirm-project-id 1 --confirm-project-name "Project" --reason "duplicate project" --idempotency-key delete-project-1-001
 ```
 
-`project create` initializes the project, links and compiles the specification,
-initializes workflow state, and returns the next valid commands. It does not
-require a running web server.
+`project create` initializes the project, links the specification, compiles a
+reviewable pending authority artifact, initializes workflow state, and returns
+the next valid commands. It must not auto-accept authority or auto-run vision.
+The next canonical step is an explicit authority review/accept command. It does
+not require a running web server.
 
 `project delete` is a recoverable soft delete in the CLI roadmap. Irreversible
 purge requires a separate command and a later, stricter design.
@@ -197,39 +271,43 @@ purge requires a separate command and a later, stricter design.
 ```bash
 agileforge workflow state --project-id 1
 agileforge workflow next --project-id 1
-agileforge workflow reset --project-id 1 --to-state SETUP_REQUIRED --reason "bad setup input" --confirm-project-id 1
+agileforge workflow reset --project-id 1 --expected-state VISION_REVIEW --expected-context-fingerprint def456 --scope setup,vision --to-state SETUP_REQUIRED --reason "bad setup input" --confirm-project-id 1 --idempotency-key workflow-reset-1-001
 ```
 
-Workflow reset is available by default, but it requires explicit target state,
-reason, and confirmation flags.
+Workflow reset is listed in capabilities by default, but execution requires
+expected current state, context fingerprint, explicit reset scope, target state,
+reason, and confirmation flags. Its response must list invalidated artifacts,
+preserved artifacts, recovery commands, and before/after workflow state.
 
 ### Authority Commands
 
 ```bash
 agileforge authority status --project-id 1
 agileforge authority invariants --project-id 1
-agileforge authority compile --project-id 1 --spec-file specs/app.md
+agileforge authority compile --project-id 1 --spec-file specs/app.md --idempotency-key authority-compile-1-001
 agileforge authority show --project-id 1 --spec-version-id 3
-agileforge authority accept --project-id 1 --spec-version-id 3 --expected-artifact-fingerprint abc123
+agileforge authority accept --project-id 1 --spec-version-id 3 --expected-artifact-fingerprint abc123 --idempotency-key authority-accept-1-001
 ```
 
 Authority compilation creates reviewable authority output. Accepting authority
-is an explicit canonical mutation.
+is an explicit canonical mutation. The accepted authority version exposed to
+guards is the accepted `SpecAuthorityAcceptance.id`; command outputs must also
+include `spec_version_id` and `authority_id` so agents can explain provenance.
 
 ### Vision, Backlog, And Roadmap Commands
 
 ```bash
-agileforge vision generate --project-id 1 --input "optional guidance"
+agileforge vision generate --project-id 1 --input "optional guidance" --idempotency-key vision-generate-1-001
 agileforge vision draft show --project-id 1 --attempt-id 12
-agileforge vision draft save --project-id 1 --attempt-id 12 --expected-state VISION_REVIEW --expected-artifact-fingerprint abc123 --expected-authority-version 3
+agileforge vision draft save --project-id 1 --attempt-id 12 --expected-state VISION_REVIEW --expected-artifact-fingerprint abc123 --expected-authority-version 3 --idempotency-key vision-save-12-001
 
-agileforge backlog generate --project-id 1
+agileforge backlog generate --project-id 1 --idempotency-key backlog-generate-1-001
 agileforge backlog draft show --project-id 1 --attempt-id 13
-agileforge backlog draft save --project-id 1 --attempt-id 13 --expected-state BACKLOG_REVIEW --expected-artifact-fingerprint def456 --expected-authority-version 3
+agileforge backlog draft save --project-id 1 --attempt-id 13 --expected-state BACKLOG_REVIEW --expected-artifact-fingerprint def456 --expected-authority-version 3 --idempotency-key backlog-save-13-001
 
-agileforge roadmap generate --project-id 1
+agileforge roadmap generate --project-id 1 --idempotency-key roadmap-generate-1-001
 agileforge roadmap draft show --project-id 1 --attempt-id 14
-agileforge roadmap draft save --project-id 1 --attempt-id 14 --expected-state ROADMAP_REVIEW --expected-artifact-fingerprint ghi789 --expected-authority-version 3
+agileforge roadmap draft save --project-id 1 --attempt-id 14 --expected-state ROADMAP_REVIEW --expected-artifact-fingerprint ghi789 --expected-authority-version 3 --idempotency-key roadmap-save-14-001
 ```
 
 These phases always generate drafts first. Saving a draft requires a reviewed
@@ -238,14 +316,14 @@ attempt id and stale-context guard.
 ### Story Commands
 
 ```bash
-agileforge story generate --project-id 1 --requirement "checkout as guest"
+agileforge story generate --project-id 1 --requirement "checkout as guest" --idempotency-key story-generate-1-001
 agileforge story draft show --project-id 1 --attempt-id 15
-agileforge story draft save --project-id 1 --attempt-id 15 --expected-state STORY_REVIEW --expected-artifact-fingerprint jkl012 --expected-authority-version 3
+agileforge story draft save --project-id 1 --attempt-id 15 --expected-state STORY_REVIEW --expected-artifact-fingerprint jkl012 --expected-authority-version 3 --idempotency-key story-save-15-001
 agileforge story show --story-id 7
 agileforge story packet --project-id 1 --sprint-id 3 --story-id 7 --flavor agent
 agileforge story close-readiness --project-id 1 --sprint-id 3 --story-id 7
-agileforge story close --project-id 1 --sprint-id 3 --story-id 7 --expected-context-fingerprint mno345
-agileforge story phase-complete --project-id 1 --expected-state STORY_REVIEW
+agileforge story close --project-id 1 --sprint-id 3 --story-id 7 --expected-context-fingerprint mno345 --idempotency-key story-close-7-001
+agileforge story phase-complete --project-id 1 --expected-state STORY_REVIEW --idempotency-key story-phase-complete-1-001
 ```
 
 Story commands must preserve authority pinning and validation evidence. Closing
@@ -255,11 +333,11 @@ a story must verify task state, sprint membership, and review readiness.
 
 ```bash
 agileforge sprint candidates --project-id 1
-agileforge sprint generate --project-id 1 --selected-story-ids 1,2,3
+agileforge sprint generate --project-id 1 --selected-story-ids 1,2,3 --idempotency-key sprint-generate-1-001
 agileforge sprint draft show --project-id 1 --attempt-id 20
-agileforge sprint draft save --project-id 1 --attempt-id 20 --team-name "Core" --start-date 2026-05-18 --expected-state SPRINT_REVIEW --expected-artifact-fingerprint pqr678 --expected-authority-version 3
-agileforge sprint start --project-id 1 --sprint-id 3 --expected-state SPRINT_PLANNED
-agileforge sprint close --project-id 1 --sprint-id 3 --expected-state SPRINT_ACTIVE --expected-context-fingerprint stu901
+agileforge sprint draft save --project-id 1 --attempt-id 20 --team-name "Core" --start-date 2026-05-18 --expected-state SPRINT_REVIEW --expected-artifact-fingerprint pqr678 --expected-authority-version 3 --idempotency-key sprint-save-20-001
+agileforge sprint start --project-id 1 --sprint-id 3 --expected-state SPRINT_PLANNED --idempotency-key sprint-start-3-001
+agileforge sprint close --project-id 1 --sprint-id 3 --expected-state SPRINT_ACTIVE --expected-context-fingerprint stu901 --idempotency-key sprint-close-3-001
 ```
 
 Sprint save and start are canonical mutations. They must fail if the selected
@@ -270,7 +348,7 @@ stories, authority status, or workflow state changed after review.
 ```bash
 agileforge task packet --project-id 1 --sprint-id 3 --task-id 9 --flavor agent
 agileforge task history --project-id 1 --sprint-id 3 --task-id 9
-agileforge task log --project-id 1 --sprint-id 3 --task-id 9 --expected-status "To Do" --status "In Progress" --changed-by agent
+agileforge task log --project-id 1 --sprint-id 3 --task-id 9 --expected-status "To Do" --status "In Progress" --changed-by agent --idempotency-key task-log-9-001
 ```
 
 Task logging is a canonical execution mutation. It requires the expected prior
@@ -281,7 +359,7 @@ task status to prevent stale progress updates.
 ```bash
 agileforge artifact list --project-id 1
 agileforge artifact show --project-id 1 --artifact-id 44
-agileforge artifact clear --project-id 1 --artifact-id 44 --confirm-artifact-id 44 --reason "obsolete failed run"
+agileforge artifact clear --project-id 1 --artifact-id 44 --confirm-artifact-id 44 --reason "obsolete failed run" --idempotency-key artifact-clear-44-001
 
 agileforge schema list
 agileforge schema show VisionDraftResult
@@ -307,8 +385,9 @@ session store reachability.
 `capabilities` reports installed commands, command versions, stability,
 mutation support, and supported storage/schema versions.
 
-`command schema` returns both input argument schema and output envelope schema
-for the named command.
+`command schema` returns the input argument schema, output envelope schema,
+guard policy, idempotency policy, possible error codes, exit codes, and
+producer commands for required guard tokens.
 
 ## Guardrails
 
@@ -323,6 +402,7 @@ Canonical mutations must require the reviewed artifact identity and enough
 expected state to fail closed when stale:
 
 - `--attempt-id`, `--draft-id`, `--sprint-id`, `--story-id`, or `--artifact-id`
+- `--idempotency-key`
 - `--expected-state` when the workflow FSM matters
 - `--expected-artifact-fingerprint` when reviewed draft content matters
 - `--expected-context-fingerprint` when the reviewed state spans multiple
@@ -356,6 +436,51 @@ Every canonical and destructive mutation must append an audit event containing
 the command, correlation id, changed-by value, guard inputs, before snapshot,
 after snapshot, outcome, timestamp, and project id when applicable.
 
+### Guard Token Provenance
+
+Each command schema must declare its required guard fields. The parser must
+reject missing required guard fields before calling the facade.
+
+| Command | Required Guards | Producer Command | Fingerprint Payload | Compare Point |
+| --- | --- | --- | --- | --- |
+| `project create` | `idempotency_key`, request hash | none | canonical request: project name, canonical spec path, spec file hash | before product row creation |
+| `project setup retry` | `idempotency_key`, `expected_state`, `expected_context_fingerprint` | `workflow state`, `status` | project id, workflow state, setup status, spec path, accepted authority version | after loading project and session, before setup writes |
+| `authority accept` | `idempotency_key`, `expected_artifact_fingerprint` | `authority show` | compiled authority artifact, spec version id, authority id, compiler version, prompt hash | in the business DB transaction before acceptance row insert |
+| `vision/backlog/roadmap draft save` | `idempotency_key`, `attempt_id`, `expected_state`, `expected_artifact_fingerprint`, `expected_authority_version` | phase `draft show`, `authority status` | draft artifact content, attempt id, phase, accepted authority decision id | after loading draft and authority, before canonical phase write |
+| `story draft save` | `idempotency_key`, `attempt_id`, `expected_state`, `expected_artifact_fingerprint`, `expected_authority_version` | `story draft show`, `authority status` | draft story payload, validation evidence, attempt id, accepted authority decision id | after loading draft and authority, before story persistence |
+| `sprint draft save` | `idempotency_key`, `attempt_id`, `expected_state`, `expected_artifact_fingerprint`, `expected_authority_version` | `sprint draft show`, `authority status` | sprint draft payload, selected story ids, team, dates, accepted authority decision id | after loading selected stories and authority, before sprint persistence |
+| `sprint start` | `idempotency_key`, `sprint_id`, `expected_state`, `expected_context_fingerprint` | `workflow state`, `sprint draft show` or `sprint show` | workflow state, planned sprint row, selected story ids, task ids | after loading sprint and workflow state, before start transition |
+| `task log` | `idempotency_key`, `expected_status` | `task history` or `task packet` | task id, current status, sprint id, story id, latest task history sequence | in the business DB transaction before task history insert |
+| `story close` | `idempotency_key`, `story_id`, `expected_context_fingerprint` | `story close-readiness` | story id, sprint id, task statuses, sprint membership, close readiness result | after loading close readiness, before close mutation |
+| `sprint close` | `idempotency_key`, `sprint_id`, `expected_state`, `expected_context_fingerprint` | `sprint status` or `sprint close-readiness` | sprint id, workflow state, story close states, task statuses, sprint membership | after loading sprint readiness, before close mutation |
+| `workflow reset` | `idempotency_key`, `expected_state`, `expected_context_fingerprint`, `scope`, `reason`, confirmations | `status`, `workflow state` | project id, workflow state, setup status, accepted authority version, active sprint/story/task summary | after loading all affected resources, before invalidation writes |
+| `project delete` | `idempotency_key`, `expected_context_fingerprint`, confirmations, `reason` | `status`, `project show` | project id, name, workflow state, active sprint/story/task summary, accepted authority version | after loading project and active state, before soft delete |
+| `artifact clear` | `idempotency_key`, `artifact_id`, confirmations, `reason` | `artifact show` | artifact id, project id, phase, checksum, retention status | in the business DB transaction before clear marker |
+
+Read commands that produce guard tokens must expose them in `data.guard_tokens`
+with names matching the corresponding parser flags. Envelope-level
+`meta.source_fingerprint` is an envelope fingerprint and must not be the only
+source for command-specific guard tokens.
+
+### Workflow Reset Semantics
+
+`workflow reset` is a destructive recovery command. It must require:
+
+- `--expected-state`
+- `--expected-context-fingerprint`
+- `--scope`
+- `--to-state`
+- `--reason`
+- confirmation flags
+- `--idempotency-key`
+
+The reset response must include affected resources, invalidated artifacts,
+preserved artifacts, before/after workflow state, recovery commands, and next
+valid commands. Reset scope determines invalidation rules. For example, a reset
+to `SETUP_REQUIRED` with `--scope setup,vision` invalidates setup and vision
+session state but must explicitly report whether accepted authority, stories,
+sprints, and task history are preserved, hidden, or marked stale.
+
 ## Output Contracts
 
 JSON is the default output format. Human-readable text may be added through an
@@ -384,6 +509,8 @@ Every command returns a Pydantic-backed envelope:
 
 `correlation_id` is generated automatically when not supplied. Agents may pass
 `--correlation-id` to tie retries and multi-command workflows together.
+Agents must pass `--idempotency-key` for mutation commands; the idempotency key
+is stored in the mutation ledger rather than envelope metadata.
 
 Each command data payload has a named schema, for example:
 
@@ -412,8 +539,28 @@ Mutation payloads also include:
 before
 after
 next_actions
-audit_event_id
+mutation_event_id
 dry_run
+preview_available
+idempotency_key
+```
+
+`next_actions` must be structured, not plain strings:
+
+```json
+{
+  "command": "agileforge vision draft save",
+  "required_args": {
+    "project_id": 1,
+    "attempt_id": 12,
+    "expected_state": "VISION_REVIEW"
+  },
+  "guard_token_sources": [
+    "agileforge vision draft show --project-id 1 --attempt-id 12",
+    "agileforge authority status --project-id 1"
+  ],
+  "reason": "Save the reviewed vision draft."
+}
 ```
 
 Errors are structured:
@@ -435,6 +582,7 @@ include `INVALID_COMMAND`, `COMMAND_EXCEPTION`, `COMMAND_NOT_IMPLEMENTED`,
 `SCHEMA_NOT_READY`, `SCHEMA_VERSION_MISMATCH`, `PROJECT_NOT_FOUND`,
 `AUTHORITY_NOT_ACCEPTED`, `STALE_STATE`, `STALE_ARTIFACT_FINGERPRINT`,
 `STALE_CONTEXT_FINGERPRINT`, `STALE_AUTHORITY_VERSION`,
+`IDEMPOTENCY_KEY_REUSED`, `MUTATION_RECOVERY_REQUIRED`,
 `CONFIRMATION_REQUIRED`, `ACTIVE_STATE_BLOCKS_DELETE`, `MUTATION_FAILED`, and
 `MUTATION_ROLLBACK`.
 
@@ -447,6 +595,12 @@ Exit codes must be stable and documented:
 - `4`: workflow or authority guard blocked the command
 - `5`: missing schema/storage capability
 
+`storage_schema_version` must be stored in the business database through an
+explicit migration/version table. `schema check` compares the required version,
+business database version, required tables/columns/indexes, and workflow session
+store readiness. Commands that require a newer storage schema fail before
+domain reads or writes.
+
 ## Implementation Phases
 
 ### Phase 2A: CLI Contract Hardening
@@ -454,14 +608,20 @@ Exit codes must be stable and documented:
 - envelope metadata enrichment
 - central error code registry
 - command registry enrichment with command versions and stability status
+- storage schema version table and compatibility checks
 - `doctor`
 - `schema check`
 - `capabilities`
 - `command schema`
 - mutation guard helpers
+- guard-token provenance declarations per command schema
+- mutation ledger with idempotency-key replay semantics
 - dry-run envelope support
-- audit event model and writer
+- audit semantics through the mutation ledger
 - destructive command policy helpers
+- a fake/test mutation command that proves envelopes, schemas, guard failures,
+  dry-run, idempotency replay, request-hash mismatch, and audit finalization
+  before any real domain mutation ships
 - tests proving existing read commands keep working
 
 ### Phase 2B: Project Setup Mutation
@@ -471,7 +631,10 @@ Exit codes must be stable and documented:
 - mutation envelope models
 - schema/help docs for mutation commands
 - caller-cwd-safe spec path resolution
-- application-level rollback or explicit partial-failure remediation
+- durable cross-store mutation protocol for product/spec/authority/session
+  writes
+- pending authority output with no auto-accept and no auto-run vision
+- durable recovery protocol instead of rollback-only behavior
 - tests proving no FastAPI route imports
 
 ### Phase 3: Draft Generation And Manual Save
@@ -505,6 +668,7 @@ Exit codes must be stable and documented:
 - `project delete`
 - `workflow reset`
 - `artifact clear`
+- soft-delete columns, migrations, and read-projection filtering
 - retry, regenerate, and abandon-draft commands
 - audit output for destructive actions
 
@@ -519,14 +683,18 @@ Each phase must include:
 - guardrail failure tests
 - stale-context tests
 - dry-run tests
-- audit event tests
+- idempotency replay and request-hash mismatch tests
+- mutation ledger/audit finalization tests
 - error registry and exit-code tests
 - command schema tests for input and output contracts
+- guard-token producer/consumer coverage tests
 - contract metadata tests for command version, AgileForge version, storage
   schema version, and correlation id
+- existing read-command fixture updates when the envelope contract changes
 - integration tests over temporary business and session stores
 - partial-failure tests for cross-store mutations
-- soft-delete visibility tests for destructive project operations
+- fake/test mutation harness coverage before first real domain mutation
+- soft-delete visibility tests when destructive project operations are added
 - runtime import boundary tests proving CLI commands do not import FastAPI
   route handlers
 - tests proving commands work from outside the AgileForge repository
@@ -540,12 +708,20 @@ Each phase must include:
 - Generate commands create drafts, not canonical state.
 - Canonical mutations require reviewed artifact identity and expected state.
 - Canonical mutations reject stale artifact, context, or authority inputs.
+- Every mutation requires an idempotency key and supports deterministic replay
+  or recovery.
+- Cross-store mutations leave a durable recovery record if all declared writes
+  do not complete.
+- Command schemas declare exact guard-token producers and fingerprint payloads.
 - Destructive commands require explicit confirmation flags and a reason.
 - Destructive project deletion is recoverable by default.
 - Mutation commands support dry-run previews.
-- Mutations write audit events with correlation ids.
+- Mutations write durable ledger/audit records with correlation ids.
 - CLI outputs are stable, typed, JSON-default envelopes.
 - CLI command schemas expose both input and output contracts.
+- `next_actions` are structured action objects.
+- Schema compatibility checks cover business storage and workflow session
+  readiness.
 - File path arguments work correctly from arbitrary caller directories.
 - The implementation can proceed phase by phase without duplicating workflow
   rules in `cli/main.py`.
