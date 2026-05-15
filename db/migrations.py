@@ -25,6 +25,8 @@ from utils.task_metadata import canonical_task_metadata_json
 
 logger = logging.getLogger(__name__)
 
+AGENT_WORKBENCH_STORAGE_SCHEMA_VERSION = "1"
+
 
 def _get_existing_tables(engine: Engine) -> set[str]:
     """Return set of table names that exist in the database."""
@@ -472,6 +474,94 @@ def migrate_task_execution_logs(engine: Engine) -> list[str]:
 
 
 # =============================================================================
+# AGENT WORKBENCH CONTRACT TABLES MIGRATION
+# =============================================================================
+
+
+AGENT_WORKBENCH_SCHEMA_VERSIONS_CREATE_SQL = """
+CREATE TABLE IF NOT EXISTS agent_workbench_schema_versions (
+    component TEXT PRIMARY KEY,
+    version TEXT NOT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+CLI_MUTATION_LEDGER_CREATE_SQL = """
+CREATE TABLE IF NOT EXISTS cli_mutation_ledger (
+    mutation_event_id INTEGER PRIMARY KEY,
+    command VARCHAR NOT NULL,
+    idempotency_key VARCHAR NOT NULL,
+    request_hash VARCHAR NOT NULL,
+    project_id INTEGER,
+    correlation_id VARCHAR NOT NULL,
+    changed_by VARCHAR NOT NULL DEFAULT 'cli-agent',
+    status VARCHAR NOT NULL,
+    current_step VARCHAR NOT NULL DEFAULT 'start',
+    completed_steps_json TEXT NOT NULL DEFAULT '[]',
+    guard_inputs_json TEXT NOT NULL DEFAULT '{}',
+    before_json TEXT NOT NULL DEFAULT '{}',
+    after_json TEXT,
+    response_json TEXT,
+    recovery_action VARCHAR NOT NULL DEFAULT 'none',
+    recovery_safe_to_auto_resume BOOLEAN NOT NULL DEFAULT 0,
+    lease_owner VARCHAR,
+    lease_acquired_at TIMESTAMP,
+    last_heartbeat_at TIMESTAMP,
+    lease_expires_at TIMESTAMP,
+    last_error_json TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_cli_mutation_command_idempotency
+        UNIQUE (command, idempotency_key)
+)
+"""
+
+
+def migrate_agent_workbench_contract_tables(engine: Engine) -> list[str]:
+    """Ensure CLI contract hardening persistence tables exist."""
+    actions: list[str] = []
+
+    if _ensure_table_exists(
+        engine,
+        "agent_workbench_schema_versions",
+        AGENT_WORKBENCH_SCHEMA_VERSIONS_CREATE_SQL,
+    ):
+        actions.append("created table: agent_workbench_schema_versions")
+
+    if _ensure_table_exists(
+        engine,
+        "cli_mutation_ledger",
+        CLI_MUTATION_LEDGER_CREATE_SQL,
+    ):
+        actions.append("created table: cli_mutation_ledger")
+
+    for index_name, columns in {
+        "ix_cli_mutation_ledger_status": ["status"],
+        "ix_cli_mutation_ledger_project_id": ["project_id"],
+        "ix_cli_mutation_ledger_request_hash": ["request_hash"],
+        "ix_cli_mutation_ledger_lease_owner": ["lease_owner"],
+    }.items():
+        if _ensure_index_exists(engine, "cli_mutation_ledger", index_name, columns):
+            actions.append(f"created index: {index_name}")
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO agent_workbench_schema_versions(component, version)
+                VALUES ('agent_workbench', :version)
+                ON CONFLICT(component) DO UPDATE SET
+                    version = excluded.version,
+                    updated_at = CURRENT_TIMESTAMP
+                """
+            ),
+            {"version": AGENT_WORKBENCH_STORAGE_SCHEMA_VERSION},
+        )
+
+    return actions
+
+
+# =============================================================================
 # MAIN ENTRY POINT
 # =============================================================================
 
@@ -498,6 +588,7 @@ def ensure_schema_current(engine: Engine) -> None:
         actions.extend(migrate_sprint_lifecycle(engine))
         actions.extend(migrate_task_metadata(engine))
         actions.extend(migrate_task_execution_logs(engine))
+        actions.extend(migrate_agent_workbench_contract_tables(engine))
         actions.extend(migrate_performance_indexes(engine))
 
         if actions:

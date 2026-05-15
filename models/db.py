@@ -13,6 +13,7 @@ from sqlalchemy.engine import Engine
 from sqlmodel import SQLModel, create_engine
 
 from db.migrations import ensure_schema_current
+from models import agent_workbench as _agent_workbench_models  # noqa: F401
 from utils.runtime_config import get_business_db_target, get_database_echo
 
 if TYPE_CHECKING:
