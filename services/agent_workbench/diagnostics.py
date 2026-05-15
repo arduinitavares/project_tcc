@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,15 @@ def _business_db_payload(*, business_engine: Engine | None) -> dict[str, Any]:
         "schema_versions_table": False,
         "cli_mutation_ledger_table": False,
     }
+    if _is_missing_sqlite_file(engine):
+        return {
+            "ok": False,
+            "status": "blocked",
+            "required_version": STORAGE_SCHEMA_VERSION,
+            "version_source": BUSINESS_SCHEMA_VERSION_TABLE,
+            "checks": checks,
+            "missing": missing,
+        }
 
     try:
         table_names = set(inspect(engine).get_table_names())
@@ -98,10 +108,12 @@ def _workflow_session_store_payload(*, session_db_url: str | None) -> dict[str, 
     )
     configured = bool(sqlite_url)
     sqlite_ready = _is_sqlite_url(sqlite_url) if configured else False
-    writable_mode = (
-        _is_readable_writable_sqlite_mode(sqlite_url) if configured else False
+    writable_mode, sessions_table = (
+        _sqlite_session_store_checks(sqlite_url)
+        if configured and sqlite_ready
+        else (False, False)
     )
-    ok = configured and sqlite_ready and writable_mode
+    ok = configured and sqlite_ready and writable_mode and sessions_table
     return {
         "ok": ok,
         "status": "ok" if ok else "blocked",
@@ -111,6 +123,7 @@ def _workflow_session_store_payload(*, session_db_url: str | None) -> dict[str, 
             "configured": configured,
             "sqlite_url": sqlite_ready,
             "readable_writable_mode": writable_mode,
+            "sessions_table": sessions_table,
         },
     }
 
@@ -135,27 +148,42 @@ def _is_sqlite_url(value: str) -> bool:
         return False
 
 
-def _is_readable_writable_sqlite_mode(value: str) -> bool:
-    """Return whether the SQLite URL is not explicitly read-only."""
-    try:
-        url = make_url(value)
-    except ValueError:
-        return False
-    mode = url.query.get("mode")
-    immutable = url.query.get("immutable")
-    if mode == "ro" or immutable == "1":
-        return False
+def _is_missing_sqlite_file(engine: Engine) -> bool:
+    """Return whether a SQLite engine targets an absent file."""
+    url = engine.url
     if not url.drivername.startswith("sqlite"):
         return False
 
     database = url.database
     if database in {None, "", ":memory:"}:
-        return True
+        return False
+
+    return not Path(database).exists()
+
+
+def _sqlite_session_store_checks(value: str) -> tuple[bool, bool]:
+    """Return read/write and sessions-table readiness without creating files."""
+    try:
+        url = make_url(value)
+    except ValueError:
+        return False, False
+    mode = url.query.get("mode")
+    immutable = url.query.get("immutable")
+    if mode == "ro" or immutable == "1":
+        return False, False
+    if not url.drivername.startswith("sqlite"):
+        return False, False
+
+    database = url.database
+    if database in {None, "", ":memory:"}:
+        return True, True
 
     path = Path(database)
-    if path.exists():
-        return path.is_file() and _can_read_write(path)
-    return path.parent.exists()
+    if not path.exists():
+        return False, False
+    if not path.is_file() or not _can_read_write(path):
+        return False, False
+    return True, _has_sqlite_table(path=path, table_name="sessions")
 
 
 def _can_read_write(path: Path) -> bool:
@@ -164,6 +192,24 @@ def _can_read_write(path: Path) -> bool:
         with path.open("r+b"):
             return True
     except OSError:
+        return False
+
+
+def _has_sqlite_table(*, path: Path, table_name: str) -> bool:
+    """Return whether an existing SQLite file has a table in read-only mode."""
+    try:
+        with sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True) as conn:
+            cursor = conn.execute(
+                """
+                SELECT 1
+                FROM sqlite_master
+                WHERE type='table' AND name=?
+                LIMIT 1
+                """,
+                (table_name,),
+            )
+            return cursor.fetchone() is not None
+    except sqlite3.Error:
         return False
 
 

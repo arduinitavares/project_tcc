@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,7 @@ def test_schema_check_reports_ready_business_db(engine: Engine) -> None:
             "configured": True,
             "sqlite_url": True,
             "readable_writable_mode": True,
+            "sessions_table": True,
         },
     }
 
@@ -67,6 +69,120 @@ def test_schema_check_reports_missing_business_contract_tables() -> None:
     ]
 
 
+def test_schema_check_reports_missing_business_sqlite_file_without_creating_it(
+    tmp_path: Path,
+) -> None:
+    """Avoid creating an absent business DB during diagnostics."""
+    business_db_path = tmp_path / "missing-business.sqlite3"
+    business_engine = create_engine(f"sqlite:///{business_db_path.as_posix()}")
+
+    payload = schema_check_payload(
+        business_engine=business_engine,
+        session_db_url="sqlite:///:memory:",
+    )
+
+    assert payload["business_db"]["ok"] is False
+    assert payload["business_db"]["status"] == "blocked"
+    assert payload["business_db"]["checks"] == {
+        "schema_versions_table": False,
+        "cli_mutation_ledger_table": False,
+    }
+    assert payload["business_db"]["missing"] == [
+        "agent_workbench_schema_versions",
+        "cli_mutation_ledger",
+    ]
+    assert not business_db_path.exists()
+
+
+def test_schema_check_blocks_missing_session_db_with_existing_parent(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Reject missing file-backed session DBs without creating them."""
+    ensure_schema_current(engine)
+    session_db_path = tmp_path / "missing-sessions.sqlite3"
+
+    payload = schema_check_payload(
+        business_engine=engine,
+        session_db_url=f"sqlite:///{session_db_path.as_posix()}",
+    )
+
+    assert payload["workflow_session_store"] == {
+        "ok": False,
+        "status": "blocked",
+        "required_version": None,
+        "version_source": "unavailable",
+        "checks": {
+            "configured": True,
+            "sqlite_url": True,
+            "readable_writable_mode": False,
+            "sessions_table": False,
+        },
+    }
+    assert not session_db_path.exists()
+
+
+def test_schema_check_blocks_session_db_without_sessions_table(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Require the workflow session store to contain a sessions table."""
+    ensure_schema_current(engine)
+    session_db_path = tmp_path / "empty-sessions.sqlite3"
+    session_db_path.touch()
+
+    payload = schema_check_payload(
+        business_engine=engine,
+        session_db_url=f"sqlite:///{session_db_path.as_posix()}",
+    )
+
+    assert payload["workflow_session_store"] == {
+        "ok": False,
+        "status": "blocked",
+        "required_version": None,
+        "version_source": "unavailable",
+        "checks": {
+            "configured": True,
+            "sqlite_url": True,
+            "readable_writable_mode": True,
+            "sessions_table": False,
+        },
+    }
+
+
+def test_schema_check_accepts_session_db_with_sessions_table(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Accept an existing workflow session DB with the required table."""
+    ensure_schema_current(engine)
+    session_db_path = tmp_path / "sessions.sqlite3"
+    with sqlite3.connect(session_db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE sessions (
+                app_name TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                id TEXT NOT NULL,
+                state TEXT NOT NULL
+            )
+            """
+        )
+
+    payload = schema_check_payload(
+        business_engine=engine,
+        session_db_url=f"sqlite:///{session_db_path.as_posix()}",
+    )
+
+    assert payload["workflow_session_store"]["ok"] is True
+    assert payload["workflow_session_store"]["checks"] == {
+        "configured": True,
+        "sqlite_url": True,
+        "readable_writable_mode": True,
+        "sessions_table": True,
+    }
+
+
 def test_schema_check_blocks_session_db_with_missing_parent(
     engine: Engine,
     tmp_path: Path,
@@ -89,6 +205,7 @@ def test_schema_check_blocks_session_db_with_missing_parent(
             "configured": True,
             "sqlite_url": True,
             "readable_writable_mode": False,
+            "sessions_table": False,
         },
     }
     assert not session_db_path.exists()
