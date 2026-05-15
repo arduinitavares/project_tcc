@@ -177,6 +177,65 @@ def test_query_service_fetch_sprint_candidates_filters_open_sprints(
     }
 
 
+def test_query_service_session_helper_matches_fetch_sprint_candidates(
+    session: Session,
+) -> None:
+    """Session-level helper should be the canonical sprint candidate query."""
+    from services.orchestrator_query_service import (  # noqa: PLC0415
+        fetch_sprint_candidates,
+        fetch_sprint_candidates_from_session,
+    )
+
+    product = Product(name="Session Helper Product", vision="Vision")
+    team = Team(name="Session Helper Team")
+    session.add(product)
+    session.add(team)
+    session.commit()
+    session.refresh(product)
+    session.refresh(team)
+    product_id = require_id(product.product_id, "product_id")
+    team_id = require_id(team.team_id, "team_id")
+
+    planned_story = UserStory(
+        product_id=product_id,
+        title="Planned story",
+        status=StoryStatus.TO_DO,
+        is_refined=True,
+        rank="1",
+    )
+    eligible_story = UserStory(
+        product_id=product_id,
+        title="Eligible story",
+        status=StoryStatus.TO_DO,
+        is_refined=True,
+        rank="2",
+    )
+    session.add_all([planned_story, eligible_story])
+    session.flush()
+    sprint = Sprint(
+        goal="Planned",
+        start_date=date(2026, 4, 1),
+        end_date=date(2026, 4, 14),
+        status=SprintStatus.PLANNED,
+        product_id=product_id,
+        team_id=team_id,
+    )
+    session.add(sprint)
+    session.flush()
+    session.add(
+        SprintStory(
+            sprint_id=require_id(sprint.sprint_id, "sprint_id"),
+            story_id=require_id(planned_story.story_id, "planned_story_id"),
+        )
+    )
+    session.commit()
+
+    from_session = fetch_sprint_candidates_from_session(session, product_id)
+    from_engine = fetch_sprint_candidates(product_id)
+
+    assert from_session == from_engine
+
+
 def test_query_service_get_real_business_state_returns_idle_snapshot(
     session: Session,
 ) -> None:

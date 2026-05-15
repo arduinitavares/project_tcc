@@ -136,9 +136,12 @@ def refresh_projects_cache(
     return count, projects
 
 
-def fetch_sprint_candidates(product_id: int) -> dict[str, Any]:
+def fetch_sprint_candidates_from_session(
+    session: Session,
+    product_id: int,
+) -> dict[str, Any]:
     """
-    Fetch sprint-eligible stories for a product.
+    Fetch sprint-eligible stories for a product using an existing session.
 
     Eligibility rule:
     - status == TO_DO
@@ -149,35 +152,34 @@ def fetch_sprint_candidates(product_id: int) -> dict[str, Any]:
         "Fetching refined sprint candidates for product_id=%s",
         product_id,
     )
-    with Session(get_engine()) as session:
-        open_sprint_story_ids = {
-            int(story_id)
-            for story_id in session.exec(
-                select(SprintStory.story_id)
-                .join(
-                    Sprint,
-                    cast("Any", Sprint.sprint_id) == cast("Any", SprintStory.sprint_id),
-                )
-                .where(
-                    Sprint.product_id == product_id,
-                    cast("Any", Sprint.status).in_(
-                        [SprintStatus.PLANNED, SprintStatus.ACTIVE]
-                    ),
-                )
-            ).all()
-            if story_id is not None
-        }
-        stories = list(
-            session.exec(
-                select(UserStory)
-                .where(UserStory.product_id == product_id)
-                .where(UserStory.status == StoryStatus.TO_DO)
-                .order_by(
-                    cast("Any", UserStory.rank),
-                    cast("Any", UserStory.story_id),
-                )
-            ).all()
-        )
+    open_sprint_story_ids = {
+        int(story_id)
+        for story_id in session.exec(
+            select(SprintStory.story_id)
+            .join(
+                Sprint,
+                cast("Any", Sprint.sprint_id) == cast("Any", SprintStory.sprint_id),
+            )
+            .where(
+                Sprint.product_id == product_id,
+                cast("Any", Sprint.status).in_(
+                    [SprintStatus.PLANNED, SprintStatus.ACTIVE]
+                ),
+            )
+        ).all()
+        if story_id is not None
+    }
+    stories = list(
+        session.exec(
+            select(UserStory)
+            .where(UserStory.product_id == product_id)
+            .where(UserStory.status == StoryStatus.TO_DO)
+            .order_by(
+                cast("Any", UserStory.rank),
+                cast("Any", UserStory.story_id),
+            )
+        ).all()
+    )
 
     if not stories:
         logger.debug("No sprint candidate stories found for product_id=%s", product_id)
@@ -258,6 +260,12 @@ def fetch_sprint_candidates(product_id: int) -> dict[str, Any]:
             f"open_sprint={excluded_open_sprint})."
         ),
     }
+
+
+def fetch_sprint_candidates(product_id: int) -> dict[str, Any]:
+    """Open a session and fetch sprint-eligible stories for a product."""
+    with Session(get_engine()) as session:
+        return fetch_sprint_candidates_from_session(session, product_id)
 
 
 def get_real_business_state() -> dict[str, Any]:
