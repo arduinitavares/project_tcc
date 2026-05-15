@@ -102,6 +102,44 @@ class _Application(Protocol):
         """Return project status projection."""
         ...
 
+    def doctor(self) -> JsonObject:
+        """Return local diagnostics."""
+        ...
+
+    def schema_check(self) -> JsonObject:
+        """Return schema readiness diagnostics."""
+        ...
+
+    def capabilities(self) -> JsonObject:
+        """Return installed command capabilities."""
+        ...
+
+    def command_schema(self, *, command_name: str) -> JsonObject:
+        """Return one command schema."""
+        ...
+
+    def mutation_show(self, *, mutation_event_id: int) -> JsonObject:
+        """Return one mutation ledger event."""
+        ...
+
+    def mutation_list(
+        self,
+        *,
+        project_id: int | None = None,
+        status: str | None = None,
+    ) -> JsonObject:
+        """Return mutation ledger events."""
+        ...
+
+    def mutation_resume(
+        self,
+        *,
+        mutation_event_id: int,
+        correlation_id: str | None = None,
+    ) -> JsonObject:
+        """Acquire a recovery lease for a mutation event."""
+        ...
+
 
 def _print_json(payload: JsonObject) -> None:
     """Write one JSON envelope to stdout."""
@@ -305,7 +343,7 @@ def _exception_envelope(exc: Exception) -> JsonObject:
     )
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     """Build the top-level CLI parser."""
     parser = _WorkbenchArgumentParser(
         prog="agileforge",
@@ -407,6 +445,55 @@ def build_parser() -> argparse.ArgumentParser:
     status = subparsers.add_parser("status", help="Show project orientation status.")
     status.add_argument("--project-id", type=int, required=True)
     status.set_defaults(command_handler=_status)
+
+    doctor = subparsers.add_parser("doctor", help="Run CLI diagnostics.")
+    doctor.set_defaults(command_handler=_doctor)
+
+    capabilities = subparsers.add_parser(
+        "capabilities",
+        help="Show installed command capabilities.",
+    )
+    capabilities.set_defaults(command_handler=_capabilities)
+
+    schema = subparsers.add_parser("schema", help="Inspect CLI schemas.")
+    schema_sub = schema.add_subparsers(
+        dest="action",
+        required=True,
+        parser_class=_WorkbenchArgumentParser,
+    )
+    schema_check = schema_sub.add_parser("check", help="Check storage schema.")
+    schema_check.set_defaults(command_handler=_schema_check)
+
+    command = subparsers.add_parser("command", help="Inspect command contracts.")
+    command_sub = command.add_subparsers(
+        dest="action",
+        required=True,
+        parser_class=_WorkbenchArgumentParser,
+    )
+    command_schema = command_sub.add_parser("schema", help="Show command schema.")
+    command_schema.add_argument("command_name")
+    command_schema.set_defaults(command_handler=_command_schema)
+
+    mutation = subparsers.add_parser("mutation", help="Inspect mutation ledger.")
+    mutation_sub = mutation.add_subparsers(
+        dest="action",
+        required=True,
+        parser_class=_WorkbenchArgumentParser,
+    )
+    mutation_show = mutation_sub.add_parser("show", help="Show one mutation event.")
+    mutation_show.add_argument("--mutation-event-id", type=int, required=True)
+    mutation_show.set_defaults(command_handler=_mutation_show)
+    mutation_list = mutation_sub.add_parser("list", help="List mutation events.")
+    mutation_list.add_argument("--project-id", type=int)
+    mutation_list.add_argument("--status")
+    mutation_list.set_defaults(command_handler=_mutation_list)
+    mutation_resume = mutation_sub.add_parser(
+        "resume",
+        help="Resume a recovery-required mutation event.",
+    )
+    mutation_resume.add_argument("--mutation-event-id", type=int, required=True)
+    mutation_resume.add_argument("--correlation-id")
+    mutation_resume.set_defaults(command_handler=_mutation_resume)
     return parser
 
 
@@ -492,6 +579,72 @@ def _context_pack(args: argparse.Namespace, application: _Application) -> Comman
 def _status(args: argparse.Namespace, application: _Application) -> CommandResult:
     """Route root status to the application facade."""
     return "agileforge status", application.status(project_id=args.project_id)
+
+
+def _doctor(
+    _args: argparse.Namespace,
+    application: _Application,
+) -> CommandResult:
+    """Route doctor diagnostics to the application facade."""
+    return "agileforge doctor", application.doctor()
+
+
+def _schema_check(
+    _args: argparse.Namespace,
+    application: _Application,
+) -> CommandResult:
+    """Route schema check diagnostics to the application facade."""
+    return "agileforge schema check", application.schema_check()
+
+
+def _capabilities(
+    _args: argparse.Namespace,
+    application: _Application,
+) -> CommandResult:
+    """Route capabilities to the application facade."""
+    return "agileforge capabilities", application.capabilities()
+
+
+def _command_schema(
+    args: argparse.Namespace,
+    application: _Application,
+) -> CommandResult:
+    """Route command schema lookup to the application facade."""
+    return "agileforge command schema", application.command_schema(
+        command_name=args.command_name,
+    )
+
+
+def _mutation_show(
+    args: argparse.Namespace,
+    application: _Application,
+) -> CommandResult:
+    """Route mutation show to the application facade."""
+    return "agileforge mutation show", application.mutation_show(
+        mutation_event_id=args.mutation_event_id,
+    )
+
+
+def _mutation_list(
+    args: argparse.Namespace,
+    application: _Application,
+) -> CommandResult:
+    """Route mutation list to the application facade."""
+    return "agileforge mutation list", application.mutation_list(
+        project_id=args.project_id,
+        status=args.status,
+    )
+
+
+def _mutation_resume(
+    args: argparse.Namespace,
+    application: _Application,
+) -> CommandResult:
+    """Route mutation resume lease acquisition to the application facade."""
+    return "agileforge mutation resume", application.mutation_resume(
+        mutation_event_id=args.mutation_event_id,
+        correlation_id=args.correlation_id,
+    )
 
 
 def _dispatch(args: argparse.Namespace, application: _Application) -> CommandResult:

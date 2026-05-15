@@ -7,8 +7,8 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import update
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql.dml import Update
 from sqlmodel import Session, SQLModel, select
 
@@ -407,7 +407,11 @@ def test_stale_recovery_loses_race_when_same_owner_refreshes_lease(
             )
         return original_exec(session, statement, *args, **kwargs)
 
-    monkeypatch.setattr(mutation_ledger_mod.Session, "exec", exec_with_lease_refresh_race)
+    monkeypatch.setattr(
+        mutation_ledger_mod.Session,
+        "exec",
+        exec_with_lease_refresh_race,
+    )
 
     result = repo.create_or_load(
         command="agileforge fake mutate",
@@ -483,6 +487,224 @@ def test_resume_requires_compare_and_set_from_recovery_required(
     )
     assert acquired.ledger.lease_expires_at == _db_time(now + timedelta(seconds=32))
     assert conflicted.error_code == MUTATION_RESUME_CONFLICT
+
+
+def test_show_event_returns_json_friendly_row_payload(engine: Engine) -> None:
+    """Expose one mutation ledger row with parsed JSON blobs."""
+    repo = _repo(engine)
+    now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    row = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-001",
+        request_hash="sha256:req",
+        project_id=7,
+        correlation_id="corr-1",
+        changed_by="cli-agent",
+        lease_owner="worker-1",
+        now=now,
+        lease_seconds=30,
+    ).ledger
+    assert row.mutation_event_id is not None
+    with Session(engine) as session:
+        session.exec(
+            update(CliMutationLedger)
+            .where(CliMutationLedger.mutation_event_id == row.mutation_event_id)
+            .values(
+                completed_steps_json='["business_marker"]',
+                guard_inputs_json='{"expected_state":"SPRINT_SETUP"}',
+                before_json='{"state":"before"}',
+                after_json='{"state":"after"}',
+                response_json='{"ok":true,"data":{"result":"done"}}',
+                last_error_json='{"code":"STALE_PENDING"}',
+            )
+        )
+        session.commit()
+
+    result = repo.show_event(mutation_event_id=row.mutation_event_id)
+
+    assert result["ok"] is True
+    assert result["warnings"] == []
+    assert result["errors"] == []
+    assert result["data"] == {
+        "mutation_event_id": row.mutation_event_id,
+        "command": "agileforge fake mutate",
+        "idempotency_key": "fake-key-001",
+        "request_hash": "sha256:req",
+        "project_id": 7,
+        "correlation_id": "corr-1",
+        "changed_by": "cli-agent",
+        "status": MutationStatus.PENDING.value,
+        "current_step": "start",
+        "completed_steps": ["business_marker"],
+        "guard_inputs": {"expected_state": "SPRINT_SETUP"},
+        "before": {"state": "before"},
+        "after": {"state": "after"},
+        "response": {"ok": True, "data": {"result": "done"}},
+        "recovery_action": RecoveryAction.NONE.value,
+        "recovery_safe_to_auto_resume": False,
+        "lease_owner": "worker-1",
+        "lease_acquired_at": now.isoformat(),
+        "last_heartbeat_at": now.isoformat(),
+        "lease_expires_at": (now + timedelta(seconds=30)).isoformat(),
+        "created_at": now.isoformat(),
+        "updated_at": now.isoformat(),
+        "last_error": {"code": "STALE_PENDING"},
+    }
+
+
+def test_show_event_returns_registered_not_found_error(engine: Engine) -> None:
+    """Return a registered not-found error for missing mutation rows."""
+    repo = _repo(engine)
+
+    result = repo.show_event(mutation_event_id=999)
+
+    assert result["ok"] is False
+    assert result["data"] is None
+    assert result["warnings"] == []
+    assert result["errors"] == [
+        {
+            "code": "MUTATION_NOT_FOUND",
+            "message": "The requested mutation was not found.",
+            "details": {"mutation_event_id": 999},
+            "remediation": ["agileforge mutation list"],
+            "exit_code": 4,
+            "retryable": False,
+        }
+    ]
+
+
+def test_list_events_filters_by_project_and_status(engine: Engine) -> None:
+    """List mutation ledger rows with optional project and status filters."""
+    repo = _repo(engine)
+    now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    first = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-001",
+        request_hash="sha256:req-1",
+        project_id=7,
+        correlation_id="corr-1",
+        changed_by="cli-agent",
+        lease_owner="worker-1",
+        now=now,
+    ).ledger
+    second = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-002",
+        request_hash="sha256:req-2",
+        project_id=7,
+        correlation_id="corr-2",
+        changed_by="cli-agent",
+        lease_owner="worker-2",
+        now=now + timedelta(seconds=1),
+    ).ledger
+    third = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-003",
+        request_hash="sha256:req-3",
+        project_id=8,
+        correlation_id="corr-3",
+        changed_by="cli-agent",
+        lease_owner="worker-3",
+        now=now + timedelta(seconds=2),
+    ).ledger
+    assert first.mutation_event_id is not None
+    assert second.mutation_event_id is not None
+    assert third.mutation_event_id is not None
+    repo._force_recovery_required_for_test(
+        mutation_event_id=second.mutation_event_id,
+        recovery_action=RecoveryAction.RECONCILE_THEN_RESUME,
+        safe_to_auto_resume=False,
+        last_error={"code": "CRASHED"},
+        now=now + timedelta(seconds=3),
+    )
+
+    result = repo.list_events(project_id=7, status=MutationStatus.PENDING.value)
+
+    assert result["ok"] is True
+    assert result["warnings"] == []
+    assert result["errors"] == []
+    assert len(result["data"]["items"]) == 1
+    assert result["data"]["items"][0]["mutation_event_id"] == first.mutation_event_id
+    assert result["data"]["items"][0]["project_id"] == 7
+    assert result["data"]["items"][0]["status"] == MutationStatus.PENDING.value
+
+
+def test_resume_event_acquires_recovery_lease_without_domain_recovery(
+    engine: Engine,
+) -> None:
+    """Resume only acquires a recovery lease and leaves domain effects to commands."""
+    repo = _repo(engine)
+    now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    row = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-001",
+        request_hash="sha256:req",
+        project_id=7,
+        correlation_id="corr-1",
+        changed_by="cli-agent",
+        lease_owner="worker-1",
+        now=now,
+        lease_seconds=1,
+    ).ledger
+    assert row.mutation_event_id is not None
+    repo._force_recovery_required_for_test(
+        mutation_event_id=row.mutation_event_id,
+        recovery_action=RecoveryAction.RESUME_FROM_STEP,
+        safe_to_auto_resume=True,
+        last_error={"code": "CRASHED"},
+        now=now + timedelta(seconds=2),
+    )
+
+    result = repo.resume_event(
+        mutation_event_id=row.mutation_event_id,
+        correlation_id="corr-resume",
+    )
+
+    assert result["ok"] is True
+    assert result["warnings"] == []
+    assert result["errors"] == []
+    assert result["data"]["status"] == MutationStatus.PENDING.value
+    assert result["data"]["lease_owner"] == "agileforge-cli:mutation-resume:corr-resume"
+    assert result["data"]["recovery"] == {
+        "acquired": True,
+        "domain_resume_required": True,
+    }
+    assert result["data"]["response"] is None
+
+
+def test_resume_event_returns_structured_conflict_error(engine: Engine) -> None:
+    """Return the registered conflict when a recovery lease is unavailable."""
+    repo = _repo(engine)
+    now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    row = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-001",
+        request_hash="sha256:req",
+        project_id=7,
+        correlation_id="corr-1",
+        changed_by="cli-agent",
+        lease_owner="worker-1",
+        now=now,
+        lease_seconds=30,
+    ).ledger
+    assert row.mutation_event_id is not None
+
+    result = repo.resume_event(mutation_event_id=row.mutation_event_id)
+
+    assert result["ok"] is False
+    assert result["data"]["mutation_event_id"] == row.mutation_event_id
+    assert result["errors"] == [
+        {
+            "code": "MUTATION_RESUME_CONFLICT",
+            "message": "Another worker acquired recovery.",
+            "details": {"mutation_event_id": row.mutation_event_id},
+            "remediation": [
+                f"agileforge mutation show --mutation-event-id {row.mutation_event_id}"
+            ],
+            "exit_code": 1,
+            "retryable": True,
+        }
+    ]
 
 
 def test_expired_owner_cannot_heartbeat(engine: Engine) -> None:

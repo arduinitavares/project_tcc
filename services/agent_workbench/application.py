@@ -6,6 +6,7 @@ from typing import Any, Final, Protocol
 
 from sqlalchemy.engine import Engine
 
+from models.db import get_engine
 from services.agent_workbench.authority_projection import AuthorityProjectionService
 from services.agent_workbench.command_registry import installed_command_names
 from services.agent_workbench.command_schema import (
@@ -15,6 +16,7 @@ from services.agent_workbench.command_schema import (
 from services.agent_workbench.context_pack import ContextPackService
 from services.agent_workbench.diagnostics import doctor_payload, schema_check_payload
 from services.agent_workbench.fingerprints import canonical_hash
+from services.agent_workbench.mutation_ledger import MutationLedgerRepository
 from services.agent_workbench.read_projection import ReadProjectionService
 
 STATUS_COMMAND: Final[str] = "agileforge status"
@@ -242,6 +244,34 @@ class AgentWorkbenchApplication:
                 ],
             }
         return _data_envelope(payload)
+
+    def mutation_show(self, *, mutation_event_id: int) -> dict[str, Any]:
+        """Return one mutation ledger event."""
+        repo = MutationLedgerRepository(engine=get_engine())
+        return repo.show_event(mutation_event_id=mutation_event_id)
+
+    def mutation_list(
+        self,
+        *,
+        project_id: int | None = None,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        """Return mutation ledger events."""
+        repo = MutationLedgerRepository(engine=get_engine())
+        return repo.list_events(project_id=project_id, status=status)
+
+    def mutation_resume(
+        self,
+        *,
+        mutation_event_id: int,
+        correlation_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Acquire a guarded recovery lease for a mutation event."""
+        repo = MutationLedgerRepository(engine=get_engine())
+        return repo.resume_event(
+            mutation_event_id=mutation_event_id,
+            correlation_id=correlation_id,
+        )
 
     def authority_status(self, *, project_id: int) -> dict[str, Any]:
         """Return authority status projection."""

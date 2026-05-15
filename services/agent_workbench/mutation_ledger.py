@@ -9,18 +9,21 @@ from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import update
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from models.agent_workbench import CliMutationLedger
+from services.agent_workbench.error_codes import ErrorCode, workbench_error
 
 IDEMPOTENCY_KEY_REUSED = "IDEMPOTENCY_KEY_REUSED"
 MUTATION_IN_PROGRESS = "MUTATION_IN_PROGRESS"
 MUTATION_RECOVERY_REQUIRED = "MUTATION_RECOVERY_REQUIRED"
 MUTATION_RESUME_CONFLICT = "MUTATION_RESUME_CONFLICT"
+MUTATION_NOT_FOUND = "MUTATION_NOT_FOUND"
 DEFAULT_STALE_PENDING_TIMEOUT_SECONDS = 300
 DEFAULT_LEASE_SECONDS = DEFAULT_STALE_PENDING_TIMEOUT_SECONDS
+DEFAULT_CLI_RESUME_LEASE_OWNER = "agileforge-cli:mutation-resume"
 
 
 class MutationStatus(StrEnum):
@@ -68,6 +71,16 @@ def _json_load(value: str | None) -> dict[str, Any] | list[Any] | None:
     return None
 
 
+def _json_blob(value: str | None) -> object:
+    """Return a JSON-friendly value from a persisted JSON blob."""
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
 def _completed_steps(row: CliMutationLedger) -> list[str]:
     loaded = _json_load(row.completed_steps_json)
     if isinstance(loaded, list):
@@ -108,6 +121,71 @@ class MutationLedgerRepository:
 
     def __init__(self, *, engine: Engine) -> None:
         self._engine: Engine = engine
+
+    def show_event(self, *, mutation_event_id: int) -> dict[str, Any]:
+        """Return one mutation ledger event in a service envelope."""
+        with Session(self._engine) as session:
+            row = session.get(CliMutationLedger, mutation_event_id)
+            if row is None:
+                return _error_result(
+                    code=ErrorCode.MUTATION_NOT_FOUND,
+                    details={"mutation_event_id": mutation_event_id},
+                    remediation=["agileforge mutation list"],
+                )
+            return _success_result(_row_payload(row))
+
+    def list_events(
+        self,
+        *,
+        project_id: int | None = None,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        """Return mutation ledger events filtered by project and status."""
+        statement = select(CliMutationLedger)
+        if project_id is not None:
+            statement = statement.where(CliMutationLedger.project_id == project_id)
+        if status is not None:
+            statement = statement.where(CliMutationLedger.status == status)
+        statement = statement.order_by(CliMutationLedger.mutation_event_id)
+
+        with Session(self._engine) as session:
+            rows = session.exec(statement).all()
+            return _success_result({"items": [_row_payload(row) for row in rows]})
+
+    def resume_event(
+        self,
+        *,
+        mutation_event_id: int,
+        correlation_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Acquire a recovery lease without performing domain recovery."""
+        shown = self.show_event(mutation_event_id=mutation_event_id)
+        if shown.get("ok") is not True:
+            return shown
+
+        result = self.acquire_resume_lease(
+            mutation_event_id=mutation_event_id,
+            lease_owner=_resume_lease_owner(correlation_id),
+            now=datetime.now(UTC),
+            lease_seconds=DEFAULT_LEASE_SECONDS,
+        )
+        data = _row_payload(result.ledger)
+        if result.error_code is not None:
+            return _error_result(
+                code=result.error_code,
+                details={"mutation_event_id": mutation_event_id},
+                remediation=[
+                    "agileforge mutation show "
+                    f"--mutation-event-id {mutation_event_id}"
+                ],
+                data=data,
+            )
+
+        data["recovery"] = {
+            "acquired": True,
+            "domain_resume_required": True,
+        }
+        return _success_result(data)
 
     def create_or_load(
         self,
@@ -218,7 +296,9 @@ class MutationLedgerRepository:
         if row.lease_owner is None:
             statement = statement.where(CliMutationLedger.lease_owner.is_(None))
         else:
-            statement = statement.where(CliMutationLedger.lease_owner == row.lease_owner)
+            statement = statement.where(
+                CliMutationLedger.lease_owner == row.lease_owner
+            )
         if row.lease_expires_at is None:
             statement = statement.where(CliMutationLedger.lease_expires_at.is_(None))
         else:
@@ -480,3 +560,73 @@ class MutationLedgerRepository:
             now=now,
             lease_seconds=lease_seconds,
         )
+
+
+def _success_result(data: dict[str, Any]) -> dict[str, Any]:
+    """Return a standard successful service envelope."""
+    return {"ok": True, "data": data, "warnings": [], "errors": []}
+
+
+def _error_result(
+    *,
+    code: ErrorCode | str,
+    details: dict[str, Any],
+    remediation: list[str],
+    data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return a standard failed service envelope using registered errors."""
+    return {
+        "ok": False,
+        "data": data,
+        "warnings": [],
+        "errors": [
+            workbench_error(
+                code,
+                details=details,
+                remediation=remediation,
+            ).to_dict()
+        ],
+    }
+
+
+def _resume_lease_owner(correlation_id: str | None) -> str:
+    """Return the deterministic CLI lease owner for recovery acquisition."""
+    if correlation_id:
+        return f"{DEFAULT_CLI_RESUME_LEASE_OWNER}:{correlation_id}"
+    return DEFAULT_CLI_RESUME_LEASE_OWNER
+
+
+def _timestamp_payload(value: datetime | None) -> str | None:
+    """Return a JSON timestamp for a stored DB datetime."""
+    if value is None:
+        return None
+    return _utc_isoformat(value)
+
+
+def _row_payload(row: CliMutationLedger) -> dict[str, Any]:
+    """Return a JSON-friendly mutation ledger row payload."""
+    return {
+        "mutation_event_id": row.mutation_event_id,
+        "command": row.command,
+        "idempotency_key": row.idempotency_key,
+        "request_hash": row.request_hash,
+        "project_id": row.project_id,
+        "correlation_id": row.correlation_id,
+        "changed_by": row.changed_by,
+        "status": row.status,
+        "current_step": row.current_step,
+        "completed_steps": _completed_steps(row),
+        "guard_inputs": _json_blob(row.guard_inputs_json),
+        "before": _json_blob(row.before_json),
+        "after": _json_blob(row.after_json),
+        "response": _json_blob(row.response_json),
+        "recovery_action": row.recovery_action,
+        "recovery_safe_to_auto_resume": row.recovery_safe_to_auto_resume,
+        "lease_owner": row.lease_owner,
+        "lease_acquired_at": _timestamp_payload(row.lease_acquired_at),
+        "last_heartbeat_at": _timestamp_payload(row.last_heartbeat_at),
+        "lease_expires_at": _timestamp_payload(row.lease_expires_at),
+        "created_at": _timestamp_payload(row.created_at),
+        "updated_at": _timestamp_payload(row.updated_at),
+        "last_error": _json_blob(row.last_error_json),
+    }

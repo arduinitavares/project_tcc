@@ -150,6 +150,76 @@ class _FakeApplication:
             "errors": [],
         }
 
+    def doctor(self) -> JsonObject:
+        """Return a doctor diagnostics payload."""
+        self.calls.append(("doctor", {}))
+        return {"ok": True, "data": {"checks": []}, "warnings": [], "errors": []}
+
+    def schema_check(self) -> JsonObject:
+        """Return a schema check diagnostics payload."""
+        self.calls.append(("schema_check", {}))
+        return {"ok": True, "data": {"stores": []}, "warnings": [], "errors": []}
+
+    def capabilities(self) -> JsonObject:
+        """Return a capabilities payload."""
+        self.calls.append(("capabilities", {}))
+        return {"ok": True, "data": {"commands": []}, "warnings": [], "errors": []}
+
+    def command_schema(self, *, command_name: str) -> JsonObject:
+        """Return a command schema payload."""
+        self.calls.append(("command_schema", {"command_name": command_name}))
+        return {
+            "ok": True,
+            "data": {"name": command_name},
+            "warnings": [],
+            "errors": [],
+        }
+
+    def mutation_show(self, *, mutation_event_id: int) -> JsonObject:
+        """Return a mutation ledger row payload."""
+        self.calls.append(("mutation_show", {"mutation_event_id": mutation_event_id}))
+        return {
+            "ok": True,
+            "data": {"mutation_event_id": mutation_event_id},
+            "warnings": [],
+            "errors": [],
+        }
+
+    def mutation_list(
+        self,
+        *,
+        project_id: int | None = None,
+        status: str | None = None,
+    ) -> JsonObject:
+        """Return mutation ledger rows."""
+        self.calls.append(
+            ("mutation_list", {"project_id": project_id, "status": status})
+        )
+        return {"ok": True, "data": {"items": []}, "warnings": [], "errors": []}
+
+    def mutation_resume(
+        self,
+        *,
+        mutation_event_id: int,
+        correlation_id: str | None = None,
+    ) -> JsonObject:
+        """Return a mutation resume payload."""
+        self.calls.append(
+            (
+                "mutation_resume",
+                {
+                    "mutation_event_id": mutation_event_id,
+                    "correlation_id": correlation_id,
+                },
+            )
+        )
+        return {
+            "ok": True,
+            "data": {"mutation_event_id": mutation_event_id},
+            "warnings": [],
+            "errors": [],
+        }
+
 
 class _FailingApplication(_FakeApplication):
     """Fake application that returns a structured command failure."""
@@ -281,6 +351,68 @@ def test_cli_routes_authority_status(
     assert data["status"] == "missing"
     assert _mapping(payload["meta"])["command"] == "agileforge authority status"
     assert app.calls == [("authority_status", {"project_id": PROJECT_ID})]
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected_call", "expected_command"),
+    [
+        (["doctor"], ("doctor", {}), "agileforge doctor"),
+        (["schema", "check"], ("schema_check", {}), "agileforge schema check"),
+        (["capabilities"], ("capabilities", {}), "agileforge capabilities"),
+        (
+            ["command", "schema", "agileforge status"],
+            ("command_schema", {"command_name": "agileforge status"}),
+            "agileforge command schema",
+        ),
+        (
+            ["mutation", "show", "--mutation-event-id", "101"],
+            ("mutation_show", {"mutation_event_id": 101}),
+            "agileforge mutation show",
+        ),
+        (
+            [
+                "mutation",
+                "list",
+                "--project-id",
+                "7",
+                "--status",
+                "recovery_required",
+            ],
+            ("mutation_list", {"project_id": 7, "status": "recovery_required"}),
+            "agileforge mutation list",
+        ),
+        (
+            [
+                "mutation",
+                "resume",
+                "--mutation-event-id",
+                "101",
+                "--correlation-id",
+                "corr-1",
+            ],
+            (
+                "mutation_resume",
+                {"mutation_event_id": 101, "correlation_id": "corr-1"},
+            ),
+            "agileforge mutation resume",
+        ),
+    ],
+)
+def test_cli_routes_phase_2a_operational_commands(
+    argv: list[str],
+    expected_call: tuple[str, dict[str, object]],
+    expected_command: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify Phase 2A operational commands route to the application facade."""
+    app = _FakeApplication()
+
+    rc = main(argv, application=app)
+
+    payload = _stdout_payload(capsys)
+    assert rc == 0
+    assert _mapping(payload["meta"])["command"] == expected_command
+    assert app.calls == [expected_call]
 
 
 def test_cli_uses_error_exit_code_and_preserves_warnings(

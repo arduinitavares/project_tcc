@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from sqlalchemy.engine import Engine
+from sqlmodel import SQLModel
 
+import services.agent_workbench.application as application_mod
 from db.migrations import ensure_schema_current
 from models import db as model_db
 from services.agent_workbench.application import AgentWorkbenchApplication
+from services.agent_workbench.mutation_ledger import (
+    MutationLedgerRepository,
+    MutationStatus,
+    RecoveryAction,
+)
 from services.agent_workbench.version import STORAGE_SCHEMA_VERSION
 
 PROJECT_ID = 7
@@ -431,3 +439,48 @@ def test_application_contract_facades_return_envelopes() -> None:
         "errors": [],
     }
     assert command_schema["data"]["name"] == "agileforge status"
+
+
+def test_application_mutation_facades_return_ledger_envelopes(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Expose mutation ledger operational methods through the facade."""
+    SQLModel.metadata.create_all(engine)
+    monkeypatch.setattr(application_mod, "get_engine", lambda: engine, raising=False)
+    repo = MutationLedgerRepository(engine=engine)
+    row = repo.create_or_load(
+        command="agileforge fake mutate",
+        idempotency_key="fake-key-001",
+        request_hash="sha256:req",
+        project_id=PROJECT_ID,
+        correlation_id="corr-1",
+        changed_by="cli-agent",
+        lease_owner="worker-1",
+        now=datetime(2026, 5, 15, 12, 0, tzinfo=UTC),
+        lease_seconds=1,
+    ).ledger
+    assert row.mutation_event_id is not None
+    repo._force_recovery_required_for_test(
+        mutation_event_id=row.mutation_event_id,
+        recovery_action=RecoveryAction.RESUME_FROM_STEP,
+        safe_to_auto_resume=True,
+        last_error={"code": "CRASHED"},
+        now=datetime(2026, 5, 15, 12, 0, 2, tzinfo=UTC),
+    )
+    app = AgentWorkbenchApplication()
+
+    show = app.mutation_show(mutation_event_id=row.mutation_event_id)
+    listed = app.mutation_list(project_id=PROJECT_ID, status="recovery_required")
+    resumed = app.mutation_resume(
+        mutation_event_id=row.mutation_event_id,
+        correlation_id="corr-resume",
+    )
+
+    assert show["ok"] is True
+    assert show["data"]["mutation_event_id"] == row.mutation_event_id
+    assert listed["ok"] is True
+    assert listed["data"]["items"][0]["mutation_event_id"] == row.mutation_event_id
+    assert resumed["ok"] is True
+    assert resumed["data"]["status"] == MutationStatus.PENDING.value
+    assert resumed["data"]["recovery"]["domain_resume_required"] is True
