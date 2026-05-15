@@ -143,7 +143,28 @@ def _is_readable_writable_sqlite_mode(value: str) -> bool:
         return False
     mode = url.query.get("mode")
     immutable = url.query.get("immutable")
-    return mode != "ro" and immutable != "1"
+    if mode == "ro" or immutable == "1":
+        return False
+    if not url.drivername.startswith("sqlite"):
+        return False
+
+    database = url.database
+    if database in {None, "", ":memory:"}:
+        return True
+
+    path = Path(database)
+    if path.exists():
+        return path.is_file() and _can_read_write(path)
+    return path.parent.exists()
+
+
+def _can_read_write(path: Path) -> bool:
+    """Return whether an existing database file allows read/write access."""
+    try:
+        with path.open("r+b"):
+            return True
+    except OSError:
+        return False
 
 
 def _central_repo_root() -> Path:

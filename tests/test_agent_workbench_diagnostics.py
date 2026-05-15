@@ -67,6 +67,33 @@ def test_schema_check_reports_missing_business_contract_tables() -> None:
     ]
 
 
+def test_schema_check_blocks_session_db_with_missing_parent(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Reject file-backed session DB URLs whose parent directory is absent."""
+    ensure_schema_current(engine)
+    session_db_path = tmp_path / "missing-parent" / "sessions.sqlite3"
+
+    payload = schema_check_payload(
+        business_engine=engine,
+        session_db_url=f"sqlite:///{session_db_path.as_posix()}",
+    )
+
+    assert payload["workflow_session_store"] == {
+        "ok": False,
+        "status": "blocked",
+        "required_version": None,
+        "version_source": "unavailable",
+        "checks": {
+            "configured": True,
+            "sqlite_url": True,
+            "readable_writable_mode": False,
+        },
+    }
+    assert not session_db_path.exists()
+
+
 def test_doctor_reports_cwd_and_central_repo_root(
     engine: Engine,
     tmp_path: Path,

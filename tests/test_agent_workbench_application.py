@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from sqlalchemy.engine import Engine
 
 from db.migrations import ensure_schema_current
+from models import db as model_db
 from services.agent_workbench.application import AgentWorkbenchApplication
 from services.agent_workbench.version import STORAGE_SCHEMA_VERSION
 
@@ -383,6 +385,28 @@ def test_application_diagnostics_facades_return_envelopes(engine: Engine) -> Non
         STORAGE_SCHEMA_VERSION
     )
     assert schema_check["data"]["business_db"]["status"] == "ok"
+
+
+def test_default_application_doctor_does_not_initialize_read_projections(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Allow injected diagnostics to run without default read projection DB access."""
+    ensure_schema_current(engine)
+
+    def guarded_get_engine() -> Engine:
+        message = "default projection DB access should be lazy"
+        raise AssertionError(message)
+
+    monkeypatch.setattr(model_db, "get_engine", guarded_get_engine)
+
+    result = AgentWorkbenchApplication().doctor(
+        business_engine=engine,
+        session_db_url="sqlite:///:memory:",
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["business_db"]["status"] == "ok"
 
 
 def test_application_contract_facades_return_envelopes() -> None:

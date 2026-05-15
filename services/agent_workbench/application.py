@@ -72,38 +72,29 @@ class AgentWorkbenchApplication:
         authority_projection: _AuthorityProjection | None = None,
     ) -> None:
         """Initialize the facade with explicit projection dependencies."""
-        self._read_projection = (
-            read_projection if read_projection is not None else ReadProjectionService()
-        )
-        self._authority_projection = (
-            authority_projection
-            if authority_projection is not None
-            else AuthorityProjectionService()
-        )
-        self._context_pack = ContextPackService(
-            read_projection=self._read_projection,
-            authority_projection=self._authority_projection,
-        )
+        self._read_projection = read_projection
+        self._authority_projection = authority_projection
+        self._context_pack: ContextPackService | None = None
 
     def project_list(self) -> dict[str, Any]:
         """Return project list projection."""
-        return self._read_projection.project_list()
+        return self._get_read_projection().project_list()
 
     def project_show(self, *, project_id: int) -> dict[str, Any]:
         """Return project detail projection."""
-        return self._read_projection.project_show(project_id=project_id)
+        return self._get_read_projection().project_show(project_id=project_id)
 
     def workflow_state(self, *, project_id: int) -> dict[str, Any]:
         """Return workflow session projection."""
-        return self._read_projection.workflow_state(project_id=project_id)
+        return self._get_read_projection().workflow_state(project_id=project_id)
 
     def story_show(self, *, story_id: int) -> dict[str, Any]:
         """Return story detail projection."""
-        return self._read_projection.story_show(story_id=story_id)
+        return self._get_read_projection().story_show(story_id=story_id)
 
     def sprint_candidates(self, *, project_id: int) -> dict[str, Any]:
         """Return sprint candidate projection."""
-        return self._read_projection.sprint_candidates(project_id=project_id)
+        return self._get_read_projection().sprint_candidates(project_id=project_id)
 
     def context_pack(
         self,
@@ -112,7 +103,7 @@ class AgentWorkbenchApplication:
         phase: str = "overview",
     ) -> dict[str, Any]:
         """Return a phase-scoped context pack."""
-        return self._context_pack.pack(project_id=project_id, phase=phase)
+        return self._get_context_pack().pack(project_id=project_id, phase=phase)
 
     def status(self, *, project_id: int) -> dict[str, Any]:
         """Return project orientation status from read-only projections."""
@@ -254,7 +245,7 @@ class AgentWorkbenchApplication:
 
     def authority_status(self, *, project_id: int) -> dict[str, Any]:
         """Return authority status projection."""
-        return self._authority_projection.status(project_id=project_id)
+        return self._get_authority_projection().status(project_id=project_id)
 
     def authority_invariants(
         self,
@@ -263,10 +254,31 @@ class AgentWorkbenchApplication:
         spec_version_id: int | None = None,
     ) -> dict[str, Any]:
         """Return authority invariants projection."""
-        return self._authority_projection.invariants(
+        return self._get_authority_projection().invariants(
             project_id=project_id,
             spec_version_id=spec_version_id,
         )
+
+    def _get_read_projection(self) -> _ReadProjection:
+        """Return the read projection, constructing the default lazily."""
+        if self._read_projection is None:
+            self._read_projection = ReadProjectionService()
+        return self._read_projection
+
+    def _get_authority_projection(self) -> _AuthorityProjection:
+        """Return the authority projection, constructing the default lazily."""
+        if self._authority_projection is None:
+            self._authority_projection = AuthorityProjectionService()
+        return self._authority_projection
+
+    def _get_context_pack(self) -> ContextPackService:
+        """Return the context pack service after projections are needed."""
+        if self._context_pack is None:
+            self._context_pack = ContextPackService(
+                read_projection=self._get_read_projection(),
+                authority_projection=self._get_authority_projection(),
+            )
+        return self._context_pack
 
 
 def _envelope_data(envelope: dict[str, Any]) -> dict[str, Any]:
