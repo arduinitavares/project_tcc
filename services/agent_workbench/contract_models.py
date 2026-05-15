@@ -1,0 +1,41 @@
+"""Pydantic models for agent workbench command contract schemas."""
+
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict
+
+
+class CommandInputSchema(BaseModel):
+    """Input fields accepted by a command."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    required: list[str]
+    optional: list[str]
+
+
+class CommandOutputSchema(BaseModel):
+    """Output schemas returned by a command."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    data_schema: dict[str, Any]
+    envelope_schema: dict[str, Any]
+
+
+class CommandContractSchema(BaseModel):
+    """Stable contract documentation for one installed command."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    command_version: str
+    stable: bool
+    mutates: bool
+    destructive: bool
+    input: CommandInputSchema
+    output: CommandOutputSchema
+    guard_policy: dict[str, Any]
+    idempotency_required: bool
+    errors: list[str]
+    exit_codes: dict[str, int]

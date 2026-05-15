@@ -26,6 +26,16 @@ EXPECTED_PHASE_1_COMMAND_NAMES = {
     "agileforge context pack",
 }
 
+EXPECTED_PHASE_2A_COMMAND_NAMES = {
+    "agileforge doctor",
+    "agileforge schema check",
+    "agileforge capabilities",
+    "agileforge command schema",
+    "agileforge mutation show",
+    "agileforge mutation list",
+    "agileforge mutation resume",
+}
+
 
 def test_success_envelope_has_stable_shape(monkeypatch) -> None:
     """Serialize success responses with stable top-level keys."""
@@ -192,21 +202,27 @@ def test_problem_to_dict_returns_shallow_copies() -> None:
     assert error_payload["remediation"] is not error.remediation
 
 
-def test_registry_exposes_only_phase_1_commands() -> None:
-    """Expose exactly the read-only commands available in Phase 1."""
+def test_registry_exposes_phase_1_and_phase_2a_commands() -> None:
+    """Expose current installed command names."""
     names = installed_command_names()
 
     assert isinstance(names, set)
-    assert names == EXPECTED_PHASE_1_COMMAND_NAMES
+    assert EXPECTED_PHASE_1_COMMAND_NAMES.issubset(names)
+    assert EXPECTED_PHASE_2A_COMMAND_NAMES.issubset(names)
     assert "agileforge sprint generate" not in names
     assert command_is_available("agileforge sprint candidates") is True
     assert command_is_available("agileforge context pack") is True
+    assert command_is_available("agileforge capabilities") is True
     assert command_is_available("agileforge sprint generate") is False
 
 
 def test_registry_metadata_has_phase_1_shape() -> None:
     """Keep registry metadata stable for every installed Phase 1 command."""
-    commands = installed_commands()
+    commands = [
+        command
+        for command in installed_commands()
+        if command.name in EXPECTED_PHASE_1_COMMAND_NAMES
+    ]
 
     assert commands
     assert {command.name for command in commands} == EXPECTED_PHASE_1_COMMAND_NAMES
