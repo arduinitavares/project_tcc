@@ -181,3 +181,48 @@ def test_fake_mutation_failed_finalization_returns_error(
     assert result["errors"][0]["code"] == FAKE_MUTATION_FINALIZE_FAILED
     assert sink.business_markers == [7]
     assert sink.session_markers == [7]
+
+
+def test_fake_mutation_resume_after_finalize_failure_does_not_rewrite_session(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    SQLModel.metadata.create_all(engine)
+    sink = FakeSideEffectSink()
+    repo = MutationLedgerRepository(engine=engine)
+    runner = FakeMutationRunner(ledger=repo, side_effects=sink)
+    now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    original_finalize_success = repo.finalize_success
+    finalize_calls = 0
+
+    def fail_first_finalize(**kwargs: object) -> bool:
+        nonlocal finalize_calls
+        finalize_calls += 1
+        if finalize_calls == 1:
+            return False
+        return original_finalize_success(**kwargs)
+
+    monkeypatch.setattr(repo, "finalize_success", fail_first_finalize)
+
+    first = runner.run(7, "fake-key-001", "corr-1", "cli-agent", "worker-1", now)
+    stale = runner.run(
+        7,
+        "fake-key-001",
+        "corr-2",
+        "cli-agent",
+        "worker-2",
+        now + timedelta(seconds=45),
+    )
+    mutation_event_id = stale["errors"][0]["details"]["mutation_event_id"]
+    resumed = runner.resume(
+        mutation_event_id=mutation_event_id,
+        lease_owner="resume-1",
+        now=now + timedelta(seconds=46),
+    )
+
+    assert first["ok"] is False
+    assert first["errors"][0]["code"] == FAKE_MUTATION_FINALIZE_FAILED
+    assert stale["errors"][0]["code"] == MUTATION_RECOVERY_REQUIRED
+    assert resumed["ok"] is True
+    assert sink.business_markers == [7]
+    assert sink.session_markers == [7]

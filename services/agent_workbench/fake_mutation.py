@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -155,28 +156,43 @@ class FakeMutationRunner:
         project_id = acquired.ledger.project_id
         if project_id is None or acquired.ledger.command != _FAKE_MUTATION_COMMAND:
             return self._error(FAKE_MUTATION_INVALID_RECOVERY_STATE, mutation_event_id)
+
+        progress = _resume_progress(
+            completed_steps_json=acquired.ledger.completed_steps_json,
+            current_step=acquired.ledger.current_step,
+        )
+        if progress == _ResumeProgress.INVALID:
+            return self._error(FAKE_MUTATION_INVALID_RECOVERY_STATE, mutation_event_id)
+        resumed_steps: list[str] = []
+        if progress == _ResumeProgress.NEEDS_SESSION_MARKER:
+            if not self._require_active_owner(
+                mutation_event_id=mutation_event_id,
+                lease_owner=lease_owner,
+                now=now,
+            ):
+                return self._error(MUTATION_RESUME_CONFLICT, mutation_event_id)
+            self._side_effects.write_session_marker(project_id)
+            if not self._mark_step_complete(
+                mutation_event_id=mutation_event_id,
+                lease_owner=lease_owner,
+                step="session_marker",
+                next_step="done",
+                now=now,
+            ):
+                return self._error(FAKE_MUTATION_STEP_RECORD_FAILED, mutation_event_id)
+            resumed_steps.append("session_marker")
+
+        response = self._success_response(
+            project_id=project_id,
+            mutation_event_id=mutation_event_id,
+            resumed_steps=resumed_steps,
+        )
         if not self._require_active_owner(
             mutation_event_id=mutation_event_id,
             lease_owner=lease_owner,
             now=now,
         ):
             return self._error(MUTATION_RESUME_CONFLICT, mutation_event_id)
-
-        self._side_effects.write_session_marker(project_id)
-        if not self._mark_step_complete(
-            mutation_event_id=mutation_event_id,
-            lease_owner=lease_owner,
-            step="session_marker",
-            next_step="done",
-            now=now,
-        ):
-            return self._error(FAKE_MUTATION_STEP_RECORD_FAILED, mutation_event_id)
-
-        response = self._success_response(
-            project_id=project_id,
-            mutation_event_id=mutation_event_id,
-            resumed_steps=["session_marker"],
-        )
         if not self._ledger.finalize_success(
             mutation_event_id=mutation_event_id,
             lease_owner=lease_owner,
@@ -266,3 +282,39 @@ class FakeMutationRunner:
 def _request_hash(*, project_id: int, changed_by: str) -> str:
     """Return a deterministic fake canonical request hash."""
     return f"sha256:fake:{project_id}:{changed_by}"
+
+
+class _ResumeProgress:
+    NEEDS_SESSION_MARKER = "needs_session_marker"
+    READY_TO_FINALIZE = "ready_to_finalize"
+    INVALID = "invalid"
+
+
+def _resume_progress(*, completed_steps_json: str, current_step: str) -> str:
+    """Classify fake mutation recovery progress from persisted ledger data."""
+    try:
+        loaded = json.loads(completed_steps_json)
+    except json.JSONDecodeError:
+        return _ResumeProgress.INVALID
+    if not isinstance(loaded, list):
+        return _ResumeProgress.INVALID
+
+    completed_steps = {step for step in loaded if isinstance(step, str)}
+    if len(completed_steps) != len(loaded):
+        return _ResumeProgress.INVALID
+    known_steps = {"business_marker", "session_marker"}
+    if not completed_steps <= known_steps:
+        return _ResumeProgress.INVALID
+    if "business_marker" not in completed_steps:
+        return _ResumeProgress.INVALID
+    if "session_marker" in completed_steps:
+        return (
+            _ResumeProgress.READY_TO_FINALIZE
+            if current_step == "done"
+            else _ResumeProgress.INVALID
+        )
+    return (
+        _ResumeProgress.NEEDS_SESSION_MARKER
+        if current_step == "session_marker"
+        else _ResumeProgress.INVALID
+    )
