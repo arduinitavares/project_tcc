@@ -1,5 +1,7 @@
 """Durable mutation ledger for CLI idempotency and recovery."""
 
+# ruff: noqa: E501, EM101, PLR0913, TRY003, TRY301
+
 from __future__ import annotations
 
 import json
@@ -223,7 +225,7 @@ class MutationLedgerRepository:
                 return None
             return self._handle_pending_existing(session=session, row=row, now=now)
 
-    def create_or_load(  # noqa: PLR0913
+    def create_or_load(
         self,
         *,
         command: str,
@@ -234,6 +236,7 @@ class MutationLedgerRepository:
         changed_by: str,
         lease_owner: str,
         now: datetime,
+        recovers_mutation_event_id: int | None = None,
         lease_seconds: int = DEFAULT_LEASE_SECONDS,
     ) -> LedgerLoadResult:
         """Create a pending row or return the existing deterministic outcome."""
@@ -260,6 +263,7 @@ class MutationLedgerRepository:
                 project_id=project_id,
                 correlation_id=correlation_id,
                 changed_by=changed_by,
+                recovers_mutation_event_id=recovers_mutation_event_id,
                 status=MutationStatus.PENDING.value,
                 lease_owner=lease_owner,
                 lease_acquired_at=db_now,
@@ -366,7 +370,7 @@ class MutationLedgerRepository:
             error_code=MUTATION_RECOVERY_REQUIRED,
         )
 
-    def transition_status(  # noqa: PLR0913
+    def transition_status(
         self,
         *,
         mutation_event_id: int,
@@ -452,6 +456,391 @@ class MutationLedgerRepository:
             )
             session.commit()
             return result.rowcount == 1
+
+    def set_project_id(
+        self,
+        *,
+        mutation_event_id: int,
+        lease_owner: str,
+        project_id: int,
+        now: datetime,
+    ) -> bool:
+        """Attach the created project id to an active mutation row."""
+        with Session(self._engine) as session:
+            result = self.set_project_id_in_session(
+                session,
+                mutation_event_id=mutation_event_id,
+                lease_owner=lease_owner,
+                project_id=project_id,
+                now=now,
+            )
+            session.commit()
+            return result
+
+    @staticmethod
+    def set_project_id_in_session(
+        session: Session,
+        *,
+        mutation_event_id: int,
+        lease_owner: str,
+        project_id: int,
+        now: datetime,
+    ) -> bool:
+        """Attach the created project id using the caller's transaction."""
+        db_now = _db_datetime(now)
+        result = session.exec(
+            update(CliMutationLedger)
+            .where(CliMutationLedger.mutation_event_id == mutation_event_id)
+            .where(CliMutationLedger.status == MutationStatus.PENDING.value)
+            .where(CliMutationLedger.lease_owner == lease_owner)
+            .where(CliMutationLedger.lease_expires_at > db_now)
+            .values(project_id=project_id, updated_at=db_now)
+        )
+        return result.rowcount == 1
+
+    @staticmethod
+    def mark_step_complete_in_session(
+        session: Session,
+        *,
+        mutation_event_id: int,
+        lease_owner: str,
+        step: str,
+        next_step: str,
+        now: datetime,
+    ) -> bool:
+        """Record a completed step using the caller's transaction."""
+        db_now = _db_datetime(now)
+        row = session.get(CliMutationLedger, mutation_event_id)
+        if (
+            row is None
+            or row.status != MutationStatus.PENDING.value
+            or row.lease_owner != lease_owner
+            or row.lease_expires_at is None
+            or row.lease_expires_at <= db_now
+        ):
+            return False
+        steps = _completed_steps(row)
+        if step not in steps:
+            steps.append(step)
+        result = session.exec(
+            update(CliMutationLedger)
+            .where(CliMutationLedger.mutation_event_id == mutation_event_id)
+            .where(CliMutationLedger.status == MutationStatus.PENDING.value)
+            .where(CliMutationLedger.lease_owner == lease_owner)
+            .where(CliMutationLedger.lease_expires_at > db_now)
+            .values(
+                completed_steps_json=_json_dump(steps),
+                current_step=next_step,
+                updated_at=db_now,
+            )
+        )
+        return result.rowcount == 1
+
+    def acquire_recovery_lease(
+        self,
+        *,
+        mutation_event_id: int,
+        expected_project_id: int,
+        recovery_lease_owner: str,
+        now: datetime,
+        lease_seconds: int = DEFAULT_LEASE_SECONDS,
+    ) -> bool:
+        """Acquire ownership of an original recovery_required mutation row."""
+        db_now = _db_datetime(now)
+        with Session(self._engine) as session:
+            result = session.exec(
+                update(CliMutationLedger)
+                .where(CliMutationLedger.mutation_event_id == mutation_event_id)
+                .where(CliMutationLedger.status == MutationStatus.RECOVERY_REQUIRED.value)
+                .where(CliMutationLedger.project_id == expected_project_id)
+                .where(
+                    (CliMutationLedger.lease_owner.is_(None))
+                    | (CliMutationLedger.lease_expires_at.is_(None))
+                    | (CliMutationLedger.lease_expires_at <= db_now)
+                )
+                .values(
+                    lease_owner=recovery_lease_owner,
+                    lease_acquired_at=db_now,
+                    last_heartbeat_at=db_now,
+                    lease_expires_at=db_now + timedelta(seconds=lease_seconds),
+                    updated_at=db_now,
+                )
+            )
+            session.commit()
+            return result.rowcount == 1
+
+    def release_recovery_lease(
+        self,
+        *,
+        mutation_event_id: int,
+        recovery_lease_owner: str,
+        now: datetime,
+    ) -> bool:
+        """Clear a retry-owned recovery lease without changing recovery_required status."""
+        db_now = _db_datetime(now)
+        with Session(self._engine) as session:
+            result = session.exec(
+                update(CliMutationLedger)
+                .where(CliMutationLedger.mutation_event_id == mutation_event_id)
+                .where(CliMutationLedger.status == MutationStatus.RECOVERY_REQUIRED.value)
+                .where(CliMutationLedger.lease_owner == recovery_lease_owner)
+                .values(
+                    lease_owner=None,
+                    lease_acquired_at=None,
+                    last_heartbeat_at=None,
+                    lease_expires_at=None,
+                    updated_at=db_now,
+                )
+            )
+            session.commit()
+            return result.rowcount == 1
+
+    def mark_recovery_required(
+        self,
+        *,
+        mutation_event_id: int,
+        lease_owner: str,
+        recovery_action: RecoveryAction,
+        safe_to_auto_resume: bool,
+        last_error: dict[str, Any],
+        now: datetime,
+    ) -> bool:
+        """Move an owned pending mutation to recovery_required."""
+        db_now = _db_datetime(now)
+        with Session(self._engine) as session:
+            result = session.exec(
+                update(CliMutationLedger)
+                .where(CliMutationLedger.mutation_event_id == mutation_event_id)
+                .where(CliMutationLedger.status == MutationStatus.PENDING.value)
+                .where(CliMutationLedger.lease_owner == lease_owner)
+                .where(CliMutationLedger.lease_expires_at > db_now)
+                .values(
+                    status=MutationStatus.RECOVERY_REQUIRED.value,
+                    recovery_action=recovery_action.value,
+                    recovery_safe_to_auto_resume=safe_to_auto_resume,
+                    last_error_json=_json_dump(last_error),
+                    lease_owner=None,
+                    lease_acquired_at=None,
+                    last_heartbeat_at=None,
+                    lease_expires_at=None,
+                    updated_at=db_now,
+                )
+            )
+            session.commit()
+            return result.rowcount == 1
+
+    def supersede_recovered_event(
+        self,
+        *,
+        mutation_event_id: int,
+        superseded_by_mutation_event_id: int,
+        lease_owner: str,
+        response: dict[str, Any],
+        now: datetime,
+    ) -> bool:
+        """Single-row legacy helper; linked retry paths must not call this."""
+        db_now = _db_datetime(now)
+        with Session(self._engine) as session:
+            result = session.exec(
+                update(CliMutationLedger)
+                .where(CliMutationLedger.mutation_event_id == mutation_event_id)
+                .where(CliMutationLedger.status == MutationStatus.RECOVERY_REQUIRED.value)
+                .where(CliMutationLedger.lease_owner == lease_owner)
+                .values(
+                    status=MutationStatus.SUPERSEDED.value,
+                    superseded_by_mutation_event_id=superseded_by_mutation_event_id,
+                    response_json=_json_dump(response),
+                    lease_owner=None,
+                    lease_acquired_at=None,
+                    last_heartbeat_at=None,
+                    lease_expires_at=None,
+                    updated_at=db_now,
+                )
+            )
+            session.commit()
+            return result.rowcount == 1
+
+    def finalize_linked_retry_success(
+        self,
+        *,
+        retry_mutation_event_id: int,
+        retry_lease_owner: str,
+        original_mutation_event_id: int,
+        original_recovery_lease_owner: str,
+        after: dict[str, Any],
+        retry_response: dict[str, Any],
+        original_replay_response: dict[str, Any],
+        now: datetime,
+    ) -> LedgerLoadResult:
+        """Atomically mark retry succeeded and original recovery row superseded."""
+        db_now = _db_datetime(now)
+        with Session(self._engine) as session:
+            try:
+                retry_result = session.exec(
+                    update(CliMutationLedger)
+                    .where(CliMutationLedger.mutation_event_id == retry_mutation_event_id)
+                    .where(CliMutationLedger.status == MutationStatus.PENDING.value)
+                    .where(CliMutationLedger.lease_owner == retry_lease_owner)
+                    .where(CliMutationLedger.lease_expires_at > db_now)
+                    .values(
+                        status=MutationStatus.SUCCEEDED.value,
+                        after_json=_json_dump(after),
+                        response_json=_json_dump(retry_response),
+                        recovery_action=RecoveryAction.NONE.value,
+                        recovery_safe_to_auto_resume=False,
+                        lease_owner=None,
+                        lease_acquired_at=None,
+                        last_heartbeat_at=None,
+                        lease_expires_at=None,
+                        updated_at=db_now,
+                    )
+                )
+                if retry_result.rowcount != 1:
+                    session.rollback()
+                    return self._linked_conflict(
+                        session=session,
+                        retry_mutation_event_id=retry_mutation_event_id,
+                    )
+                if getattr(self, "fail_after_retry_update_for_test", False):
+                    raise RuntimeError("Injected linked retry transition failure.")
+                original_result = session.exec(
+                    update(CliMutationLedger)
+                    .where(CliMutationLedger.mutation_event_id == original_mutation_event_id)
+                    .where(CliMutationLedger.status == MutationStatus.RECOVERY_REQUIRED.value)
+                    .where(CliMutationLedger.lease_owner == original_recovery_lease_owner)
+                    .values(
+                        status=MutationStatus.SUPERSEDED.value,
+                        superseded_by_mutation_event_id=retry_mutation_event_id,
+                        response_json=_json_dump(original_replay_response),
+                        lease_owner=None,
+                        lease_acquired_at=None,
+                        last_heartbeat_at=None,
+                        lease_expires_at=None,
+                        updated_at=db_now,
+                    )
+                )
+                if original_result.rowcount != 1:
+                    session.rollback()
+                    return self._linked_conflict(
+                        session=session,
+                        retry_mutation_event_id=retry_mutation_event_id,
+                    )
+                session.commit()
+            except RuntimeError:
+                session.rollback()
+                return self._linked_conflict(
+                    session=session,
+                    retry_mutation_event_id=retry_mutation_event_id,
+                )
+            row = self._refreshed_row(
+                session=session,
+                mutation_event_id=retry_mutation_event_id,
+            )
+            return LedgerLoadResult(ledger=row, response=retry_response)
+
+    def transfer_linked_retry_recovery(
+        self,
+        *,
+        retry_mutation_event_id: int,
+        retry_lease_owner: str,
+        original_mutation_event_id: int,
+        original_recovery_lease_owner: str,
+        recovery_action: RecoveryAction,
+        safe_to_auto_resume: bool,
+        last_error: dict[str, Any],
+        retry_response: dict[str, Any],
+        original_replay_response: dict[str, Any],
+        now: datetime,
+    ) -> LedgerLoadResult:
+        """Atomically transfer recovery ownership from original row to retry row."""
+        db_now = _db_datetime(now)
+        with Session(self._engine) as session:
+            try:
+                retry_result = session.exec(
+                    update(CliMutationLedger)
+                    .where(CliMutationLedger.mutation_event_id == retry_mutation_event_id)
+                    .where(CliMutationLedger.status == MutationStatus.PENDING.value)
+                    .where(CliMutationLedger.lease_owner == retry_lease_owner)
+                    .where(CliMutationLedger.lease_expires_at > db_now)
+                    .values(
+                        status=MutationStatus.RECOVERY_REQUIRED.value,
+                        recovery_action=recovery_action.value,
+                        recovery_safe_to_auto_resume=safe_to_auto_resume,
+                        last_error_json=_json_dump(last_error),
+                        response_json=_json_dump(retry_response),
+                        lease_owner=None,
+                        lease_acquired_at=None,
+                        last_heartbeat_at=None,
+                        lease_expires_at=None,
+                        updated_at=db_now,
+                    )
+                )
+                if retry_result.rowcount != 1:
+                    session.rollback()
+                    return self._linked_conflict(
+                        session=session,
+                        retry_mutation_event_id=retry_mutation_event_id,
+                    )
+                if getattr(self, "fail_after_retry_update_for_test", False):
+                    raise RuntimeError("Injected linked retry transition failure.")
+                original_result = session.exec(
+                    update(CliMutationLedger)
+                    .where(CliMutationLedger.mutation_event_id == original_mutation_event_id)
+                    .where(CliMutationLedger.status == MutationStatus.RECOVERY_REQUIRED.value)
+                    .where(CliMutationLedger.lease_owner == original_recovery_lease_owner)
+                    .values(
+                        status=MutationStatus.SUPERSEDED.value,
+                        superseded_by_mutation_event_id=retry_mutation_event_id,
+                        response_json=_json_dump(original_replay_response),
+                        lease_owner=None,
+                        lease_acquired_at=None,
+                        last_heartbeat_at=None,
+                        lease_expires_at=None,
+                        updated_at=db_now,
+                    )
+                )
+                if original_result.rowcount != 1:
+                    session.rollback()
+                    return self._linked_conflict(
+                        session=session,
+                        retry_mutation_event_id=retry_mutation_event_id,
+                    )
+                session.commit()
+            except RuntimeError:
+                session.rollback()
+                return self._linked_conflict(
+                    session=session,
+                    retry_mutation_event_id=retry_mutation_event_id,
+                )
+            row = self._refreshed_row(
+                session=session,
+                mutation_event_id=retry_mutation_event_id,
+            )
+            return LedgerLoadResult(ledger=row, response=retry_response)
+
+    @staticmethod
+    def _refreshed_row(
+        *,
+        session: Session,
+        mutation_event_id: int,
+    ) -> CliMutationLedger:
+        row = session.get(CliMutationLedger, mutation_event_id)
+        if row is None:
+            message = f"Mutation event {mutation_event_id} not found."
+            raise ValueError(message)
+        return row
+
+    def _linked_conflict(
+        self,
+        *,
+        session: Session,
+        retry_mutation_event_id: int,
+    ) -> LedgerLoadResult:
+        row = self._refreshed_row(
+            session=session,
+            mutation_event_id=retry_mutation_event_id,
+        )
+        return LedgerLoadResult(ledger=row, error_code=MUTATION_RESUME_CONFLICT)
 
     def require_active_owner(
         self,
