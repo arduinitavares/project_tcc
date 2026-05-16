@@ -4,24 +4,27 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from services.agent_workbench.error_codes import error_metadata
 from services.agent_workbench.mutation_ledger import (
-    MUTATION_RECOVERY_REQUIRED,
     MUTATION_RESUME_CONFLICT,
     MutationLedgerRepository,
 )
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 FAKE_MUTATION_OWNER_NOT_ACTIVE = "FAKE_MUTATION_OWNER_NOT_ACTIVE"
 FAKE_MUTATION_STEP_RECORD_FAILED = "FAKE_MUTATION_STEP_RECORD_FAILED"
 FAKE_MUTATION_FINALIZE_FAILED = "FAKE_MUTATION_FINALIZE_FAILED"
 FAKE_MUTATION_INVALID_RECOVERY_STATE = "FAKE_MUTATION_INVALID_RECOVERY_STATE"
 _FAKE_MUTATION_COMMAND = "agileforge fake mutate"
+_MISSING_LEDGER_ID = "Mutation ledger row has no primary key."
+_CRASH_AFTER_BUSINESS_MARKER = "Simulated crash after business marker."
 
 
-class FakeMutationCrash(RuntimeError):
+class FakeMutationCrashError(RuntimeError):
     """Raised to simulate a crash after a side-effect boundary."""
 
 
@@ -51,11 +54,12 @@ class FakeMutationRunner:
         side_effects: FakeSideEffectSink,
         lease_seconds: int = 30,
     ) -> None:
+        """Initialize with a mutation ledger and fake side-effect sink."""
         self._ledger: MutationLedgerRepository = ledger
         self._side_effects: FakeSideEffectSink = side_effects
         self._lease_seconds: int = lease_seconds
 
-    def run(
+    def run(  # noqa: PLR0911, PLR0913
         self,
         project_id: int,
         idempotency_key: str,
@@ -83,7 +87,7 @@ class FakeMutationRunner:
 
         event_id = loaded.ledger.mutation_event_id
         if event_id is None:
-            raise RuntimeError("Mutation ledger row has no primary key.")
+            raise RuntimeError(_MISSING_LEDGER_ID)
         if loaded.error_code is not None:
             return self._error(loaded.error_code, event_id)
 
@@ -103,7 +107,7 @@ class FakeMutationRunner:
         ):
             return self._error(FAKE_MUTATION_STEP_RECORD_FAILED, event_id)
         if crash_after_business_marker:
-            raise FakeMutationCrash("Simulated crash after business marker.")
+            raise FakeMutationCrashError(_CRASH_AFTER_BUSINESS_MARKER)
 
         if not self._require_active_owner(
             mutation_event_id=event_id,
@@ -136,7 +140,7 @@ class FakeMutationRunner:
             return self._error(FAKE_MUTATION_FINALIZE_FAILED, event_id)
         return response
 
-    def resume(
+    def resume(  # noqa: PLR0911
         self,
         *,
         mutation_event_id: int,
@@ -270,7 +274,10 @@ class FakeMutationRunner:
                     "message": "Mutation cannot run.",
                     "details": {"mutation_event_id": mutation_event_id},
                     "remediation": [
-                        f"agileforge mutation show --mutation-event-id {mutation_event_id}"
+                        (
+                            "agileforge mutation show --mutation-event-id "
+                            f"{mutation_event_id}"
+                        )
                     ],
                     "exit_code": exit_code,
                     "retryable": retryable,
@@ -292,20 +299,8 @@ class _ResumeProgress:
 
 def _resume_progress(*, completed_steps_json: str, current_step: str) -> str:
     """Classify fake mutation recovery progress from persisted ledger data."""
-    try:
-        loaded = json.loads(completed_steps_json)
-    except json.JSONDecodeError:
-        return _ResumeProgress.INVALID
-    if not isinstance(loaded, list):
-        return _ResumeProgress.INVALID
-
-    completed_steps = {step for step in loaded if isinstance(step, str)}
-    if len(completed_steps) != len(loaded):
-        return _ResumeProgress.INVALID
-    known_steps = {"business_marker", "session_marker"}
-    if not completed_steps <= known_steps:
-        return _ResumeProgress.INVALID
-    if "business_marker" not in completed_steps:
+    completed_steps = _completed_steps(completed_steps_json)
+    if completed_steps is None:
         return _ResumeProgress.INVALID
     if "session_marker" in completed_steps:
         return (
@@ -318,3 +313,23 @@ def _resume_progress(*, completed_steps_json: str, current_step: str) -> str:
         if current_step == "session_marker"
         else _ResumeProgress.INVALID
     )
+
+
+def _completed_steps(completed_steps_json: str) -> set[str] | None:
+    """Return validated fake mutation steps from persisted JSON."""
+    try:
+        loaded = json.loads(completed_steps_json)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(loaded, list):
+        return None
+
+    completed_steps = {step for step in loaded if isinstance(step, str)}
+    if len(completed_steps) != len(loaded):
+        return None
+    known_steps = {"business_marker", "session_marker"}
+    if not completed_steps <= known_steps:
+        return None
+    if "business_marker" not in completed_steps:
+        return None
+    return completed_steps

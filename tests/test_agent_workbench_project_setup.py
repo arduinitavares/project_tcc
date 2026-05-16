@@ -7,7 +7,7 @@ from __future__ import annotations
 import copy
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
@@ -427,21 +427,23 @@ def test_project_create_duplicate_replay_key_reuse_and_recovery_required(
 
 
 def test_setup_retry_request_validation_and_guard_hash_inputs() -> None:
+    missing_state: dict[str, object] = {
+        "project_id": 1,
+        "spec_file": "specs/app.md",
+        "expected_context_fingerprint": "sha256:" + "a" * 64,
+        "idempotency_key": "retry-project-001",
+    }
     with pytest.raises(ValidationError, match="expected_state"):
-        ProjectSetupRetryRequest(
-            project_id=1,
-            spec_file="specs/app.md",
-            expected_context_fingerprint="sha256:" + "a" * 64,
-            idempotency_key="retry-project-001",
-        )
+        ProjectSetupRetryRequest.model_validate(missing_state)
 
+    missing_fingerprint: dict[str, object] = {
+        "project_id": 1,
+        "spec_file": "specs/app.md",
+        "expected_state": "SETUP_REQUIRED",
+        "idempotency_key": "retry-project-001",
+    }
     with pytest.raises(ValidationError, match="expected_context_fingerprint"):
-        ProjectSetupRetryRequest(
-            project_id=1,
-            spec_file="specs/app.md",
-            expected_state="SETUP_REQUIRED",
-            idempotency_key="retry-project-001",
-        )
+        ProjectSetupRetryRequest.model_validate(missing_fingerprint)
 
     first = ProjectSetupRetryRequest(
         project_id=1,
@@ -576,7 +578,9 @@ def test_linked_setup_retry_dry_run_leaves_original_recovery_row_unchanged(
     original_event_id = recovery["data"]["mutation_event_id"]
     project_id = recovery["data"]["project_id"]
     with Session(engine) as session:
-        original_before = _row_payload(session.get(CliMutationLedger, original_event_id))
+        original_row = session.get(CliMutationLedger, original_event_id)
+        assert original_row is not None
+        original_before = _row_payload(original_row)
     runner = ProjectSetupMutationRunner(engine=engine, workflow=workflow)
 
     result = runner.retry_setup(
@@ -593,7 +597,9 @@ def test_linked_setup_retry_dry_run_leaves_original_recovery_row_unchanged(
 
     assert result["ok"] is True
     with Session(engine) as session:
-        original_after = _row_payload(session.get(CliMutationLedger, original_event_id))
+        original_row = session.get(CliMutationLedger, original_event_id)
+        assert original_row is not None
+        original_after = _row_payload(original_row)
         rows = session.exec(select(CliMutationLedger)).all()
     assert original_after == original_before
     assert len(rows) == 1
@@ -647,6 +653,8 @@ def test_linked_retry_pre_side_effect_failure_preserves_original_and_replays_ret
     with Session(engine) as session:
         original = session.get(CliMutationLedger, original_event_id)
         retry = session.get(CliMutationLedger, retry_event_id)
+        assert original is not None
+        assert retry is not None
         assert original.status == MutationStatus.RECOVERY_REQUIRED.value
         assert retry.status == MutationStatus.DOMAIN_FAILED_NO_SIDE_EFFECTS.value
 
@@ -693,6 +701,8 @@ def test_linked_retry_post_side_effect_failure_transfers_recovery(
     with Session(engine) as session:
         original = session.get(CliMutationLedger, original_event_id)
         retry = session.get(CliMutationLedger, retry_event_id)
+        assert original is not None
+        assert retry is not None
         assert original.status == MutationStatus.SUPERSEDED.value
         assert original.superseded_by_mutation_event_id == retry_event_id
         assert retry.status == MutationStatus.RECOVERY_REQUIRED.value
@@ -739,6 +749,7 @@ def test_retry_rejects_invalid_original_recovery_link(
 
     with Session(engine) as session:
         row = session.get(CliMutationLedger, original_event_id)
+        assert row is not None
         row.status = MutationStatus.SUCCEEDED.value
         session.add(row)
         session.commit()
@@ -994,6 +1005,8 @@ def test_linked_retry_repository_helpers_roll_back_and_report_conflict(
 def _ledger_rows(engine: Engine) -> list[dict[str, Any]]:
     with Session(engine) as session:
         rows = session.exec(
-            select(CliMutationLedger).order_by(CliMutationLedger.mutation_event_id)
+            select(CliMutationLedger).order_by(
+                cast("Any", CliMutationLedger.mutation_event_id)
+            )
         ).all()
         return [copy.deepcopy(_row_payload(row)) for row in rows]

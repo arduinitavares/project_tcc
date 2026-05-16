@@ -1441,8 +1441,8 @@ def _compile_spec_authority_for_version_in_session(  # noqa: PLR0913
         record_progress=record_progress,
     )
     if isinstance(persisted_result, dict):
-        return persisted_result
-    persisted = persisted_result
+        return cast("dict[str, Any]", persisted_result)
+    persisted = cast("_PersistedCompilation", persisted_result)
     if tool_context and tool_context.state is not None:
         tool_context.state["compiled_authority_cached"] = (
             persisted.compiled_artifact_json

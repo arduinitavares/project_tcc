@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import pytest
-from sqlalchemy.engine import Engine
 from sqlmodel import SQLModel
 
 from services.agent_workbench.fake_mutation import (
     FAKE_MUTATION_FINALIZE_FAILED,
-    FakeMutationCrash,
+    FakeMutationCrashError,
     FakeMutationRunner,
     FakeSideEffectSink,
 )
@@ -21,6 +21,9 @@ from services.agent_workbench.mutation_ledger import (
     MutationLedgerRepository,
 )
 
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Engine
+
 
 def _runner(engine: Engine) -> tuple[FakeMutationRunner, FakeSideEffectSink]:
     SQLModel.metadata.create_all(engine)
@@ -30,6 +33,7 @@ def _runner(engine: Engine) -> tuple[FakeMutationRunner, FakeSideEffectSink]:
 
 
 def test_fake_mutation_runs_two_side_effect_boundaries(engine: Engine) -> None:
+    """Verify the fake mutation executes both declared side-effect boundaries."""
     runner, sink = _runner(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
 
@@ -48,6 +52,7 @@ def test_fake_mutation_runs_two_side_effect_boundaries(engine: Engine) -> None:
 
 
 def test_fake_mutation_replays_success_without_rewriting(engine: Engine) -> None:
+    """Verify successful idempotency replay does not duplicate side effects."""
     runner, sink = _runner(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
 
@@ -69,10 +74,11 @@ def test_fake_mutation_replays_success_without_rewriting(engine: Engine) -> None
 def test_fake_mutation_crash_after_first_step_requires_recovery(
     engine: Engine,
 ) -> None:
+    """Verify a crash after the first durable step enters recovery."""
     runner, sink = _runner(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
 
-    with pytest.raises(FakeMutationCrash):
+    with pytest.raises(FakeMutationCrashError):
         runner.run(
             7,
             "fake-key-001",
@@ -99,10 +105,11 @@ def test_fake_mutation_crash_after_first_step_requires_recovery(
 
 
 def test_fake_mutation_resume_completes_second_boundary_once(engine: Engine) -> None:
+    """Verify resume completes the missing step and rejects duplicate resume."""
     runner, sink = _runner(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
 
-    with pytest.raises(FakeMutationCrash):
+    with pytest.raises(FakeMutationCrashError):
         runner.run(
             7,
             "fake-key-001",
@@ -144,6 +151,7 @@ def test_fake_mutation_resume_completes_second_boundary_once(engine: Engine) -> 
 def test_fake_mutation_reused_idempotency_key_with_different_request_errors(
     engine: Engine,
 ) -> None:
+    """Verify reused idempotency keys reject a changed request hash."""
     runner, sink = _runner(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
 
@@ -167,6 +175,7 @@ def test_fake_mutation_failed_finalization_returns_error(
     engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify finalization failure returns a structured mutation error."""
     SQLModel.metadata.create_all(engine)
     sink = FakeSideEffectSink()
     repo = MutationLedgerRepository(engine=engine)
@@ -187,6 +196,7 @@ def test_fake_mutation_resume_after_finalize_failure_does_not_rewrite_session(
     engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify resume after finalization failure reconciles without rewriting."""
     SQLModel.metadata.create_all(engine)
     sink = FakeSideEffectSink()
     repo = MutationLedgerRepository(engine=engine)

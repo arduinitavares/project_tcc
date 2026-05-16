@@ -20,7 +20,6 @@ from models.specs import (
     SpecRegistry,
 )
 from services.agent_workbench.envelope import (
-    WorkbenchError,
     WorkbenchWarning,
     error_envelope,
 )
@@ -101,6 +100,7 @@ class _AuthoritySelection:
     accepted: SpecAuthorityAcceptance | None
     accepted_spec: SpecRegistry | None
     authority: CompiledSpecAuthority | None
+    pending_authority: CompiledSpecAuthority | None
 
 
 @dataclass(frozen=True)
@@ -428,6 +428,20 @@ def _authority_status_fingerprint(
     )
 
 
+def _pending_authority_fingerprint(
+    authority: CompiledSpecAuthority | None,
+) -> str | None:
+    """Return a stable fingerprint for a pending compiled authority."""
+    if authority is None:
+        return None
+    return canonical_hash(
+        {
+            "command": AUTHORITY_STATUS_COMMAND,
+            "pending_compiled": _authority_fingerprint_payload(authority),
+        }
+    )
+
+
 def _spec_fingerprint_payload(spec: SpecRegistry | None) -> JsonDict | None:
     """Return deterministic spec fields for status fingerprinting."""
     if spec is None:
@@ -530,7 +544,9 @@ def _status_data(context: _StatusContext) -> JsonDict:
     selection = context.selection
     accepted = selection.accepted
     authority = selection.authority
+    pending_authority = selection.pending_authority
     latest_spec = selection.latest_spec
+    pending_invariant_count, _pending_warnings = _invariant_count(pending_authority)
     return {
         "project_id": context.project_id,
         "status": context.classification.status,
@@ -557,6 +573,35 @@ def _status_data(context: _StatusContext) -> JsonDict:
         ),
         "prompt_hash": authority.prompt_hash if authority is not None else None,
         "invariant_count": context.invariant_count,
+        "pending_authority_id": (
+            pending_authority.authority_id
+            if pending_authority is not None
+            else None
+        ),
+        "pending_compiled_spec_version_id": (
+            pending_authority.spec_version_id
+            if pending_authority is not None
+            else None
+        ),
+        "pending_compiled_at": (
+            _iso_z(pending_authority.compiled_at)
+            if pending_authority is not None
+            else None
+        ),
+        "pending_compiler_version": (
+            pending_authority.compiler_version
+            if pending_authority is not None
+            else None
+        ),
+        "pending_prompt_hash": (
+            pending_authority.prompt_hash
+            if pending_authority is not None
+            else None
+        ),
+        "pending_invariant_count": pending_invariant_count,
+        "pending_authority_fingerprint": _pending_authority_fingerprint(
+            pending_authority
+        ),
         "disk_spec": context.disk_spec,
         "authority_fingerprint": _authority_status_fingerprint(context),
     }
@@ -633,13 +678,34 @@ def _load_authority_selection(
         if accepted is not None
         else None
     )
+    latest_spec = specs[0] if specs else None
+    pending_authority = _pending_authority(
+        session=session,
+        latest_spec=latest_spec,
+        accepted=accepted,
+    )
     return _AuthoritySelection(
         specs=specs,
-        latest_spec=specs[0] if specs else None,
+        latest_spec=latest_spec,
         accepted=accepted,
         accepted_spec=accepted_spec,
         authority=authority,
+        pending_authority=pending_authority,
     )
+
+
+def _pending_authority(
+    *,
+    session: Session,
+    latest_spec: SpecRegistry | None,
+    accepted: SpecAuthorityAcceptance | None,
+) -> CompiledSpecAuthority | None:
+    """Return the latest compiled authority awaiting acceptance, if any."""
+    if latest_spec is None or latest_spec.spec_version_id is None:
+        return None
+    if accepted is not None and accepted.spec_version_id == latest_spec.spec_version_id:
+        return None
+    return _compiled_authority(session, latest_spec.spec_version_id)
 
 
 class AuthorityProjectionService:

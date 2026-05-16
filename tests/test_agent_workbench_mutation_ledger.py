@@ -1,13 +1,14 @@
 """Tests for CLI mutation ledger state transitions."""
 
+# ruff: noqa: SIM300
+
 from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Any, Final, cast
 
-import pytest
 from sqlalchemy import update
-from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql.dml import Update
 from sqlmodel import Session, SQLModel, select
@@ -24,6 +25,13 @@ from services.agent_workbench.mutation_ledger import (
     RecoveryAction,
 )
 
+if TYPE_CHECKING:
+    import pytest
+    from sqlalchemy.engine import Engine
+
+PROJECT_ID: Final[int] = 7
+_LEDGER_MUTATION_EVENT_ID: Any = CliMutationLedger.mutation_event_id
+
 
 def _repo(engine: Engine) -> MutationLedgerRepository:
     SQLModel.metadata.create_all(engine)
@@ -37,6 +45,7 @@ def _db_time(value: datetime) -> datetime:
 
 
 def test_create_pending_row_records_request_hash_and_lease(engine: Engine) -> None:
+    """Verify a new mutation row records request identity and lease fields."""
     repo = _repo(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
 
@@ -44,7 +53,7 @@ def test_create_pending_row_records_request_hash_and_lease(engine: Engine) -> No
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -57,7 +66,7 @@ def test_create_pending_row_records_request_hash_and_lease(engine: Engine) -> No
     assert result.ledger.command == "agileforge fake mutate"
     assert result.ledger.idempotency_key == "fake-key-001"
     assert result.ledger.request_hash == "sha256:req"
-    assert result.ledger.project_id == 7
+    assert result.ledger.project_id == PROJECT_ID
     assert result.ledger.correlation_id == "corr-1"
     assert result.ledger.changed_by == "cli-agent"
     assert result.ledger.status == MutationStatus.PENDING.value
@@ -75,6 +84,7 @@ def test_create_pending_row_records_request_hash_and_lease(engine: Engine) -> No
 def test_offset_aware_create_timestamps_are_stored_as_utc_instants(
     engine: Engine,
 ) -> None:
+    """Verify offset-aware timestamps are stored as naive UTC DB instants."""
     repo = _repo(engine)
     offset_now = datetime(2026, 5, 15, 15, 0, tzinfo=timezone(timedelta(hours=3)))
 
@@ -82,7 +92,7 @@ def test_offset_aware_create_timestamps_are_stored_as_utc_instants(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -90,15 +100,22 @@ def test_offset_aware_create_timestamps_are_stored_as_utc_instants(
         lease_seconds=30,
     )
 
-    assert result.ledger.lease_acquired_at == datetime(2026, 5, 15, 12, 0)
-    assert result.ledger.last_heartbeat_at == datetime(2026, 5, 15, 12, 0)
-    assert result.ledger.lease_expires_at == datetime(2026, 5, 15, 12, 0, 30)
+    assert result.ledger.lease_acquired_at == _db_time(
+        datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    )
+    assert result.ledger.last_heartbeat_at == _db_time(
+        datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    )
+    assert result.ledger.lease_expires_at == _db_time(
+        datetime(2026, 5, 15, 12, 0, 30, tzinfo=UTC)
+    )
 
 
 def test_create_or_load_handles_unique_constraint_insert_race(
     engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify insert races load the competing row instead of duplicating it."""
     repo = _repo(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
     original_commit = mutation_ledger_mod.Session.commit
@@ -120,7 +137,7 @@ def test_create_or_load_handles_unique_constraint_insert_race(
                         command="agileforge fake mutate",
                         idempotency_key="fake-key-001",
                         request_hash="sha256:req",
-                        project_id=7,
+                        project_id=PROJECT_ID,
                         correlation_id="corr-race",
                         changed_by="cli-agent",
                         status=MutationStatus.PENDING.value,
@@ -134,7 +151,9 @@ def test_create_or_load_handles_unique_constraint_insert_race(
                 )
                 original_commit(competing_session)
             inserting_competing_row = False
-            raise IntegrityError("insert race", params=None, orig=Exception("unique"))
+            insert_race = "insert race"
+            unique = "unique"
+            raise IntegrityError(insert_race, params=None, orig=Exception(unique))
         original_commit(session)
 
     monkeypatch.setattr(mutation_ledger_mod.Session, "commit", commit_with_insert_race)
@@ -143,7 +162,7 @@ def test_create_or_load_handles_unique_constraint_insert_race(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -161,13 +180,14 @@ def test_create_or_load_handles_unique_constraint_insert_race(
 def test_same_key_same_request_replays_success_without_new_row(
     engine: Engine,
 ) -> None:
+    """Verify completed mutations replay without inserting another row."""
     repo = _repo(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
     row = repo.create_or_load(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -188,7 +208,7 @@ def test_same_key_same_request_replays_success_without_new_row(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-2",
         changed_by="cli-agent",
         lease_owner="worker-2",
@@ -206,13 +226,14 @@ def test_same_key_same_request_replays_success_without_new_row(
 
 
 def test_same_key_different_request_returns_reuse_error(engine: Engine) -> None:
+    """Verify idempotency keys cannot be reused with different requests."""
     repo = _repo(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
     repo.create_or_load(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -224,7 +245,7 @@ def test_same_key_different_request_returns_reuse_error(engine: Engine) -> None:
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:different",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-2",
         changed_by="cli-agent",
         lease_owner="worker-2",
@@ -239,13 +260,14 @@ def test_same_key_different_request_returns_reuse_error(engine: Engine) -> None:
 
 
 def test_fresh_pending_row_reports_in_progress(engine: Engine) -> None:
+    """Verify an active pending row reports in-progress on replay."""
     repo = _repo(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
     repo.create_or_load(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -257,7 +279,7 @@ def test_fresh_pending_row_reports_in_progress(engine: Engine) -> None:
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-2",
         changed_by="cli-agent",
         lease_owner="worker-2",
@@ -271,13 +293,14 @@ def test_fresh_pending_row_reports_in_progress(engine: Engine) -> None:
 def test_stale_pending_becomes_recovery_required_with_structured_error(
     engine: Engine,
 ) -> None:
+    """Verify stale pending rows move to recovery with structured details."""
     repo = _repo(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
     row = repo.create_or_load(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -297,7 +320,7 @@ def test_stale_pending_becomes_recovery_required_with_structured_error(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-2",
         changed_by="cli-agent",
         lease_owner="worker-2",
@@ -327,6 +350,7 @@ def test_stale_pending_becomes_recovery_required_with_structured_error(
 def test_stale_pending_error_timestamp_uses_utc_instant_for_offset_now(
     engine: Engine,
 ) -> None:
+    """Verify stale-pending errors record offset-aware inputs as UTC instants."""
     repo = _repo(engine)
     created_at = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
     offset_now = datetime(2026, 5, 15, 15, 0, 45, tzinfo=timezone(timedelta(hours=3)))
@@ -334,7 +358,7 @@ def test_stale_pending_error_timestamp_uses_utc_instant_for_offset_now(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -347,7 +371,7 @@ def test_stale_pending_error_timestamp_uses_utc_instant_for_offset_now(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-2",
         changed_by="cli-agent",
         lease_owner="worker-2",
@@ -367,13 +391,14 @@ def test_stale_recovery_loses_race_when_same_owner_refreshes_lease(
     engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify stale recovery detects a concurrent owner lease refresh."""
     repo = _repo(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
     row = repo.create_or_load(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -398,14 +423,14 @@ def test_stale_recovery_loses_race_when_same_owner_refreshes_lease(
             original_exec(
                 session,
                 update(CliMutationLedger)
-                .where(CliMutationLedger.mutation_event_id == row.mutation_event_id)
+                .where(_LEDGER_MUTATION_EVENT_ID == row.mutation_event_id)
                 .values(
                     last_heartbeat_at=_db_time(recovery_attempt_at),
                     lease_expires_at=_db_time(refreshed_expires_at),
                     updated_at=_db_time(recovery_attempt_at),
                 ),
             )
-        return original_exec(session, statement, *args, **kwargs)
+        return cast("Any", original_exec)(session, statement, *args, **kwargs)
 
     monkeypatch.setattr(
         mutation_ledger_mod.Session,
@@ -417,7 +442,7 @@ def test_stale_recovery_loses_race_when_same_owner_refreshes_lease(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-2",
         changed_by="cli-agent",
         lease_owner="worker-2",
@@ -437,13 +462,14 @@ def test_stale_recovery_loses_race_when_same_owner_refreshes_lease(
 def test_resume_requires_compare_and_set_from_recovery_required(
     engine: Engine,
 ) -> None:
+    """Verify resume lease acquisition is a compare-and-set transition."""
     repo = _repo(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
     row = repo.create_or_load(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -497,7 +523,7 @@ def test_show_event_returns_json_friendly_row_payload(engine: Engine) -> None:
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -508,7 +534,7 @@ def test_show_event_returns_json_friendly_row_payload(engine: Engine) -> None:
     with Session(engine) as session:
         session.exec(
             update(CliMutationLedger)
-            .where(CliMutationLedger.mutation_event_id == row.mutation_event_id)
+            .where(_LEDGER_MUTATION_EVENT_ID == row.mutation_event_id)
             .values(
                 completed_steps_json='["business_marker"]',
                 guard_inputs_json='{"expected_state":"SPRINT_SETUP"}',
@@ -530,7 +556,7 @@ def test_show_event_returns_json_friendly_row_payload(engine: Engine) -> None:
         "command": "agileforge fake mutate",
         "idempotency_key": "fake-key-001",
         "request_hash": "sha256:req",
-        "project_id": 7,
+        "project_id": PROJECT_ID,
         "correlation_id": "corr-1",
         "changed_by": "cli-agent",
         "status": MutationStatus.PENDING.value,
@@ -581,7 +607,7 @@ def test_list_events_filters_by_project_and_status(engine: Engine) -> None:
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req-1",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -591,7 +617,7 @@ def test_list_events_filters_by_project_and_status(engine: Engine) -> None:
         command="agileforge fake mutate",
         idempotency_key="fake-key-002",
         request_hash="sha256:req-2",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-2",
         changed_by="cli-agent",
         lease_owner="worker-2",
@@ -618,14 +644,17 @@ def test_list_events_filters_by_project_and_status(engine: Engine) -> None:
         now=now + timedelta(seconds=3),
     )
 
-    result = repo.list_events(project_id=7, status=MutationStatus.PENDING.value)
+    result = repo.list_events(
+        project_id=PROJECT_ID,
+        status=MutationStatus.PENDING.value,
+    )
 
     assert result["ok"] is True
     assert result["warnings"] == []
     assert result["errors"] == []
     assert len(result["data"]["items"]) == 1
     assert result["data"]["items"][0]["mutation_event_id"] == first.mutation_event_id
-    assert result["data"]["items"][0]["project_id"] == 7
+    assert result["data"]["items"][0]["project_id"] == PROJECT_ID
     assert result["data"]["items"][0]["status"] == MutationStatus.PENDING.value
 
 
@@ -639,7 +668,7 @@ def test_resume_event_acquires_recovery_lease_without_domain_recovery(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -680,7 +709,7 @@ def test_resume_event_returns_structured_conflict_error(engine: Engine) -> None:
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -717,7 +746,7 @@ def test_resume_event_repairs_expired_resume_lease_before_reacquiring(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -741,7 +770,7 @@ def test_resume_event_repairs_expired_resume_lease_before_reacquiring(
     with Session(engine) as session:
         session.exec(
             update(CliMutationLedger)
-            .where(CliMutationLedger.mutation_event_id == row.mutation_event_id)
+            .where(_LEDGER_MUTATION_EVENT_ID == row.mutation_event_id)
             .values(
                 lease_acquired_at=datetime(2000, 1, 1, tzinfo=UTC),
                 last_heartbeat_at=datetime(2000, 1, 1, tzinfo=UTC),
@@ -772,13 +801,14 @@ def test_resume_event_repairs_expired_resume_lease_before_reacquiring(
 
 
 def test_expired_owner_cannot_heartbeat(engine: Engine) -> None:
+    """Verify expired owners cannot refresh their lease heartbeat."""
     repo = _repo(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
     row = repo.create_or_load(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -803,13 +833,14 @@ def test_expired_owner_cannot_heartbeat(engine: Engine) -> None:
 
 
 def test_expired_owner_cannot_mark_step_complete(engine: Engine) -> None:
+    """Verify expired owners cannot record completed mutation steps."""
     repo = _repo(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
     row = repo.create_or_load(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -838,13 +869,14 @@ def test_mark_step_complete_loses_race_when_row_changes_before_commit(
     engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify step completion returns false when another update wins."""
     repo = _repo(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
     row = repo.create_or_load(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -867,7 +899,7 @@ def test_mark_step_complete_loses_race_when_row_changes_before_commit(
             original_exec(
                 session,
                 update(CliMutationLedger)
-                .where(CliMutationLedger.mutation_event_id == row.mutation_event_id)
+                .where(_LEDGER_MUTATION_EVENT_ID == row.mutation_event_id)
                 .values(
                     status=MutationStatus.RECOVERY_REQUIRED.value,
                     recovery_action=RecoveryAction.RECONCILE_THEN_RESUME.value,
@@ -876,7 +908,7 @@ def test_mark_step_complete_loses_race_when_row_changes_before_commit(
                     updated_at=_db_time(now + timedelta(seconds=5)),
                 ),
             )
-        return original_exec(session, statement, *args, **kwargs)
+        return cast("Any", original_exec)(session, statement, *args, **kwargs)
 
     monkeypatch.setattr(mutation_ledger_mod.Session, "exec", exec_after_recovery_race)
 
@@ -898,13 +930,14 @@ def test_mark_step_complete_loses_race_when_row_changes_before_commit(
 
 
 def test_expired_owner_cannot_finalize_success(engine: Engine) -> None:
+    """Verify expired owners cannot finalize successful mutations."""
     repo = _repo(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
     row = repo.create_or_load(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -934,13 +967,14 @@ def test_expired_owner_cannot_finalize_success(engine: Engine) -> None:
 def test_transition_status_enforces_expected_status_and_owner(
     engine: Engine,
 ) -> None:
+    """Verify generic status transitions require expected status and owner."""
     repo = _repo(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
     row = repo.create_or_load(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -982,13 +1016,14 @@ def test_transition_status_enforces_expected_status_and_owner(
 
 
 def test_require_active_owner_refreshes_only_active_owner(engine: Engine) -> None:
+    """Verify only the current active owner can refresh a lease."""
     repo = _repo(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
     row = repo.create_or_load(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",
@@ -1022,13 +1057,14 @@ def test_require_active_owner_refreshes_only_active_owner(engine: Engine) -> Non
 def test_finalize_success_requires_pending_active_owner_and_stores_result(
     engine: Engine,
 ) -> None:
+    """Verify success finalization stores response and rejects later rewrites."""
     repo = _repo(engine)
     now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
     row = repo.create_or_load(
         command="agileforge fake mutate",
         idempotency_key="fake-key-001",
         request_hash="sha256:req",
-        project_id=7,
+        project_id=PROJECT_ID,
         correlation_id="corr-1",
         changed_by="cli-agent",
         lease_owner="worker-1",

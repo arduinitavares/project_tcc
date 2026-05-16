@@ -1,6 +1,6 @@
 """Durable mutation ledger for CLI idempotency and recovery."""
 
-# ruff: noqa: E501, EM101, PLR0913, TRY003, TRY301
+# ruff: noqa: E501, EM101, PLR0913, SIM300, TRY003, TRY301
 
 from __future__ import annotations
 
@@ -19,6 +19,14 @@ from services.agent_workbench.error_codes import ErrorCode, workbench_error
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
+
+_MUTATION_EVENT_ID: Any = CliMutationLedger.mutation_event_id
+_COMMAND: Any = CliMutationLedger.command
+_IDEMPOTENCY_KEY: Any = CliMutationLedger.idempotency_key
+_PROJECT_ID: Any = CliMutationLedger.project_id
+_STATUS: Any = CliMutationLedger.status
+_LEASE_OWNER: Any = CliMutationLedger.lease_owner
+_LEASE_EXPIRES_AT: Any = CliMutationLedger.lease_expires_at
 
 IDEMPOTENCY_KEY_REUSED = "IDEMPOTENCY_KEY_REUSED"
 MUTATION_IN_PROGRESS = "MUTATION_IN_PROGRESS"
@@ -135,6 +143,7 @@ class MutationLedgerRepository:
     def __init__(self, *, engine: Engine) -> None:
         """Initialize the repository with a SQLAlchemy engine."""
         self._engine: Engine = engine
+        self.fail_after_retry_update_for_test: bool = False
 
     def show_event(self, *, mutation_event_id: int) -> dict[str, Any]:
         """Return one mutation ledger event in a service envelope."""
@@ -157,10 +166,10 @@ class MutationLedgerRepository:
         """Return mutation ledger events filtered by project and status."""
         statement = select(CliMutationLedger)
         if project_id is not None:
-            statement = statement.where(CliMutationLedger.project_id == project_id)
+            statement = statement.where(_PROJECT_ID == project_id)
         if status is not None:
-            statement = statement.where(CliMutationLedger.status == status)
-        statement = statement.order_by(CliMutationLedger.mutation_event_id)
+            statement = statement.where(_STATUS == status)
+        statement = statement.order_by(_MUTATION_EVENT_ID)
 
         with Session(self._engine) as session:
             rows = session.exec(statement).all()
@@ -244,8 +253,8 @@ class MutationLedgerRepository:
         with Session(self._engine) as session:
             existing = session.exec(
                 select(CliMutationLedger).where(
-                    CliMutationLedger.command == command,
-                    CliMutationLedger.idempotency_key == idempotency_key,
+                    _COMMAND == command,
+                    _IDEMPOTENCY_KEY == idempotency_key,
                 )
             ).first()
             if existing is not None:
@@ -279,8 +288,8 @@ class MutationLedgerRepository:
                 session.rollback()
                 raced_row = session.exec(
                     select(CliMutationLedger).where(
-                        CliMutationLedger.command == command,
-                        CliMutationLedger.idempotency_key == idempotency_key,
+                        _COMMAND == command,
+                        _IDEMPOTENCY_KEY == idempotency_key,
                     )
                 ).first()
                 if raced_row is None:
@@ -330,19 +339,17 @@ class MutationLedgerRepository:
 
         statement = (
             update(CliMutationLedger)
-            .where(CliMutationLedger.mutation_event_id == row.mutation_event_id)
-            .where(CliMutationLedger.status == MutationStatus.PENDING.value)
+            .where(_MUTATION_EVENT_ID == row.mutation_event_id)
+            .where(_STATUS == MutationStatus.PENDING.value)
         )
         if row.lease_owner is None:
-            statement = statement.where(CliMutationLedger.lease_owner.is_(None))
+            statement = statement.where(_LEASE_OWNER.is_(None))
         else:
-            statement = statement.where(
-                CliMutationLedger.lease_owner == row.lease_owner
-            )
+            statement = statement.where(_LEASE_OWNER == row.lease_owner)
         if row.lease_expires_at is None:
-            statement = statement.where(CliMutationLedger.lease_expires_at.is_(None))
+            statement = statement.where(_LEASE_EXPIRES_AT.is_(None))
         else:
-            statement = statement.where(CliMutationLedger.lease_expires_at <= db_now)
+            statement = statement.where(_LEASE_EXPIRES_AT <= db_now)
 
         result = session.exec(
             statement.values(
@@ -386,15 +393,13 @@ class MutationLedgerRepository:
         with Session(self._engine) as session:
             statement = (
                 update(CliMutationLedger)
-                .where(CliMutationLedger.mutation_event_id == mutation_event_id)
-                .where(CliMutationLedger.status == expected_status.value)
+                .where(_MUTATION_EVENT_ID == mutation_event_id)
+                .where(_STATUS == expected_status.value)
             )
             if expected_lease_owner is None:
-                statement = statement.where(CliMutationLedger.lease_owner.is_(None))
+                statement = statement.where(_LEASE_OWNER.is_(None))
             else:
-                statement = statement.where(
-                    CliMutationLedger.lease_owner == expected_lease_owner
-                )
+                statement = statement.where(_LEASE_OWNER == expected_lease_owner)
 
             values: dict[str, Any] = {
                 "status": new_status.value,
@@ -444,10 +449,10 @@ class MutationLedgerRepository:
         with Session(self._engine) as session:
             result = session.exec(
                 update(CliMutationLedger)
-                .where(CliMutationLedger.mutation_event_id == mutation_event_id)
-                .where(CliMutationLedger.status == MutationStatus.PENDING.value)
-                .where(CliMutationLedger.lease_owner == lease_owner)
-                .where(CliMutationLedger.lease_expires_at > db_now)
+                .where(_MUTATION_EVENT_ID == mutation_event_id)
+                .where(_STATUS == MutationStatus.PENDING.value)
+                .where(_LEASE_OWNER == lease_owner)
+                .where(_LEASE_EXPIRES_AT > db_now)
                 .values(
                     last_heartbeat_at=db_now,
                     lease_expires_at=db_now + timedelta(seconds=lease_seconds),
@@ -490,10 +495,10 @@ class MutationLedgerRepository:
         db_now = _db_datetime(now)
         result = session.exec(
             update(CliMutationLedger)
-            .where(CliMutationLedger.mutation_event_id == mutation_event_id)
-            .where(CliMutationLedger.status == MutationStatus.PENDING.value)
-            .where(CliMutationLedger.lease_owner == lease_owner)
-            .where(CliMutationLedger.lease_expires_at > db_now)
+            .where(_MUTATION_EVENT_ID == mutation_event_id)
+            .where(_STATUS == MutationStatus.PENDING.value)
+            .where(_LEASE_OWNER == lease_owner)
+            .where(_LEASE_EXPIRES_AT > db_now)
             .values(project_id=project_id, updated_at=db_now)
         )
         return result.rowcount == 1
@@ -524,10 +529,10 @@ class MutationLedgerRepository:
             steps.append(step)
         result = session.exec(
             update(CliMutationLedger)
-            .where(CliMutationLedger.mutation_event_id == mutation_event_id)
-            .where(CliMutationLedger.status == MutationStatus.PENDING.value)
-            .where(CliMutationLedger.lease_owner == lease_owner)
-            .where(CliMutationLedger.lease_expires_at > db_now)
+            .where(_MUTATION_EVENT_ID == mutation_event_id)
+            .where(_STATUS == MutationStatus.PENDING.value)
+            .where(_LEASE_OWNER == lease_owner)
+            .where(_LEASE_EXPIRES_AT > db_now)
             .values(
                 completed_steps_json=_json_dump(steps),
                 current_step=next_step,
@@ -550,13 +555,13 @@ class MutationLedgerRepository:
         with Session(self._engine) as session:
             result = session.exec(
                 update(CliMutationLedger)
-                .where(CliMutationLedger.mutation_event_id == mutation_event_id)
-                .where(CliMutationLedger.status == MutationStatus.RECOVERY_REQUIRED.value)
-                .where(CliMutationLedger.project_id == expected_project_id)
+                .where(_MUTATION_EVENT_ID == mutation_event_id)
+                .where(_STATUS == MutationStatus.RECOVERY_REQUIRED.value)
+                .where(_PROJECT_ID == expected_project_id)
                 .where(
-                    (CliMutationLedger.lease_owner.is_(None))
-                    | (CliMutationLedger.lease_expires_at.is_(None))
-                    | (CliMutationLedger.lease_expires_at <= db_now)
+                    (_LEASE_OWNER.is_(None))
+                    | (_LEASE_EXPIRES_AT.is_(None))
+                    | (_LEASE_EXPIRES_AT <= db_now)
                 )
                 .values(
                     lease_owner=recovery_lease_owner,
@@ -581,9 +586,9 @@ class MutationLedgerRepository:
         with Session(self._engine) as session:
             result = session.exec(
                 update(CliMutationLedger)
-                .where(CliMutationLedger.mutation_event_id == mutation_event_id)
-                .where(CliMutationLedger.status == MutationStatus.RECOVERY_REQUIRED.value)
-                .where(CliMutationLedger.lease_owner == recovery_lease_owner)
+                .where(_MUTATION_EVENT_ID == mutation_event_id)
+                .where(_STATUS == MutationStatus.RECOVERY_REQUIRED.value)
+                .where(_LEASE_OWNER == recovery_lease_owner)
                 .values(
                     lease_owner=None,
                     lease_acquired_at=None,
@@ -610,10 +615,10 @@ class MutationLedgerRepository:
         with Session(self._engine) as session:
             result = session.exec(
                 update(CliMutationLedger)
-                .where(CliMutationLedger.mutation_event_id == mutation_event_id)
-                .where(CliMutationLedger.status == MutationStatus.PENDING.value)
-                .where(CliMutationLedger.lease_owner == lease_owner)
-                .where(CliMutationLedger.lease_expires_at > db_now)
+                .where(_MUTATION_EVENT_ID == mutation_event_id)
+                .where(_STATUS == MutationStatus.PENDING.value)
+                .where(_LEASE_OWNER == lease_owner)
+                .where(_LEASE_EXPIRES_AT > db_now)
                 .values(
                     status=MutationStatus.RECOVERY_REQUIRED.value,
                     recovery_action=recovery_action.value,
@@ -643,9 +648,9 @@ class MutationLedgerRepository:
         with Session(self._engine) as session:
             result = session.exec(
                 update(CliMutationLedger)
-                .where(CliMutationLedger.mutation_event_id == mutation_event_id)
-                .where(CliMutationLedger.status == MutationStatus.RECOVERY_REQUIRED.value)
-                .where(CliMutationLedger.lease_owner == lease_owner)
+                .where(_MUTATION_EVENT_ID == mutation_event_id)
+                .where(_STATUS == MutationStatus.RECOVERY_REQUIRED.value)
+                .where(_LEASE_OWNER == lease_owner)
                 .values(
                     status=MutationStatus.SUPERSEDED.value,
                     superseded_by_mutation_event_id=superseded_by_mutation_event_id,
@@ -678,10 +683,10 @@ class MutationLedgerRepository:
             try:
                 retry_result = session.exec(
                     update(CliMutationLedger)
-                    .where(CliMutationLedger.mutation_event_id == retry_mutation_event_id)
-                    .where(CliMutationLedger.status == MutationStatus.PENDING.value)
-                    .where(CliMutationLedger.lease_owner == retry_lease_owner)
-                    .where(CliMutationLedger.lease_expires_at > db_now)
+                    .where(_MUTATION_EVENT_ID == retry_mutation_event_id)
+                    .where(_STATUS == MutationStatus.PENDING.value)
+                    .where(_LEASE_OWNER == retry_lease_owner)
+                    .where(_LEASE_EXPIRES_AT > db_now)
                     .values(
                         status=MutationStatus.SUCCEEDED.value,
                         after_json=_json_dump(after),
@@ -701,13 +706,13 @@ class MutationLedgerRepository:
                         session=session,
                         retry_mutation_event_id=retry_mutation_event_id,
                     )
-                if getattr(self, "fail_after_retry_update_for_test", False):
+                if self.fail_after_retry_update_for_test:
                     raise RuntimeError("Injected linked retry transition failure.")
                 original_result = session.exec(
                     update(CliMutationLedger)
-                    .where(CliMutationLedger.mutation_event_id == original_mutation_event_id)
-                    .where(CliMutationLedger.status == MutationStatus.RECOVERY_REQUIRED.value)
-                    .where(CliMutationLedger.lease_owner == original_recovery_lease_owner)
+                    .where(_MUTATION_EVENT_ID == original_mutation_event_id)
+                    .where(_STATUS == MutationStatus.RECOVERY_REQUIRED.value)
+                    .where(_LEASE_OWNER == original_recovery_lease_owner)
                     .values(
                         status=MutationStatus.SUPERSEDED.value,
                         superseded_by_mutation_event_id=retry_mutation_event_id,
@@ -758,10 +763,10 @@ class MutationLedgerRepository:
             try:
                 retry_result = session.exec(
                     update(CliMutationLedger)
-                    .where(CliMutationLedger.mutation_event_id == retry_mutation_event_id)
-                    .where(CliMutationLedger.status == MutationStatus.PENDING.value)
-                    .where(CliMutationLedger.lease_owner == retry_lease_owner)
-                    .where(CliMutationLedger.lease_expires_at > db_now)
+                    .where(_MUTATION_EVENT_ID == retry_mutation_event_id)
+                    .where(_STATUS == MutationStatus.PENDING.value)
+                    .where(_LEASE_OWNER == retry_lease_owner)
+                    .where(_LEASE_EXPIRES_AT > db_now)
                     .values(
                         status=MutationStatus.RECOVERY_REQUIRED.value,
                         recovery_action=recovery_action.value,
@@ -781,13 +786,13 @@ class MutationLedgerRepository:
                         session=session,
                         retry_mutation_event_id=retry_mutation_event_id,
                     )
-                if getattr(self, "fail_after_retry_update_for_test", False):
+                if self.fail_after_retry_update_for_test:
                     raise RuntimeError("Injected linked retry transition failure.")
                 original_result = session.exec(
                     update(CliMutationLedger)
-                    .where(CliMutationLedger.mutation_event_id == original_mutation_event_id)
-                    .where(CliMutationLedger.status == MutationStatus.RECOVERY_REQUIRED.value)
-                    .where(CliMutationLedger.lease_owner == original_recovery_lease_owner)
+                    .where(_MUTATION_EVENT_ID == original_mutation_event_id)
+                    .where(_STATUS == MutationStatus.RECOVERY_REQUIRED.value)
+                    .where(_LEASE_OWNER == original_recovery_lease_owner)
                     .values(
                         status=MutationStatus.SUPERSEDED.value,
                         superseded_by_mutation_event_id=retry_mutation_event_id,
@@ -885,10 +890,10 @@ class MutationLedgerRepository:
                 steps.append(step)
             result = session.exec(
                 update(CliMutationLedger)
-                .where(CliMutationLedger.mutation_event_id == mutation_event_id)
-                .where(CliMutationLedger.status == MutationStatus.PENDING.value)
-                .where(CliMutationLedger.lease_owner == lease_owner)
-                .where(CliMutationLedger.lease_expires_at > db_now)
+                .where(_MUTATION_EVENT_ID == mutation_event_id)
+                .where(_STATUS == MutationStatus.PENDING.value)
+                .where(_LEASE_OWNER == lease_owner)
+                .where(_LEASE_EXPIRES_AT > db_now)
                 .values(
                     completed_steps_json=_json_dump(steps),
                     current_step=next_step,
@@ -912,10 +917,10 @@ class MutationLedgerRepository:
         with Session(self._engine) as session:
             result = session.exec(
                 update(CliMutationLedger)
-                .where(CliMutationLedger.mutation_event_id == mutation_event_id)
-                .where(CliMutationLedger.status == MutationStatus.PENDING.value)
-                .where(CliMutationLedger.lease_owner == lease_owner)
-                .where(CliMutationLedger.lease_expires_at > db_now)
+                .where(_MUTATION_EVENT_ID == mutation_event_id)
+                .where(_STATUS == MutationStatus.PENDING.value)
+                .where(_LEASE_OWNER == lease_owner)
+                .where(_LEASE_EXPIRES_AT > db_now)
                 .values(
                     status=MutationStatus.SUCCEEDED.value,
                     after_json=_json_dump(after),
@@ -946,8 +951,8 @@ class MutationLedgerRepository:
         with Session(self._engine) as session:
             result = session.exec(
                 update(CliMutationLedger)
-                .where(CliMutationLedger.mutation_event_id == mutation_event_id)
-                .where(CliMutationLedger.status == MutationStatus.PENDING.value)
+                .where(_MUTATION_EVENT_ID == mutation_event_id)
+                .where(_STATUS == MutationStatus.PENDING.value)
                 .values(
                     status=MutationStatus.RECOVERY_REQUIRED.value,
                     recovery_action=recovery_action.value,

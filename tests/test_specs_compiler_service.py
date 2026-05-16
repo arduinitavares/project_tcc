@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -589,7 +590,7 @@ def test_compile_spec_authority_for_version_persists_authority(
 
 
 def test_compile_spec_authority_for_version_with_engine_uses_supplied_engine(
-    engine: object, monkeypatch: pytest.MonkeyPatch
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify engine-aware compile path never falls back to module get_engine."""
     from services.specs import compiler_service  # noqa: PLC0415
@@ -634,7 +635,7 @@ def test_compile_spec_authority_for_version_with_engine_uses_supplied_engine(
 
 
 def test_compile_spec_authority_for_version_with_engine_runs_lease_guard_before_persist(
-    engine: object,
+    engine: Engine,
     session: Session,
     sample_product: Product,
     monkeypatch: pytest.MonkeyPatch,
@@ -684,7 +685,7 @@ def test_compile_spec_authority_for_version_with_engine_runs_lease_guard_before_
     ],
 )
 def test_compile_spec_authority_for_version_with_engine_lease_loss_blocks_write(  # noqa: PLR0913
-    engine: object,
+    engine: Engine,
     session: Session,
     sample_product: Product,
     monkeypatch: pytest.MonkeyPatch,
@@ -735,7 +736,7 @@ def test_compile_spec_authority_for_version_with_engine_lease_loss_blocks_write(
     ],
 )
 def test_compile_spec_authority_for_version_with_engine_progress_failure_recovers(  # noqa: PLR0913
-    engine: object,
+    engine: Engine,
     session: Session,
     sample_product: Product,
     monkeypatch: pytest.MonkeyPatch,

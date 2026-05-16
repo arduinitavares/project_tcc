@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Final, Protocol
+from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
@@ -273,6 +273,7 @@ class AgentWorkbenchApplication:
         repo, error = _mutation_ledger_repository()
         if error is not None:
             return error
+        repo = cast("MutationLedgerRepository", repo)
         return repo.show_event(mutation_event_id=mutation_event_id)
 
     def mutation_list(
@@ -285,6 +286,7 @@ class AgentWorkbenchApplication:
         repo, error = _mutation_ledger_repository()
         if error is not None:
             return error
+        repo = cast("MutationLedgerRepository", repo)
         return repo.list_events(project_id=project_id, status=status)
 
     def mutation_resume(
@@ -297,6 +299,7 @@ class AgentWorkbenchApplication:
         repo, error = _mutation_ledger_repository()
         if error is not None:
             return error
+        repo = cast("MutationLedgerRepository", repo)
         return repo.resume_event(
             mutation_event_id=mutation_event_id,
             correlation_id=correlation_id,

@@ -7,7 +7,7 @@ import shutil
 import subprocess  # nosec B404
 import sys
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -390,7 +390,7 @@ def test_cli_wraps_success_source_fingerprint_in_meta(
             "errors": [],
         }
 
-    app.project_list = project_list_with_source  # type: ignore[method-assign]
+    cast("Any", app).project_list = project_list_with_source
 
     rc = main(["project", "list"], application=app)
 
@@ -811,7 +811,7 @@ def test_cli_preserves_error_data_from_service_result(
             ],
         }
 
-    app.mutation_resume = mutation_resume_conflict  # type: ignore[method-assign]
+    cast("Any", app).mutation_resume = mutation_resume_conflict
 
     rc = main(
         ["mutation", "resume", "--mutation-event-id", "101"],

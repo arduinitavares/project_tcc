@@ -1,6 +1,6 @@
 """Project setup mutation runner for CLI project creation."""
 
-# ruff: noqa: ANN401, ARG001, C901, D107, E501, EM101, EM102, PLR0911, PLR0912, PLR0913, PLR2004, TRY003, TC002, TC003
+# ruff: noqa: ANN401, ARG001, C901, D107, E501, EM101, EM102, PLR0911, PLR0912, PLR0913, PLR2004, SIM300, TRY003, TC002, TC003
 
 from __future__ import annotations
 
@@ -54,6 +54,14 @@ MUTATION_RECOVERY_INVALID = "MUTATION_RECOVERY_INVALID"
 SPEC_COMPILE_FAILED = "SPEC_COMPILE_FAILED"
 WORKFLOW_SESSION_FAILED = "WORKFLOW_SESSION_FAILED"
 _KEY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]+$")
+_LEDGER_MUTATION_EVENT_ID: Any = CliMutationLedger.mutation_event_id
+_LEDGER_COMMAND: Any = CliMutationLedger.command
+_LEDGER_IDEMPOTENCY_KEY: Any = CliMutationLedger.idempotency_key
+_LEDGER_STATUS: Any = CliMutationLedger.status
+_LEDGER_LEASE_OWNER: Any = CliMutationLedger.lease_owner
+_LEDGER_LEASE_EXPIRES_AT: Any = CliMutationLedger.lease_expires_at
+_SPEC_PRODUCT_ID: Any = SpecRegistry.product_id
+_SPEC_VERSION_ID: Any = SpecRegistry.spec_version_id
 
 
 class ProjectCreateRequest(BaseModel):
@@ -249,6 +257,9 @@ class ProjectSetupMutationRunner:
         self._ledger = MutationLedgerRepository(engine=engine)
         self._workflow = workflow or _default_workflow_port()
         self._lease_seconds = DEFAULT_LEASE_SECONDS
+        self.fail_after_step_for_test: str | None = None
+        self.fail_retry_before_side_effects_for_test: bool = False
+        self.fail_retry_after_side_effects_for_test: bool = False
 
     def create_project(self, request: ProjectCreateRequest) -> dict[str, Any]:
         """Create a project and pending compiled authority."""
@@ -396,7 +407,7 @@ class ProjectSetupMutationRunner:
                 original_mutation_event_id=original_event_id,
             )
 
-        if getattr(self, "fail_retry_before_side_effects_for_test", False):
+        if self.fail_retry_before_side_effects_for_test:
             response_data = _retry_pre_side_effect_failure_data(
                 request=request,
                 retry_mutation_event_id=retry_event_id,
@@ -442,7 +453,7 @@ class ProjectSetupMutationRunner:
                 )
             return setup_result
 
-        if getattr(self, "fail_retry_after_side_effects_for_test", False):
+        if self.fail_retry_after_side_effects_for_test:
             return self._transfer_retry_recovery(
                 request=request,
                 retry_mutation_event_id=retry_event_id,
@@ -513,7 +524,7 @@ class ProjectSetupMutationRunner:
                 mutation_event_id=mutation_event_id,
                 lease_owner=lease_owner,
             )
-            if getattr(self, "fail_after_step_for_test", None) == "product_created":
+            if self.fail_after_step_for_test == "product_created":
                 self._mark_create_recovery_required(
                     mutation_event_id=mutation_event_id,
                     lease_owner=lease_owner,
@@ -958,10 +969,10 @@ class ProjectSetupMutationRunner:
         with Session(self._engine) as session:
             session.exec(
                 update(CliMutationLedger)
-                .where(CliMutationLedger.mutation_event_id == mutation_event_id)
-                .where(CliMutationLedger.status == MutationStatus.PENDING.value)
-                .where(CliMutationLedger.lease_owner == lease_owner)
-                .where(CliMutationLedger.lease_expires_at > db_now)
+                .where(_LEDGER_MUTATION_EVENT_ID == mutation_event_id)
+                .where(_LEDGER_STATUS == MutationStatus.PENDING.value)
+                .where(_LEDGER_LEASE_OWNER == lease_owner)
+                .where(_LEDGER_LEASE_EXPIRES_AT > db_now)
                 .values(
                     status=status.value,
                     response_json=_json_dump(response),
@@ -983,8 +994,8 @@ class ProjectSetupMutationRunner:
         with Session(self._engine) as session:
             return session.exec(
                 select(CliMutationLedger).where(
-                    CliMutationLedger.command == command,
-                    CliMutationLedger.idempotency_key == idempotency_key,
+                    _LEDGER_COMMAND == command,
+                    _LEDGER_IDEMPOTENCY_KEY == idempotency_key,
                 )
             ).first()
 
@@ -1019,8 +1030,8 @@ class ProjectSetupMutationRunner:
         with Session(self._engine) as session:
             spec = session.exec(
                 select(SpecRegistry)
-                .where(SpecRegistry.product_id == project_id)
-                .order_by(SpecRegistry.spec_version_id.desc())  # type: ignore[union-attr]
+                .where(_SPEC_PRODUCT_ID == project_id)
+                .order_by(_SPEC_VERSION_ID.desc())
             ).first()
             if spec is None or spec.spec_version_id is None:
                 return None

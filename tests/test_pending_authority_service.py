@@ -2,6 +2,7 @@
 
 import hashlib
 import inspect
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
@@ -93,8 +94,8 @@ def test_compile_pending_authority_creates_artifact_without_acceptance(
         spec_version_id: int,
         force_recompile: bool | None = None,
         tool_context: object | None = None,
-        lease_guard: object | None = None,
-        record_progress: object | None = None,
+        lease_guard: Callable[[str], bool] | None = None,
+        record_progress: Callable[[str], bool] | None = None,
     ) -> dict[str, object]:
         del tool_context
         assert force_recompile is False

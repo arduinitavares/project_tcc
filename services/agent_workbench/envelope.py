@@ -89,7 +89,7 @@ def _meta(
     return metadata
 
 
-def success_envelope(
+def success_envelope(  # noqa: PLR0913
     *,
     command: str,
     data: dict[str, Any] | list[Any],
@@ -115,7 +115,7 @@ def success_envelope(
     }
 
 
-def error_envelope(
+def error_envelope(  # noqa: PLR0913
     *,
     command: str,
     error: WorkbenchError,

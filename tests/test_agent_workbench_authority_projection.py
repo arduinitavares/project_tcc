@@ -199,7 +199,7 @@ def test_authority_status_keeps_compiled_but_unaccepted_authority_pending(
     product = _seed_product(session)
     product_id = require_id(product.product_id, "product_id")
     spec = _seed_spec(session, product_id=product_id, content="# Spec\n")
-    _seed_authority(
+    authority = _seed_authority(
         session,
         spec_version_id=require_id(spec.spec_version_id, "spec_version_id"),
     )
@@ -213,6 +213,16 @@ def test_authority_status_keeps_compiled_but_unaccepted_authority_pending(
     assert result["data"]["latest_spec_version_id"] == spec.spec_version_id
     assert result["data"]["accepted_spec_version_id"] is None
     assert result["data"]["authority_id"] is None
+    assert result["data"]["pending_authority_id"] == authority.authority_id
+    assert (
+        result["data"]["pending_compiled_spec_version_id"]
+        == spec.spec_version_id
+    )
+    assert result["data"]["pending_compiled_at"] == "2026-05-14T12:00:00Z"
+    assert result["data"]["pending_compiler_version"] == "1.0.0"
+    assert result["data"]["pending_prompt_hash"] == "a" * 64
+    assert result["data"]["pending_invariant_count"] == 1
+    assert result["data"]["pending_authority_fingerprint"].startswith("sha256:")
 
 
 def test_authority_status_reports_current_accepted_authority_from_repo_root(
@@ -252,6 +262,8 @@ def test_authority_status_reports_current_accepted_authority_from_repo_root(
     assert result["data"]["spec_hash"] == spec.spec_hash
     assert result["data"]["stale_reason"] is None
     assert result["data"]["authority_id"] == authority.authority_id
+    assert result["data"]["pending_authority_id"] is None
+    assert result["data"]["pending_authority_fingerprint"] is None
     assert result["data"]["invariant_count"] == 1
     assert result["data"]["disk_spec"]["resolved_path"] == str(spec_path.resolve())
     assert result["data"]["disk_spec"]["sha256"] == spec.spec_hash

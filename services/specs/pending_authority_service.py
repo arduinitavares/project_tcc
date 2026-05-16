@@ -1,6 +1,8 @@
 # services/specs/pending_authority_service.py
 """Compile pending project spec authority without accepting it."""
 
+# ruff: noqa: SIM300
+
 from __future__ import annotations
 
 import hashlib
@@ -8,7 +10,7 @@ from collections.abc import Callable  # noqa: TC003
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path  # noqa: TC003
-from typing import Protocol
+from typing import Any, Protocol
 
 from sqlmodel import Session, select
 
@@ -20,6 +22,8 @@ _MAX_SPEC_SIZE_BYTES = _MAX_SPEC_SIZE_KB * 1024
 _PENDING_APPROVAL_NOTES = (
     "Required compiler precondition for pending authority generation"
 )
+_SPEC_PRODUCT_ID: Any = SpecRegistry.product_id
+_SPEC_VERSION_ID: Any = SpecRegistry.spec_version_id
 
 
 class PendingAuthorityCompiler(Protocol):
@@ -171,8 +175,8 @@ def _latest_spec_for_product(
     """Return the latest spec registry row for the product."""
     return session.exec(
         select(SpecRegistry)
-        .where(SpecRegistry.product_id == product_id)
-        .order_by(SpecRegistry.spec_version_id.desc())  # type: ignore[union-attr]
+        .where(_SPEC_PRODUCT_ID == product_id)
+        .order_by(_SPEC_VERSION_ID.desc())
     ).first()
 
 
@@ -447,9 +451,10 @@ def compile_pending_authority_for_project(  # noqa: C901, PLR0911, PLR0912, PLR0
             CompiledSpecAuthority.spec_version_id == spec_version_id
         )
     ).first()
+    compile_authority_id = compile_result.get("authority_id")
     authority_id = (
-        int(compile_result["authority_id"])
-        if "authority_id" in compile_result
+        int(str(compile_authority_id))
+        if compile_authority_id is not None
         else None
     )
     if authority is not None and authority.authority_id is not None:

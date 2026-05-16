@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 
     from services.agent_workbench.session_reader import ReadOnlySessionReader
 
+SCHEMA_NOT_READY_EXIT_CODE = 5
+
 
 def _engine(session: Session) -> Engine:
     """Return the test session bind as an engine for projection services."""
@@ -353,7 +355,7 @@ def test_read_projection_reports_schema_not_ready_without_creating_database(
 
     assert result["ok"] is False
     assert result["errors"][0]["code"] == "SCHEMA_NOT_READY"
-    assert result["errors"][0]["exit_code"] == 5
+    assert result["errors"][0]["exit_code"] == SCHEMA_NOT_READY_EXIT_CODE
     assert result["errors"][0]["retryable"] is True
     assert "products" in result["errors"][0]["details"]["missing"]
     assert not db_path.exists()
