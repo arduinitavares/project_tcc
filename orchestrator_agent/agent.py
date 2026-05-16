@@ -65,7 +65,7 @@ from utils.model_config import (
 from utils.runtime_config import get_openrouter_api_key
 
 # --- Load environment and instruction ---
-INSTRUCTIONS_PATH = Path("orchestrator_agent/instructions.txt")
+INSTRUCTIONS_PATH = Path(__file__).with_name("instructions.txt")
 instruction_text = load_instruction(INSTRUCTIONS_PATH)
 
 

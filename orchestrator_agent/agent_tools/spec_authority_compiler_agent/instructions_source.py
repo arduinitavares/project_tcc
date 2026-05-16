@@ -20,9 +20,7 @@ from utils.helper import load_instruction
 
 SPEC_AUTHORITY_COMPILER_VERSION = "1.0.0"
 
-_INSTRUCTIONS_PATH = Path(
-    "orchestrator_agent/agent_tools/spec_authority_compiler_agent/instructions.txt"
-)
+_INSTRUCTIONS_PATH = Path(__file__).with_name("instructions.txt")
 
 SPEC_AUTHORITY_COMPILER_INSTRUCTIONS: str = load_instruction(_INSTRUCTIONS_PATH)
 

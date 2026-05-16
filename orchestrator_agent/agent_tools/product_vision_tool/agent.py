@@ -21,9 +21,7 @@ from utils.runtime_config import (
 from .schemes import InputSchema, OutputSchema
 
 # --- Load Instruction ---
-INSTRUCTIONS_PATH: Path = Path(
-    "orchestrator_agent/agent_tools/product_vision_tool/instructions.txt"
-)
+INSTRUCTIONS_PATH: Path = Path(__file__).with_name("instructions.txt")
 instructions = load_instruction(INSTRUCTIONS_PATH)
 
 # --- Initialize Model with drop_params to prevent logging issues ---
