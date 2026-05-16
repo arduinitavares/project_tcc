@@ -15,12 +15,13 @@ from services.agent_workbench.envelope import (
     error_envelope,
     success_envelope,
 )
+from utils.logging_config import configure_logging
 
 DEFAULT_CONTEXT_PHASE: str = "overview"
 INVALID_COMMAND_EXIT_CODE: int = 2
 COMMAND_EXCEPTION_EXIT_CODE: int = 1
 HELP_DESCRIPTION: str = (
-    "AgileForge agent-facing CLI for read-only agile workflow context."
+    "AgileForge agent-facing CLI for workflow inspection and guarded mutations."
 )
 HELP_EPILOG: str = """\
 Examples:
@@ -676,6 +677,7 @@ def _dispatch(args: argparse.Namespace, application: _Application) -> CommandRes
 
 def main(argv: list[str] | None = None, *, application: object | None = None) -> int:
     """Run the CLI and return a process exit code."""
+    configure_logging(console=False)
     parser = build_parser()
     try:
         args = parser.parse_args(argv)

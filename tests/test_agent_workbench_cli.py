@@ -578,11 +578,27 @@ def test_top_level_help_describes_agent_workbench_commands(
     assert captured.err == ""
     assert "AgileForge" in captured.out
     assert "agent-facing CLI" in captured.out
+    assert "read-only" not in captured.out
     assert "agileforge project list" in captured.out
     assert (
         "agileforge context pack --project-id 1 --phase sprint-planning"
         in captured.out
     )
+
+
+def test_cli_configures_logging(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify CLI startup configures file logging without console logging."""
+    calls: list[dict[str, object]] = []
+
+    def fake_configure_logging(**kwargs: object) -> None:
+        calls.append(dict(kwargs))
+
+    monkeypatch.setattr("cli.main.configure_logging", fake_configure_logging)
+
+    exit_code = main(["project", "list"], application=_FakeApplication())
+
+    assert exit_code == 0
+    assert calls == [{"console": False}]
 
 
 def test_packaged_project_exposes_api_module_from_other_cwd(
