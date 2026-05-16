@@ -37,6 +37,11 @@ EXPECTED_PHASE_2A_COMMAND_NAMES = {
     "agileforge mutation resume",
 }
 
+EXPECTED_PHASE_2B_COMMAND_NAMES = {
+    "agileforge project create",
+    "agileforge project setup retry",
+}
+
 EXPECTED_PHASE_1_INPUTS = {
     "agileforge status": (["project_id"], []),
     "agileforge project list": ([], []),
@@ -48,6 +53,12 @@ EXPECTED_PHASE_1_INPUTS = {
     "agileforge story show": (["story_id"], []),
     "agileforge sprint candidates": (["project_id"], []),
     "agileforge context pack": (["project_id"], ["phase"]),
+}
+
+DRY_RUN_IDEMPOTENCY_POLICY = {
+    "non_dry_run": "required",
+    "dry_run": "forbidden",
+    "dry_run_trace_field": "dry_run_id",
 }
 
 
@@ -184,4 +195,50 @@ def test_phase_2a_commands_are_registered_and_available() -> None:
 
     assert EXPECTED_PHASE_2A_COMMAND_NAMES.issubset(names)
     for command_name in EXPECTED_PHASE_2A_COMMAND_NAMES:
+        assert command_is_available(command_name) is True
+
+
+def test_project_create_is_registered_as_mutating_idempotent_command() -> None:
+    """Publish the project create mutation contract for agents."""
+    schema = command_schema_payload("agileforge project create")
+
+    assert schema["mutates"] is True
+    assert schema["idempotency_required"] is True
+    assert schema["idempotency_policy"] == DRY_RUN_IDEMPOTENCY_POLICY
+    assert schema["input"]["required"] == ["name", "spec_file"]
+    assert "idempotency_key" in schema["input"]["optional"]
+    assert "dry_run" in schema["input"]["optional"]
+    assert "dry_run_id" in schema["input"]["optional"]
+    assert ErrorCode.PROJECT_ALREADY_EXISTS.value in schema["errors"]
+    assert ErrorCode.MUTATION_FAILED.value in schema["errors"]
+
+
+def test_project_setup_retry_is_registered_as_guarded_mutation() -> None:
+    """Publish the setup retry mutation contract for agents."""
+    schema = command_schema_payload("agileforge project setup retry")
+
+    assert schema["mutates"] is True
+    assert schema["idempotency_required"] is True
+    assert schema["idempotency_policy"] == DRY_RUN_IDEMPOTENCY_POLICY
+    assert schema["guard_policy"] == [
+        "expected_state",
+        "expected_context_fingerprint",
+    ]
+    assert schema["input"]["required"] == [
+        "project_id",
+        "spec_file",
+        "expected_state",
+        "expected_context_fingerprint",
+    ]
+    assert "recovery_mutation_event_id" in schema["input"]["optional"]
+    assert ErrorCode.MUTATION_FAILED.value in schema["errors"]
+    assert ErrorCode.MUTATION_RESUME_CONFLICT.value in schema["errors"]
+
+
+def test_phase_2b_commands_are_registered_and_available() -> None:
+    """Expose Phase 2B project setup command names through the registry."""
+    names = installed_command_names()
+
+    assert EXPECTED_PHASE_2B_COMMAND_NAMES.issubset(names)
+    for command_name in EXPECTED_PHASE_2B_COMMAND_NAMES:
         assert command_is_available(command_name) is True

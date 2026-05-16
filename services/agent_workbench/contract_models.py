@@ -37,5 +37,6 @@ class CommandContractSchema(BaseModel):
     output: CommandOutputSchema
     guard_policy: list[str]
     idempotency_required: bool
+    idempotency_policy: dict[str, str]
     errors: list[str]
     exit_codes: dict[str, int]

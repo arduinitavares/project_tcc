@@ -1,6 +1,6 @@
 """Installed command metadata for the agent workbench."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from services.agent_workbench.error_codes import ErrorCode
 from services.agent_workbench.version import COMMAND_VERSION
@@ -21,6 +21,13 @@ class CommandMetadata:
     accepts_expected_context_fingerprint: bool = False
     accepts_expected_authority_version: bool = False
     requires_idempotency_key: bool = False
+    idempotency_policy: dict[str, str] = field(
+        default_factory=lambda: {
+            "non_dry_run": "not_applicable",
+            "dry_run": "not_applicable",
+            "dry_run_trace_field": "none",
+        }
+    )
     input_required: tuple[str, ...] = ()
     input_optional: tuple[str, ...] = ()
     errors: tuple[str, ...] = ()
@@ -127,10 +134,85 @@ _PHASE_2A_COMMANDS: tuple[CommandMetadata, ...] = (
     ),
 )
 
+_DRY_RUN_IDEMPOTENCY_POLICY: dict[str, str] = {
+    "non_dry_run": "required",
+    "dry_run": "forbidden",
+    "dry_run_trace_field": "dry_run_id",
+}
+
+_PHASE_2B_COMMANDS: tuple[CommandMetadata, ...] = (
+    CommandMetadata(
+        name="agileforge project create",
+        mutates=True,
+        phase="phase_2b",
+        requires_idempotency_key=True,
+        idempotency_policy=_DRY_RUN_IDEMPOTENCY_POLICY,
+        input_required=("name", "spec_file"),
+        input_optional=(
+            "idempotency_key",
+            "dry_run",
+            "dry_run_id",
+            "correlation_id",
+            "changed_by",
+        ),
+        errors=(
+            ErrorCode.SCHEMA_NOT_READY.value,
+            ErrorCode.PROJECT_ALREADY_EXISTS.value,
+            ErrorCode.SPEC_FILE_NOT_FOUND.value,
+            ErrorCode.SPEC_FILE_INVALID.value,
+            ErrorCode.SPEC_COMPILE_FAILED.value,
+            ErrorCode.WORKFLOW_SESSION_FAILED.value,
+            ErrorCode.MUTATION_FAILED.value,
+            ErrorCode.IDEMPOTENCY_KEY_REUSED.value,
+            ErrorCode.MUTATION_IN_PROGRESS.value,
+            ErrorCode.MUTATION_RECOVERY_REQUIRED.value,
+        ),
+    ),
+    CommandMetadata(
+        name="agileforge project setup retry",
+        mutates=True,
+        phase="phase_2b",
+        requires_idempotency_key=True,
+        accepts_expected_state=True,
+        accepts_expected_context_fingerprint=True,
+        idempotency_policy=_DRY_RUN_IDEMPOTENCY_POLICY,
+        input_required=(
+            "project_id",
+            "spec_file",
+            "expected_state",
+            "expected_context_fingerprint",
+        ),
+        input_optional=(
+            "recovery_mutation_event_id",
+            "idempotency_key",
+            "dry_run",
+            "dry_run_id",
+            "correlation_id",
+            "changed_by",
+        ),
+        errors=(
+            ErrorCode.SCHEMA_NOT_READY.value,
+            ErrorCode.PROJECT_NOT_FOUND.value,
+            ErrorCode.SPEC_FILE_NOT_FOUND.value,
+            ErrorCode.SPEC_FILE_INVALID.value,
+            ErrorCode.SPEC_COMPILE_FAILED.value,
+            ErrorCode.WORKFLOW_SESSION_FAILED.value,
+            ErrorCode.MUTATION_FAILED.value,
+            ErrorCode.STALE_STATE.value,
+            ErrorCode.STALE_CONTEXT_FINGERPRINT.value,
+            ErrorCode.IDEMPOTENCY_KEY_REUSED.value,
+            ErrorCode.MUTATION_IN_PROGRESS.value,
+            ErrorCode.MUTATION_RECOVERY_REQUIRED.value,
+            ErrorCode.MUTATION_RECOVERY_INVALID.value,
+            ErrorCode.MUTATION_RESUME_CONFLICT.value,
+        ),
+    ),
+)
+
 
 def installed_commands() -> tuple[CommandMetadata, ...]:
     """Return installed command metadata for the current workbench phase."""
-    return (*_PHASE_1_COMMANDS, *_PHASE_2A_COMMANDS)
+    return (*_PHASE_1_COMMANDS, *_PHASE_2A_COMMANDS, *_PHASE_2B_COMMANDS)
 
 
 def installed_command_names() -> set[str]:

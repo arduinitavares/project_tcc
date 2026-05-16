@@ -15,8 +15,12 @@ EXPECTED_ERROR_METADATA = {
     ErrorCode.COMMAND_NOT_IMPLEMENTED: (2, False),
     ErrorCode.SCHEMA_NOT_READY: (5, True),
     ErrorCode.PROJECT_NOT_FOUND: (4, False),
+    ErrorCode.PROJECT_ALREADY_EXISTS: (2, False),
     ErrorCode.STORY_NOT_FOUND: (4, False),
     ErrorCode.SPEC_VERSION_NOT_FOUND: (4, False),
+    ErrorCode.SPEC_FILE_NOT_FOUND: (2, False),
+    ErrorCode.SPEC_FILE_INVALID: (2, False),
+    ErrorCode.SPEC_COMPILE_FAILED: (1, True),
     ErrorCode.AUTHORITY_NOT_ACCEPTED: (4, False),
     ErrorCode.AUTHORITY_NOT_COMPILED: (4, False),
     ErrorCode.AUTHORITY_ACCEPTANCE_MISMATCH: (4, False),
@@ -33,8 +37,10 @@ EXPECTED_ERROR_METADATA = {
     ErrorCode.MUTATION_IN_PROGRESS: (1, True),
     ErrorCode.MUTATION_RECOVERY_REQUIRED: (1, True),
     ErrorCode.MUTATION_RESUME_CONFLICT: (1, True),
+    ErrorCode.MUTATION_RECOVERY_INVALID: (10, False),
     ErrorCode.IDEMPOTENCY_KEY_REUSED: (2, False),
     ErrorCode.MUTATION_NOT_FOUND: (4, False),
+    ErrorCode.WORKFLOW_SESSION_FAILED: (1, True),
 }
 
 
@@ -85,12 +91,13 @@ def test_error_metadata_table_covers_every_error_code() -> None:
 def test_workbench_error_uses_metadata_defaults() -> None:
     """Build WorkbenchError instances from registry metadata."""
     error = workbench_error(ErrorCode.PROJECT_NOT_FOUND)
+    metadata = error_metadata(ErrorCode.PROJECT_NOT_FOUND)
 
     assert error.code == "PROJECT_NOT_FOUND"
-    assert error.message == error_metadata(ErrorCode.PROJECT_NOT_FOUND).description
+    assert error.message == metadata.description
     assert error.details == {}
     assert error.remediation == []
-    assert error.exit_code == 4
+    assert error.exit_code == metadata.default_exit_code
     assert error.retryable is False
 
 
@@ -107,5 +114,7 @@ def test_workbench_error_accepts_string_codes_and_overrides() -> None:
     assert error.message == "State changed while the command was running."
     assert error.details == {"expected": "abc", "actual": "def"}
     assert error.remediation == ["Refresh and retry the command."]
-    assert error.exit_code == 3
+    assert error.exit_code == error_metadata(
+        ErrorCode.STALE_ARTIFACT_FINGERPRINT
+    ).default_exit_code
     assert error.retryable is True

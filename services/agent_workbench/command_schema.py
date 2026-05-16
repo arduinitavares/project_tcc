@@ -28,6 +28,7 @@ def capabilities_payload() -> dict[str, Any]:
             "mutates": command.mutates,
             "destructive": command.destructive,
             "requires_idempotency_key": command.requires_idempotency_key,
+            "idempotency_policy": command.idempotency_policy,
             "accepts_expected_state": command.accepts_expected_state,
             "accepts_expected_artifact_fingerprint": (
                 command.accepts_expected_artifact_fingerprint
@@ -75,6 +76,7 @@ def command_schema_payload(command_name: str) -> dict[str, Any]:
         ),
         guard_policy=_guard_policy(command),
         idempotency_required=command.requires_idempotency_key,
+        idempotency_policy=command.idempotency_policy,
         errors=errors,
         exit_codes={
             error_code: error_metadata(error_code).default_exit_code

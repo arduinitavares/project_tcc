@@ -1,7 +1,7 @@
 """Registered agent workbench CLI error codes."""
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from services.agent_workbench.envelope import WorkbenchError
@@ -17,7 +17,7 @@ class ErrorMetadata:
     description: str
 
 
-class ErrorCode(str, Enum):
+class ErrorCode(StrEnum):
     """Registered agent workbench CLI error codes."""
 
     INVALID_COMMAND = "INVALID_COMMAND"
@@ -25,8 +25,12 @@ class ErrorCode(str, Enum):
     COMMAND_NOT_IMPLEMENTED = "COMMAND_NOT_IMPLEMENTED"
     SCHEMA_NOT_READY = "SCHEMA_NOT_READY"
     PROJECT_NOT_FOUND = "PROJECT_NOT_FOUND"
+    PROJECT_ALREADY_EXISTS = "PROJECT_ALREADY_EXISTS"
     STORY_NOT_FOUND = "STORY_NOT_FOUND"
     SPEC_VERSION_NOT_FOUND = "SPEC_VERSION_NOT_FOUND"
+    SPEC_FILE_NOT_FOUND = "SPEC_FILE_NOT_FOUND"
+    SPEC_FILE_INVALID = "SPEC_FILE_INVALID"
+    SPEC_COMPILE_FAILED = "SPEC_COMPILE_FAILED"
     AUTHORITY_NOT_ACCEPTED = "AUTHORITY_NOT_ACCEPTED"
     AUTHORITY_NOT_COMPILED = "AUTHORITY_NOT_COMPILED"
     AUTHORITY_ACCEPTANCE_MISMATCH = "AUTHORITY_ACCEPTANCE_MISMATCH"
@@ -43,8 +47,10 @@ class ErrorCode(str, Enum):
     MUTATION_IN_PROGRESS = "MUTATION_IN_PROGRESS"
     MUTATION_RECOVERY_REQUIRED = "MUTATION_RECOVERY_REQUIRED"
     MUTATION_RESUME_CONFLICT = "MUTATION_RESUME_CONFLICT"
+    MUTATION_RECOVERY_INVALID = "MUTATION_RECOVERY_INVALID"
     IDEMPOTENCY_KEY_REUSED = "IDEMPOTENCY_KEY_REUSED"
     MUTATION_NOT_FOUND = "MUTATION_NOT_FOUND"
+    WORKFLOW_SESSION_FAILED = "WORKFLOW_SESSION_FAILED"
 
 
 _ERROR_REGISTRY: dict[ErrorCode, ErrorMetadata] = {
@@ -78,6 +84,12 @@ _ERROR_REGISTRY: dict[ErrorCode, ErrorMetadata] = {
         retryable=False,
         description="The requested project was not found.",
     ),
+    ErrorCode.PROJECT_ALREADY_EXISTS: ErrorMetadata(
+        code=ErrorCode.PROJECT_ALREADY_EXISTS.value,
+        default_exit_code=2,
+        retryable=False,
+        description="A project with this name already exists.",
+    ),
     ErrorCode.STORY_NOT_FOUND: ErrorMetadata(
         code=ErrorCode.STORY_NOT_FOUND.value,
         default_exit_code=4,
@@ -89,6 +101,24 @@ _ERROR_REGISTRY: dict[ErrorCode, ErrorMetadata] = {
         default_exit_code=4,
         retryable=False,
         description="The requested spec version was not found.",
+    ),
+    ErrorCode.SPEC_FILE_NOT_FOUND: ErrorMetadata(
+        code=ErrorCode.SPEC_FILE_NOT_FOUND.value,
+        default_exit_code=2,
+        retryable=False,
+        description="The requested spec file was not found.",
+    ),
+    ErrorCode.SPEC_FILE_INVALID: ErrorMetadata(
+        code=ErrorCode.SPEC_FILE_INVALID.value,
+        default_exit_code=2,
+        retryable=False,
+        description="The requested spec file is invalid.",
+    ),
+    ErrorCode.SPEC_COMPILE_FAILED: ErrorMetadata(
+        code=ErrorCode.SPEC_COMPILE_FAILED.value,
+        default_exit_code=1,
+        retryable=True,
+        description="Spec authority compilation failed.",
     ),
     ErrorCode.AUTHORITY_NOT_ACCEPTED: ErrorMetadata(
         code=ErrorCode.AUTHORITY_NOT_ACCEPTED.value,
@@ -186,6 +216,12 @@ _ERROR_REGISTRY: dict[ErrorCode, ErrorMetadata] = {
         retryable=True,
         description="Another worker acquired recovery.",
     ),
+    ErrorCode.MUTATION_RECOVERY_INVALID: ErrorMetadata(
+        code=ErrorCode.MUTATION_RECOVERY_INVALID.value,
+        default_exit_code=10,
+        retryable=False,
+        description="The requested mutation recovery link is invalid.",
+    ),
     ErrorCode.IDEMPOTENCY_KEY_REUSED: ErrorMetadata(
         code=ErrorCode.IDEMPOTENCY_KEY_REUSED.value,
         default_exit_code=2,
@@ -197,6 +233,12 @@ _ERROR_REGISTRY: dict[ErrorCode, ErrorMetadata] = {
         default_exit_code=4,
         retryable=False,
         description="The requested mutation was not found.",
+    ),
+    ErrorCode.WORKFLOW_SESSION_FAILED: ErrorMetadata(
+        code=ErrorCode.WORKFLOW_SESSION_FAILED.value,
+        default_exit_code=1,
+        retryable=True,
+        description="Workflow session setup failed.",
     ),
 }
 
