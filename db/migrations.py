@@ -25,7 +25,7 @@ from utils.task_metadata import canonical_task_metadata_json
 
 logger = logging.getLogger(__name__)
 
-AGENT_WORKBENCH_STORAGE_SCHEMA_VERSION = "1"
+AGENT_WORKBENCH_STORAGE_SCHEMA_VERSION = "2"
 
 
 def _get_existing_tables(engine: Engine) -> set[str]:
@@ -502,6 +502,8 @@ CREATE TABLE IF NOT EXISTS cli_mutation_ledger (
     before_json TEXT NOT NULL DEFAULT '{}',
     after_json TEXT,
     response_json TEXT,
+    recovers_mutation_event_id INTEGER,
+    superseded_by_mutation_event_id INTEGER,
     recovery_action VARCHAR NOT NULL DEFAULT 'none',
     recovery_safe_to_auto_resume BOOLEAN NOT NULL DEFAULT 0,
     lease_owner VARCHAR,
@@ -535,11 +537,35 @@ def migrate_agent_workbench_contract_tables(engine: Engine) -> list[str]:
     ):
         actions.append("created table: cli_mutation_ledger")
 
+    if _ensure_column_exists(
+        engine,
+        "cli_mutation_ledger",
+        "recovers_mutation_event_id",
+        "INTEGER",
+    ):
+        actions.append("added column: cli_mutation_ledger.recovers_mutation_event_id")
+
+    if _ensure_column_exists(
+        engine,
+        "cli_mutation_ledger",
+        "superseded_by_mutation_event_id",
+        "INTEGER",
+    ):
+        actions.append(
+            "added column: cli_mutation_ledger.superseded_by_mutation_event_id"
+        )
+
     for index_name, columns in {
         "ix_cli_mutation_ledger_status": ["status"],
         "ix_cli_mutation_ledger_project_id": ["project_id"],
         "ix_cli_mutation_ledger_request_hash": ["request_hash"],
         "ix_cli_mutation_ledger_lease_owner": ["lease_owner"],
+        "ix_cli_mutation_ledger_recovers_mutation_event_id": [
+            "recovers_mutation_event_id"
+        ],
+        "ix_cli_mutation_ledger_superseded_by_mutation_event_id": [
+            "superseded_by_mutation_event_id"
+        ],
     }.items():
         if _ensure_index_exists(engine, "cli_mutation_ledger", index_name, columns):
             actions.append(f"created index: {index_name}")

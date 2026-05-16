@@ -10,11 +10,16 @@ from sqlalchemy import inspect
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import SQLAlchemyError
 
+from models import db as model_db
 from services.agent_workbench.version import STORAGE_SCHEMA_VERSION
 from utils.runtime_config import get_session_db_target
 
 BUSINESS_SCHEMA_VERSION_TABLE = "agent_workbench_schema_versions"
 BUSINESS_MUTATION_LEDGER_TABLE = "cli_mutation_ledger"
+BUSINESS_MUTATION_LEDGER_REQUIRED_COLUMNS = (
+    "recovers_mutation_event_id",
+    "superseded_by_mutation_event_id",
+)
 
 
 def schema_check_payload(
@@ -55,6 +60,7 @@ def _business_db_payload(*, business_engine: Engine | None) -> dict[str, Any]:
     checks = {
         "schema_versions_table": False,
         "cli_mutation_ledger_table": False,
+        "cli_mutation_ledger_columns": False,
     }
     if _is_missing_sqlite_file(engine):
         return {
@@ -81,7 +87,21 @@ def _business_db_payload(*, business_engine: Engine | None) -> dict[str, Any]:
     checks = {
         "schema_versions_table": BUSINESS_SCHEMA_VERSION_TABLE in table_names,
         "cli_mutation_ledger_table": BUSINESS_MUTATION_LEDGER_TABLE in table_names,
+        "cli_mutation_ledger_columns": False,
     }
+    missing_columns: list[str] = []
+    if checks["cli_mutation_ledger_table"]:
+        existing_columns = {
+            column["name"]
+            for column in inspect(engine).get_columns(BUSINESS_MUTATION_LEDGER_TABLE)
+        }
+        missing_columns = [
+            column
+            for column in BUSINESS_MUTATION_LEDGER_REQUIRED_COLUMNS
+            if column not in existing_columns
+        ]
+        checks["cli_mutation_ledger_columns"] = not missing_columns
+
     missing = [
         table_name
         for table_name, present in (
@@ -90,6 +110,9 @@ def _business_db_payload(*, business_engine: Engine | None) -> dict[str, Any]:
         )
         if not present
     ]
+    missing.extend(
+        f"{BUSINESS_MUTATION_LEDGER_TABLE}.{column}" for column in missing_columns
+    )
     ok = not missing
     return {
         "ok": ok,
@@ -130,8 +153,6 @@ def _workflow_session_store_payload(*, session_db_url: str | None) -> dict[str, 
 
 def _default_business_engine() -> Engine:
     """Return the configured business engine at call time."""
-    from models import db as model_db
-
     return model_db.get_engine()
 
 
@@ -161,7 +182,7 @@ def _is_missing_sqlite_file(engine: Engine) -> bool:
     return not Path(database).exists()
 
 
-def _sqlite_session_store_checks(value: str) -> tuple[bool, bool]:
+def _sqlite_session_store_checks(value: str) -> tuple[bool, bool]:  # noqa: PLR0911
     """Return read/write and sessions-table readiness without creating files."""
     try:
         url = make_url(value)

@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
+from sqlalchemy import create_engine, text
 from sqlmodel import SQLModel
 
 import services.agent_workbench.application as application_mod
@@ -22,6 +20,12 @@ from services.agent_workbench.mutation_ledger import (
 )
 from services.agent_workbench.version import STORAGE_SCHEMA_VERSION
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
+    from sqlalchemy.engine import Engine
+
 PROJECT_ID = 7
 SPEC_VERSION_ID = 3
 STORY_ID = 12
@@ -29,6 +33,36 @@ WORKFLOW_FINGERPRINT = "sha256:" + "1" * 64
 CANDIDATES_FINGERPRINT = "sha256:" + "2" * 64
 AUTHORITY_FINGERPRINT = "sha256:" + "3" * 64
 PROJECT_FINGERPRINT = "sha256:" + "4" * 64
+
+CLI_MUTATION_LEDGER_CREATE_SQL_PHASE_2A = """
+CREATE TABLE IF NOT EXISTS cli_mutation_ledger (
+    mutation_event_id INTEGER PRIMARY KEY,
+    command VARCHAR NOT NULL,
+    idempotency_key VARCHAR NOT NULL,
+    request_hash VARCHAR NOT NULL,
+    project_id INTEGER,
+    correlation_id VARCHAR NOT NULL,
+    changed_by VARCHAR NOT NULL DEFAULT 'cli-agent',
+    status VARCHAR NOT NULL,
+    current_step VARCHAR NOT NULL DEFAULT 'start',
+    completed_steps_json TEXT NOT NULL DEFAULT '[]',
+    guard_inputs_json TEXT NOT NULL DEFAULT '{}',
+    before_json TEXT NOT NULL DEFAULT '{}',
+    after_json TEXT,
+    response_json TEXT,
+    recovery_action VARCHAR NOT NULL DEFAULT 'none',
+    recovery_safe_to_auto_resume BOOLEAN NOT NULL DEFAULT 0,
+    lease_owner VARCHAR,
+    lease_acquired_at TIMESTAMP,
+    last_heartbeat_at TIMESTAMP,
+    lease_expires_at TIMESTAMP,
+    last_error_json TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_cli_mutation_command_idempotency
+        UNIQUE (command, idempotency_key)
+)
+"""
 
 
 class _FakeReadProjection:
@@ -512,6 +546,81 @@ def test_application_mutation_facades_return_ledger_envelopes(
     assert resumed["data"]["recovery"]["domain_resume_required"] is True
 
 
+def test_mutation_ledger_repository_replays_superseded_responses(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Superseded rows are visible and replay their stored response."""
+    SQLModel.metadata.create_all(engine)
+    monkeypatch.setattr(application_mod, "get_engine", lambda: engine, raising=False)
+    repo = MutationLedgerRepository(engine=engine)
+    now = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    row = repo.create_or_load(
+        command="agileforge project create",
+        idempotency_key="project-create-key",
+        request_hash="sha256:req",
+        project_id=PROJECT_ID,
+        correlation_id="corr-1",
+        changed_by="cli-agent",
+        lease_owner="worker-1",
+        now=now,
+        lease_seconds=30,
+    ).ledger
+    assert row.mutation_event_id is not None
+    retry_event_id = row.mutation_event_id + 1
+    response = {
+        "project_id": PROJECT_ID,
+        "mutation_event_id": row.mutation_event_id,
+        "recovered_by_mutation_event_id": retry_event_id,
+        "setup_status": "authority_pending_review",
+    }
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE cli_mutation_ledger
+                SET status = 'superseded',
+                    superseded_by_mutation_event_id = :retry_event_id,
+                    response_json = :response_json
+                WHERE mutation_event_id = :mutation_event_id
+                """
+            ),
+            {
+                "mutation_event_id": row.mutation_event_id,
+                "retry_event_id": retry_event_id,
+                "response_json": json.dumps(
+                    response,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            },
+        )
+    app = AgentWorkbenchApplication()
+
+    show = app.mutation_show(mutation_event_id=row.mutation_event_id)
+    listed = app.mutation_list(project_id=PROJECT_ID, status="superseded")
+    replay = repo.create_or_load(
+        command="agileforge project create",
+        idempotency_key="project-create-key",
+        request_hash="sha256:req",
+        project_id=PROJECT_ID,
+        correlation_id="corr-2",
+        changed_by="cli-agent",
+        lease_owner="worker-2",
+        now=now,
+    )
+
+    assert show["ok"] is True
+    assert show["data"]["status"] == "superseded"
+    assert show["data"]["superseded_by_mutation_event_id"] == retry_event_id
+    assert show["data"]["response"] == response
+    assert listed["ok"] is True
+    assert listed["data"]["items"][0]["mutation_event_id"] == row.mutation_event_id
+    assert replay.replayed is True
+    assert replay.error_code is None
+    assert replay.response == response
+
+
 def test_application_mutation_facades_report_schema_not_ready_without_creating_db(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -533,3 +642,32 @@ def test_application_mutation_facades_report_schema_not_ready_without_creating_d
     assert result["errors"][0]["code"] == "SCHEMA_NOT_READY"
     assert "cli_mutation_ledger" in result["errors"][0]["details"]["missing"]
     assert not db_path.exists()
+
+
+def test_mutation_ledger_repository_reports_missing_recovery_linkage_columns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pre-Phase-2B mutation ledgers should be blocked with column details."""
+    db_path = tmp_path / "pre-phase-2b-ledger.sqlite3"
+    old_engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    with old_engine.begin() as conn:
+        conn.execute(text(CLI_MUTATION_LEDGER_CREATE_SQL_PHASE_2A))
+    monkeypatch.setattr(
+        application_mod,
+        "get_engine",
+        lambda: old_engine,
+        raising=False,
+    )
+
+    result = AgentWorkbenchApplication().mutation_list()
+
+    assert result["ok"] is False
+    assert result["data"] is None
+    assert result["errors"][0]["code"] == "SCHEMA_NOT_READY"
+    assert result["errors"][0]["details"]["missing"] == {
+        "cli_mutation_ledger": [
+            "recovers_mutation_event_id",
+            "superseded_by_mutation_event_id",
+        ]
+    }

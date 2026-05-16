@@ -4,14 +4,55 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
+from sqlalchemy import create_engine, text
 
 from db.migrations import ensure_schema_current
 from services.agent_workbench.diagnostics import doctor_payload, schema_check_payload
 from services.agent_workbench.version import STORAGE_SCHEMA_VERSION
+
+if TYPE_CHECKING:
+    import pytest
+    from sqlalchemy.engine import Engine
+
+CLI_MUTATION_LEDGER_CREATE_SQL_PHASE_2A = """
+CREATE TABLE IF NOT EXISTS cli_mutation_ledger (
+    mutation_event_id INTEGER PRIMARY KEY,
+    command VARCHAR NOT NULL,
+    idempotency_key VARCHAR NOT NULL,
+    request_hash VARCHAR NOT NULL,
+    project_id INTEGER,
+    correlation_id VARCHAR NOT NULL,
+    changed_by VARCHAR NOT NULL DEFAULT 'cli-agent',
+    status VARCHAR NOT NULL,
+    current_step VARCHAR NOT NULL DEFAULT 'start',
+    completed_steps_json TEXT NOT NULL DEFAULT '[]',
+    guard_inputs_json TEXT NOT NULL DEFAULT '{}',
+    before_json TEXT NOT NULL DEFAULT '{}',
+    after_json TEXT,
+    response_json TEXT,
+    recovery_action VARCHAR NOT NULL DEFAULT 'none',
+    recovery_safe_to_auto_resume BOOLEAN NOT NULL DEFAULT 0,
+    lease_owner VARCHAR,
+    lease_acquired_at TIMESTAMP,
+    last_heartbeat_at TIMESTAMP,
+    lease_expires_at TIMESTAMP,
+    last_error_json TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_cli_mutation_command_idempotency
+        UNIQUE (command, idempotency_key)
+)
+"""
+
+AGENT_WORKBENCH_SCHEMA_VERSIONS_CREATE_SQL = """
+CREATE TABLE IF NOT EXISTS agent_workbench_schema_versions (
+    component TEXT PRIMARY KEY,
+    version TEXT NOT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
 
 
 def test_schema_check_reports_ready_business_db(engine: Engine) -> None:
@@ -31,6 +72,7 @@ def test_schema_check_reports_ready_business_db(engine: Engine) -> None:
         "checks": {
             "schema_versions_table": True,
             "cli_mutation_ledger_table": True,
+            "cli_mutation_ledger_columns": True,
         },
         "missing": [],
     }
@@ -62,6 +104,7 @@ def test_schema_check_reports_missing_business_contract_tables() -> None:
     assert payload["business_db"]["checks"] == {
         "schema_versions_table": False,
         "cli_mutation_ledger_table": False,
+        "cli_mutation_ledger_columns": False,
     }
     assert payload["business_db"]["missing"] == [
         "agent_workbench_schema_versions",
@@ -86,12 +129,50 @@ def test_schema_check_reports_missing_business_sqlite_file_without_creating_it(
     assert payload["business_db"]["checks"] == {
         "schema_versions_table": False,
         "cli_mutation_ledger_table": False,
+        "cli_mutation_ledger_columns": False,
     }
     assert payload["business_db"]["missing"] == [
         "agent_workbench_schema_versions",
         "cli_mutation_ledger",
     ]
     assert not business_db_path.exists()
+
+
+def test_schema_check_reports_missing_mutation_ledger_columns(
+    tmp_path: Path,
+) -> None:
+    """Report existing pre-Phase-2B ledger tables as blocked."""
+    business_db_path = tmp_path / "pre-phase-2b-business.sqlite3"
+    business_engine = create_engine(f"sqlite:///{business_db_path.as_posix()}")
+    with business_engine.begin() as conn:
+        conn.execute(text(AGENT_WORKBENCH_SCHEMA_VERSIONS_CREATE_SQL))
+        conn.execute(text(CLI_MUTATION_LEDGER_CREATE_SQL_PHASE_2A))
+        conn.execute(
+            text(
+                """
+                INSERT INTO agent_workbench_schema_versions(component, version)
+                VALUES ('agent_workbench', '1')
+                """
+            )
+        )
+
+    payload = schema_check_payload(
+        business_engine=business_engine,
+        session_db_url="sqlite:///:memory:",
+    )
+
+    assert payload["business_db"]["ok"] is False
+    assert payload["business_db"]["status"] == "blocked"
+    assert payload["business_db"]["required_version"] == "2"
+    assert payload["business_db"]["checks"] == {
+        "schema_versions_table": True,
+        "cli_mutation_ledger_table": True,
+        "cli_mutation_ledger_columns": False,
+    }
+    assert payload["business_db"]["missing"] == [
+        "cli_mutation_ledger.recovers_mutation_event_id",
+        "cli_mutation_ledger.superseded_by_mutation_event_id",
+    ]
 
 
 def test_schema_check_blocks_missing_session_db_with_existing_parent(

@@ -6,15 +6,17 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import update
-from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from models.agent_workbench import CliMutationLedger
 from services.agent_workbench.error_codes import ErrorCode, workbench_error
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Engine
 
 IDEMPOTENCY_KEY_REUSED = "IDEMPOTENCY_KEY_REUSED"
 MUTATION_IN_PROGRESS = "MUTATION_IN_PROGRESS"
@@ -35,6 +37,15 @@ class MutationStatus(StrEnum):
     GUARD_REJECTED = "guard_rejected"
     DOMAIN_FAILED_NO_SIDE_EFFECTS = "domain_failed_no_side_effects"
     RECOVERY_REQUIRED = "recovery_required"
+    SUPERSEDED = "superseded"
+
+
+REPLAYABLE_RESPONSE_STATUSES = frozenset(
+    {
+        MutationStatus.SUCCEEDED.value,
+        MutationStatus.SUPERSEDED.value,
+    }
+)
 
 
 class RecoveryAction(StrEnum):
@@ -120,6 +131,7 @@ class MutationLedgerRepository:
     """Repository for mutation ledger compare-and-set transitions."""
 
     def __init__(self, *, engine: Engine) -> None:
+        """Initialize the repository with a SQLAlchemy engine."""
         self._engine: Engine = engine
 
     def show_event(self, *, mutation_event_id: int) -> dict[str, Any]:
@@ -211,7 +223,7 @@ class MutationLedgerRepository:
                 return None
             return self._handle_pending_existing(session=session, row=row, now=now)
 
-    def create_or_load(
+    def create_or_load(  # noqa: PLR0913
         self,
         *,
         command: str,
@@ -288,7 +300,7 @@ class MutationLedgerRepository:
     ) -> LedgerLoadResult:
         if row.request_hash != request_hash:
             return LedgerLoadResult(ledger=row, error_code=IDEMPOTENCY_KEY_REUSED)
-        if row.status == MutationStatus.SUCCEEDED.value:
+        if row.status in REPLAYABLE_RESPONSE_STATUSES:
             response = _json_load(row.response_json)
             return LedgerLoadResult(
                 ledger=row,
@@ -347,13 +359,14 @@ class MutationLedgerRepository:
 
         refreshed = session.get(CliMutationLedger, row.mutation_event_id)
         if refreshed is None:
-            raise ValueError(f"Mutation event {row.mutation_event_id} not found.")
+            message = f"Mutation event {row.mutation_event_id} not found."
+            raise ValueError(message)
         return LedgerLoadResult(
             ledger=refreshed,
             error_code=MUTATION_RECOVERY_REQUIRED,
         )
 
-    def transition_status(
+    def transition_status(  # noqa: PLR0913
         self,
         *,
         mutation_event_id: int,
@@ -405,7 +418,8 @@ class MutationLedgerRepository:
             session.commit()
             row = session.get(CliMutationLedger, mutation_event_id)
             if row is None:
-                raise ValueError(f"Mutation event {mutation_event_id} not found.")
+                message = f"Mutation event {mutation_event_id} not found."
+                raise ValueError(message)
             if result.rowcount != 1:
                 return LedgerLoadResult(
                     ledger=row,
@@ -561,10 +575,10 @@ class MutationLedgerRepository:
             if result.rowcount != 1:
                 row = session.get(CliMutationLedger, mutation_event_id)
                 if row is None:
-                    raise ValueError(f"Mutation event {mutation_event_id} not found.")
-                raise RuntimeError(
-                    f"Mutation event {mutation_event_id} was not pending."
-                )
+                    message = f"Mutation event {mutation_event_id} not found."
+                    raise ValueError(message)
+                message = f"Mutation event {mutation_event_id} was not pending."
+                raise RuntimeError(message)
 
     def acquire_resume_lease(
         self,
@@ -629,7 +643,7 @@ def _timestamp_payload(value: datetime | None) -> str | None:
 
 def _row_payload(row: CliMutationLedger) -> dict[str, Any]:
     """Return a JSON-friendly mutation ledger row payload."""
-    return {
+    payload: dict[str, Any] = {
         "mutation_event_id": row.mutation_event_id,
         "command": row.command,
         "idempotency_key": row.idempotency_key,
@@ -654,3 +668,10 @@ def _row_payload(row: CliMutationLedger) -> dict[str, Any]:
         "updated_at": _timestamp_payload(row.updated_at),
         "last_error": _json_blob(row.last_error_json),
     }
+    if row.recovers_mutation_event_id is not None:
+        payload["recovers_mutation_event_id"] = row.recovers_mutation_event_id
+    if row.superseded_by_mutation_event_id is not None:
+        payload["superseded_by_mutation_event_id"] = (
+            row.superseded_by_mutation_event_id
+        )
+    return payload

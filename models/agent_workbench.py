@@ -40,6 +40,8 @@ class CliMutationLedger(SQLModel, table=True):
     before_json: str = Field(default="{}", sa_type=Text)
     after_json: str | None = Field(default=None, sa_type=Text)
     response_json: str | None = Field(default=None, sa_type=Text)
+    recovers_mutation_event_id: int | None = Field(default=None, index=True)
+    superseded_by_mutation_event_id: int | None = Field(default=None, index=True)
     recovery_action: str = Field(default="none", index=True)
     recovery_safe_to_auto_resume: bool = Field(default=False)
     lease_owner: str | None = Field(default=None, index=True)

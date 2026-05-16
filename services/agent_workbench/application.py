@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Final, Protocol
+from typing import TYPE_CHECKING, Any, Final, Protocol
 
-from sqlalchemy.engine import Engine
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Engine
 
 from models.db import get_engine
 from services.agent_workbench.authority_projection import AuthorityProjectionService
@@ -44,6 +45,8 @@ MUTATION_LEDGER_REQUIREMENTS: Final[tuple[SchemaRequirement, ...]] = (
             "before_json",
             "after_json",
             "response_json",
+            "recovers_mutation_event_id",
+            "superseded_by_mutation_event_id",
             "recovery_action",
             "recovery_safe_to_auto_resume",
             "lease_owner",
