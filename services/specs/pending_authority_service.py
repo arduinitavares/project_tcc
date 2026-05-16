@@ -216,20 +216,26 @@ def _cleanup_bad_acceptance(
     spec_version_id: int,
 ) -> bool:
     """Delete matching acceptance rows left by an invalid compiler seam."""
-    session.rollback()
-    session.expire_all()
-    rows = session.exec(
+    rows_before_rollback = session.exec(
         select(SpecAuthorityAcceptance).where(
             SpecAuthorityAcceptance.product_id == product_id,
             SpecAuthorityAcceptance.spec_version_id == spec_version_id,
         )
     ).all()
-    if not rows:
-        return False
-    for row in rows:
+    acceptance_was_written = bool(rows_before_rollback)
+    session.rollback()
+    session.expire_all()
+    rows_after_rollback = session.exec(
+        select(SpecAuthorityAcceptance).where(
+            SpecAuthorityAcceptance.product_id == product_id,
+            SpecAuthorityAcceptance.spec_version_id == spec_version_id,
+        )
+    ).all()
+    for row in rows_after_rollback:
         session.delete(row)
-    session.commit()
-    return True
+    if rows_after_rollback:
+        session.commit()
+    return acceptance_was_written or bool(rows_after_rollback)
 
 
 def compile_pending_authority_for_project(  # noqa: C901, PLR0911, PLR0912, PLR0913

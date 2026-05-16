@@ -263,6 +263,75 @@ def test_compile_pending_authority_for_project_removes_bad_acceptance_write(
     assert remaining == []
 
 
+def test_compile_pending_authority_rejects_uncommitted_bad_acceptance(
+    session: Session, engine: Engine, tmp_path: Path
+) -> None:
+    """Bad acceptance writes in the active transaction should still fail setup."""
+    service = _pending_service()
+    product = _create_product(session)
+    product_id = require_id(product.product_id, "product_id")
+    spec_path = _write_spec(tmp_path)
+
+    def bad_compiler(spec_version_id: int, **_: object) -> dict[str, object]:
+        authority = CompiledSpecAuthority(
+            spec_version_id=spec_version_id,
+            compiler_version="fake-compiler",
+            prompt_hash="f" * 64,
+            compiled_at=datetime.now(UTC),
+            compiled_artifact_json='{"ok": true}',
+            scope_themes='["Scope"]',
+            invariants="[]",
+            eligible_feature_ids="[]",
+            rejected_features="[]",
+            spec_gaps="[]",
+        )
+        session.add(authority)
+        session.flush()
+        acceptance = SpecAuthorityAcceptance(
+            product_id=product_id,
+            spec_version_id=spec_version_id,
+            status="accepted",
+            policy="auto",
+            decided_by="bad-seam",
+            decided_at=datetime.now(UTC),
+            rationale="should be rolled back",
+            compiler_version=authority.compiler_version,
+            prompt_hash=authority.prompt_hash,
+            spec_hash="x" * 64,
+        )
+        session.add(acceptance)
+        session.flush()
+        return {
+            "success": True,
+            "authority_id": authority.authority_id,
+            "compiler_version": authority.compiler_version,
+            "prompt_hash": authority.prompt_hash,
+        }
+
+    result = service.compile_pending_authority_for_project(
+        session=session,
+        product_id=product_id,
+        spec_path=spec_path,
+        approved_by="cli-project-create",
+        compile_authority=bad_compiler,
+        lease_guard=lambda _boundary: True,
+        record_progress=lambda _boundary: True,
+    )
+
+    assert result.ok is False
+    assert result.error_code == "MUTATION_FAILED"
+    assert result.spec_version_id is not None
+
+    with Session(engine) as fresh_session:
+        remaining = fresh_session.exec(
+            select(SpecAuthorityAcceptance).where(
+                SpecAuthorityAcceptance.product_id == product_id,
+                SpecAuthorityAcceptance.spec_version_id == result.spec_version_id,
+            )
+        ).all()
+    assert remaining == []
+
+
 def test_compile_pending_authority_cleans_bad_acceptance_on_compiler_failure(
     session: Session, engine: Engine, tmp_path: Path
 ) -> None:
