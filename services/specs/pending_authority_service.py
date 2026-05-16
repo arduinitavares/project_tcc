@@ -394,13 +394,30 @@ def compile_pending_authority_for_project(  # noqa: C901, PLR0911, PLR0912, PLR0
         product_id=product_id,
         spec_version_id=spec_version_id,
     )
-    compile_result = compile_authority(
-        spec_version_id=spec_version_id,
-        force_recompile=False,
-        tool_context=None,
-        lease_guard=lease_guard,
-        record_progress=record_progress,
-    )
+    try:
+        compile_result = compile_authority(
+            spec_version_id=spec_version_id,
+            force_recompile=False,
+            tool_context=None,
+            lease_guard=lease_guard,
+            record_progress=record_progress,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _cleanup_bad_acceptance(
+            session,
+            product_id=product_id,
+            spec_version_id=spec_version_id,
+            existing_acceptance_ids=existing_acceptance_ids,
+        )
+        return _result(
+            ok=False,
+            product_id=product_id,
+            spec_path=resolved_path,
+            error_code="MUTATION_FAILED",
+            spec_hash=spec_hash,
+            spec_version_id=spec_version_id,
+            error=str(exc),
+        )
     if _cleanup_bad_acceptance(
         session,
         product_id=product_id,
