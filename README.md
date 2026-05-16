@@ -103,11 +103,16 @@ cp .env.example .env
 
 ### Agent CLI
 
+The CLI is the supported agent interface for workflow inspection and guarded
+mutations. For the full contract, workflows, idempotency rules, and recovery
+guidance, see [docs/agent-cli-manual.md](docs/agent-cli-manual.md).
+
 ```bash
 uv run --frozen agileforge --help
 uv run --frozen agileforge project list
 uv run --frozen agileforge status --project-id 1
 uv run --frozen agileforge context pack --project-id 1 --phase sprint-planning
+uv run --frozen agileforge project create --name "Example" --spec-file specs/app.md --idempotency-key create-example-001
 ```
 
 ### Running the Application
