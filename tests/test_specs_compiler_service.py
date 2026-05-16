@@ -6,7 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from sqlmodel import Session, select
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from agile_sqlmodel import (
     CompiledSpecAuthority,
@@ -15,6 +16,7 @@ from agile_sqlmodel import (
     SpecAuthorityStatus,
     SpecRegistry,
 )
+from db.migrations import ensure_schema_current
 from tests.typing_helpers import make_tool_context, require_id
 from utils import failure_artifacts
 from utils.failure_artifacts import AgentInvocationError
@@ -584,6 +586,94 @@ def test_compile_spec_authority_for_version_persists_authority(
     ).first()
     assert authority is not None
     assert authority.compiled_artifact_json == sample_product.compiled_authority_json
+
+
+def test_compile_spec_authority_for_version_with_engine_uses_supplied_engine(
+    engine: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify engine-aware compile path never falls back to module get_engine."""
+    from services.specs import compiler_service  # noqa: PLC0415
+
+    ensure_schema_current(engine)
+    other_engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(other_engine)
+    ensure_schema_current(other_engine)
+
+    monkeypatch.setattr(compiler_service, "get_engine", lambda: other_engine)
+    monkeypatch.setattr(
+        compiler_service,
+        "_invoke_spec_authority_compiler",
+        lambda **_: _raw_compiler_output_json(),
+    )
+
+    with Session(engine) as supplied_session:
+        product = Product(name="Supplied Engine Product", vision="vision")
+        supplied_session.add(product)
+        supplied_session.commit()
+        supplied_session.refresh(product)
+        spec = _create_spec_version(
+            supplied_session,
+            product_id=require_id(product.product_id, "product_id"),
+        )
+        spec_version_id = require_id(spec.spec_version_id, "spec_version_id")
+
+    result = compiler_service.compile_spec_authority_for_version_with_engine(
+        engine=engine,
+        spec_version_id=spec_version_id,
+        force_recompile=False,
+    )
+
+    assert result["success"] is True
+    with Session(other_engine) as other_session:
+        other_rows = other_session.exec(select(CompiledSpecAuthority)).all()
+    assert other_rows == []
+
+
+def test_compile_spec_authority_for_version_with_engine_runs_lease_guard_before_persist(
+    engine: object,
+    session: Session,
+    sample_product: Product,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify engine-aware compile path guards both durable writes."""
+    from services.specs import compiler_service  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        compiler_service,
+        "_invoke_spec_authority_compiler",
+        lambda **_: _raw_compiler_output_json(),
+    )
+    spec = _create_spec_version(
+        session,
+        product_id=require_id(sample_product.product_id, "product_id"),
+    )
+    boundaries: list[str] = []
+
+    def lease_guard(boundary: str) -> bool:
+        boundaries.append(boundary)
+        return True
+
+    def record_progress(boundary: str) -> bool:
+        boundaries.append(f"progress:{boundary}")
+        return True
+
+    result = compiler_service.compile_spec_authority_for_version_with_engine(
+        engine=engine,
+        spec_version_id=require_id(spec.spec_version_id, "spec_version_id"),
+        force_recompile=False,
+        lease_guard=lease_guard,
+        record_progress=record_progress,
+    )
+
+    assert result["success"] is True
+    assert "compiled_authority_persisted" in boundaries
+    assert "product_authority_cache_persisted" in boundaries
+    assert "progress:compiled_authority_persisted" in boundaries
+    assert "progress:product_authority_cache_persisted" in boundaries
 
 
 def test_compile_spec_authority_persists_authority_with_legacy_envelope(

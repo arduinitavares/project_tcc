@@ -1115,13 +1115,54 @@ def _update_product_compiled_authority_cache(
     *,
     product: Product | None,
     compiled_artifact_json: str,
-) -> None:
+    lease_guard: Callable[[str], bool] | None = None,
+    record_progress: Callable[[str], bool] | None = None,
+) -> dict[str, Any] | None:
     """Backfill the product-level compiled authority cache when a product exists."""
     if product is None:
-        return
+        return None
+    boundary = "product_authority_cache_persisted"
+    if lease_guard is not None and not lease_guard(boundary):
+        session.rollback()
+        return _mutation_lease_lost_result()
     product.compiled_authority_json = compiled_artifact_json
     session.add(product)
     session.commit()
+    return _record_mutation_progress(record_progress, boundary)
+
+
+def _mutation_lease_lost_result() -> dict[str, Any]:
+    """Return the canonical mutation lease-loss envelope."""
+    return {
+        "success": False,
+        "error": "MUTATION_LEASE_LOST",
+        "error_code": "MUTATION_IN_PROGRESS",
+    }
+
+
+def _mutation_progress_failed_result(boundary: str) -> dict[str, Any]:
+    """Return the canonical mutation progress failure envelope."""
+    return {
+        "success": False,
+        "error": "MUTATION_PROGRESS_RECORD_FAILED",
+        "error_code": "MUTATION_RECOVERY_REQUIRED",
+        "boundary": boundary,
+    }
+
+
+def _record_mutation_progress(
+    record_progress: Callable[[str], bool] | None,
+    boundary: str,
+) -> dict[str, Any] | None:
+    """Record a completed mutation boundary and normalize failures."""
+    if record_progress is None:
+        return None
+    try:
+        if record_progress(boundary) is False:
+            return _mutation_progress_failed_result(boundary)
+    except Exception:  # noqa: BLE001
+        return _mutation_progress_failed_result(boundary)
+    return None
 
 
 def _cached_compilation_result(
@@ -1129,6 +1170,8 @@ def _cached_compilation_result(
     *,
     context: _CompilerVersionContext,
     tool_context: ToolContext | None,
+    lease_guard: Callable[[str], bool] | None = None,
+    record_progress: Callable[[str], bool] | None = None,
 ) -> dict[str, Any] | None:
     """Return the cached-authority envelope when a reusable compiled artifact exists."""
     existing_authority = context.existing_authority
@@ -1143,11 +1186,15 @@ def _cached_compilation_result(
         scope_themes_count = len(json.loads(existing_authority.scope_themes))
         invariants_count = len(json.loads(existing_authority.invariants))
 
-    _update_product_compiled_authority_cache(
+    cache_error = _update_product_compiled_authority_cache(
         session,
         product=context.product,
         compiled_artifact_json=existing_authority.compiled_artifact_json,
+        lease_guard=lease_guard,
+        record_progress=record_progress,
     )
+    if cache_error is not None:
+        return cache_error
     if tool_context and tool_context.state is not None:
         tool_context.state["compiled_authority_cached"] = (
             existing_authority.compiled_artifact_json
@@ -1258,14 +1305,16 @@ def _invoke_compiler_for_version(
     return normalized.root
 
 
-def _persist_compiled_authority(
+def _persist_compiled_authority(  # noqa: PLR0913
     session: Session,
     *,
     context: _CompilerVersionContext,
     spec_version_id: int,
     force_recompile: bool,
     success: SpecAuthorityCompilationSuccess,
-) -> _PersistedCompilation:
+    lease_guard: Callable[[str], bool] | None = None,
+    record_progress: Callable[[str], bool] | None = None,
+) -> _PersistedCompilation | dict[str, Any]:
     """Persist a compiled artifact, either by updating or inserting a row."""
     compiled_artifact_json = success.model_dump_json()
     prompt_hash = compute_prompt_hash(SPEC_AUTHORITY_COMPILER_INSTRUCTIONS)
@@ -1274,7 +1323,11 @@ def _persist_compiled_authority(
     invariants = [_render_invariant_summary(inv) for inv in success.invariants]
     spec_gaps = success.gaps
 
+    boundary = "compiled_authority_persisted"
     if context.existing_authority and force_recompile:
+        if lease_guard is not None and not lease_guard(boundary):
+            session.rollback()
+            return _mutation_lease_lost_result()
         authority = context.existing_authority
         authority.compiler_version = compiler_version
         authority.prompt_hash = prompt_hash
@@ -1290,6 +1343,9 @@ def _persist_compiled_authority(
         session.refresh(authority)
         recompiled = True
     else:
+        if lease_guard is not None and not lease_guard(boundary):
+            session.rollback()
+            return _mutation_lease_lost_result()
         authority = CompiledSpecAuthority(
             spec_version_id=spec_version_id,
             compiler_version=compiler_version,
@@ -1307,11 +1363,19 @@ def _persist_compiled_authority(
         session.refresh(authority)
         recompiled = False
 
-    _update_product_compiled_authority_cache(
+    progress_error = _record_mutation_progress(record_progress, boundary)
+    if progress_error is not None:
+        return progress_error
+
+    cache_error = _update_product_compiled_authority_cache(
         session,
         product=context.product,
         compiled_artifact_json=compiled_artifact_json,
+        lease_guard=lease_guard,
+        record_progress=record_progress,
     )
+    if cache_error is not None:
+        return cache_error
     authority_id = authority.authority_id
     if authority_id is None:
         error_message = "Compiled authority did not receive a primary key"
@@ -1325,6 +1389,82 @@ def _persist_compiled_authority(
         invariants_count=len(invariants),
         recompiled=recompiled,
     )
+
+
+def _compile_spec_authority_for_version_in_session(  # noqa: PLR0913
+    session: Session,
+    *,
+    parsed: CompileSpecAuthorityForVersionInput,
+    should_recompile: bool,
+    tool_context: ToolContext | None,
+    lease_guard: Callable[[str], bool] | None = None,
+    record_progress: Callable[[str], bool] | None = None,
+) -> dict[str, Any]:
+    """Compile one approved spec version using the caller's DB session."""
+    context = _load_compile_version_context(
+        session,
+        spec_version_id=parsed.spec_version_id,
+    )
+    if not isinstance(context, _CompilerVersionContext):
+        return context
+
+    if not should_recompile:
+        cached_result = _cached_compilation_result(
+            session,
+            context=context,
+            tool_context=tool_context,
+            lease_guard=lease_guard,
+            record_progress=record_progress,
+        )
+        if cached_result is not None:
+            return cached_result
+
+    spec_content_result = _load_spec_content_for_compile(context.spec_version)
+    if isinstance(spec_content_result, dict):
+        return spec_content_result
+    spec_content, content_source = spec_content_result
+
+    compiled = _invoke_compiler_for_version(
+        context.spec_version,
+        spec_content=spec_content,
+    )
+    if isinstance(compiled, dict):
+        return compiled
+
+    persisted_result = _persist_compiled_authority(
+        session,
+        context=context,
+        spec_version_id=parsed.spec_version_id,
+        force_recompile=should_recompile,
+        success=compiled,
+        lease_guard=lease_guard,
+        record_progress=record_progress,
+    )
+    if isinstance(persisted_result, dict):
+        return persisted_result
+    persisted = persisted_result
+    if tool_context and tool_context.state is not None:
+        tool_context.state["compiled_authority_cached"] = (
+            persisted.compiled_artifact_json
+        )
+
+    return {
+        "success": True,
+        "cached": False,
+        "recompiled": persisted.recompiled,
+        "authority_id": persisted.authority_id,
+        "spec_version_id": parsed.spec_version_id,
+        "compiler_version": persisted.compiler_version,
+        "prompt_hash": persisted.prompt_hash,
+        "scope_themes_count": persisted.scope_themes_count,
+        "invariants_count": persisted.invariants_count,
+        "content_ref": context.spec_version.content_ref,
+        "content_source": content_source,
+        "message": (
+            f"Compiled spec version {parsed.spec_version_id} "
+            f"(authority ID: {persisted.authority_id})"
+        ),
+    }
 
 
 def compile_spec_authority_for_version(
@@ -1343,63 +1483,39 @@ def compile_spec_authority_for_version(
     should_recompile = bool(parsed.force_recompile)
 
     with Session(_resolve_engine()) as session:
-        context = _load_compile_version_context(
+        return _compile_spec_authority_for_version_in_session(
             session,
-            spec_version_id=parsed.spec_version_id,
+            parsed=parsed,
+            should_recompile=should_recompile,
+            tool_context=tool_context,
         )
-        if not isinstance(context, _CompilerVersionContext):
-            return context
 
-        if not should_recompile:
-            cached_result = _cached_compilation_result(
-                session,
-                context=context,
-                tool_context=tool_context,
-            )
-            if cached_result is not None:
-                return cached_result
 
-        spec_content_result = _load_spec_content_for_compile(context.spec_version)
-        if isinstance(spec_content_result, dict):
-            return spec_content_result
-        spec_content, content_source = spec_content_result
-
-        compiled = _invoke_compiler_for_version(
-            context.spec_version,
-            spec_content=spec_content,
-        )
-        if isinstance(compiled, dict):
-            return compiled
-
-        persisted = _persist_compiled_authority(
+def compile_spec_authority_for_version_with_engine(  # noqa: PLR0913
+    *,
+    engine: Engine,
+    spec_version_id: int,
+    force_recompile: bool | None = None,
+    tool_context: ToolContext | None = None,
+    lease_guard: Callable[[str], bool] | None = None,
+    record_progress: Callable[[str], bool] | None = None,
+) -> dict[str, Any]:
+    """Compile an approved spec version using the supplied business DB engine."""
+    ensure_schema_current(engine)
+    parsed = _normalize_compile_version_input(
+        None,
+        spec_version_id=spec_version_id,
+        force_recompile=force_recompile,
+    )
+    with Session(engine) as session:
+        return _compile_spec_authority_for_version_in_session(
             session,
-            context=context,
-            spec_version_id=parsed.spec_version_id,
-            force_recompile=should_recompile,
-            success=compiled,
+            parsed=parsed,
+            should_recompile=bool(parsed.force_recompile),
+            tool_context=tool_context,
+            lease_guard=lease_guard,
+            record_progress=record_progress,
         )
-        if tool_context and tool_context.state is not None:
-            tool_context.state["compiled_authority_cached"] = (
-                persisted.compiled_artifact_json
-            )
-
-        return {
-            "success": True,
-            "cached": False,
-            "recompiled": persisted.recompiled,
-            "authority_id": persisted.authority_id,
-            "spec_version_id": parsed.spec_version_id,
-            "compiler_version": persisted.compiler_version,
-            "prompt_hash": persisted.prompt_hash,
-            "scope_themes_count": persisted.scope_themes_count,
-            "invariants_count": persisted.invariants_count,
-            "content_ref": context.spec_version.content_ref,
-            "content_source": content_source,
-            "message": (
-                f"Compiled spec version {parsed.spec_version_id} "
-                f"(authority ID: {persisted.authority_id})"
-            ),
-        }
 
 
 def _ensure_spec_authority_accepted(
