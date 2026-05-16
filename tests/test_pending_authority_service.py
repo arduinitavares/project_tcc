@@ -1,8 +1,10 @@
 """Tests for pending spec authority project setup."""
 
+import inspect
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
+from typing import get_type_hints
 
 import pytest
 from sqlalchemy.engine import Engine
@@ -15,6 +17,10 @@ from agile_sqlmodel import (
     SpecRegistry,
 )
 from tests.typing_helpers import require_id
+
+EXPECTED_APPROVAL_NOTES = (
+    "Required compiler precondition for pending authority generation"
+)
 
 
 def _pending_service() -> ModuleType:
@@ -56,6 +62,19 @@ def _persist_authority(
     session.commit()
     session.refresh(authority)
     return authority
+
+
+def test_pending_authority_public_contract_is_keyword_only() -> None:
+    """The service seam should match the runner-facing public contract."""
+    service = _pending_service()
+    signature = inspect.signature(service.compile_pending_authority_for_project)
+
+    assert all(
+        parameter.kind is inspect.Parameter.KEYWORD_ONLY
+        for parameter in signature.parameters.values()
+    )
+    result_hints = get_type_hints(service.PendingAuthorityResult)
+    assert result_hints["spec_path"] is str
 
 
 def test_compile_pending_authority_creates_artifact_without_acceptance(
@@ -115,6 +134,7 @@ def test_compile_pending_authority_creates_artifact_without_acceptance(
     assert len(specs) == 1
     assert specs[0].status == "approved"
     assert specs[0].approved_by == "cli-project-create"
+    assert specs[0].approval_notes == EXPECTED_APPROVAL_NOTES
 
     acceptances = session.exec(select(SpecAuthorityAcceptance)).all()
     assert acceptances == []
@@ -243,6 +263,57 @@ def test_compile_pending_authority_for_project_removes_bad_acceptance_write(
     assert remaining == []
 
 
+def test_compile_pending_authority_cleans_bad_acceptance_on_compiler_failure(
+    session: Session, engine: Engine, tmp_path: Path
+) -> None:
+    """Compiler failures must not leave canonical acceptance rows behind."""
+    service = _pending_service()
+    product = _create_product(session)
+    product_id = require_id(product.product_id, "product_id")
+    spec_path = _write_spec(tmp_path)
+
+    def bad_compiler(spec_version_id: int, **_: object) -> dict[str, object]:
+        authority = _persist_authority(session, spec_version_id=spec_version_id)
+        acceptance = SpecAuthorityAcceptance(
+            product_id=product_id,
+            spec_version_id=spec_version_id,
+            status="accepted",
+            policy="auto",
+            decided_by="bad-seam",
+            decided_at=datetime.now(UTC),
+            rationale="should be removed",
+            compiler_version=authority.compiler_version,
+            prompt_hash=authority.prompt_hash,
+            spec_hash="x" * 64,
+        )
+        session.add(acceptance)
+        session.commit()
+        return {"success": False, "error": "bad seam failed after acceptance"}
+
+    result = service.compile_pending_authority_for_project(
+        session=session,
+        product_id=product_id,
+        spec_path=spec_path,
+        approved_by="cli-project-create",
+        compile_authority=bad_compiler,
+        lease_guard=lambda _boundary: True,
+        record_progress=lambda _boundary: True,
+    )
+
+    assert result.ok is False
+    assert result.error_code == "MUTATION_FAILED"
+    assert result.spec_version_id is not None
+
+    with Session(engine) as fresh_session:
+        remaining = fresh_session.exec(
+            select(SpecAuthorityAcceptance).where(
+                SpecAuthorityAcceptance.product_id == product_id,
+                SpecAuthorityAcceptance.spec_version_id == result.spec_version_id,
+            )
+        ).all()
+    assert remaining == []
+
+
 @pytest.mark.parametrize(
     ("blocked_boundary", "expect_product_link", "expect_spec", "expect_approved"),
     [
@@ -294,6 +365,7 @@ def test_compile_pending_authority_lease_loss_prevents_durable_write(  # noqa: P
     ("failed_boundary", "mode"),
     [
         ("product_spec_linked", "false"),
+        ("spec_registry_written", "false"),
         ("spec_marked_approved", "raise"),
     ],
 )

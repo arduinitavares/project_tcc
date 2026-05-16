@@ -19,6 +19,9 @@ from models.specs import CompiledSpecAuthority, SpecAuthorityAcceptance, SpecReg
 
 _MAX_SPEC_SIZE_KB = 100
 _MAX_SPEC_SIZE_BYTES = _MAX_SPEC_SIZE_KB * 1024
+_PENDING_APPROVAL_NOTES = (
+    "Required compiler precondition for pending authority generation"
+)
 
 
 class PendingAuthorityCompiler(Protocol):
@@ -26,6 +29,7 @@ class PendingAuthorityCompiler(Protocol):
 
     def __call__(
         self,
+        *,
         spec_version_id: int,
         force_recompile: bool | None = None,
         tool_context: object | None = None,
@@ -41,7 +45,7 @@ class PendingAuthorityResult:
 
     ok: bool
     product_id: int
-    spec_path: Path
+    spec_path: str
     error_code: str | None = None
     spec_hash: str | None = None
     spec_version_id: int | None = None
@@ -55,7 +59,7 @@ def _result(  # noqa: PLR0913
     *,
     ok: bool,
     product_id: int,
-    spec_path: Path,
+    spec_path: Path | str,
     error_code: str | None = None,
     spec_hash: str | None = None,
     spec_version_id: int | None = None,
@@ -68,7 +72,7 @@ def _result(  # noqa: PLR0913
     return PendingAuthorityResult(
         ok=ok,
         product_id=product_id,
-        spec_path=spec_path,
+        spec_path=str(spec_path),
         error_code=error_code,
         spec_hash=spec_hash,
         spec_version_id=spec_version_id,
@@ -229,6 +233,7 @@ def _cleanup_bad_acceptance(
 
 
 def compile_pending_authority_for_project(  # noqa: C901, PLR0911, PLR0912, PLR0913
+    *,
     session: Session,
     product_id: int,
     spec_path: Path,
@@ -329,7 +334,7 @@ def compile_pending_authority_for_project(  # noqa: C901, PLR0911, PLR0912, PLR0
     spec_version.status = "approved"
     spec_version.approved_at = datetime.now(UTC)
     spec_version.approved_by = approved_by
-    spec_version.approval_notes = "Pending authority compiled for CLI project create"
+    spec_version.approval_notes = _PENDING_APPROVAL_NOTES
     if not lease_guard("spec_marked_approved"):
         session.rollback()
         return _lease_lost(
@@ -358,15 +363,6 @@ def compile_pending_authority_for_project(  # noqa: C901, PLR0911, PLR0912, PLR0
         lease_guard=lease_guard,
         record_progress=record_progress,
     )
-    if not compile_result.get("success"):
-        return _normalize_compiler_failure(
-            product_id=product_id,
-            spec_path=resolved_path,
-            spec_hash=spec_hash,
-            spec_version_id=spec_version_id,
-            compile_result=compile_result,
-        )
-
     if _cleanup_bad_acceptance(
         session,
         product_id=product_id,
@@ -379,7 +375,15 @@ def compile_pending_authority_for_project(  # noqa: C901, PLR0911, PLR0912, PLR0
             error_code="MUTATION_FAILED",
             spec_hash=spec_hash,
             spec_version_id=spec_version_id,
-            error="Compiler wrote a spec authority acceptance row",
+            error="Pending authority path must not accept authority.",
+        )
+    if not compile_result.get("success"):
+        return _normalize_compiler_failure(
+            product_id=product_id,
+            spec_path=resolved_path,
+            spec_hash=spec_hash,
+            spec_version_id=spec_version_id,
+            compile_result=compile_result,
         )
 
     authority = session.exec(

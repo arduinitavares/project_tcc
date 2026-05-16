@@ -676,6 +676,106 @@ def test_compile_spec_authority_for_version_with_engine_runs_lease_guard_before_
     assert "progress:product_authority_cache_persisted" in boundaries
 
 
+@pytest.mark.parametrize(
+    ("blocked_boundary", "expect_authority", "expect_product_cache"),
+    [
+        ("compiled_authority_persisted", False, False),
+        ("product_authority_cache_persisted", True, False),
+    ],
+)
+def test_compile_spec_authority_for_version_with_engine_lease_loss_blocks_write(  # noqa: PLR0913
+    engine: object,
+    session: Session,
+    sample_product: Product,
+    monkeypatch: pytest.MonkeyPatch,
+    blocked_boundary: str,
+    expect_authority: bool,
+    expect_product_cache: bool,
+) -> None:
+    """A lost lease should stop the guarded compiler write."""
+    from services.specs import compiler_service  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        compiler_service,
+        "_invoke_spec_authority_compiler",
+        lambda **_: _raw_compiler_output_json(),
+    )
+    spec = _create_spec_version(
+        session,
+        product_id=require_id(sample_product.product_id, "product_id"),
+    )
+    spec_version_id = require_id(spec.spec_version_id, "spec_version_id")
+
+    result = compiler_service.compile_spec_authority_for_version_with_engine(
+        engine=engine,
+        spec_version_id=spec_version_id,
+        force_recompile=False,
+        lease_guard=lambda boundary: boundary != blocked_boundary,
+        record_progress=lambda _boundary: True,
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "MUTATION_IN_PROGRESS"
+
+    authority = session.exec(
+        select(CompiledSpecAuthority).where(
+            CompiledSpecAuthority.spec_version_id == spec_version_id
+        )
+    ).first()
+    session.refresh(sample_product)
+    assert (authority is not None) is expect_authority
+    assert (sample_product.compiled_authority_json is not None) is expect_product_cache
+
+
+@pytest.mark.parametrize(
+    ("failed_boundary", "mode"),
+    [
+        ("compiled_authority_persisted", "false"),
+        ("product_authority_cache_persisted", "raise"),
+    ],
+)
+def test_compile_spec_authority_for_version_with_engine_progress_failure_recovers(  # noqa: PLR0913
+    engine: object,
+    session: Session,
+    sample_product: Product,
+    monkeypatch: pytest.MonkeyPatch,
+    failed_boundary: str,
+    mode: str,
+) -> None:
+    """Progress recorder failure should stop with recovery-required metadata."""
+    from services.specs import compiler_service  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        compiler_service,
+        "_invoke_spec_authority_compiler",
+        lambda **_: _raw_compiler_output_json(),
+    )
+    spec = _create_spec_version(
+        session,
+        product_id=require_id(sample_product.product_id, "product_id"),
+    )
+
+    def record_progress(boundary: str) -> bool:
+        if boundary != failed_boundary:
+            return True
+        if mode == "raise":
+            message = "progress failed"
+            raise RuntimeError(message)
+        return False
+
+    result = compiler_service.compile_spec_authority_for_version_with_engine(
+        engine=engine,
+        spec_version_id=require_id(spec.spec_version_id, "spec_version_id"),
+        force_recompile=False,
+        lease_guard=lambda _boundary: True,
+        record_progress=record_progress,
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "MUTATION_RECOVERY_REQUIRED"
+    assert result["boundary"] == failed_boundary
+
+
 def test_compile_spec_authority_persists_authority_with_legacy_envelope(
     session: Session, sample_product: Product, monkeypatch: pytest.MonkeyPatch
 ) -> None:
