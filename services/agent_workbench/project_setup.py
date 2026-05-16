@@ -271,6 +271,9 @@ class ProjectSetupMutationRunner:
 
     def _run_create(self, request: ProjectCreateRequest) -> dict[str, Any]:
         resolved_spec_path = Path(request.spec_file).expanduser().resolve()
+        spec_hash_result = _spec_hash_or_error(resolved_spec_path)
+        if not isinstance(spec_hash_result, str):
+            return spec_hash_result
         if request.dry_run:
             return _success(
                 {
@@ -291,14 +294,13 @@ class ProjectSetupMutationRunner:
                 remediation=["Choose a different project name."],
             )
 
-        spec_hash = _spec_hash(resolved_spec_path)
         loaded = self._ledger.create_or_load(
             command=PROJECT_CREATE_COMMAND,
             idempotency_key=_required(request.idempotency_key),
             request_hash=_create_request_hash(
                 request=request,
                 resolved_spec_path=resolved_spec_path,
-                spec_hash=spec_hash,
+                spec_hash=spec_hash_result,
             ),
             project_id=None,
             correlation_id=_correlation_id(request.correlation_id),
@@ -331,6 +333,9 @@ class ProjectSetupMutationRunner:
 
     def _run_retry(self, request: ProjectSetupRetryRequest) -> dict[str, Any]:
         resolved_spec_path = Path(request.spec_file).expanduser().resolve()
+        spec_hash_result = _spec_hash_or_error(resolved_spec_path)
+        if not isinstance(spec_hash_result, str):
+            return spec_hash_result
         if request.dry_run:
             return _success(
                 {
@@ -589,7 +594,10 @@ class ProjectSetupMutationRunner:
             "resolved_spec_path": str(resolved_spec_path),
             "spec_hash": authority_result["spec_hash"],
             "spec_version_id": authority_result["spec_version_id"],
-            "authority_id": authority_result["authority_id"],
+            "authority_id": None,
+            "pending_authority_id": authority_result["authority_id"],
+            "compiled_authority_id": authority_result["authority_id"],
+            "pending_compiled_spec_version_id": authority_result["spec_version_id"],
             "setup_status": "authority_pending_review",
             "fsm_state": "SETUP_REQUIRED",
             "mutation_event_id": mutation_event_id,
@@ -1112,6 +1120,36 @@ def _retry_context_fingerprint(
 
 def _spec_hash(path: Path) -> str:
     return setup_spec_hash(path)
+
+
+def _spec_hash_or_error(path: Path) -> str | dict[str, Any]:
+    """Return a setup spec hash or a structured spec-file contract error."""
+    if not path.exists():
+        return _error(
+            ErrorCode.SPEC_FILE_NOT_FOUND.value,
+            details={"spec_file": str(path)},
+            remediation=["Create the spec file or pass the correct path."],
+        )
+    if not path.is_file():
+        return _error(
+            ErrorCode.SPEC_FILE_INVALID.value,
+            details={"spec_file": str(path), "reason": "not_a_file"},
+            remediation=["Pass a readable Markdown specification file."],
+        )
+    try:
+        return _spec_hash(path)
+    except UnicodeDecodeError as exc:
+        return _error(
+            ErrorCode.SPEC_FILE_INVALID.value,
+            details={"spec_file": str(path), "reason": str(exc)},
+            remediation=["Save the specification file as UTF-8 text."],
+        )
+    except OSError as exc:
+        return _error(
+            ErrorCode.SPEC_FILE_INVALID.value,
+            details={"spec_file": str(path), "reason": str(exc)},
+            remediation=["Pass a readable Markdown specification file."],
+        )
 
 
 def _workflow_has_required_setup_state(state: dict[str, Any], spec_path: Path) -> bool:

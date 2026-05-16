@@ -7,6 +7,7 @@ import importlib
 import json
 import sys
 from collections.abc import Callable, Mapping
+from contextlib import redirect_stdout
 from typing import NoReturn, Protocol, cast
 
 from services.agent_workbench.envelope import (
@@ -828,7 +829,8 @@ def main(argv: list[str] | None = None, *, application: object | None = None) ->
             if application is not None
             else _default_application()
         )
-        command, result = _dispatch(args, app)
+        with redirect_stdout(sys.stderr):
+            command, result = _dispatch(args, app)
         envelope = _wrap(command, result)
     except Exception as exc:  # noqa: BLE001
         envelope = _exception_envelope(exc)

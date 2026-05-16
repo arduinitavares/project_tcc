@@ -550,6 +550,17 @@ agileforge workflow state --project-id "$PROJECT_ID"
 agileforge authority status --project-id "$PROJECT_ID"
 ```
 
+Project-create success data uses the same authority naming policy as
+`authority status`:
+
+- `authority_id` is the accepted authority id and remains `null` after project
+  creation.
+- `pending_authority_id` is the compiled authority awaiting review.
+- `compiled_authority_id` is an alias for the compiled pending authority created
+  by setup.
+- `pending_compiled_spec_version_id` is the spec version used to compile the
+  pending authority.
+
 Expected authority state immediately after successful project creation:
 
 ```json

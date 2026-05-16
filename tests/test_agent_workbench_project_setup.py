@@ -266,6 +266,63 @@ def test_project_create_dry_run_resolves_spec_from_caller_cwd_without_writes(
         assert session.exec(select(CliMutationLedger)).all() == []
 
 
+def test_project_create_dry_run_missing_spec_returns_structured_error_without_writes(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    ensure_schema_current(engine)
+    missing_spec = tmp_path / "specs" / "missing.md"
+    runner = ProjectSetupMutationRunner(engine=engine)
+
+    result = runner.create_project(
+        ProjectCreateRequest(
+            name="CLI Project",
+            spec_file=str(missing_spec),
+            dry_run=True,
+            dry_run_id="dry-run-project-001",
+            changed_by="agent",
+        )
+    )
+
+    assert result["ok"] is False
+    assert _error_code(result) == "SPEC_FILE_NOT_FOUND"
+    assert result["errors"][0]["details"] == {
+        "spec_file": str(missing_spec.resolve())
+    }
+
+    with Session(engine) as session:
+        assert session.exec(select(Product)).all() == []
+        assert session.exec(select(CliMutationLedger)).all() == []
+
+
+def test_project_create_missing_spec_returns_structured_error_before_ledger(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    ensure_schema_current(engine)
+    missing_spec = tmp_path / "specs" / "missing.md"
+    runner = ProjectSetupMutationRunner(engine=engine)
+
+    result = runner.create_project(
+        ProjectCreateRequest(
+            name="CLI Project",
+            spec_file=str(missing_spec),
+            idempotency_key="create-project-001",
+            changed_by="agent",
+        )
+    )
+
+    assert result["ok"] is False
+    assert _error_code(result) == "SPEC_FILE_NOT_FOUND"
+    assert result["errors"][0]["details"] == {
+        "spec_file": str(missing_spec.resolve())
+    }
+
+    with Session(engine) as session:
+        assert session.exec(select(Product)).all() == []
+        assert session.exec(select(CliMutationLedger)).all() == []
+
+
 def test_project_create_request_validation_rules() -> None:
     with pytest.raises(ValidationError, match="idempotency_key is required"):
         ProjectCreateRequest(name="CLI Project", spec_file="specs/app.md")
@@ -328,6 +385,9 @@ def test_project_create_success_creates_authority_without_acceptance(
     assert data["resolved_spec_path"] == str(spec_file.resolve())
     assert data["setup_status"] == "authority_pending_review"
     assert data["fsm_state"] == "SETUP_REQUIRED"
+    assert data["authority_id"] is None
+    assert isinstance(data["pending_authority_id"], int)
+    assert data["pending_authority_id"] == data["compiled_authority_id"]
     assert data["next_actions"] == [
         {
             "command": "agileforge authority status",

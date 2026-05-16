@@ -374,6 +374,31 @@ def test_cli_writes_success_json_to_stdout(
     assert app.calls == [("project_list", {})]
 
 
+def test_cli_redirects_application_stdout_away_from_json_envelope(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify lower-layer stdout output cannot corrupt the JSON envelope."""
+    app = _FakeApplication()
+
+    def noisy_project_list() -> JsonObject:
+        sys.stdout.write("LiteLLM completion() model=openai/example\n")
+        app.calls.append(("project_list", {}))
+        return {"ok": True, "data": {"items": []}, "warnings": [], "errors": []}
+
+    cast("Any", app).project_list = noisy_project_list
+
+    rc = main(["project", "list"], application=app)
+
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert captured.out.startswith("{")
+    assert "LiteLLM" not in captured.out
+    assert "LiteLLM" in captured.err
+    payload = cast("JsonObject", json.loads(captured.out))
+    assert payload["ok"] is True
+    assert app.calls == [("project_list", {})]
+
+
 def test_cli_wraps_success_source_fingerprint_in_meta(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
