@@ -1,6 +1,6 @@
 """Tests for CLI project setup mutation runner."""
 
-# ruff: noqa: ANN401, ARG005, D102, D103, D107, E501, PLC0415, PLR0913, TC002, TC003
+# ruff: noqa: ANN401, ARG005, D102, D103, D107, E501, PLC0415, PLR0911, PLR0913, TC002, TC003
 
 from __future__ import annotations
 
@@ -44,6 +44,8 @@ class FakeWorkflowPort:
         self.sessions: dict[str, dict[str, Any]] = {}
         self.created_sessions: list[str] = []
         self.status_writes: list[tuple[str, dict[str, Any]]] = []
+        self.fail_after_session_create = False
+        self.fail_after_status_write = False
 
     def initialize_session(self, session_id: str | None = None) -> str:
         if session_id is None:
@@ -78,6 +80,9 @@ class FakeWorkflowPort:
             if not lease_guard("workflow_session_created"):
                 return {"ok": False, "error_code": "MUTATION_IN_PROGRESS"}
             self.initialize_session(session_id=session_id)
+            if self.fail_after_session_create:
+                self.fail_after_session_create = False
+                return {"ok": False, "error_code": "WORKFLOW_SESSION_FAILED"}
             current = self.get_session_status(session_id)
         if not record_progress("workflow_session_created"):
             return {"ok": False, "error_code": "MUTATION_RECOVERY_REQUIRED"}
@@ -93,6 +98,9 @@ class FakeWorkflowPort:
             if not lease_guard("workflow_session_status_written"):
                 return {"ok": False, "error_code": "MUTATION_IN_PROGRESS"}
             self.update_session_status(session_id, required_state)
+            if self.fail_after_status_write:
+                self.fail_after_status_write = False
+                return {"ok": False, "error_code": "WORKFLOW_SESSION_FAILED"}
         if not record_progress("workflow_session_status_written"):
             return {"ok": False, "error_code": "MUTATION_RECOVERY_REQUIRED"}
         return {"ok": True, "session_id": session_id, "state": self.get_session_status(session_id)}
@@ -125,20 +133,26 @@ def _install_fast_compiler(monkeypatch: pytest.MonkeyPatch) -> None:
                 "boundary": "compiled_authority_persisted",
             }
         with Session(engine) as session:
-            authority = CompiledSpecAuthority(
-                spec_version_id=spec_version_id,
-                compiler_version="test-compiler",
-                prompt_hash="sha256:test",
-                compiled_artifact_json='{"ok":true}',
-                scope_themes="[]",
-                invariants="[]",
-                eligible_feature_ids="[]",
-                rejected_features="[]",
-                spec_gaps="[]",
-            )
-            session.add(authority)
-            session.commit()
-            session.refresh(authority)
+            authority = session.exec(
+                select(CompiledSpecAuthority).where(
+                    CompiledSpecAuthority.spec_version_id == spec_version_id
+                )
+            ).first()
+            if authority is None:
+                authority = CompiledSpecAuthority(
+                    spec_version_id=spec_version_id,
+                    compiler_version="test-compiler",
+                    prompt_hash="sha256:test",
+                    compiled_artifact_json='{"ok":true}',
+                    scope_themes="[]",
+                    invariants="[]",
+                    eligible_feature_ids="[]",
+                    rejected_features="[]",
+                    spec_gaps="[]",
+                )
+                session.add(authority)
+                session.commit()
+                session.refresh(authority)
             authority_id = authority.authority_id
         if record_progress is not None:
             assert record_progress("compiled_authority_persisted")
@@ -796,6 +810,111 @@ def test_workflow_setup_reconciles_partial_or_existing_session_state(
     assert fake_workflow.sessions["1"]["setup_error"] is None
     assert fake_workflow.sessions["1"]["setup_spec_file_path"] == str(spec_file.resolve())
     assert fake_workflow.sessions["1"]["unrelated_state"] == "preserved"
+
+
+def test_workflow_setup_retry_recovers_session_created_without_status(
+    engine: Engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ensure_schema_current(engine)
+    spec_file = _write_spec(tmp_path)
+    _install_fast_compiler(monkeypatch)
+    fake_workflow = FakeWorkflowPort()
+    fake_workflow.fail_after_session_create = True
+    runner = ProjectSetupMutationRunner(engine=engine, workflow=fake_workflow)
+
+    recovery = runner.create_project(
+        ProjectCreateRequest(
+            name="CLI Project",
+            spec_file=str(spec_file),
+            idempotency_key="create-project-001",
+        )
+    )
+
+    assert _error_code(recovery) == "MUTATION_RECOVERY_REQUIRED"
+    project_id = recovery["data"]["project_id"]
+    original_event_id = recovery["data"]["mutation_event_id"]
+    assert fake_workflow.created_sessions == [str(project_id)]
+    assert "setup_status" not in fake_workflow.sessions[str(project_id)]
+
+    expected_fingerprint = _retry_fingerprint(
+        project_id=project_id,
+        spec_file=spec_file,
+        workflow_state=fake_workflow.sessions[str(project_id)],
+    )
+    retry = ProjectSetupMutationRunner(engine=engine, workflow=fake_workflow).retry_setup(
+        ProjectSetupRetryRequest(
+            project_id=project_id,
+            spec_file=str(spec_file),
+            expected_state="SETUP_REQUIRED",
+            expected_context_fingerprint=expected_fingerprint,
+            recovery_mutation_event_id=original_event_id,
+            idempotency_key="retry-project-001",
+        )
+    )
+
+    assert retry["ok"] is True
+    assert fake_workflow.created_sessions == [str(project_id)]
+    assert fake_workflow.sessions[str(project_id)]["setup_status"] == (
+        "authority_pending_review"
+    )
+    assert fake_workflow.sessions[str(project_id)]["setup_error"] is None
+
+
+def test_workflow_setup_retry_recovers_status_written_without_ledger_progress(
+    engine: Engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ensure_schema_current(engine)
+    spec_file = _write_spec(tmp_path)
+    _install_fast_compiler(monkeypatch)
+    fake_workflow = FakeWorkflowPort()
+    fake_workflow.fail_after_status_write = True
+    runner = ProjectSetupMutationRunner(engine=engine, workflow=fake_workflow)
+
+    recovery = runner.create_project(
+        ProjectCreateRequest(
+            name="CLI Project",
+            spec_file=str(spec_file),
+            idempotency_key="create-project-001",
+        )
+    )
+
+    assert _error_code(recovery) == "MUTATION_RECOVERY_REQUIRED"
+    project_id = recovery["data"]["project_id"]
+    original_event_id = recovery["data"]["mutation_event_id"]
+    assert fake_workflow.created_sessions == [str(project_id)]
+    assert len(fake_workflow.status_writes) == 1
+    assert fake_workflow.sessions[str(project_id)]["setup_status"] == (
+        "authority_pending_review"
+    )
+
+    expected_fingerprint = _retry_fingerprint(
+        project_id=project_id,
+        spec_file=spec_file,
+        workflow_state=fake_workflow.sessions[str(project_id)],
+    )
+    retry = ProjectSetupMutationRunner(engine=engine, workflow=fake_workflow).retry_setup(
+        ProjectSetupRetryRequest(
+            project_id=project_id,
+            spec_file=str(spec_file),
+            expected_state="SETUP_REQUIRED",
+            expected_context_fingerprint=expected_fingerprint,
+            recovery_mutation_event_id=original_event_id,
+            idempotency_key="retry-project-001",
+        )
+    )
+
+    assert retry["ok"] is True
+    assert fake_workflow.created_sessions == [str(project_id)]
+    assert len(fake_workflow.status_writes) == 1
+    with Session(engine) as session:
+        retry_row = session.get(CliMutationLedger, retry["data"]["mutation_event_id"])
+        assert retry_row is not None
+        assert "workflow_session_created" in _row_payload(retry_row)["completed_steps"]
+        assert "workflow_session_status_written" in _row_payload(retry_row)["completed_steps"]
 
 
 def test_linked_retry_repository_helpers_roll_back_and_report_conflict(
