@@ -36,6 +36,11 @@ from services.agent_workbench.mutation_ledger import (
     _db_datetime,
     _json_dump,
 )
+from services.agent_workbench.project_setup_fingerprints import (
+    PROJECT_SETUP_RETRY_COMMAND,
+    setup_retry_context_fingerprint,
+    setup_spec_hash,
+)
 from services.specs.pending_authority_service import (
     compile_pending_authority_for_project,
 )
@@ -44,7 +49,6 @@ if TYPE_CHECKING:
     from services.workflow import WorkflowService
 
 PROJECT_CREATE_COMMAND = "agileforge project create"
-PROJECT_SETUP_RETRY_COMMAND = "agileforge project setup retry"
 PROJECT_ALREADY_EXISTS = "PROJECT_ALREADY_EXISTS"
 MUTATION_RECOVERY_INVALID = "MUTATION_RECOVERY_INVALID"
 SPEC_COMPILE_FAILED = "SPEC_COMPILE_FAILED"
@@ -1088,19 +1092,15 @@ def _retry_context_fingerprint(
     resolved_spec_path: Path,
     workflow_state: dict[str, Any],
 ) -> str:
-    return canonical_hash(
-        {
-            "command": PROJECT_SETUP_RETRY_COMMAND,
-            "project_id": project_id,
-            "resolved_spec_path": str(resolved_spec_path),
-            "spec_hash": _spec_hash(resolved_spec_path),
-            "workflow_state": workflow_state,
-        }
+    return setup_retry_context_fingerprint(
+        project_id=project_id,
+        resolved_spec_path=resolved_spec_path,
+        workflow_state=workflow_state,
     )
 
 
 def _spec_hash(path: Path) -> str:
-    return canonical_hash(path.read_text(encoding="utf-8"))
+    return setup_spec_hash(path)
 
 
 def _workflow_has_required_setup_state(state: dict[str, Any], spec_path: Path) -> bool:

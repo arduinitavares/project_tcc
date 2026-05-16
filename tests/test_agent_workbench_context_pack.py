@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from services.agent_workbench.context_pack import ContextPackService
+from services.agent_workbench.fingerprints import canonical_hash
+from services.agent_workbench.project_setup_fingerprints import (
+    PROJECT_SETUP_RETRY_COMMAND,
+)
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 PROJECT_ID = 7
 WORKFLOW_FINGERPRINT = "sha256:" + "1" * 64
@@ -65,6 +72,26 @@ class _NonSprintReadProjection(_FakeReadProjection):
                 "state": {
                     "fsm_state": "VISION_INTERVIEW",
                     "setup_status": "passed",
+                },
+                "source_fingerprint": WORKFLOW_FINGERPRINT,
+            },
+            "warnings": [],
+            "errors": [],
+        }
+
+
+class _SetupRequiredReadProjection(_FakeReadProjection):
+    """Fake read projection for setup recovery context."""
+
+    def workflow_state(self, *, project_id: int) -> dict[str, Any]:
+        """Return setup-required workflow state."""
+        self.calls.append("workflow_state")
+        return {
+            "ok": True,
+            "data": {
+                "project_id": project_id,
+                "state": {
+                    "fsm_state": "SETUP_REQUIRED",
                 },
                 "source_fingerprint": WORKFLOW_FINGERPRINT,
             },
@@ -145,6 +172,29 @@ class _WarningAuthorityProjection(_FakeAuthorityProjection):
         return result
 
 
+class _ReadableDiskSpecAuthorityProjection(_FakeAuthorityProjection):
+    """Fake authority projection with a readable disk spec."""
+
+    def __init__(self, spec_path: Path) -> None:
+        super().__init__()
+        self.spec_path = spec_path
+
+    def status(self, *, project_id: int) -> dict[str, Any]:
+        """Return authority status with readable disk spec metadata."""
+        result = super().status(project_id=project_id)
+        result["data"]["status"] = "pending_acceptance"
+        result["data"]["disk_spec"] = {
+            "path": str(self.spec_path),
+            "resolved_path": str(self.spec_path.resolve()),
+            "exists": True,
+            "status": "readable",
+            "sha256": "not-used-by-context-token",
+            "matches_accepted": None,
+            "error": None,
+        }
+        return result
+
+
 def test_sprint_planning_pack_filters_unimplemented_next_commands() -> None:
     """Verify next commands only include installed capabilities."""
     service = ContextPackService(
@@ -179,6 +229,35 @@ def test_sprint_planning_pack_filters_unimplemented_next_commands() -> None:
     assert data["phase_data"]["sprint_candidates"]["count"] == 1
     assert data["workflow"]["source_fingerprint"] == WORKFLOW_FINGERPRINT
     assert data["authority"]["authority_fingerprint"] == AUTHORITY_FINGERPRINT
+
+
+def test_context_pack_publishes_project_setup_retry_guard_token(
+    tmp_path: Path,
+) -> None:
+    """Verify agents can read the exact context token required by setup retry."""
+    spec_path = tmp_path / "specs" / "app.md"
+    spec_path.parent.mkdir()
+    spec_content = "# App\n\nBuild the app.\n"
+    spec_path.write_text(spec_content, encoding="utf-8")
+    workflow_state = {"fsm_state": "SETUP_REQUIRED"}
+    service = ContextPackService(
+        read_projection=_SetupRequiredReadProjection(),
+        authority_projection=_ReadableDiskSpecAuthorityProjection(spec_path),
+    )
+
+    result = service.pack(project_id=PROJECT_ID)
+
+    assert result["ok"] is True
+    expected = canonical_hash(
+        {
+            "command": PROJECT_SETUP_RETRY_COMMAND,
+            "project_id": PROJECT_ID,
+            "resolved_spec_path": str(spec_path.resolve()),
+            "spec_hash": canonical_hash(spec_content),
+            "workflow_state": workflow_state,
+        }
+    )
+    assert result["data"]["guard_tokens"]["expected_context_fingerprint"] == expected
 
 
 def test_overview_pack_omits_sprint_phase_data() -> None:

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Final, Protocol
 
 from services.agent_workbench.command_registry import command_is_available
 from services.agent_workbench.fingerprints import canonical_hash
+from services.agent_workbench.project_setup_fingerprints import (
+    setup_retry_context_fingerprint,
+)
 
 JsonDict = dict[str, Any]
 
@@ -82,6 +86,11 @@ class ContextPackService:
         omitted_sections = ["raw_spec", "authority_full"]
         truncation: list[JsonDict] = []
         phase_data: JsonDict = {}
+        guard_tokens = _guard_tokens(
+            project_id=project_id,
+            workflow_data=workflow_data,
+            authority_data=authority_data,
+        )
         next_valid_commands: list[str] = []
         blocked_commands: list[JsonDict] = []
         blocked_future_commands: list[str] = []
@@ -131,6 +140,7 @@ class ContextPackService:
             "included_sections": included_sections,
             "omitted_sections": omitted_sections,
             "truncation": truncation,
+            "guard_tokens": guard_tokens,
             "phase_data": phase_data,
             "warnings": warnings,
         }
@@ -145,6 +155,7 @@ class ContextPackService:
                 "workflow": _fingerprint_or_data(workflow_data),
                 "authority": authority_fingerprint or authority_data,
                 "phase_data": _fingerprinted_phase_data(phase_data),
+                "guard_tokens": guard_tokens,
                 "next_valid_commands": next_valid_commands,
                 "blocked_commands": blocked_commands,
                 "blocked_future_commands": blocked_future_commands,
@@ -201,6 +212,50 @@ def _fsm_state(workflow_data: JsonDict) -> object:
     if not isinstance(state, dict):
         return None
     return state.get("fsm_state")
+
+
+def _guard_tokens(
+    *,
+    project_id: int,
+    workflow_data: JsonDict,
+    authority_data: JsonDict,
+) -> JsonDict:
+    """Return command guard tokens that can be derived from this context pack."""
+    expected_context_fingerprint = _setup_retry_context_guard_token(
+        project_id=project_id,
+        workflow_data=workflow_data,
+        authority_data=authority_data,
+    )
+    if expected_context_fingerprint is None:
+        return {}
+    return {"expected_context_fingerprint": expected_context_fingerprint}
+
+
+def _setup_retry_context_guard_token(
+    *,
+    project_id: int,
+    workflow_data: JsonDict,
+    authority_data: JsonDict,
+) -> str | None:
+    """Return the setup retry context token when the disk spec is readable."""
+    state = workflow_data.get("state")
+    workflow_state = state if isinstance(state, dict) else {}
+    disk_spec = authority_data.get("disk_spec")
+    if not isinstance(disk_spec, dict):
+        return None
+    if disk_spec.get("status") != "readable":
+        return None
+    resolved_path = disk_spec.get("resolved_path")
+    if not isinstance(resolved_path, str) or not resolved_path:
+        return None
+    try:
+        return setup_retry_context_fingerprint(
+            project_id=project_id,
+            resolved_spec_path=Path(resolved_path),
+            workflow_state=workflow_state,
+        )
+    except (OSError, UnicodeError):
+        return None
 
 
 def _sprint_planning_commands(
