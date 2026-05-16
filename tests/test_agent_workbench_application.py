@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import create_engine, text
 from sqlmodel import SQLModel
@@ -26,9 +26,15 @@ if TYPE_CHECKING:
     import pytest
     from sqlalchemy.engine import Engine
 
+    from services.agent_workbench.project_setup import (
+        ProjectCreateRequest,
+        ProjectSetupRetryRequest,
+    )
+
 PROJECT_ID = 7
 SPEC_VERSION_ID = 3
 STORY_ID = 12
+RECOVERY_MUTATION_EVENT_ID = 42
 WORKFLOW_FINGERPRINT = "sha256:" + "1" * 64
 CANDIDATES_FINGERPRINT = "sha256:" + "2" * 64
 AUTHORITY_FINGERPRINT = "sha256:" + "3" * 64
@@ -235,6 +241,33 @@ class _FalseyAuthorityProjection(_FakeAuthorityProjection):
         }
 
 
+class _FakeProjectSetupRunner:
+    """Fake project setup runner used to verify facade request construction."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, object]] = []
+
+    def create_project(self, request: ProjectCreateRequest) -> dict[str, Any]:
+        """Return a create payload and record the request model."""
+        self.calls.append(("create_project", request))
+        return {
+            "ok": True,
+            "data": {"project_id": 1, "name": request.name},
+            "warnings": [],
+            "errors": [],
+        }
+
+    def retry_setup(self, request: ProjectSetupRetryRequest) -> dict[str, Any]:
+        """Return a setup retry payload and record the request model."""
+        self.calls.append(("retry_setup", request))
+        return {
+            "ok": True,
+            "data": {"project_id": request.project_id},
+            "warnings": [],
+            "errors": [],
+        }
+
+
 def test_application_delegates_to_read_projection() -> None:
     """Verify application facade is thin and explicit."""
     app = AgentWorkbenchApplication(
@@ -265,6 +298,66 @@ def test_application_delegates_to_authority_projection() -> None:
         "spec_version_id": SPEC_VERSION_ID,
         "invariants": [],
     }
+
+
+def test_application_routes_project_create_to_setup_runner() -> None:
+    """Verify project create facade builds the request model."""
+    runner = _FakeProjectSetupRunner()
+    app = AgentWorkbenchApplication(project_setup_runner=runner)
+
+    result = app.project_create(
+        name="CLI Project",
+        spec_file="specs/app.md",
+        idempotency_key="create-cli-project-001",
+        dry_run=False,
+        dry_run_id=None,
+        correlation_id="corr-1",
+        changed_by="test-agent",
+    )
+
+    assert result["ok"] is True
+    assert runner.calls[0][0] == "create_project"
+    request = cast("ProjectCreateRequest", runner.calls[0][1])
+    assert request.name == "CLI Project"
+    assert request.spec_file == "specs/app.md"
+    assert request.idempotency_key == "create-cli-project-001"
+    assert request.dry_run is False
+    assert request.dry_run_id is None
+    assert request.correlation_id == "corr-1"
+    assert request.changed_by == "test-agent"
+
+
+def test_application_routes_project_setup_retry_to_setup_runner() -> None:
+    """Verify setup retry facade builds the guarded request model."""
+    runner = _FakeProjectSetupRunner()
+    app = AgentWorkbenchApplication(project_setup_runner=runner)
+
+    result = app.project_setup_retry(
+        project_id=PROJECT_ID,
+        spec_file="specs/app.md",
+        expected_state="SETUP_REQUIRED",
+        expected_context_fingerprint="ctx123",
+        recovery_mutation_event_id=RECOVERY_MUTATION_EVENT_ID,
+        idempotency_key="retry-cli-project-001",
+        dry_run=False,
+        dry_run_id=None,
+        correlation_id="corr-1",
+        changed_by="test-agent",
+    )
+
+    assert result["ok"] is True
+    assert runner.calls[0][0] == "retry_setup"
+    request = cast("ProjectSetupRetryRequest", runner.calls[0][1])
+    assert request.project_id == PROJECT_ID
+    assert request.spec_file == "specs/app.md"
+    assert request.expected_state == "SETUP_REQUIRED"
+    assert request.expected_context_fingerprint == "ctx123"
+    assert request.recovery_mutation_event_id == RECOVERY_MUTATION_EVENT_ID
+    assert request.idempotency_key == "retry-cli-project-001"
+    assert request.dry_run is False
+    assert request.dry_run_id is None
+    assert request.correlation_id == "corr-1"
+    assert request.changed_by == "test-agent"
 
 
 def test_application_keeps_falsey_injected_dependencies() -> None:

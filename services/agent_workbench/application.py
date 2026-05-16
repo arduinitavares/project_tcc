@@ -19,6 +19,11 @@ from services.agent_workbench.diagnostics import doctor_payload, schema_check_pa
 from services.agent_workbench.error_codes import ErrorCode, workbench_error
 from services.agent_workbench.fingerprints import canonical_hash
 from services.agent_workbench.mutation_ledger import MutationLedgerRepository
+from services.agent_workbench.project_setup import (
+    ProjectCreateRequest,
+    ProjectSetupMutationRunner,
+    ProjectSetupRetryRequest,
+)
 from services.agent_workbench.read_projection import ReadProjectionService
 from services.agent_workbench.schema_readiness import (
     MUTATION_LEDGER_REQUIREMENTS,
@@ -68,6 +73,18 @@ class _AuthorityProjection(Protocol):
         ...
 
 
+class _ProjectSetupRunner(Protocol):
+    """Project setup mutation runner methods exposed through the facade."""
+
+    def create_project(self, request: ProjectCreateRequest) -> dict[str, Any]:
+        """Create a project from a validated request."""
+        ...
+
+    def retry_setup(self, request: ProjectSetupRetryRequest) -> dict[str, Any]:
+        """Retry setup from a validated request."""
+        ...
+
+
 class AgentWorkbenchApplication:
     """Thin facade shared by CLI transport and future API parity paths."""
 
@@ -76,10 +93,12 @@ class AgentWorkbenchApplication:
         *,
         read_projection: _ReadProjection | None = None,
         authority_projection: _AuthorityProjection | None = None,
+        project_setup_runner: _ProjectSetupRunner | None = None,
     ) -> None:
         """Initialize the facade with explicit projection dependencies."""
         self._read_projection = read_projection
         self._authority_projection = authority_projection
+        self._project_setup_runner = project_setup_runner
         self._context_pack: ContextPackService | None = None
 
     def project_list(self) -> dict[str, Any]:
@@ -283,6 +302,58 @@ class AgentWorkbenchApplication:
             correlation_id=correlation_id,
         )
 
+    def project_create(  # noqa: PLR0913
+        self,
+        *,
+        name: str,
+        spec_file: str,
+        idempotency_key: str | None = None,
+        dry_run: bool = False,
+        dry_run_id: str | None = None,
+        correlation_id: str | None = None,
+        changed_by: str = "cli-agent",
+    ) -> dict[str, Any]:
+        """Create a project through the guarded setup mutation runner."""
+        request = ProjectCreateRequest(
+            name=name,
+            spec_file=spec_file,
+            idempotency_key=idempotency_key,
+            dry_run=dry_run,
+            dry_run_id=dry_run_id,
+            correlation_id=correlation_id,
+            changed_by=changed_by,
+        )
+        return self._get_project_setup_runner().create_project(request)
+
+    def project_setup_retry(  # noqa: PLR0913
+        self,
+        *,
+        project_id: int,
+        spec_file: str,
+        expected_state: str,
+        expected_context_fingerprint: str,
+        recovery_mutation_event_id: int | None = None,
+        idempotency_key: str | None = None,
+        dry_run: bool = False,
+        dry_run_id: str | None = None,
+        correlation_id: str | None = None,
+        changed_by: str = "cli-agent",
+    ) -> dict[str, Any]:
+        """Retry interrupted project setup through the guarded mutation runner."""
+        request = ProjectSetupRetryRequest(
+            project_id=project_id,
+            spec_file=spec_file,
+            expected_state=expected_state,
+            expected_context_fingerprint=expected_context_fingerprint,
+            recovery_mutation_event_id=recovery_mutation_event_id,
+            idempotency_key=idempotency_key,
+            dry_run=dry_run,
+            dry_run_id=dry_run_id,
+            correlation_id=correlation_id,
+            changed_by=changed_by,
+        )
+        return self._get_project_setup_runner().retry_setup(request)
+
     def authority_status(self, *, project_id: int) -> dict[str, Any]:
         """Return authority status projection."""
         return self._get_authority_projection().status(project_id=project_id)
@@ -319,6 +390,12 @@ class AgentWorkbenchApplication:
                 authority_projection=self._get_authority_projection(),
             )
         return self._context_pack
+
+    def _get_project_setup_runner(self) -> _ProjectSetupRunner:
+        """Return the project setup runner, constructing the default lazily."""
+        if self._project_setup_runner is None:
+            self._project_setup_runner = ProjectSetupMutationRunner(engine=get_engine())
+        return self._project_setup_runner
 
 
 def _envelope_data(envelope: dict[str, Any]) -> dict[str, Any]:

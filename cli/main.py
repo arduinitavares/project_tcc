@@ -61,6 +61,37 @@ class _Application(Protocol):
         """Return project detail projection."""
         ...
 
+    def project_create(  # noqa: PLR0913
+        self,
+        *,
+        name: str,
+        spec_file: str,
+        idempotency_key: str | None = None,
+        dry_run: bool = False,
+        dry_run_id: str | None = None,
+        correlation_id: str | None = None,
+        changed_by: str = "cli-agent",
+    ) -> JsonObject:
+        """Create a project through the guarded mutation facade."""
+        ...
+
+    def project_setup_retry(  # noqa: PLR0913
+        self,
+        *,
+        project_id: int,
+        spec_file: str,
+        expected_state: str,
+        expected_context_fingerprint: str,
+        recovery_mutation_event_id: int | None = None,
+        idempotency_key: str | None = None,
+        dry_run: bool = False,
+        dry_run_id: str | None = None,
+        correlation_id: str | None = None,
+        changed_by: str = "cli-agent",
+    ) -> JsonObject:
+        """Retry interrupted project setup through the guarded mutation facade."""
+        ...
+
     def workflow_state(self, *, project_id: int) -> JsonObject:
         """Return workflow state projection."""
         ...
@@ -375,6 +406,33 @@ def build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     project_show = project_sub.add_parser("show", help="Show one project.")
     project_show.add_argument("--project-id", type=int, required=True)
     project_show.set_defaults(command_handler=_project_show)
+    project_create = project_sub.add_parser("create", help="Create a project.")
+    project_create.add_argument("--name", required=True)
+    project_create.add_argument("--spec-file", required=True)
+    project_create.add_argument("--idempotency-key")
+    project_create.add_argument("--dry-run", action="store_true")
+    project_create.add_argument("--dry-run-id")
+    project_create.add_argument("--correlation-id")
+    project_create.add_argument("--changed-by", default="cli-agent")
+    project_create.set_defaults(command_handler=_project_create)
+    project_setup = project_sub.add_parser("setup", help="Retry project setup.")
+    project_setup_sub = project_setup.add_subparsers(
+        dest="setup_action",
+        required=True,
+        parser_class=_WorkbenchArgumentParser,
+    )
+    project_setup_retry = project_setup_sub.add_parser("retry", help="Retry setup.")
+    project_setup_retry.add_argument("--project-id", type=int, required=True)
+    project_setup_retry.add_argument("--spec-file", required=True)
+    project_setup_retry.add_argument("--expected-state", required=True)
+    project_setup_retry.add_argument("--expected-context-fingerprint", required=True)
+    project_setup_retry.add_argument("--recovery-mutation-event-id", type=int)
+    project_setup_retry.add_argument("--idempotency-key")
+    project_setup_retry.add_argument("--dry-run", action="store_true")
+    project_setup_retry.add_argument("--dry-run-id")
+    project_setup_retry.add_argument("--correlation-id")
+    project_setup_retry.add_argument("--changed-by", default="cli-agent")
+    project_setup_retry.set_defaults(command_handler=_project_setup_retry)
 
     workflow = subparsers.add_parser(
         "workflow",
@@ -513,6 +571,84 @@ def _project_show(args: argparse.Namespace, application: _Application) -> Comman
     """Route project show to the application facade."""
     return "agileforge project show", application.project_show(
         project_id=args.project_id
+    )
+
+
+def _mutation_arg_error(command: str, error: WorkbenchError) -> CommandResult:
+    """Return a command result for mutation argument validation failures."""
+    return command, {
+        "ok": False,
+        "data": None,
+        "warnings": [],
+        "errors": [error.to_dict()],
+    }
+
+
+def _validate_mutation_idempotency_args(
+    args: argparse.Namespace,
+) -> WorkbenchError | None:
+    """Validate dry-run/idempotency flag combinations for mutations."""
+    if args.dry_run and args.idempotency_key:
+        return WorkbenchError(
+            code="INVALID_COMMAND",
+            message="--idempotency-key is not allowed with --dry-run.",
+            details={"idempotency_key": args.idempotency_key},
+            remediation=["Use --dry-run-id for dry-run tracing."],
+            exit_code=INVALID_COMMAND_EXIT_CODE,
+            retryable=False,
+        )
+    if not args.dry_run and not args.idempotency_key:
+        return WorkbenchError(
+            code="INVALID_COMMAND",
+            message="--idempotency-key is required for non-dry-run mutations.",
+            details={},
+            remediation=["Pass --idempotency-key or use --dry-run."],
+            exit_code=INVALID_COMMAND_EXIT_CODE,
+            retryable=False,
+        )
+    return None
+
+
+def _project_create(
+    args: argparse.Namespace,
+    application: _Application,
+) -> CommandResult:
+    """Route project create to the application facade."""
+    command = "agileforge project create"
+    validation_error = _validate_mutation_idempotency_args(args)
+    if validation_error is not None:
+        return _mutation_arg_error(command, validation_error)
+    return command, application.project_create(
+        name=args.name,
+        spec_file=args.spec_file,
+        idempotency_key=args.idempotency_key,
+        dry_run=args.dry_run,
+        dry_run_id=args.dry_run_id,
+        correlation_id=args.correlation_id,
+        changed_by=args.changed_by,
+    )
+
+
+def _project_setup_retry(
+    args: argparse.Namespace,
+    application: _Application,
+) -> CommandResult:
+    """Route project setup retry to the application facade."""
+    command = "agileforge project setup retry"
+    validation_error = _validate_mutation_idempotency_args(args)
+    if validation_error is not None:
+        return _mutation_arg_error(command, validation_error)
+    return command, application.project_setup_retry(
+        project_id=args.project_id,
+        spec_file=args.spec_file,
+        expected_state=args.expected_state,
+        expected_context_fingerprint=args.expected_context_fingerprint,
+        recovery_mutation_event_id=args.recovery_mutation_event_id,
+        idempotency_key=args.idempotency_key,
+        dry_run=args.dry_run,
+        dry_run_id=args.dry_run_id,
+        correlation_id=args.correlation_id,
+        changed_by=args.changed_by,
     )
 
 

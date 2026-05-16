@@ -47,6 +47,73 @@ class _FakeApplication:
             "errors": [],
         }
 
+    def project_create(  # noqa: PLR0913
+        self,
+        *,
+        name: str,
+        spec_file: str,
+        idempotency_key: str | None = None,
+        dry_run: bool = False,
+        dry_run_id: str | None = None,
+        correlation_id: str | None = None,
+        changed_by: str = "cli-agent",
+    ) -> JsonObject:
+        """Return a project create payload."""
+        self.calls.append(
+            (
+                "project_create",
+                {
+                    "name": name,
+                    "spec_file": spec_file,
+                    "idempotency_key": idempotency_key,
+                    "dry_run": dry_run,
+                    "dry_run_id": dry_run_id,
+                    "correlation_id": correlation_id,
+                    "changed_by": changed_by,
+                },
+            )
+        )
+        return {"ok": True, "data": {"project_id": 1}, "warnings": [], "errors": []}
+
+    def project_setup_retry(  # noqa: PLR0913
+        self,
+        *,
+        project_id: int,
+        spec_file: str,
+        expected_state: str,
+        expected_context_fingerprint: str,
+        recovery_mutation_event_id: int | None = None,
+        idempotency_key: str | None = None,
+        dry_run: bool = False,
+        dry_run_id: str | None = None,
+        correlation_id: str | None = None,
+        changed_by: str = "cli-agent",
+    ) -> JsonObject:
+        """Return a project setup retry payload."""
+        self.calls.append(
+            (
+                "project_setup_retry",
+                {
+                    "project_id": project_id,
+                    "spec_file": spec_file,
+                    "expected_state": expected_state,
+                    "expected_context_fingerprint": expected_context_fingerprint,
+                    "recovery_mutation_event_id": recovery_mutation_event_id,
+                    "idempotency_key": idempotency_key,
+                    "dry_run": dry_run,
+                    "dry_run_id": dry_run_id,
+                    "correlation_id": correlation_id,
+                    "changed_by": changed_by,
+                },
+            )
+        )
+        return {
+            "ok": True,
+            "data": {"project_id": project_id},
+            "warnings": [],
+            "errors": [],
+        }
+
     def workflow_state(self, *, project_id: int) -> JsonObject:
         """Return a workflow state payload."""
         self.calls.append(("workflow_state", {"project_id": project_id}))
@@ -331,6 +398,263 @@ def test_cli_wraps_success_source_fingerprint_in_meta(
     assert rc == 0
     assert _mapping(payload["data"])["source_fingerprint"] == source_fingerprint
     assert _mapping(payload["meta"])["source_fingerprint"] == source_fingerprint
+
+
+def test_cli_routes_project_create_to_application(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify project create routes mutation args to the application facade."""
+    app = _FakeApplication()
+
+    rc = main(
+        [
+            "project",
+            "create",
+            "--name",
+            "CLI Project",
+            "--spec-file",
+            "specs/app.md",
+            "--idempotency-key",
+            "create-cli-project-001",
+            "--changed-by",
+            "test-agent",
+        ],
+        application=app,
+    )
+
+    payload = _stdout_payload(capsys)
+    assert rc == 0
+    assert _mapping(payload["meta"])["command"] == "agileforge project create"
+    assert app.calls == [
+        (
+            "project_create",
+            {
+                "name": "CLI Project",
+                "spec_file": "specs/app.md",
+                "idempotency_key": "create-cli-project-001",
+                "dry_run": False,
+                "dry_run_id": None,
+                "correlation_id": None,
+                "changed_by": "test-agent",
+            },
+        )
+    ]
+
+
+def test_cli_routes_project_create_dry_run_without_idempotency_key(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify project create dry-run routes without consuming idempotency."""
+    app = _FakeApplication()
+
+    rc = main(
+        [
+            "project",
+            "create",
+            "--name",
+            "CLI Project",
+            "--spec-file",
+            "specs/app.md",
+            "--dry-run",
+            "--dry-run-id",
+            "preview-001",
+        ],
+        application=app,
+    )
+
+    payload = _stdout_payload(capsys)
+    assert rc == 0
+    assert _mapping(payload["meta"])["command"] == "agileforge project create"
+    assert app.calls == [
+        (
+            "project_create",
+            {
+                "name": "CLI Project",
+                "spec_file": "specs/app.md",
+                "idempotency_key": None,
+                "dry_run": True,
+                "dry_run_id": "preview-001",
+                "correlation_id": None,
+                "changed_by": "cli-agent",
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [
+            "project",
+            "create",
+            "--name",
+            "CLI Project",
+            "--spec-file",
+            "specs/app.md",
+            "--dry-run",
+            "--dry-run-id",
+            "preview-001",
+            "--idempotency-key",
+            "create-001",
+        ],
+        [
+            "project",
+            "create",
+            "--name",
+            "CLI Project",
+            "--spec-file",
+            "specs/app.md",
+        ],
+    ],
+)
+def test_cli_rejects_invalid_project_create_idempotency_args(
+    argv: list[str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify project create enforces dry-run/idempotency CLI contract."""
+    app = _FakeApplication()
+
+    rc = main(argv, application=app)
+
+    payload = _stdout_payload(capsys)
+    assert rc == INVALID_COMMAND_EXIT_CODE
+    assert _mapping(payload["meta"])["command"] == "agileforge project create"
+    assert _first_mapping(payload["errors"])["code"] == "INVALID_COMMAND"
+    assert app.calls == []
+
+
+def test_cli_routes_project_setup_retry_to_application(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify project setup retry routes stale guards and recovery id."""
+    app = _FakeApplication()
+
+    rc = main(
+        [
+            "project",
+            "setup",
+            "retry",
+            "--project-id",
+            str(PROJECT_ID),
+            "--spec-file",
+            "specs/app.md",
+            "--expected-state",
+            "SETUP_REQUIRED",
+            "--expected-context-fingerprint",
+            "ctx123",
+            "--recovery-mutation-event-id",
+            "42",
+            "--idempotency-key",
+            "retry-cli-project-001",
+        ],
+        application=app,
+    )
+
+    payload = _stdout_payload(capsys)
+    assert rc == 0
+    assert _mapping(payload["meta"])["command"] == "agileforge project setup retry"
+    assert app.calls == [
+        (
+            "project_setup_retry",
+            {
+                "project_id": PROJECT_ID,
+                "spec_file": "specs/app.md",
+                "expected_state": "SETUP_REQUIRED",
+                "expected_context_fingerprint": "ctx123",
+                "recovery_mutation_event_id": 42,
+                "idempotency_key": "retry-cli-project-001",
+                "dry_run": False,
+                "dry_run_id": None,
+                "correlation_id": None,
+                "changed_by": "cli-agent",
+            },
+        )
+    ]
+
+
+def test_cli_routes_project_setup_retry_dry_run_without_idempotency_key(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify setup retry dry-run routes without consuming idempotency."""
+    app = _FakeApplication()
+
+    rc = main(
+        [
+            "project",
+            "setup",
+            "retry",
+            "--project-id",
+            str(PROJECT_ID),
+            "--spec-file",
+            "specs/app.md",
+            "--expected-state",
+            "SETUP_REQUIRED",
+            "--expected-context-fingerprint",
+            "ctx123",
+            "--recovery-mutation-event-id",
+            "42",
+            "--dry-run",
+            "--dry-run-id",
+            "retry-preview-001",
+        ],
+        application=app,
+    )
+
+    payload = _stdout_payload(capsys)
+    assert rc == 0
+    assert _mapping(payload["meta"])["command"] == "agileforge project setup retry"
+    assert app.calls == [
+        (
+            "project_setup_retry",
+            {
+                "project_id": PROJECT_ID,
+                "spec_file": "specs/app.md",
+                "expected_state": "SETUP_REQUIRED",
+                "expected_context_fingerprint": "ctx123",
+                "recovery_mutation_event_id": 42,
+                "idempotency_key": None,
+                "dry_run": True,
+                "dry_run_id": "retry-preview-001",
+                "correlation_id": None,
+                "changed_by": "cli-agent",
+            },
+        )
+    ]
+
+
+def test_cli_rejects_project_setup_retry_dry_run_with_idempotency_key(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify setup retry dry-run rejects idempotency keys."""
+    app = _FakeApplication()
+
+    rc = main(
+        [
+            "project",
+            "setup",
+            "retry",
+            "--project-id",
+            str(PROJECT_ID),
+            "--spec-file",
+            "specs/app.md",
+            "--expected-state",
+            "SETUP_REQUIRED",
+            "--expected-context-fingerprint",
+            "ctx123",
+            "--dry-run",
+            "--dry-run-id",
+            "retry-preview-001",
+            "--idempotency-key",
+            "retry-001",
+        ],
+        application=app,
+    )
+
+    payload = _stdout_payload(capsys)
+    assert rc == INVALID_COMMAND_EXIT_CODE
+    assert _mapping(payload["meta"])["command"] == "agileforge project setup retry"
+    assert _first_mapping(payload["errors"])["code"] == "INVALID_COMMAND"
+    assert app.calls == []
 
 
 def test_cli_routes_authority_status(
