@@ -1,5 +1,6 @@
 """Tests for pending spec authority project setup."""
 
+import hashlib
 import inspect
 from datetime import UTC, datetime
 from pathlib import Path
@@ -75,6 +76,8 @@ def test_pending_authority_public_contract_is_keyword_only() -> None:
     )
     result_hints = get_type_hints(service.PendingAuthorityResult)
     assert result_hints["spec_path"] is str
+    function_hints = get_type_hints(service.compile_pending_authority_for_project)
+    assert function_hints["spec_path"] is Path
 
 
 def test_compile_pending_authority_creates_artifact_without_acceptance(
@@ -207,6 +210,35 @@ def test_compile_pending_authority_for_project_maps_compiler_failure(
     assert result.spec_version_id is not None
 
 
+def test_compile_pending_authority_preserves_compiler_recovery_boundary(
+    session: Session, tmp_path: Path
+) -> None:
+    """Compiler recovery failures should keep their boundary metadata."""
+    service = _pending_service()
+    product = _create_product(session)
+    spec_path = _write_spec(tmp_path)
+
+    result = service.compile_pending_authority_for_project(
+        session=session,
+        product_id=require_id(product.product_id, "product_id"),
+        spec_path=spec_path,
+        approved_by="cli-project-create",
+        compile_authority=lambda **_: {
+            "success": False,
+            "error": "MUTATION_PROGRESS_RECORD_FAILED",
+            "error_code": "MUTATION_RECOVERY_REQUIRED",
+            "boundary": "compiled_authority_persisted",
+        },
+        lease_guard=lambda _boundary: True,
+        record_progress=lambda _boundary: True,
+    )
+
+    assert result.ok is False
+    assert result.error_code == "MUTATION_RECOVERY_REQUIRED"
+    assert result.error is not None
+    assert "compiled_authority_persisted" in result.error
+
+
 def test_compile_pending_authority_for_project_removes_bad_acceptance_write(
     session: Session, engine: Engine, tmp_path: Path
 ) -> None:
@@ -261,6 +293,72 @@ def test_compile_pending_authority_for_project_removes_bad_acceptance_write(
             )
         ).all()
     assert remaining == []
+
+
+def test_compile_pending_authority_preserves_existing_acceptance_on_reused_spec(
+    session: Session, engine: Engine, tmp_path: Path
+) -> None:
+    """Cleanup must not delete acceptances that existed before compilation."""
+    service = _pending_service()
+    product = _create_product(session)
+    product_id = require_id(product.product_id, "product_id")
+    spec_path = _write_spec(tmp_path)
+    spec_content = spec_path.read_text(encoding="utf-8")
+
+    spec = SpecRegistry(
+        product_id=product_id,
+        spec_hash=hashlib.sha256(spec_content.encode("utf-8")).hexdigest(),
+        content=spec_content,
+        content_ref=str(spec_path.resolve()),
+        status="approved",
+        approved_at=datetime.now(UTC),
+        approved_by="human-review",
+        approval_notes="previous acceptance",
+    )
+    session.add(spec)
+    session.commit()
+    session.refresh(spec)
+    spec_version_id = require_id(spec.spec_version_id, "spec_version_id")
+    existing_authority = _persist_authority(session, spec_version_id=spec_version_id)
+    existing_acceptance = SpecAuthorityAcceptance(
+        product_id=product_id,
+        spec_version_id=spec_version_id,
+        status="accepted",
+        policy="manual",
+        decided_by="human",
+        decided_at=datetime.now(UTC),
+        rationale="previously accepted",
+        compiler_version=existing_authority.compiler_version,
+        prompt_hash=existing_authority.prompt_hash,
+        spec_hash=spec.spec_hash,
+    )
+    session.add(existing_acceptance)
+    session.commit()
+    session.refresh(existing_acceptance)
+    existing_acceptance_id = require_id(
+        existing_acceptance.id,
+        "acceptance_id",
+    )
+
+    result = service.compile_pending_authority_for_project(
+        session=session,
+        product_id=product_id,
+        spec_path=spec_path,
+        approved_by="cli-project-create",
+        compile_authority=lambda **_: {
+            "success": False,
+            "error": "compiler failed without writing acceptance",
+        },
+        lease_guard=lambda _boundary: True,
+        record_progress=lambda _boundary: True,
+    )
+
+    assert result.ok is False
+    assert result.error_code == "SPEC_COMPILE_FAILED"
+
+    with Session(engine) as fresh_session:
+        preserved = fresh_session.get(SpecAuthorityAcceptance, existing_acceptance_id)
+    assert preserved is not None
 
 
 def test_compile_pending_authority_rejects_uncommitted_bad_acceptance(

@@ -4,13 +4,11 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable  # noqa: TC003
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Protocol
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-    from pathlib import Path
+from pathlib import Path  # noqa: TC003
+from typing import Protocol
 
 from sqlmodel import Session, select
 
@@ -189,6 +187,10 @@ def _normalize_compiler_failure(
     """Map compiler failures to the pending-authority result contract."""
     error_code = compile_result.get("error_code")
     if error_code in {"MUTATION_IN_PROGRESS", "MUTATION_RECOVERY_REQUIRED"}:
+        error = str(compile_result.get("error", error_code))
+        boundary = compile_result.get("boundary")
+        if boundary is not None and str(boundary) not in error:
+            error = f"{error}:{boundary}"
         return _result(
             ok=False,
             product_id=product_id,
@@ -196,7 +198,7 @@ def _normalize_compiler_failure(
             error_code=str(error_code),
             spec_hash=spec_hash,
             spec_version_id=spec_version_id,
-            error=str(compile_result.get("error", error_code)),
+            error=error,
         )
     return _result(
         ok=False,
@@ -214,6 +216,7 @@ def _cleanup_bad_acceptance(
     *,
     product_id: int,
     spec_version_id: int,
+    existing_acceptance_ids: set[int],
 ) -> bool:
     """Delete matching acceptance rows left by an invalid compiler seam."""
     rows_before_rollback = session.exec(
@@ -222,7 +225,9 @@ def _cleanup_bad_acceptance(
             SpecAuthorityAcceptance.spec_version_id == spec_version_id,
         )
     ).all()
-    acceptance_was_written = bool(rows_before_rollback)
+    new_rows_before_rollback = [
+        row for row in rows_before_rollback if row.id not in existing_acceptance_ids
+    ]
     session.rollback()
     session.expire_all()
     rows_after_rollback = session.exec(
@@ -231,11 +236,33 @@ def _cleanup_bad_acceptance(
             SpecAuthorityAcceptance.spec_version_id == spec_version_id,
         )
     ).all()
-    for row in rows_after_rollback:
+    new_rows_after_rollback = [
+        row for row in rows_after_rollback if row.id not in existing_acceptance_ids
+    ]
+    for row in new_rows_after_rollback:
         session.delete(row)
-    if rows_after_rollback:
+    if new_rows_after_rollback:
         session.commit()
-    return acceptance_was_written or bool(rows_after_rollback)
+    return bool(new_rows_before_rollback or new_rows_after_rollback)
+
+
+def _matching_acceptance_ids(
+    session: Session,
+    *,
+    product_id: int,
+    spec_version_id: int,
+) -> set[int]:
+    """Return IDs of existing acceptance rows for this product/spec pair."""
+    return {
+        row_id
+        for row_id in session.exec(
+            select(SpecAuthorityAcceptance.id).where(
+                SpecAuthorityAcceptance.product_id == product_id,
+                SpecAuthorityAcceptance.spec_version_id == spec_version_id,
+            )
+        ).all()
+        if row_id is not None
+    }
 
 
 def compile_pending_authority_for_project(  # noqa: C901, PLR0911, PLR0912, PLR0913
@@ -362,6 +389,11 @@ def compile_pending_authority_for_project(  # noqa: C901, PLR0911, PLR0912, PLR0
     if progress_error is not None:
         return progress_error
 
+    existing_acceptance_ids = _matching_acceptance_ids(
+        session,
+        product_id=product_id,
+        spec_version_id=spec_version_id,
+    )
     compile_result = compile_authority(
         spec_version_id=spec_version_id,
         force_recompile=False,
@@ -373,6 +405,7 @@ def compile_pending_authority_for_project(  # noqa: C901, PLR0911, PLR0912, PLR0
         session,
         product_id=product_id,
         spec_version_id=spec_version_id,
+        existing_acceptance_ids=existing_acceptance_ids,
     ):
         return _result(
             ok=False,
