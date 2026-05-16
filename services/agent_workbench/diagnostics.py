@@ -11,15 +11,15 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import SQLAlchemyError
 
 from models import db as model_db
+from services.agent_workbench.schema_readiness import (
+    MUTATION_LEDGER_REQUIRED_COLUMNS,
+    MUTATION_LEDGER_TABLE,
+)
 from services.agent_workbench.version import STORAGE_SCHEMA_VERSION
 from utils.runtime_config import get_session_db_target
 
 BUSINESS_SCHEMA_VERSION_TABLE = "agent_workbench_schema_versions"
-BUSINESS_MUTATION_LEDGER_TABLE = "cli_mutation_ledger"
-BUSINESS_MUTATION_LEDGER_REQUIRED_COLUMNS = (
-    "recovers_mutation_event_id",
-    "superseded_by_mutation_event_id",
-)
+BUSINESS_MUTATION_LEDGER_TABLE = MUTATION_LEDGER_TABLE
 
 
 def schema_check_payload(
@@ -97,7 +97,7 @@ def _business_db_payload(*, business_engine: Engine | None) -> dict[str, Any]:
         }
         missing_columns = [
             column
-            for column in BUSINESS_MUTATION_LEDGER_REQUIRED_COLUMNS
+            for column in MUTATION_LEDGER_REQUIRED_COLUMNS
             if column not in existing_columns
         ]
         checks["cli_mutation_ledger_columns"] = not missing_columns

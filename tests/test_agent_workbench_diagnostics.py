@@ -175,6 +175,53 @@ def test_schema_check_reports_missing_mutation_ledger_columns(
     ]
 
 
+def test_schema_check_reports_malformed_mutation_ledger_columns(
+    tmp_path: Path,
+) -> None:
+    """Report malformed ledgers even when Phase 2B linkage columns exist."""
+    business_db_path = tmp_path / "malformed-phase-2b-business.sqlite3"
+    business_engine = create_engine(f"sqlite:///{business_db_path.as_posix()}")
+    with business_engine.begin() as conn:
+        conn.execute(text(AGENT_WORKBENCH_SCHEMA_VERSIONS_CREATE_SQL))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE cli_mutation_ledger (
+                    mutation_event_id INTEGER PRIMARY KEY,
+                    recovers_mutation_event_id INTEGER,
+                    superseded_by_mutation_event_id INTEGER
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO agent_workbench_schema_versions(component, version)
+                VALUES ('agent_workbench', '2')
+                """
+            )
+        )
+
+    payload = schema_check_payload(
+        business_engine=business_engine,
+        session_db_url="sqlite:///:memory:",
+    )
+
+    assert payload["business_db"]["ok"] is False
+    assert payload["business_db"]["checks"] == {
+        "schema_versions_table": True,
+        "cli_mutation_ledger_table": True,
+        "cli_mutation_ledger_columns": False,
+    }
+    assert "cli_mutation_ledger.command" in payload["business_db"]["missing"]
+    assert "cli_mutation_ledger.status" in payload["business_db"]["missing"]
+    assert (
+        "cli_mutation_ledger.recovers_mutation_event_id"
+        not in payload["business_db"]["missing"]
+    )
+
+
 def test_schema_check_blocks_missing_session_db_with_existing_parent(
     engine: Engine,
     tmp_path: Path,

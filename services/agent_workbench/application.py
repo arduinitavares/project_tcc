@@ -21,46 +21,12 @@ from services.agent_workbench.fingerprints import canonical_hash
 from services.agent_workbench.mutation_ledger import MutationLedgerRepository
 from services.agent_workbench.read_projection import ReadProjectionService
 from services.agent_workbench.schema_readiness import (
-    SchemaRequirement,
+    MUTATION_LEDGER_REQUIREMENTS,
     check_schema_readiness,
 )
 
 STATUS_COMMAND: Final[str] = "agileforge status"
 WORKFLOW_NEXT_COMMAND: Final[str] = "agileforge workflow next"
-MUTATION_LEDGER_REQUIREMENTS: Final[tuple[SchemaRequirement, ...]] = (
-    SchemaRequirement(
-        table="cli_mutation_ledger",
-        columns=(
-            "mutation_event_id",
-            "command",
-            "idempotency_key",
-            "request_hash",
-            "project_id",
-            "correlation_id",
-            "changed_by",
-            "status",
-            "current_step",
-            "completed_steps_json",
-            "guard_inputs_json",
-            "before_json",
-            "after_json",
-            "response_json",
-            "recovers_mutation_event_id",
-            "superseded_by_mutation_event_id",
-            "recovery_action",
-            "recovery_safe_to_auto_resume",
-            "lease_owner",
-            "lease_acquired_at",
-            "last_heartbeat_at",
-            "lease_expires_at",
-            "last_error_json",
-            "created_at",
-            "updated_at",
-        ),
-    ),
-)
-
-
 class _ReadProjection(Protocol):
     """Read projection methods exposed by the application facade."""
 
