@@ -2,16 +2,20 @@
 
 from importlib import metadata as importlib_metadata
 
+import pytest
+
 from services.agent_workbench import version
 
 
 def test_version_constants_are_stable() -> None:
     """Expose stable command and storage schema versions."""
     assert version.COMMAND_VERSION == "1"
-    assert version.STORAGE_SCHEMA_VERSION == "1"
+    assert version.STORAGE_SCHEMA_VERSION == "2"
 
 
-def test_agileforge_version_uses_package_metadata(monkeypatch) -> None:
+def test_agileforge_version_uses_package_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Read the installed AgileForge package version when available."""
 
     def fake_version(package_name: str) -> str:
@@ -23,7 +27,9 @@ def test_agileforge_version_uses_package_metadata(monkeypatch) -> None:
     assert version.agileforge_version() == "2.3.4"
 
 
-def test_agileforge_version_falls_back_to_dev(monkeypatch) -> None:
+def test_agileforge_version_falls_back_to_dev(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Return dev when package metadata is unavailable."""
 
     def missing_version(package_name: str) -> str:

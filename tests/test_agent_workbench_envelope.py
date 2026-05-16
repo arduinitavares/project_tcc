@@ -1,5 +1,8 @@
 """Tests for agent workbench envelope and registry contracts."""
 
+import pytest
+
+import services.agent_workbench.envelope as envelope_module
 from services.agent_workbench.command_registry import (
     command_is_available,
     installed_command_names,
@@ -11,7 +14,9 @@ from services.agent_workbench.envelope import (
     error_envelope,
     success_envelope,
 )
-import services.agent_workbench.envelope as envelope_module
+
+UUID4_TEXT_LENGTH = 36
+UUID4_HYPHEN_COUNT = 4
 
 EXPECTED_PHASE_1_COMMAND_NAMES = {
     "agileforge status",
@@ -37,7 +42,7 @@ EXPECTED_PHASE_2A_COMMAND_NAMES = {
 }
 
 
-def test_success_envelope_has_stable_shape(monkeypatch) -> None:
+def test_success_envelope_has_stable_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     """Serialize success responses with stable top-level keys."""
     monkeypatch.setattr(envelope_module, "agileforge_version", lambda: "dev")
 
@@ -77,14 +82,16 @@ def test_success_envelope_has_stable_shape(monkeypatch) -> None:
             "command": "agileforge project list",
             "command_version": "1",
             "agileforge_version": "dev",
-            "storage_schema_version": "1",
+            "storage_schema_version": envelope_module.STORAGE_SCHEMA_VERSION,
             "generated_at": "2026-05-14T00:00:00Z",
             "correlation_id": "corr-123",
         },
     }
 
 
-def test_error_envelope_has_retryable_exit_code_error(monkeypatch) -> None:
+def test_error_envelope_has_retryable_exit_code_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Serialize a singular command error with warning context."""
     monkeypatch.setattr(envelope_module, "agileforge_version", lambda: "dev")
 
@@ -130,7 +137,7 @@ def test_error_envelope_has_retryable_exit_code_error(monkeypatch) -> None:
             "command": "agileforge sprint candidates",
             "command_version": "2",
             "agileforge_version": "dev",
-            "storage_schema_version": "1",
+            "storage_schema_version": envelope_module.STORAGE_SCHEMA_VERSION,
             "generated_at": "2026-05-14T00:00:00Z",
             "correlation_id": "corr-456",
         },
@@ -148,8 +155,8 @@ def test_success_envelope_generates_default_correlation_id() -> None:
     correlation_id = envelope["meta"]["correlation_id"]
 
     assert isinstance(correlation_id, str)
-    assert len(correlation_id) == 36
-    assert correlation_id.count("-") == 4
+    assert len(correlation_id) == UUID4_TEXT_LENGTH
+    assert correlation_id.count("-") == UUID4_HYPHEN_COUNT
 
 
 def test_success_envelope_includes_optional_source_fingerprint() -> None:

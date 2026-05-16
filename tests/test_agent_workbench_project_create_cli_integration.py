@@ -13,10 +13,9 @@ from typing import Any
 
 import pytest
 from sqlalchemy.engine import Engine
-from sqlmodel import Session, SQLModel, create_engine, select
+from sqlmodel import Session, create_engine, select
 
 from cli.main import main
-from db.migrations import ensure_schema_current
 from models.agent_workbench import CliMutationLedger
 from models.core import Product
 from models.specs import CompiledSpecAuthority, SpecAuthorityAcceptance
@@ -91,15 +90,12 @@ class FakeWorkflowPort:
         }
 
 
-def _prepare_business_db(path: Path) -> Engine:
-    """Create all business tables in a file-backed SQLite DB."""
-    engine = create_engine(
+def _business_engine(path: Path) -> Engine:
+    """Create an engine for a file-backed SQLite DB."""
+    return create_engine(
         f"sqlite:///{path.as_posix()}",
         connect_args={"check_same_thread": False},
     )
-    SQLModel.metadata.create_all(engine)
-    ensure_schema_current(engine)
-    return engine
 
 
 def _write_spec(caller_dir: Path) -> Path:
@@ -254,7 +250,6 @@ def test_project_create_cli_from_non_repo_cwd_uses_caller_relative_spec(
     _write_sitecustomize_compiler_patch(caller_dir)
     business_db_path = tmp_path / "business.sqlite3"
     session_db_path = tmp_path / "sessions.sqlite3"
-    business_engine = _prepare_business_db(business_db_path)
 
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join([str(caller_dir), str(repo_root)])
@@ -292,7 +287,7 @@ def test_project_create_cli_from_non_repo_cwd_uses_caller_relative_spec(
     assert Path(data["resolved_spec_path"]) == spec_file.resolve()
     assert spec_file.resolve().is_relative_to(caller_dir.resolve())
 
-    with Session(business_engine) as session:
+    with Session(_business_engine(business_db_path)) as session:
         project = session.get(Product, project_id)
         assert project is not None
         assert project.name == "Outside Repo Project"
@@ -305,7 +300,6 @@ def test_project_setup_retry_cli_supersedes_original_create_recovery(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    ensure_schema_current(engine)
     spec_file = _write_spec(tmp_path)
     workflow = FakeWorkflowPort()
     runner = ProjectSetupMutationRunner(engine=engine, workflow=workflow)

@@ -19,6 +19,7 @@ from sqlmodel import Session, select
 
 from models.agent_workbench import CliMutationLedger
 from models.core import Product
+from models.db import ensure_business_db_ready
 from models.specs import CompiledSpecAuthority, SpecRegistry
 from services.agent_workbench.error_codes import ErrorCode, workbench_error
 from services.agent_workbench.fingerprints import canonical_hash
@@ -240,6 +241,7 @@ class ProjectSetupMutationRunner:
         workflow: ProjectSetupWorkflowPort | None = None,
     ) -> None:
         self._engine = engine
+        ensure_business_db_ready(engine_override=engine)
         self._ledger = MutationLedgerRepository(engine=engine)
         self._workflow = workflow or _default_workflow_port()
         self._lease_seconds = DEFAULT_LEASE_SECONDS

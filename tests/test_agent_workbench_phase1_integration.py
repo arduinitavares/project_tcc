@@ -40,6 +40,7 @@ SPEC_CONTENT = "# Phase 1 Spec\n\nThe CLI must expose read-only project context.
 COMPILER_VERSION = "1.0.0"
 PROMPT_HASH = "a" * 64
 SEEDED_STORY_COUNT = 2
+SCHEMA_NOT_READY_EXIT_CODE = 5
 PHASE_1_GROUPS = (
     "project",
     "workflow",
@@ -253,7 +254,7 @@ def _cli_payload(
     assert meta["command_version"] == "1"
     assert isinstance(meta["agileforge_version"], str)
     assert meta["agileforge_version"]
-    assert meta["storage_schema_version"] == "1"
+    assert meta["storage_schema_version"] == "2"
     assert isinstance(meta["correlation_id"], str)
     assert meta["correlation_id"]
     assert isinstance(meta["generated_at"], str)
@@ -391,7 +392,7 @@ def test_phase1_cli_preserves_schema_not_ready_error_envelope(
     rc = main(["project", "list"], application=app)
     payload = _payload_from_stdout(capsys)
 
-    assert rc == 5
+    assert rc == SCHEMA_NOT_READY_EXIT_CODE
     assert payload["ok"] is False
     assert payload["data"] is None
     meta = _mapping(payload["meta"])
@@ -399,7 +400,7 @@ def test_phase1_cli_preserves_schema_not_ready_error_envelope(
     assert meta["command"] == "agileforge project list"
     error = _mapping(_sequence(payload["errors"])[0])
     assert error["code"] == "SCHEMA_NOT_READY"
-    assert error["exit_code"] == 5
+    assert error["exit_code"] == SCHEMA_NOT_READY_EXIT_CODE
     assert error["retryable"] is True
     assert "products" in _mapping(_mapping(error["details"])["missing"])
     assert not db_path.exists()
