@@ -8,10 +8,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from google.adk import sessions as adk_sessions
-from google.adk.runners import Runner
-from google.genai import types
 
-from orchestrator_agent.agent import root_agent
 from orchestrator_agent.fsm.controller import FSMController
 from orchestrator_agent.fsm.states import OrchestratorState
 from repositories.product import ProductRepository
@@ -187,6 +184,11 @@ class WorkflowService:
 
         Kept for non-dashboard callers.
         """
+        from google.adk.runners import Runner  # noqa: PLC0415
+        from google.genai import types  # noqa: PLC0415
+
+        from orchestrator_agent.agent import root_agent  # noqa: PLC0415
+
         session_service = DatabaseSessionService(self.session_repo.db_url)
         runner = Runner(
             agent=root_agent,

@@ -9,7 +9,7 @@ import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, model_validator
@@ -35,13 +35,12 @@ from services.agent_workbench.mutation_ledger import (
     _db_datetime,
     _json_dump,
 )
-from services.specs.compiler_service import (
-    compile_spec_authority_for_version_with_engine,
-)
 from services.specs.pending_authority_service import (
     compile_pending_authority_for_project,
 )
-from services.workflow import WorkflowService
+
+if TYPE_CHECKING:
+    from services.workflow import WorkflowService
 
 PROJECT_CREATE_COMMAND = "agileforge project create"
 PROJECT_SETUP_RETRY_COMMAND = "agileforge project setup retry"
@@ -215,6 +214,22 @@ class SyncProjectSetupWorkflowAdapter:
         }
 
 
+def _default_workflow_port() -> ProjectSetupWorkflowPort:
+    """Construct the default workflow adapter only when runtime setup needs it."""
+    from services.workflow import WorkflowService  # noqa: PLC0415
+
+    return SyncProjectSetupWorkflowAdapter(WorkflowService())
+
+
+def compile_spec_authority_for_version_with_engine(**kwargs: Any) -> dict[str, Any]:
+    """Compile spec authority through the default service only when invoked."""
+    from services.specs.compiler_service import (  # noqa: PLC0415
+        compile_spec_authority_for_version_with_engine as compile_with_engine,
+    )
+
+    return compile_with_engine(**kwargs)
+
+
 class ProjectSetupMutationRunner:
     """Run idempotent project creation and setup recovery mutations."""
 
@@ -226,7 +241,7 @@ class ProjectSetupMutationRunner:
     ) -> None:
         self._engine = engine
         self._ledger = MutationLedgerRepository(engine=engine)
-        self._workflow = workflow or SyncProjectSetupWorkflowAdapter(WorkflowService())
+        self._workflow = workflow or _default_workflow_port()
         self._lease_seconds = DEFAULT_LEASE_SECONDS
 
     def create_project(self, request: ProjectCreateRequest) -> dict[str, Any]:
